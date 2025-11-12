@@ -4,220 +4,265 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lidarr Downloader</title>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+    
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎵</text></svg>">
+    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-gradient: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            --card-bg: rgba(255, 255, 255, 0.6);
-            --text-main: #1a1a1a;
-            --text-sub: #555;
+            --bg: #ffffff;
+            --surface: #f3f4f6;
+            --border: #e5e7eb;
+            --text: #111827;
+            --text-dim: #6b7280;
             --accent: #3b82f6;
             --accent-hover: #2563eb;
-            --border: rgba(255, 255, 255, 0.4);
-            --shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
-            --bar-bg: #e0e0e0;
+            --success: #10b981;
+            --error: #ef4444;
+            --card-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
 
         [data-theme="dark"] {
-            --bg-gradient: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
-            --card-bg: rgba(20, 20, 20, 0.65);
-            --text-main: #ffffff;
-            --text-sub: #a0a0a0;
-            --accent: #8b5cf6;
-            --accent-hover: #7c3aed;
-            --border: rgba(255, 255, 255, 0.1);
-            --shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-            --bar-bg: #333;
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --border: #334155;
+            --text: #f8fafc;
+            --text-dim: #94a3b8;
+            --accent: #6366f1;
+            --accent-hover: #4f46e5;
+            --card-shadow: 0 4px 6px rgba(0,0,0,0.2);
         }
 
         body {
-            background: var(--bg-gradient);
-            background-attachment: fixed;
-            color: var(--text-main);
-            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
             margin: 0;
-            padding: 20px;
+            display: flex;
+            flex-direction: column;
             min-height: 100vh;
-            transition: color 0.3s;
+            transition: background-color 0.3s, color 0.3s;
         }
 
+        /* Header */
         header {
+            background-color: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 15px 30px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            max-width: 1400px;
-            margin: 0 auto 40px auto;
-            padding: 0 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            box-shadow: var(--card-shadow);
         }
 
-        h1 { font-weight: 800; letter-spacing: -1px; margin: 0; font-size: 2rem; }
-        h1 span { color: var(--accent); }
-
-        .theme-switch {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            padding: 10px 20px;
-            border-radius: 50px;
-            cursor: pointer;
-            backdrop-filter: blur(4px);
-            box-shadow: var(--shadow);
-            color: var(--text-main);
-            font-weight: 600;
+        .logo-area { display: flex; align-items: center; gap: 12px; }
+        .logo-icon { font-size: 2rem; }
+        .logo-text {
+            font-weight: 800; font-size: 1.4rem; letter-spacing: -0.5px;
+            background: linear-gradient(135deg, var(--accent), #a855f7);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         }
 
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 30px;
-            max-width: 1400px;
-            margin: 0 auto;
+        /* Controls */
+        .controls { display: flex; gap: 15px; align-items: center; }
+        
+        .search-box { position: relative; }
+        .search-input {
+            background: var(--bg); border: 1px solid var(--border); color: var(--text);
+            padding: 10px 15px 10px 35px; border-radius: 8px; width: 250px;
+            font-size: 0.9rem; outline: none;
         }
+        .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: 0.5; }
 
-        .card {
-            background: var(--card-bg);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            padding: 20px;
-            box-shadow: var(--shadow);
-            transition: transform 0.3s, box-shadow 0.3s;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 15px 40px rgba(0,0,0,0.2);
-        }
-
-        .cover-img {
-            width: 100%;
-            aspect-ratio: 1/1;
-            border-radius: 12px;
-            object-fit: cover;
-            margin-bottom: 15px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        }
-
-        .info { flex-grow: 1; margin-bottom: 20px; }
-        .title { font-weight: 700; font-size: 1.1rem; margin-bottom: 5px; line-height: 1.3;}
-        .artist { color: var(--text-sub); font-size: 0.9rem; font-weight: 600; }
-        .year { font-size: 0.8rem; opacity: 0.7; margin-top: 5px; }
-
-        .btn-download {
-            background-color: var(--accent);
-            color: white;
-            border: none;
-            padding: 14px;
-            border-radius: 12px;
-            font-weight: 700;
-            cursor: pointer;
-            width: 100%;
+        .theme-toggle {
+            background: none; border: 1px solid var(--border); color: var(--text);
+            padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 1.2rem;
             transition: 0.2s;
-            font-size: 0.95rem;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        .theme-toggle:hover { background: var(--border); }
+
+        /* Main Content */
+        main {
+            flex: 1; max-width: 1200px; margin: 30px auto; padding: 0 20px; width: 100%; box-sizing: border-box;
+        }
+
+        /* Artist Group Card */
+        .artist-group {
+            margin-bottom: 30px; background: var(--surface); border-radius: 12px;
+            border: 1px solid var(--border); overflow: hidden; box-shadow: var(--card-shadow);
+        }
+
+        .artist-header {
+            background: rgba(0,0,0,0.05); padding: 12px 20px; border-bottom: 1px solid var(--border);
+            font-weight: 700; font-size: 1.1rem; color: var(--accent); display: flex; align-items: center; gap: 10px;
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+        td { padding: 14px 20px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background-color: rgba(255,255,255,0.03); }
+
+        .album-title { font-weight: 600; font-size: 1rem; }
+        .album-year {
+            color: var(--text-dim); font-size: 0.85rem; font-family: monospace;
+            background: var(--bg); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border);
+        }
+
+        /* Buttons & Status */
+        .btn-download {
+            background-color: var(--accent); color: white; border: none; padding: 8px 16px;
+            border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 0.85rem;
+            transition: transform 0.1s, background 0.2s;
         }
         .btn-download:hover { background-color: var(--accent-hover); transform: scale(1.02); }
-        .btn-download:disabled { background-color: var(--bar-bg); cursor: not-allowed; color: var(--text-sub); transform: none; box-shadow: none;}
+        
+        .status-box { display: none; width: 100%; max-width: 180px; }
+        .status-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+        .status-fill { height: 100%; background: var(--accent); width: 0%; transition: width 0.5s; }
+        .status-text { font-size: 0.75rem; color: var(--text-dim); margin-top: 2px;}
 
-        .progress-container {
-            display: none; 
-            margin-top: 10px;
-        }
+        .status-done { color: var(--success); font-weight: 600; display: none; font-size: 0.9rem;}
+        .status-err { color: var(--error); font-weight: 600; display: none; font-size: 0.9rem;}
 
-        .progress-labels {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.8rem;
-            margin-bottom: 5px;
-            font-weight: 600;
-        }
-
-        .progress-track {
-            background-color: var(--bar-bg);
-            height: 8px;
-            border-radius: 4px;
-            overflow: hidden;
-        }
-
-        .progress-fill {
-            background-color: var(--accent);
-            height: 100%;
-            width: 0%;
-            transition: width 0.5s ease;
+        footer {
+            text-align: center; padding: 20px; color: var(--text-dim); font-size: 0.85rem;
+            border-top: 1px solid var(--border); margin-top: auto;
         }
         
-        .status-text { font-size: 0.75rem; margin-top: 5px; color: var(--text-sub); text-align: center; }
-
-        .badge-done {
-            display: none;
-            background-color: #10b981;
-            color: white;
-            padding: 10px;
-            border-radius: 10px;
-            text-align: center;
-            font-weight: bold;
-            margin-top: 10px;
-        }
+        .hidden { display: none !important; }
     </style>
 </head>
 <body>
 
     <header>
-        <h1>Lidarr <span>Downloader</span></h1>
-        <button class="theme-switch" onclick="toggleTheme()">Dark/Light Mode</button>
+        <div class="logo-area">
+            <div class="logo-icon">🎵</div>
+            <div class="logo-text">Lidarr Downloader</div>
+        </div>
+        
+        <div class="controls">
+            <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="searchInput" class="search-input" placeholder="Filter artist or album..." onkeyup="filterList()">
+            </div>
+            <button class="theme-toggle" onclick="toggleTheme()" title="Switch Theme">◑</button>
+        </div>
     </header>
 
-    <div class="grid">
-        {% for album in albums %}
-        <div class="card" id="card-{{ album.id }}">
-            <img src="/cover_proxy/{{ album.id }}" class="cover-img" loading="lazy" onerror="this.src='https://via.placeholder.com/300?text=No+Cover'">
-            
-            <div class="info">
-                <div class="title">{{ album.title }}</div>
-                <div class="artist">{{ album.artist }}</div>
-                <div class="year">{{ album.year }}</div>
+    <main>
+        {% if albums|length == 0 %}
+        <div style="text-align: center; padding: 50px; color: var(--text-dim);">
+            <h2>🎉 All caught up!</h2>
+            <p>No missing albums found in Lidarr.</p>
+        </div>
+        {% endif %}
+
+        {% for artist, items in albums|groupby('artist') %}
+        <div class="artist-group" data-artist="{{ artist|lower }}">
+            <div class="artist-header">
+                👤 {{ artist }}
             </div>
+            <table>
+                <tbody>
+                    {% for album in items %}
+                    <tr class="album-row" data-search="{{ artist|lower }} {{ album.title|lower }}">
+                        <td style="width: 60%;">
+                            <div class="album-title">{{ album.title }}</div>
+                        </td>
+                        <td style="width: 10%;">
+                            <span class="album-year">{{ album.year }}</span>
+                        </td>
+                        <td style="width: 30%; text-align: right;">
+                            
+                            <button class="btn-download" id="btn-{{ album.id }}" 
+                                    onclick="startDownload({{ album.id }}, '{{ album.title|replace("'", "\\'") }}', '{{ album.artist|replace("'", "\\'") }}', {{ album.artistId }}, '{{ album.mbId }}')">
+                                ⬇ Download
+                            </button>
 
-            <button class="btn-download" onclick="startDownload({{ album.id }}, '{{ album.title|replace("'", "\\'") }}', '{{ album.artist|replace("'", "\\'") }}')">
-                Download MP3
-            </button>
+                            <div class="status-box" id="status-{{ album.id }}">
+                                <div class="status-text" id="txt-{{ album.id }}">Starting...</div>
+                                <div class="status-bar"><div class="status-fill" id="fill-{{ album.id }}"></div></div>
+                            </div>
 
-            <div class="progress-container" id="prog-box-{{ album.id }}">
-                <div class="progress-labels">
-                    <span id="count-{{ album.id }}">0/0</span>
-                    <span id="perc-{{ album.id }}">0%</span>
-                </div>
-                <div class="progress-track">
-                    <div class="progress-fill" id="fill-{{ album.id }}"></div>
-                </div>
-                <div class="status-text">Downloading from YouTube...</div>
-            </div>
-
-            <div class="badge-done" id="done-{{ album.id }}">Completed</div>
+                            <div class="status-done" id="done-{{ album.id }}">✔ Imported</div>
+                            <div class="status-err" id="err-{{ album.id }}">⚠ Error</div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
         {% endfor %}
-    </div>
+    </main>
+
+    <footer>
+        Made with love ❤️ for the community
+    </footer>
 
     <script>
+        // Theme Manager
+        function initTheme() {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', savedTheme);
+        }
+        initTheme();
+
         function toggleTheme() {
             const html = document.documentElement;
             const current = html.getAttribute('data-theme');
-            html.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+            const next = current === 'dark' ? 'light' : 'dark';
+            html.setAttribute('data-theme', next);
+            localStorage.setItem('theme', next);
         }
 
-        function startDownload(id, title, artist) {
-            const btn = document.querySelector(`#card-${id} .btn-download`);
-            const progBox = document.getElementById(`prog-box-${id}`);
+        // Search Filter
+        function filterList() {
+            const input = document.getElementById('searchInput').value.toLowerCase();
+            const groups = document.querySelectorAll('.artist-group');
+
+            groups.forEach(group => {
+                const rows = group.querySelectorAll('.album-row');
+                let visibleRows = 0;
+
+                rows.forEach(row => {
+                    const text = row.getAttribute('data-search');
+                    if (text.includes(input)) {
+                        row.classList.remove('hidden');
+                        visibleRows++;
+                    } else {
+                        row.classList.add('hidden');
+                    }
+                });
+
+                if (visibleRows === 0) {
+                    group.classList.add('hidden');
+                } else {
+                    group.classList.remove('hidden');
+                }
+            });
+        }
+
+        // Download Logic
+        function startDownload(id, title, artist, artistId, mbId) {
+            const btn = document.getElementById(`btn-${id}`);
+            const statusBox = document.getElementById(`status-${id}`);
             
             btn.style.display = 'none';
-            progBox.style.display = 'block';
+            statusBox.style.display = 'block';
 
             fetch('/start_download', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id: id, title: title, artist: artist })
+                body: JSON.stringify({ 
+                    id: id, 
+                    title: title, 
+                    artist: artist, 
+                    artistId: artistId,
+                    mbId: mbId 
+                })
             })
             .then(res => res.json())
             .then(data => {
@@ -230,18 +275,21 @@
                 fetch(`/status/${id}`)
                 .then(res => res.json())
                 .then(data => {
-                    document.getElementById(`fill-${id}`).style.width = data.percent + '%';
-                    document.getElementById(`perc-${id}`).innerText = data.percent + '%';
-                    document.getElementById(`count-${id}`).innerText = `${data.current} / ${data.total}`;
+                    const fill = document.getElementById(`fill-${id}`);
+                    const txt = document.getElementById(`txt-${id}`);
+
+                    fill.style.width = data.percent + '%';
+                    txt.innerText = `${data.percent}% (${data.current}/${data.total})`;
 
                     if (data.state === 'completed') {
                         clearInterval(interval);
-                        document.getElementById(`prog-box-${id}`).style.display = 'none';
+                        document.getElementById(`status-${id}`).style.display = 'none';
                         document.getElementById(`done-${id}`).style.display = 'block';
                     }
                     if (data.state === 'error') {
                         clearInterval(interval);
-                        alert("Error downloading album ID " + id);
+                        document.getElementById(`status-${id}`).style.display = 'none';
+                        document.getElementById(`err-${id}`).style.display = 'block';
                     }
                 });
             }, 1000);
