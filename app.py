@@ -157,16 +157,15 @@ def update_progress(d):
 
 def tag_mp3(file_path, track_info, album_info, cover_data):
     try:
-        audio = MP3(file_path, ID3=ID3)
         try:
-            audio.delete()
-        except:
-            pass
-        audio.save()
-        
-        audio = MP3(file_path, ID3=ID3)
-        audio.add_tags()
-        
+            audio = MP3(file_path, ID3=ID3)
+        except Exception:
+            audio = MP3(file_path)
+            audio.add_tags()
+            
+        if audio.tags is None:
+            audio.add_tags()
+            
         audio.tags.add(TIT2(encoding=3, text=track_info['title']))
         audio.tags.add(TPE1(encoding=3, text=album_info['artist']['artistName']))
         audio.tags.add(TPE2(encoding=3, text=album_info['artist']['artistName']))
@@ -193,7 +192,7 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
         if cover_data:
             audio.tags.add(APIC(encoding=3, mime='image/jpeg', type=3, desc='Cover', data=cover_data))
         
-        audio.save(v2_version=4)
+        audio.save(v2_version=3)
         return True
     except Exception as e:
         print(f"DEBUG: Tagging error: {e}")
@@ -282,6 +281,7 @@ def process_album_download(album_id):
                 actual_file = temp_file + '.mp3'
                 
                 if os.path.exists(actual_file):
+                    time.sleep(1)
                     tag_mp3(actual_file, track, album, cover_data)
                     shutil.move(actual_file, final_file)
                     print(f"DEBUG: Downloaded: {final_file}")
