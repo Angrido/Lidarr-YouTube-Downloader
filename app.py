@@ -304,7 +304,10 @@ def process_album_download(album_id):
                 return {'stopped': True}
             
             track_title = track['title']
-            track_num = track.get('trackNumber', idx)
+            try:
+                track_num = int(track.get('trackNumber', idx))
+            except (ValueError, TypeError):
+                track_num = idx
             
             print(f"DEBUG: Downloading track {idx}/{len(tracks_to_download)}: {track_title}")
             
