@@ -3,264 +3,140 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Scheduler - Lidarr YT</title>
+    <title>Scheduler - Lidarr YouTube Downloader</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/1384/1384060.png">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --bg: #0f0f0f;
-            --card-bg: #1a1a1a;
-            --text: #e0e0e0;
-            --text-dim: #a0a0a0;
-            --primary: #1db954;
-            --primary-hover: #1ed760;
-            --border: #2a2a2a;
+            --bg: #09090b; --surface: #18181b; --text: #fafafa; --text-dim: #a1a1aa; --primary: #10b981; --border: #27272a; --radius: 12px;
         }
-        body.light {
-            --bg: #f5f5f5;
-            --card-bg: #ffffff;
-            --text: #1a1a1a;
-            --text-dim: #666666;
-            --border: #e0e0e0;
-        }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.6;
-        }
+        body.light { --bg: #f4f4f5; --surface: #ffffff; --text: #18181b; --text-dim: #71717a; --border: #e4e4e7; }
+        body { margin:0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+        
         header {
-            background: var(--card-bg);
-            padding: 1rem 2rem;
-            border-bottom: 1px solid var(--border);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            background: rgba(24, 24, 27, 0.8); backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 50; padding: 1rem 0;
         }
-        h1 { font-size: 1.5rem; font-weight: 600; }
-        nav { display: flex; gap: 1rem; align-items: center; }
-        nav a {
-            color: var(--text);
-            text-decoration: none;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            transition: background 0.2s;
+        body.light header { background: rgba(255, 255, 255, 0.8); }
+        
+        .nav-container {
+            max-width: 1400px; margin: 0 auto; padding: 0 2rem; display: flex; justify-content: space-between; align-items: center;
         }
-        nav a:hover { background: var(--border); }
-        .toggle {
-            width: 50px;
-            height: 26px;
-            background: var(--border);
-            border-radius: 13px;
-            position: relative;
-            cursor: pointer;
-            transition: background 0.3s;
-        }
-        .toggle.active { background: var(--primary); }
-        .toggle::after {
-            content: '';
-            position: absolute;
-            width: 20px;
-            height: 20px;
-            background: white;
-            border-radius: 50%;
-            top: 3px;
-            left: 3px;
-            transition: left 0.3s;
-        }
-        .toggle.active::after { left: 27px; }
-        .container {
-            max-width: 900px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-        .panel {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 2rem;
-            margin-bottom: 2rem;
-        }
-        h2 {
-            margin-bottom: 1rem;
-            font-size: 1.3rem;
-        }
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-        label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-weight: 500;
-        }
-        input, select {
-            width: 100%;
-            padding: 0.75rem;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text);
-            font-size: 0.95rem;
-        }
-        button {
-            padding: 0.75rem 1.5rem;
-            background: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.95rem;
-            font-weight: 500;
-            transition: background 0.2s;
-        }
-        button:hover { background: var(--primary-hover); }
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 0.5rem;
-        }
-        .status-active { background: var(--primary); }
-        .status-inactive { background: var(--border); }
-        .info-text {
-            color: var(--text-dim);
-            font-size: 0.9rem;
-            margin-top: 0.5rem;
-        }
+        .logo { font-weight: 800; font-size: 1.2rem; display: flex; align-items: center; gap: 0.75rem; }
+        .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+        .nav-links a { color: var(--text); text-decoration: none; font-weight: 500; transition: color 0.2s; }
+        .nav-links a:hover { color: var(--primary); }
+        .controls { display: flex; gap: 1rem; align-items: center; }
+        .icon-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
+        
+        .container { max-width: 800px; margin: 0 auto; padding: 2rem; width: 100%; flex: 1; }
+        .card { background: var(--surface); padding: 2rem; border-radius: 12px; border: 1px solid var(--border); margin-bottom: 1rem; }
+        .input-group { margin-bottom: 1.5rem; }
+        label { display: block; margin-bottom: 0.5rem; font-weight: 500; }
+        input { width: 100%; padding: 0.8rem; background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; outline: none; }
+        input:focus { border-color: var(--primary); }
+        .btn { background: var(--primary); color: white; border: none; padding: 0.8rem 1.5rem; border-radius: 8px; cursor: pointer; width: 100%; font-size: 1rem; font-weight: 600; }
+        
+        footer { text-align: center; padding: 2rem; color: var(--text-dim); font-size: 0.9rem; border-top: 1px solid var(--border); margin-top: auto; }
+
         @media (max-width: 768px) {
-            header {
-                flex-direction: column;
-                gap: 1rem;
-            }
+            .nav-container { flex-direction: column; gap: 1rem; padding: 1rem; text-align: center; }
+            .nav-links { width: 100%; justify-content: center; }
+            .container { padding: 1rem; }
         }
     </style>
 </head>
 <body>
     <header>
-        <h1>⏰ Scheduler</h1>
-        <nav>
-            <a href="/">Dashboard</a>
-            <a href="/metadata">Metadata</a>
-            <a href="/scheduler">Scheduler</a>
-            <div class="toggle" id="themeToggle"></div>
-        </nav>
-    </header>
-
-    <div class="container">
-        <div class="panel">
-            <h2>Automatic Checks</h2>
-            <div class="form-group">
-                <label>
-                    <span class="status-indicator" id="schedulerStatus"></span>
-                    Scheduler Status: <span id="statusText">Loading...</span>
-                </label>
-                <button onclick="toggleScheduler()">Toggle Scheduler</button>
+        <div class="nav-container">
+            <div class="logo">🎵 Lidarr YouTube Downloader</div>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/scheduler">Scheduler</a>
             </div>
-            <div class="form-group">
-                <label>Check Interval (minutes)</label>
-                <input type="number" id="interval" min="1" value="60">
-                <p class="info-text">How often to check for missing albums</p>
+            <div class="controls">
+                <button class="icon-btn" onclick="toggleTheme()"><i class="fa-solid fa-moon" id="themeIcon"></i></button>
             </div>
-            <button onclick="saveInterval()">Save Interval</button>
         </div>
-
-        <div class="panel">
-            <h2>Telegram Notifications</h2>
-            <div class="form-group">
-                <label>Enable Telegram</label>
-                <select id="telegramEnabled">
-                    <option value="false">Disabled</option>
-                    <option value="true">Enabled</option>
-                </select>
+    </header>
+    <div class="container">
+        <div class="card">
+            <h2 style="margin-bottom: 1.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fa-regular fa-clock"></i> Automation Settings
+            </h2>
+            <div class="input-group">
+                <label>Scheduler Status</label>
+                <button class="btn" id="toggleBtn" onclick="toggleScheduler()" style="background:#444">Loading...</button>
             </div>
-            <div class="form-group">
-                <label>Bot Token</label>
-                <input type="text" id="botToken" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
-                <p class="info-text">Get from @BotFather on Telegram</p>
+            <div class="input-group">
+                <label>Check Interval (Minutes)</label>
+                <input type="number" id="interval" value="60">
             </div>
-            <div class="form-group">
-                <label>Chat ID</label>
-                <input type="text" id="chatId" placeholder="123456789">
-                <p class="info-text">Your Telegram chat ID</p>
+            <div class="input-group">
+                <label>Telegram Bot Token</label>
+                <input type="text" id="botToken" placeholder="123456:ABC-DEF...">
             </div>
-            <button onclick="saveTelegram()">Save Telegram Config</button>
+            <div class="input-group">
+                <label>Telegram Chat ID</label>
+                <input type="text" id="chatId" placeholder="12345678">
+            </div>
+            <button class="btn" onclick="saveConfig()">Save Configuration</button>
         </div>
     </div>
 
-    <script>
-        const themeToggle = document.getElementById('themeToggle');
-        const savedTheme = localStorage.getItem('theme') || 'dark';
-        if (savedTheme === 'light') {
-            document.body.classList.add('light');
-            themeToggle.classList.add('active');
-        }
+    <footer>Made with love ❤️</footer>
 
-        themeToggle.addEventListener('click', () => {
-            document.body.classList.toggle('light');
-            themeToggle.classList.toggle('active');
-            localStorage.setItem('theme', document.body.classList.contains('light') ? 'light' : 'dark');
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const saved = localStorage.getItem('theme') || 'dark';
+            if(saved === 'light') {
+                document.body.classList.add('light');
+                document.getElementById('themeIcon').className = 'fa-solid fa-sun';
+            }
+            loadConfig();
         });
 
-        let config = {};
+        function toggleTheme() {
+            document.body.classList.toggle('light');
+            const isLight = document.body.classList.contains('light');
+            localStorage.setItem('theme', isLight ? 'light' : 'dark');
+            document.getElementById('themeIcon').className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+        }
 
         async function loadConfig() {
             const res = await fetch('/api/config');
-            config = await res.json();
-            
-            updateStatus();
-            document.getElementById('interval').value = config.scheduler_interval || 60;
-            document.getElementById('telegramEnabled').value = config.telegram_enabled || false;
-            document.getElementById('botToken').value = config.telegram_bot_token || '';
-            document.getElementById('chatId').value = config.telegram_chat_id || '';
+            const conf = await res.json();
+            document.getElementById('interval').value = conf.scheduler_interval;
+            document.getElementById('botToken').value = conf.telegram_bot_token;
+            document.getElementById('chatId').value = conf.telegram_chat_id;
+            updateBtn(conf.scheduler_enabled);
         }
-
-        function updateStatus() {
-            const indicator = document.getElementById('schedulerStatus');
-            const text = document.getElementById('statusText');
-            
-            if (config.scheduler_enabled) {
-                indicator.className = 'status-indicator status-active';
-                text.textContent = 'Active';
-            } else {
-                indicator.className = 'status-indicator status-inactive';
-                text.textContent = 'Inactive';
-            }
+        
+        function updateBtn(enabled) {
+            const btn = document.getElementById('toggleBtn');
+            btn.innerText = enabled ? 'Scheduler Active (Click to Disable)' : 'Enable Scheduler';
+            btn.style.background = enabled ? 'var(--primary)' : '#3f3f46';
         }
 
         async function toggleScheduler() {
             const res = await fetch('/api/scheduler/toggle', { method: 'POST' });
             const data = await res.json();
-            config.scheduler_enabled = data.enabled;
-            updateStatus();
+            updateBtn(data.enabled);
         }
 
-        async function saveInterval() {
-            config.scheduler_interval = parseInt(document.getElementById('interval').value);
+        async function saveConfig() {
             await fetch('/api/config', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(config)
+                body: JSON.stringify({
+                    scheduler_interval: document.getElementById('interval').value,
+                    telegram_bot_token: document.getElementById('botToken').value,
+                    telegram_chat_id: document.getElementById('chatId').value,
+                    telegram_enabled: !!document.getElementById('botToken').value
+                })
             });
-            alert('Interval saved!');
+            alert('Configuration Saved!');
         }
-
-        async function saveTelegram() {
-            config.telegram_enabled = document.getElementById('telegramEnabled').value === 'true';
-            config.telegram_bot_token = document.getElementById('botToken').value;
-            config.telegram_chat_id = document.getElementById('chatId').value;
-            
-            await fetch('/api/config', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(config)
-            });
-            alert('Telegram configuration saved!');
-        }
-
-        loadConfig();
     </script>
 </body>
 </html>
