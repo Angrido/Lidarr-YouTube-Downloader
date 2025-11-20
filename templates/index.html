@@ -4,446 +4,247 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Lidarr YouTube Downloader</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/1384/1384060.png">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
-            --bg: #0f0f0f;
-            --card-bg: #1a1a1a;
-            --text: #e0e0e0;
-            --text-dim: #a0a0a0;
-            --primary: #1db954;
-            --primary-hover: #1ed760;
-            --danger: #e22134;
-            --border: #2a2a2a;
+            --bg: #09090b; --surface: #18181b; --surface-hover: #27272a; --text: #fafafa; --text-dim: #a1a1aa;
+            --primary: #10b981; --primary-hover: #059669; --danger: #ef4444; --border: #27272a; --radius: 12px;
         }
         body.light {
-            --bg: #f5f5f5;
-            --card-bg: #ffffff;
-            --text: #1a1a1a;
-            --text-dim: #666666;
-            --border: #e0e0e0;
+            --bg: #f4f4f5; --surface: #ffffff; --surface-hover: #f4f4f5; --text: #18181b; --text-dim: #71717a; --border: #e4e4e7;
         }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.6;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; transition: background 0.2s, border-color 0.2s; }
+        body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
+        
         header {
-            background: var(--card-bg);
-            padding: 1rem 2rem;
-            border-bottom: 1px solid var(--border);
-            position: sticky;
-            top: 0;
-            z-index: 100;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            background: rgba(24, 24, 27, 0.8); backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 50; padding: 1rem 0;
         }
-        h1 { font-size: 1.5rem; font-weight: 600; }
-        nav { display: flex; gap: 1rem; align-items: center; }
-        nav a {
+        body.light header { background: rgba(255, 255, 255, 0.8); }
+        
+        .nav-container {
+            max-width: 1400px; margin: 0 auto; padding: 0 2rem; display: flex; justify-content: space-between; align-items: center;
+        }
+        .logo { font-weight: 800; font-size: 1.2rem; display: flex; align-items: center; gap: 0.75rem; }
+        .nav-links { display: flex; gap: 1.5rem; align-items: center; }
+        .nav-links a { color: var(--text); text-decoration: none; font-weight: 500; transition: color 0.2s; }
+        .nav-links a:hover { color: var(--primary); }
+        .controls { display: flex; gap: 1rem; align-items: center; }
+        .icon-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
+        .icon-btn:hover { background: var(--surface-hover); border-color: var(--primary); }
+        
+        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; flex: 1; width: 100%; }
+        .config-panel { background: var(--surface); padding: 1.5rem; border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 2rem; }
+        
+        /* Filters & Search */
+        .controls-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem; }
+        .filter-group { display: flex; gap: 0.5rem; flex: 1; flex-wrap: wrap; min-width: 300px; }
+        .search-box { position: relative; flex: 1; }
+        .search-box input { width: 100%; padding: 0.75rem 1rem; border-radius: 30px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
+        
+        select.filter-select {
+            padding: 0.75rem 2rem 0.75rem 1rem;
+            border-radius: 30px;
+            border: 1px solid var(--border);
+            background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a1a1aa' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3E%3C/svg%3E") no-repeat right 1rem center;
             color: var(--text);
-            text-decoration: none;
-            padding: 0.5rem 1rem;
-            border-radius: 6px;
-            transition: background 0.2s;
-        }
-        nav a:hover { background: var(--border); }
-        .toggle {
-            width: 50px;
-            height: 26px;
-            background: var(--border);
-            border-radius: 13px;
-            position: relative;
+            appearance: none;
             cursor: pointer;
-            transition: background 0.3s;
+            outline: none;
         }
-        .toggle.active { background: var(--primary); }
-        .toggle::after {
-            content: '';
-            position: absolute;
-            width: 20px;
-            height: 20px;
-            background: white;
-            border-radius: 50%;
-            top: 3px;
-            left: 3px;
-            transition: left 0.3s;
-        }
-        .toggle.active::after { left: 27px; }
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
-        .config-panel {
-            background: var(--card-bg);
-            padding: 1.5rem;
-            border-radius: 8px;
-            margin-bottom: 2rem;
-            border: 1px solid var(--border);
-        }
-        .config-row {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 1rem;
-            margin-bottom: 1rem;
-        }
-        input {
-            width: 100%;
-            padding: 0.75rem;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text);
-            font-size: 0.95rem;
-        }
-        button {
-            padding: 0.75rem 1.5rem;
-            background: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.95rem;
-            font-weight: 500;
-            transition: background 0.2s;
-        }
-        button:hover { background: var(--primary-hover); }
-        button:disabled {
-            background: var(--border);
-            cursor: not-allowed;
-        }
-        .btn-danger {
-            background: var(--danger);
-        }
-        .btn-danger:hover {
-            background: #c91d2e;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 1.5rem;
-        }
-        .card {
-            background: var(--card-bg);
-            border-radius: 8px;
-            overflow: hidden;
-            border: 1px solid var(--border);
-            transition: transform 0.2s;
-        }
+        select.filter-select:focus { border-color: var(--primary); }
+
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; }
+        .card { background: var(--surface); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); position: relative; display: flex; flex-direction: column; }
         .card:hover { transform: translateY(-4px); }
-        .card-img {
-            width: 100%;
-            height: 280px;
-            object-fit: cover;
-            background: var(--border);
-        }
-        .card-body {
-            padding: 1rem;
-        }
-        .card-title {
-            font-size: 1.1rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-        }
-        .card-text {
-            color: var(--text-dim);
-            font-size: 0.9rem;
-            margin-bottom: 0.5rem;
-        }
-        .card-actions {
-            display: flex;
-            gap: 0.5rem;
-            margin-top: 1rem;
-        }
-        .card-actions button {
-            flex: 1;
-            padding: 0.5rem;
-            font-size: 0.85rem;
-        }
-        .progress {
-            background: var(--border);
-            height: 6px;
-            border-radius: 3px;
-            overflow: hidden;
-            margin-top: 0.5rem;
-        }
-        .progress-bar {
-            height: 100%;
-            background: var(--primary);
-            transition: width 0.3s;
-        }
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0,0,0,0.8);
-            z-index: 200;
-            align-items: center;
-            justify-content: center;
-            padding: 1rem;
-        }
-        .modal.active { display: flex; }
-        .modal-content {
-            background: var(--card-bg);
-            border-radius: 8px;
-            max-width: 600px;
-            width: 100%;
-            max-height: 80vh;
-            overflow-y: auto;
-            padding: 2rem;
-        }
-        .track-list {
-            margin-top: 1rem;
-        }
-        .track-item {
-            padding: 0.75rem;
-            background: var(--bg);
-            margin-bottom: 0.5rem;
-            border-radius: 6px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .track-item.missing {
-            border-left: 3px solid var(--danger);
-        }
-        .audio-player {
-            width: 100%;
-            margin-top: 0.5rem;
-        }
-        .status-badge {
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            border-radius: 12px;
-            font-size: 0.8rem;
-            font-weight: 500;
-            margin-left: 0.5rem;
-        }
-        .status-downloading {
-            background: #ff9800;
-            color: white;
-        }
-        .status-complete {
-            background: var(--primary);
-            color: white;
-        }
+        .card-img-container { position: relative; padding-top: 100%; background: #222; }
+        .card-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        .card-content { padding: 1.25rem; flex: 1; display: flex; flex-direction: column; }
+        .card-title { font-weight: 700; font-size: 1.1rem; margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .card-artist { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 1rem; }
+        .card-actions { margin-top: auto; display: flex; gap: 0.75rem; }
+        .btn { flex: 1; padding: 0.6rem; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; font-size: 0.9rem; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+        .download-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.9); display: none; flex-direction: column; justify-content: center; align-items: center; padding: 2rem; z-index: 10; }
+        .download-overlay.active { display: flex; }
+        
+        footer { text-align: center; padding: 2rem; color: var(--text-dim); font-size: 0.9rem; border-top: 1px solid var(--border); margin-top: auto; }
+
         @media (max-width: 768px) {
-            header {
-                flex-direction: column;
-                gap: 1rem;
-            }
-            .grid {
-                grid-template-columns: 1fr;
-            }
+            .nav-container { flex-direction: column; gap: 1rem; padding: 1rem; text-align: center; }
+            .nav-links { width: 100%; justify-content: center; }
+            .controls { width: 100%; justify-content: center; }
+            .filter-group { width: 100%; flex-direction: column; }
+            .search-box, .filter-select { width: 100%; }
+            .grid { grid-template-columns: 1fr; }
+            .card { max-width: 400px; margin: 0 auto; width: 100%; }
+            .container { padding: 1rem; }
+            .config-panel { text-align: center; }
+            .controls-row { justify-content: center; flex-direction: column; gap: 1rem; }
+            button.btn { width: 100%; }
         }
     </style>
 </head>
 <body>
     <header>
-        <h1>🎵 Lidarr YouTube Downloader</h1>
-        <nav>
-            <a href="/">Dashboard</a>
-            <a href="/metadata">Metadata</a>
-            <a href="/scheduler">Scheduler</a>
-            <div class="toggle" id="themeToggle"></div>
-        </nav>
+        <div class="nav-container">
+            <div class="logo">🎵 Lidarr YouTube Downloader</div>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/scheduler">Scheduler</a>
+            </div>
+            <div class="controls">
+                <button class="icon-btn" onclick="toggleTheme()"><i class="fa-solid fa-moon" id="themeIcon"></i></button>
+            </div>
+        </div>
     </header>
 
     <div class="container">
         <div class="config-panel">
-            <h2 style="margin-bottom: 1rem;">Connection Status</h2>
-            <button onclick="testConnection()">Test Lidarr Connection</button>
-            <button onclick="loadAlbums()" style="margin-left: 0.5rem;">Refresh Albums</button>
-            <div id="connectionStatus" style="margin-top: 1rem; padding: 1rem; border-radius: 6px; display: none;"></div>
-        </div>
-
-        <div id="downloadStatus" style="display: none; background: var(--card-bg); padding: 1rem; border-radius: 8px; margin-bottom: 2rem;">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>Downloading...</span>
-                <button class="btn-danger" onclick="stopDownload()">Stop</button>
+            <div class="controls-row">
+                <h2 style="margin:0; width: 100%; text-align: center; margin-bottom: 1rem;">Library</h2>
+                <div class="filter-group">
+                    <div class="search-box"><input type="text" id="artistSearch" placeholder="Search artists or albums..."></div>
+                    <select id="sortFilter" class="filter-select">
+                        <option value="newest">📅 Newest First</option>
+                        <option value="missing">📉 Most Missing Tracks</option>
+                        <option value="alpha">🔤 Alphabetical (A-Z)</option>
+                    </select>
+                </div>
             </div>
-            <div class="progress" style="margin-top: 0.5rem;">
-                <div class="progress-bar" id="downloadProgress"></div>
+            <div class="controls-row">
+                <button class="btn btn-secondary" onclick="testConnection()">Check Connection</button>
+                <button class="btn btn-primary" onclick="loadAlbums()">Refresh Library</button>
             </div>
-            <div id="downloadInfo" style="margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-dim);"></div>
+            <div id="connectionStatus" style="margin-top:1rem; display:none"></div>
         </div>
-
         <div class="grid" id="albumGrid"></div>
     </div>
 
-    <div class="modal" id="trackModal">
-        <div class="modal-content">
-            <h2 id="modalTitle">Album Tracks</h2>
-            <div id="trackList" class="track-list"></div>
-            <div style="margin-top: 1.5rem; display: flex; gap: 0.5rem;">
-                <button onclick="downloadAlbum()">Download Missing</button>
-                <button onclick="closeModal()" style="background: var(--border);">Close</button>
-            </div>
-        </div>
-    </div>
+    <footer>Made with love ❤️</footer>
 
     <script>
-        let config = {};
         let currentAlbumId = null;
-        let statusInterval = null;
+        let pollingInterval = null;
+        let allAlbums = [];
 
-        const themeToggle = document.getElementById('themeToggle');
-        const savedTheme = localStorage.getItem('theme') || 'dark';
-        if (savedTheme === 'light') {
-            document.body.classList.add('light');
-            themeToggle.classList.add('active');
-        }
-
-        themeToggle.addEventListener('click', () => {
-            document.body.classList.toggle('light');
-            themeToggle.classList.toggle('active');
-            localStorage.setItem('theme', document.body.classList.contains('light') ? 'light' : 'dark');
+        document.addEventListener('DOMContentLoaded', () => {
+            const saved = localStorage.getItem('theme') || 'dark';
+            if(saved === 'light') {
+                document.body.classList.add('light');
+                document.getElementById('themeIcon').className = 'fa-solid fa-sun';
+            }
+            loadAlbums();
         });
 
-        async function testConnection() {
-            const status = document.getElementById('connectionStatus');
-            status.style.display = 'block';
-            status.style.background = 'var(--border)';
-            status.innerHTML = 'Testing connection...';
+        function toggleTheme() {
+            document.body.classList.toggle('light');
+            const isLight = document.body.classList.contains('light');
+            localStorage.setItem('theme', isLight ? 'light' : 'dark');
+            document.getElementById('themeIcon').className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+        }
 
+        function applyFilters() {
+            const term = document.getElementById('artistSearch').value.toLowerCase();
+            const sortType = document.getElementById('sortFilter').value;
+            
+            let filtered = allAlbums.filter(album => 
+                album.title.toLowerCase().includes(term) || 
+                album.artist.artistName.toLowerCase().includes(term)
+            );
+
+            if (sortType === 'missing') {
+                filtered.sort((a, b) => b.missingTrackCount - a.missingTrackCount);
+            } else if (sortType === 'alpha') {
+                filtered.sort((a, b) => a.title.localeCompare(b.title));
+            } else { 
+                filtered.sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate));
+            }
+
+            renderGrid(filtered);
+        }
+
+        document.getElementById('artistSearch').addEventListener('input', applyFilters);
+        document.getElementById('sortFilter').addEventListener('change', applyFilters);
+
+        function renderGrid(albums) {
+            const grid = document.getElementById('albumGrid');
+            grid.innerHTML = '';
+
+            if(albums.length === 0) {
+                grid.innerHTML = '<div style="grid-column:1/-1;text-align:center">No albums match your criteria.</div>';
+                return;
+            }
+
+            albums.forEach(album => {
+                const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
+                const year = album.releaseDate?.substring(0,4) || '';
+                const div = document.createElement('div');
+                div.className = 'card';
+                div.innerHTML = `
+                    <div class="card-img-container"><img src="${cover}" class="card-img"></div>
+                    <div class="card-content">
+                        <div class="card-title">${album.title}</div>
+                        <div class="card-artist">${album.artist.artistName}</div>
+                        <div style="font-size:0.8rem; color:var(--text-dim); margin-bottom:1rem">${year} • ${album.missingTrackCount} Missing</div>
+                        <div class="card-actions">
+                            <button class="btn btn-primary" onclick="startDownload(${album.id})">Download Missing</button>
+                        </div>
+                    </div>
+                    <div class="download-overlay" id="overlay-${album.id}">
+                        <div style="margin-bottom:0.5rem" id="status-${album.id}">Downloading...</div>
+                        <div style="font-size:0.9rem; color:#ccc" id="substatus-${album.id}">0%</div>
+                    </div>
+                `;
+                grid.appendChild(div);
+            });
+        }
+
+        async function testConnection() {
+            const el = document.getElementById('connectionStatus');
+            el.style.display = 'block'; el.innerHTML = 'Testing...';
             const res = await fetch('/api/test-connection');
             const data = await res.json();
-
-            if (data.status === 'success') {
-                status.style.background = 'var(--primary)';
-                status.innerHTML = `
-                    ✅ Connected to Lidarr ${data.lidarr_version}<br>
-                    Total Albums: ${data.total_albums}<br>
-                    Missing Albums: ${data.missing_count}<br>
-                    Wanted Endpoint: ${data.wanted_endpoint}
-                `;
-            } else {
-                status.style.background = 'var(--danger)';
-                status.innerHTML = `❌ Error: ${data.error}`;
-            }
+            el.innerHTML = data.status === 'success' 
+                ? `<span style="color:var(--primary)">Connected to Lidarr ${data.lidarr_version}</span>` 
+                : `<span style="color:var(--danger)">Error: ${data.error}</span>`;
         }
 
         async function loadAlbums() {
             const grid = document.getElementById('albumGrid');
-            grid.innerHTML = '<p>Loading...</p>';
-            
+            grid.innerHTML = '<div style="grid-column:1/-1;text-align:center">Loading...</div>';
             const res = await fetch('/api/missing-albums');
-            const albums = await res.json();
-            
-            if (albums.length === 0) {
-                grid.innerHTML = '<p style="grid-column: 1/-1; text-align: center; padding: 2rem;">No missing albums found! 🎉</p>';
-                return;
-            }
-
-            grid.innerHTML = albums.map(album => {
-                const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
-                return `
-                    <div class="card">
-                        <img class="card-img" src="${cover}" alt="${album.title}">
-                        <div class="card-body">
-                            <div class="card-title">${album.title}</div>
-                            <div class="card-text">${album.artist.artistName}</div>
-                            <div class="card-text">${album.releaseDate?.substring(0,4) || ''} • ${album.missingTrackCount} missing</div>
-                            <div class="card-actions">
-                                <button onclick="showTracks(${album.id})">View Tracks</button>
-                                <button onclick="quickDownload(${album.id})">Download</button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
+            allAlbums = await res.json();
+            applyFilters();
         }
 
-        async function showTracks(albumId) {
-            currentAlbumId = albumId;
-            const res = await fetch(`/api/album/${albumId}`);
-            const album = await res.json();
-            
-            document.getElementById('modalTitle').textContent = `${album.artist.artistName} - ${album.title}`;
-            
-            const trackList = document.getElementById('trackList');
-            trackList.innerHTML = await Promise.all(album.tracks.map(async track => {
-                const missing = !track.hasFile;
-                let previewHtml = '';
-                
-                if (missing) {
-                    const previewRes = await fetch(`/api/preview/${albumId}/${track.trackNumber}`);
-                    const previewData = await previewRes.json();
-                    if (previewData.previewUrl) {
-                        previewHtml = `<audio class="audio-player" controls src="${previewData.previewUrl}"></audio>`;
-                    }
-                }
-                
-                return `
-                    <div class="track-item ${missing ? 'missing' : ''}">
-                        <div>
-                            <div>${track.trackNumber}. ${track.title}</div>
-                            ${previewHtml}
-                        </div>
-                        <span style="color: ${missing ? 'var(--danger)' : 'var(--primary)'};">
-                            ${missing ? '✗ Missing' : '✓ Downloaded'}
-                        </span>
-                    </div>
-                `;
-            })).then(items => items.join(''));
-            
-            document.getElementById('trackModal').classList.add('active');
+        async function startDownload(id) {
+            document.getElementById(`overlay-${id}`).classList.add('active');
+            await fetch(`/api/download/${id}`, { method: 'POST' });
+            if(!pollingInterval) pollingInterval = setInterval(poll, 1000);
         }
 
-        function closeModal() {
-            document.getElementById('trackModal').classList.remove('active');
-        }
-
-        async function downloadAlbum() {
-            if (!currentAlbumId) return;
-            closeModal();
-            
-            await fetch(`/api/download/${currentAlbumId}`, { method: 'POST' });
-            
-            document.getElementById('downloadStatus').style.display = 'block';
-            statusInterval = setInterval(checkDownloadStatus, 1000);
-        }
-
-        async function quickDownload(albumId) {
-            currentAlbumId = albumId;
-            downloadAlbum();
-        }
-
-        async function checkDownloadStatus() {
+        async function poll() {
             const res = await fetch('/api/download/status');
-            const status = await res.json();
-            
-            if (!status.active) {
-                clearInterval(statusInterval);
-                document.getElementById('downloadStatus').style.display = 'none';
+            const data = await res.json();
+            if(!data.active) {
+                clearInterval(pollingInterval); pollingInterval = null;
+                document.querySelectorAll('.download-overlay').forEach(e => e.classList.remove('active'));
                 loadAlbums();
                 return;
             }
-            
-            const progress = status.progress;
-            if (progress.percent) {
-                document.getElementById('downloadProgress').style.width = progress.percent;
-                document.getElementById('downloadInfo').textContent = `${progress.percent} - ${progress.speed}`;
-            } else if (progress.current) {
-                const percent = (progress.current / progress.total * 100).toFixed(0);
-                document.getElementById('downloadProgress').style.width = percent + '%';
-                document.getElementById('downloadInfo').textContent = `Track ${progress.current}/${progress.total}`;
+            const ov = document.getElementById(`overlay-${data.album_id}`);
+            if(ov) {
+                ov.classList.add('active');
+                if(data.progress.percent) {
+                    document.getElementById(`substatus-${data.album_id}`).innerText = `${data.progress.percent} (${data.progress.speed})`;
+                } else if (data.progress.current) {
+                    document.getElementById(`substatus-${data.album_id}`).innerText = `Track ${data.progress.current}/${data.progress.total}`;
+                }
             }
         }
-
-        async function stopDownload() {
-            await fetch('/api/download/stop', { method: 'POST' });
-            clearInterval(statusInterval);
-            document.getElementById('downloadStatus').style.display = 'none';
-        }
-
-        testConnection();
     </script>
 </body>
 </html>
