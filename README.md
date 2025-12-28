@@ -120,7 +120,3 @@ services:
 ## ⚠️ Disclaimer
 
 This tool is intended for **educational purposes** and for managing your own personal library. The user is responsible for complying with all applicable copyright laws and YouTube's Terms of Service.
-
----
-
-Made with ❤️ by Angrido.
