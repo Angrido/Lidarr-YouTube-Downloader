@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Lidarr YouTube Downloader</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/1384/1384060.png">
+    <style>
+        :root {
+            --bg: #09090b;
+            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.05) 0%, transparent 50%);
+            --surface: #18181b;
+            --surface-glass: rgba(24, 24, 27, 0.7);
+            --text: #fafafa;
+            --text-dim: #a1a1aa;
+            --primary: #10b981;
+            --border: #27272a;
+            --border-glass: rgba(255, 255, 255, 0.1);
+            --radius: 16px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
+            --glow: 0 0 20px rgba(16, 185, 129, 0.3);
+        }
+
+        body.light {
+            --bg: #f4f4f5;
+            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.03) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.03) 0%, transparent 50%);
+            --surface: #ffffff;
+            --surface-glass: rgba(255, 255, 255, 0.7);
+            --text: #18181b;
+            --text-dim: #71717a;
+            --border: #e4e4e7;
+            --border-glass: rgba(0, 0, 0, 0.1);
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            --glow: 0 0 20px rgba(16, 185, 129, 0.2);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            background-image: var(--bg-pattern);
+            background-attachment: fixed;
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border-bottom: 1px solid var(--border-glass);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            padding: 1rem 0;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        }
+
+        .nav-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-weight: 800;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            cursor: pointer;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--text);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%) scaleX(0);
+            width: 80%;
+            height: 2px;
+            background: linear-gradient(90deg, var(--primary), #06d6a0);
+            transition: transform 0.3s ease;
+        }
+
+        .nav-links a:hover::after {
+            transform: translateX(-50%) scaleX(1);
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .icon-btn {
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-glass);
+            color: var(--text);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+        }
+
+        .icon-btn:hover {
+            background: var(--surface-hover);
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+            transform: scale(1.05);
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem;
+            width: 100%;
+            flex: 1;
+        }
+
+        .settings-section {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            padding: 2rem;
+            border-radius: var(--radius);
+            border: 1px solid var(--border-glass);
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow);
+            animation: fadeIn 0.5s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-glass);
+        }
+
+        .section-header i {
+            font-size: 1.5rem;
+            color: var(--primary);
+        }
+
+        .section-header h2 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: var(--text);
+        }
+
+        .label-description {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            font-weight: 400;
+            margin-top: 0.25rem;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 0.8rem;
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-glass);
+            color: var(--text);
+            border-radius: 10px;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        input:focus,
+        select:focus {
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+            transform: translateY(-1px);
+        }
+
+        .btn {
+            background: linear-gradient(135deg, #10b981, #06d6a0, #0891b2);
+            background-size: 200% 200%;
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 10px;
+            cursor: pointer;
+            width: 100%;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+            animation: gradient-shift 3s ease infinite;
+        }
+
+        @keyframes gradient-shift {
+
+            0%,
+            100% {
+                background-position: 0% 50%;
+            }
+
+            50% {
+                background-position: 100% 50%;
+            }
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn:hover::before {
+            left: 100%;
+        }
+
+        .btn:hover {
+            box-shadow: 0 6px 25px rgba(16, 185, 129, 0.6);
+            transform: translateY(-2px);
+        }
+
+        .btn:active {
+            transform: scale(0.96);
+        }
+
+        .toggle-btn {
+            padding: 0.8rem 1.5rem;
+            border-radius: 10px;
+            border: 1px solid var(--border-glass);
+            background: var(--surface);
+            color: var(--text-dim);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .toggle-btn.active {
+            background: linear-gradient(135deg, #10b981, #06d6a0, #0891b2);
+            background-size: 200% 200%;
+            color: white;
+            border: none;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+            animation: gradient-shift 3s ease infinite;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border-glass);
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px);
+            margin-top: auto;
+        }
+
+        @media (max-width: 768px) {
+            .nav-container {
+                flex-wrap: wrap;
+                padding: 1rem;
+                gap: 0.75rem;
+            }
+
+            .logo {
+                width: 100%;
+                justify-content: center;
+                font-size: 1rem;
+            }
+
+            .logo-link {
+                width: 100%;
+                display: block;
+                text-align: center;
+            }
+
+            .nav-links {
+                width: 100%;
+                justify-content: center;
+                flex-wrap: wrap;
+                gap: 0.25rem;
+            }
+
+            .nav-links a {
+                padding: 0.4rem 0.8rem;
+                font-size: 0.85rem;
+            }
+
+            .controls {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            .settings-section {
+                padding: 1.5rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="nav-container">
+            <a href="/" class="logo-link" style="text-decoration: none;">
+                <div class="logo">🎵 Lidarr YouTube Downloader</div>
+            </a>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/downloads">Downloads</a>
+                <a href="/settings">Settings</a>
+            </div>
+            <div class="controls">
+                <button class="icon-btn" onclick="toggleTheme()"><i class="fa-solid fa-moon"
+                        id="themeIcon"></i></button>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="settings-section">
+            <div class="section-header">
+                <i class="fa-solid fa-robot"></i>
+                <h2>Automation</h2>
+            </div>
+            <div class="input-group">
+                <label>
+                    Scheduler Status
+                    <div class="label-description">Enable automatic periodic checks for missing albums</div>
+                </label>
+                <button class="toggle-btn" id="toggleBtn" onclick="toggleScheduler()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    Auto Download
+                    <div class="label-description">Automatically download missing albums when found</div>
+                </label>
+                <button class="toggle-btn" id="autoDlBtn" onclick="toggleAutoDl()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    Check Interval (Minutes)
+                    <div class="label-description">How often to check for missing albums</div>
+                </label>
+                <input type="number" id="interval" value="60" min="1" max="1440">
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="section-header">
+                <i class="fa-brands fa-telegram"></i>
+                <h2>Telegram Notifications</h2>
+            </div>
+            <div class="input-group">
+                <label>
+                    Bot Token
+                    <div class="label-description">Your Telegram Bot API token from @BotFather</div>
+                </label>
+                <input type="text" id="botToken" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+            </div>
+            <div class="input-group">
+                <label>
+                    Chat ID
+                    <div class="label-description">The chat ID where notifications will be sent</div>
+                </label>
+                <input type="text" id="chatId" placeholder="123456789">
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="section-header">
+                <i class="fa-solid fa-floppy-disk"></i>
+                <h2>Save Changes</h2>
+            </div>
+            <button class="btn" onclick="saveConfig()">
+                <i class="fa-solid fa-check"></i> Save All Settings
+            </button>
+        </div>
+    </div>
+
+    <footer>
+        Made with love ❤️ <span id="versionDisplay"></span>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const saved = localStorage.getItem('theme') || 'dark';
+            if (saved === 'light') {
+                document.body.classList.add('light');
+                document.getElementById('themeIcon').className = 'fa-solid fa-sun';
+            }
+            loadConfig();
+            loadVersion();
+        });
+
+        function toggleTheme() {
+            document.body.classList.toggle('light');
+            const isLight = document.body.classList.contains('light');
+            localStorage.setItem('theme', isLight ? 'light' : 'dark');
+            document.getElementById('themeIcon').className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+        }
+
+        async function loadConfig() {
+            const res = await fetch('/api/config');
+            const conf = await res.json();
+            document.getElementById('interval').value = conf.scheduler_interval;
+            document.getElementById('botToken').value = conf.telegram_bot_token;
+            document.getElementById('chatId').value = conf.telegram_chat_id;
+            updateSchedulerBtn(conf.scheduler_enabled);
+            updateAutoDlBtn(conf.scheduler_auto_download);
+        }
+
+        function updateSchedulerBtn(enabled) {
+            const btn = document.getElementById('toggleBtn');
+            btn.innerText = enabled ? '✓ Scheduler Active' : 'Enable Scheduler';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        function updateAutoDlBtn(enabled) {
+            const btn = document.getElementById('autoDlBtn');
+            btn.innerText = enabled ? '✓ Auto Download ON' : 'Auto Download OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        async function toggleScheduler() {
+            const res = await fetch('/api/scheduler/toggle', {
+                method: 'POST'
+            });
+            const data = await res.json();
+            updateSchedulerBtn(data.enabled);
+        }
+
+        async function toggleAutoDl() {
+            const res = await fetch('/api/scheduler/autodownload/toggle', {
+                method: 'POST'
+            });
+            const data = await res.json();
+            updateAutoDlBtn(data.enabled);
+        }
+
+        async function saveConfig() {
+            await fetch('/api/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    scheduler_interval: document.getElementById('interval').value,
+                    telegram_bot_token: document.getElementById('botToken').value,
+                    telegram_chat_id: document.getElementById('chatId').value,
+                    telegram_enabled: !!document.getElementById('botToken').value
+                })
+            });
+            alert('✓ Configuration Saved!');
+        }
+
+        async function loadVersion() {
+            try {
+                const res = await fetch('/api/version');
+                const data = await res.json();
+                if (data.version) {
+                    document.getElementById('versionDisplay').textContent = `• v${data.version}`;
+                }
+            } catch (e) {
+            }
+        }
+    </script>
+</body>
+
+</html>
