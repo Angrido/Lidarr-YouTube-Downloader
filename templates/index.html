@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,7 +10,9 @@
     <style>
         :root {
             --bg: #09090b;
+            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.05) 0%, transparent 50%);
             --surface: #18181b;
+            --surface-glass: rgba(24, 24, 27, 0.7);
             --surface-hover: #27272a;
             --text: #fafafa;
             --text-dim: #a1a1aa;
@@ -17,99 +20,1026 @@
             --primary-hover: #059669;
             --danger: #ef4444;
             --border: #27272a;
-            --radius: 12px;
+            --border-glass: rgba(255, 255, 255, 0.1);
+            --radius: 16px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
+            --glow: 0 0 20px rgba(16, 185, 129, 0.3);
         }
+
         body.light {
-            --bg: #f4f4f5; --surface: #ffffff; --surface-hover: #f4f4f5; --text: #18181b; --text-dim: #71717a; --border: #e4e4e7;
+            --bg: #f4f4f5;
+            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.03) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.03) 0%, transparent 50%);
+            --surface: #ffffff;
+            --surface-glass: rgba(255, 255, 255, 0.7);
+            --surface-hover: #f4f4f5;
+            --text: #18181b;
+            --text-dim: #71717a;
+            --border: #e4e4e7;
+            --border-glass: rgba(0, 0, 0, 0.1);
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            --glow: 0 0 20px rgba(16, 185, 129, 0.2);
         }
-        * { margin: 0; padding: 0; box-sizing: border-box; transition: background 0.2s, border-color 0.2s; }
-        body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
-        
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            background-image: var(--bg-pattern);
+            background-attachment: fixed;
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
         header {
-            background: rgba(24, 24, 27, 0.8); backdrop-filter: blur(12px);
-            border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 50; padding: 1rem 0;
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border-bottom: 1px solid var(--border-glass);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            padding: 1rem 0;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
         }
-        body.light header { background: rgba(255, 255, 255, 0.8); }
-        
+
         .nav-container {
-            max-width: 1400px; margin: 0 auto; padding: 0 2rem; display: flex; justify-content: space-between; align-items: center;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
-        .logo { font-weight: 800; font-size: 1.2rem; display: flex; align-items: center; gap: 0.75rem; }
-        .nav-links { display: flex; gap: 1.5rem; align-items: center; }
-        .nav-links a { color: var(--text); text-decoration: none; font-weight: 500; transition: color 0.2s; }
-        .nav-links a:hover { color: var(--primary); }
-        .controls { display: flex; gap: 1rem; align-items: center; }
-        .icon-btn { background: var(--surface); border: 1px solid var(--border); color: var(--text); width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
-        .icon-btn:hover { background: var(--surface-hover); border-color: var(--primary); }
-        
-        .container { max-width: 1400px; margin: 0 auto; padding: 2rem; width: 100%; flex: 1; }
-        .config-panel { background: var(--surface); padding: 1.5rem; border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 2rem; }
-        
-        .controls-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 1rem; }
-        .filter-group { display: flex; gap: 0.5rem; flex: 1; flex-wrap: wrap; min-width: 300px; }
-        .search-box { position: relative; flex: 1; }
-        .search-box input { width: 100%; padding: 0.75rem 1rem; border-radius: 30px; border: 1px solid var(--border); background: var(--bg); color: var(--text); }
-        
+
+        .logo {
+            font-weight: 800;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--text);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%) scaleX(0);
+            width: 80%;
+            height: 2px;
+            background: linear-gradient(90deg, var(--primary), #06d6a0);
+            transition: transform 0.3s ease;
+        }
+
+        .nav-links a:hover::after {
+            transform: translateX(-50%) scaleX(1);
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .icon-btn {
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-glass);
+            color: var(--text);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+        }
+
+        .icon-btn:hover {
+            background: var(--surface-hover);
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+            transform: scale(1.05);
+        }
+
+        .progress-minimized-btn {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, #10b981, #06d6a0, #0891b2);
+            background-size: 200% 200%;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            color: white;
+            box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
+            z-index: 99;
+            animation: gradient-shift 3s ease infinite;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .progress-minimized-btn.active {
+            display: flex;
+        }
+
+        .progress-minimized-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 12px 32px rgba(16, 185, 129, 0.6);
+        }
+
+        .progress-minimized-btn:active {
+            transform: scale(0.95);
+        }
+
+        .logo {
+            cursor: pointer;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            width: 100%;
+            flex: 1;
+        }
+
+        .config-panel {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            padding: 1.5rem;
+            border-radius: var(--radius);
+            border: 1px solid var(--border-glass);
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow);
+        }
+
+        .controls-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .filter-group {
+            display: flex;
+            gap: 0.5rem;
+            flex: 1;
+            flex-wrap: wrap;
+            min-width: 300px;
+        }
+
+        .view-mode-switcher {
+            display: flex;
+            gap: 0.5rem;
+            background: var(--surface-glass);
+            padding: 0.3rem;
+            border-radius: 10px;
+            border: 1px solid var(--border-glass);
+        }
+
+        .view-btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            background: transparent;
+            color: var(--text-dim);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .view-btn.active {
+            background: var(--primary);
+            color: white;
+            box-shadow: var(--glow);
+        }
+
+        .view-btn:hover:not(.active) {
+            background: var(--surface-hover);
+            color: var(--text);
+        }
+
+        .search-box {
+            position: relative;
+            flex: 1;
+        }
+
+        .search-box input {
+            width: 100%;
+            padding: 0.75rem 1rem;
+            border-radius: 30px;
+            border: 1px solid var(--border-glass);
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+            color: var(--text);
+            transition: all 0.3s ease;
+        }
+
+        .search-box input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+            transform: translateY(-1px);
+        }
+
         select.filter-select {
             padding: 0.75rem 2rem 0.75rem 1rem;
             border-radius: 30px;
-            border: 1px solid var(--border);
-            background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a1a1aa' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3E%3C/svg%3E") no-repeat right 1rem center;
+            border: 1px solid var(--border-glass);
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
             color: var(--text);
             appearance: none;
             cursor: pointer;
             outline: none;
+            transition: all 0.3s ease;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2310b981' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
         }
-        select.filter-select:focus { border-color: var(--primary); }
 
-        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 2rem; }
-        .card { 
-            background: var(--surface); border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); position: relative; display: flex; flex-direction: column; 
-            animation: fadeIn 0.5s ease forwards; opacity: 0;
+        select.filter-select:focus {
+            border-color: var(--primary);
+            box-shadow: var(--glow);
         }
-        @keyframes fadeIn { to { opacity: 1; } }
-        .card:hover { transform: translateY(-4px); transition: transform 0.3s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
-        
-        .card-img-container { position: relative; padding-top: 100%; background: #222; }
-        .card-img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
-        .card-content { padding: 1.25rem; flex: 1; display: flex; flex-direction: column; }
-        .card-title { font-weight: 700; font-size: 1.1rem; margin-bottom: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .card-artist { color: var(--text-dim); font-size: 0.9rem; margin-bottom: 1rem; }
-        .card-actions { margin-top: auto; display: flex; gap: 0.75rem; }
-        .btn { flex: 1; padding: 0.6rem; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; font-size: 0.9rem; transition: 0.2s; }
-        .btn:active { transform: scale(0.98); }
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
-        .download-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.9); display: none; flex-direction: column; justify-content: center; align-items: center; padding: 2rem; z-index: 10; backdrop-filter: blur(4px); }
-        .download-overlay.active { display: flex; }
-        
-        footer { text-align: center; padding: 2rem; color: var(--text-dim); font-size: 0.9rem; border-top: 1px solid var(--border); margin-top: auto; }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 2rem;
+        }
+
+        .list-view {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .table-view {
+            overflow-x: auto;
+        }
+
+        .card {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border-radius: var(--radius);
+            overflow: hidden;
+            border: 1px solid var(--border-glass);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            animation: fadeIn 0.5s ease forwards;
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+            }
+        }
+
+        .card:hover {
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: 0 20px 60px rgba(16, 185, 129, 0.2), 0 0 0 1px rgba(16, 185, 129, 0.3);
+            border-color: rgba(16, 185, 129, 0.5);
+        }
+
+        .card-img-container {
+            position: relative;
+            padding-top: 100%;
+            background: linear-gradient(135deg, #1a1a1a, #2d2d2d);
+            overflow: hidden;
+        }
+
+        .card-img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.4s ease;
+        }
+
+        .card:hover .card-img {
+            transform: scale(1.1);
+        }
+
+        .card-content {
+            padding: 1.25rem;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--surface-glass);
+        }
+
+        .card-title {
+            font-weight: 700;
+            font-size: 1.1rem;
+            margin-bottom: 0.25rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .card-artist {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            margin-bottom: 1rem;
+        }
+
+        .card-actions {
+            margin-top: auto;
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .btn {
+            flex: 1;
+            padding: 0.6rem;
+            border-radius: 10px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn:active {
+            transform: scale(0.96);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #10b981, #06d6a0, #0891b2);
+            background-size: 200% 200%;
+            color: white;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
+            animation: gradient-shift 3s ease infinite;
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+        }
+
+        .btn-primary:hover::before {
+            left: 100%;
+        }
+
+        .btn-primary:hover {
+            box-shadow: 0 6252px 25px rgba(16, 185, 129, 0.6);
+            transform: translateY(-2px);
+        }
+
+        @keyframes gradient-shift {
+
+            0%,
+            100% {
+                background-position: 0% 50%;
+            }
+
+            50% {
+                background-position: 100% 50%;
+            }
+        }
+
+        .btn-secondary {
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-glass);
+            color: var(--text);
+        }
+
+        .btn-secondary:hover {
+            background: var(--surface-hover);
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+        }
+
+        .list-item {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            border-radius: var(--radius);
+            padding: 1rem;
+            border: 1px solid var(--border-glass);
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .list-item:hover {
+            transform: translateX(4px);
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+        }
+
+        .list-item-img {
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            object-fit: cover;
+        }
+
+        .list-item-info {
+            flex: 1;
+        }
+
+        .list-item-title {
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .list-item-artist {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        .list-item-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+
+        th {
+            background: var(--surface);
+            padding: 1rem;
+            text-align: left;
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-glass);
+        }
+
+        td {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-glass);
+        }
+
+        tr:hover {
+            background: var(--surface-hover);
+        }
+
+        .table-img {
+            width: 50px;
+            height: 50px;
+            border-radius: 8px;
+            object-fit: cover;
+        }
+
+        .download-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.9), rgba(6, 214, 160, 0.9));
+            backdrop-filter: blur(20px);
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 1.5rem;
+            z-index: 10;
+            animation: fadeInOverlay 0.3s ease;
+        }
+
+        .download-overlay.active {
+            display: flex;
+        }
+
+        @keyframes fadeInOverlay {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .card-progress-indicator {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px);
+            padding: 0.75rem;
+            border-top: 1px solid var(--border-glass);
+            display: none;
+            animation: slideInProgress 0.3s ease;
+        }
+
+        .card-progress-indicator.active {
+            display: block;
+        }
+
+        @keyframes slideInProgress {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .mini-progress-bar {
+            width: 100%;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 999px;
+            overflow: hidden;
+            margin-bottom: 0.5rem;
+        }
+
+        .mini-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #06d6a0);
+            border-radius: 999px;
+            transition: width 0.3s ease;
+            animation: shimmer 2s ease-in-out infinite;
+        }
+
+        .mini-progress-text {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .mini-progress-track {
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border-glass);
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px);
+            margin-top: auto;
+        }
+
+        .progress-container {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 420px;
+            max-width: calc(100vw - 4rem);
+            background: rgba(24, 24, 27, 0.95);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 1.5rem;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+            z-index: 100;
+            animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            display: none;
+        }
+
+        body.light .progress-container {
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.1);
+        }
+
+        .progress-container.active {
+            display: block;
+        }
+
+        .progress-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .progress-info h3 {
+            font-size: 1rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+            color: var(--text);
+        }
+
+        .progress-info p {
+            font-size: 0.85rem;
+            color: var(--text-dim);
+            margin: 0;
+        }
+
+        .progress-close {
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 1.2rem;
+            padding: 0;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+
+        .progress-close:hover {
+            background: var(--surface-hover);
+            color: var(--text);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+            border: none;
+            padding: 0.6rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 1rem;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .btn-danger:active {
+            transform: scale(0.96);
+        }
+
+        .progress-track-info {
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            background: var(--bg);
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+
+        .track-title {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            color: var(--primary);
+        }
+
+        .track-status {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+        }
+
+        .progress-bar-container {
+            margin-bottom: 0.75rem;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        .progress-bar {
+            height: 10px;
+            background: var(--bg);
+            border-radius: 999px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #06d6a0, #10b981);
+            background-size: 200% 100%;
+            border-radius: 999px;
+            transition: width 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            animation: shimmer 2s ease-in-out infinite;
+            position: relative;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            animation: shine 1.5s ease-in-out infinite;
+        }
+
+        .progress-stats {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-top: 0.5rem;
+        }
+
+        .stat-item {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .stat-item i {
+            font-size: 0.7rem;
+            color: var(--primary);
+        }
+
+        .progress-queue {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-glass);
+        }
+
+        .queue-header {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .queue-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .queue-item-mini {
+            background: var(--bg);
+            padding: 0.5rem;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .queue-item-position {
+            width: 20px;
+            height: 20px;
+            background: var(--primary);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.65rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .queue-item-text {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(120px);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes shimmer {
+
+            0%,
+            100% {
+                background-position: 0% 50%;
+            }
+
+            50% {
+                background-position: 100% 50%;
+            }
+        }
+
+        @keyframes shine {
+            0% {
+                transform: translateX(-100%);
+            }
+
+            100% {
+                transform: translateX(100%);
+            }
+        }
+
+        .pulsing-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: var(--primary);
+            border-radius: 50%;
+            margin-right: 0.5rem;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.5;
+                transform: scale(1.2);
+            }
+        }
 
         @media (max-width: 768px) {
-            .nav-container { flex-direction: column; gap: 1rem; padding: 1rem; text-align: center; }
-            .nav-links { width: 100%; justify-content: center; }
-            .controls { width: 100%; justify-content: center; }
-            .filter-group { width: 100%; flex-direction: column; }
-            .search-box, .filter-select { width: 100%; }
-            .grid { grid-template-columns: 1fr; }
-            .card { max-width: 400px; margin: 0 auto; width: 100%; }
-            .container { padding: 1rem; }
-            .config-panel { text-align: center; }
-            .controls-row { justify-content: center; flex-direction: column; gap: 1rem; }
-            button.btn { width: 100%; }
+            .nav-container {
+                flex-wrap: wrap;
+                padding: 1rem;
+                gap: 0.75rem;
+            }
+
+            .logo {
+                width: 100%;
+                justify-content: center;
+                font-size: 1rem;
+            }
+
+            .logo-link {
+                width: 100%;
+                display: block;
+                text-align: center;
+            }
+
+            .nav-links {
+                width: 100%;
+                justify-content: center;
+                flex-wrap: wrap;
+                gap: 0.25rem;
+            }
+
+            .nav-links a {
+                padding: 0.4rem 0.8rem;
+                font-size: 0.85rem;
+            }
+
+            .controls {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .filter-group {
+                width: 100%;
+                flex-direction: column;
+            }
+
+            .view-mode-switcher {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .search-box,
+            .filter-select {
+                width: 100%;
+            }
+
+            .grid {
+                grid-template-columns: 1fr;
+            }
+
+            .card {
+                max-width: 400px;
+                margin: 0 auto;
+                width: 100%;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            .config-panel {
+                text-align: center;
+            }
+
+            .controls-row {
+                justify-content: center;
+                flex-direction: column;
+                gap: 1rem;
+            }
+
+            button.btn {
+                width: 100%;
+            }
+
+            .progress-container {
+                bottom: 1rem;
+                right: 1rem;
+                left: 1rem;
+                width: auto;
+                max-width: none;
+            }
+
+            .progress-minimized-btn {
+                bottom: 1rem;
+                right: 1rem;
+                width: 56px;
+                height: 56px;
+                font-size: 1.3rem;
+            }
         }
     </style>
 </head>
+
 <body>
     <header>
         <div class="nav-container">
-            <div class="logo">🎵 Lidarr YouTube Downloader</div>
+            <a href="/" class="logo-link" style="text-decoration: none;">
+                <div class="logo">🎵 Lidarr YouTube Downloader</div>
+            </a>
             <div class="nav-links">
                 <a href="/">Dashboard</a>
-                <a href="/scheduler">Scheduler</a>
+                <a href="/downloads">Downloads</a>
+                <a href="/settings">Settings</a>
             </div>
             <div class="controls">
-                <button class="icon-btn" onclick="toggleTheme()"><i class="fa-solid fa-moon" id="themeIcon"></i></button>
+                <button class="icon-btn" onclick="toggleTheme()"><i class="fa-solid fa-moon"
+                        id="themeIcon"></i></button>
             </div>
         </div>
     </header>
@@ -119,12 +1049,24 @@
             <div class="controls-row">
                 <h2 style="margin:0; width: 100%; text-align: center; margin-bottom: 1rem;">Library</h2>
                 <div class="filter-group">
-                    <div class="search-box"><input type="text" id="artistSearch" placeholder="Search artists or albums..."></div>
+                    <div class="search-box"><input type="text" id="artistSearch"
+                            placeholder="Search artists or albums..."></div>
                     <select id="sortFilter" class="filter-select">
                         <option value="newest">📅 Newest First</option>
                         <option value="missing">📉 Most Missing Tracks</option>
                         <option value="alpha">🔤 Alphabetical (A-Z)</option>
                     </select>
+                    <div class="view-mode-switcher">
+                        <button class="view-btn active" onclick="setViewMode('cards')" id="viewCards">
+                            <i class="fa-solid fa-grip"></i> Cards
+                        </button>
+                        <button class="view-btn" onclick="setViewMode('list')" id="viewList">
+                            <i class="fa-solid fa-list"></i> List
+                        </button>
+                        <button class="view-btn" onclick="setViewMode('table')" id="viewTable">
+                            <i class="fa-solid fa-table"></i> Table
+                        </button>
+                    </div>
                 </div>
             </div>
             <div class="controls-row">
@@ -133,23 +1075,90 @@
             </div>
             <div id="connectionStatus" style="margin-top:1rem; display:none"></div>
         </div>
-        <div class="grid" id="albumGrid"></div>
+        <div id="albumContainer"></div>
     </div>
 
-    <footer>Made with love ❤️</footer>
+    <div class="progress-container" id="progressContainer">
+        <div class="progress-header">
+            <div class="progress-info">
+                <h3 id="progressAlbumTitle">Downloading Album</h3>
+                <p id="progressArtistName">Artist Name</p>
+            </div>
+            <button class="progress-close" onclick="hideProgress()">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+
+        <div class="progress-track-info">
+            <div class="track-title">
+                <span class="pulsing-dot"></span>
+                <span id="currentTrackTitle">Preparing download...</span>
+            </div>
+            <div class="track-status" id="trackStatus">Initializing...</div>
+        </div>
+
+        <div class="progress-bar-container">
+            <div class="progress-label">
+                <span>Overall Progress</span>
+                <span id="overallPercent">0%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+            </div>
+        </div>
+
+        <div class="progress-stats">
+            <div class="stat-item">
+                <i class="fa-solid fa-music"></i>
+                <span id="trackProgress">Track 0/0</span>
+            </div>
+            <div class="stat-item">
+                <i class="fa-solid fa-gauge-high"></i>
+                <span id="downloadSpeed">--</span>
+            </div>
+        </div>
+
+        <div class="progress-queue" id="progressQueue" style="display: none;">
+            <div class="queue-header">
+                <i class="fa-solid fa-list-ol"></i>
+                <span>Queue (<span id="queueCount">0</span>)</span>
+            </div>
+            <div class="queue-list" id="queueList"></div>
+        </div>
+
+        <button class="btn-danger" onclick="stopDownload()">
+            <i class="fa-solid fa-stop"></i> Stop Download
+        </button>
+    </div>
+
+    <button class="progress-minimized-btn" id="progressMinimizedBtn" onclick="restoreProgress()">
+        <i class="fa-solid fa-download"></i>
+    </button>
+
+    <footer>
+        Made with love ❤️ <span id="versionDisplay"></span>
+    </footer>
 
     <script>
         let currentAlbumId = null;
         let pollingInterval = null;
         let allAlbums = [];
+        let currentViewMode = 'cards';
+        let isProgressMinimized = false;
 
         document.addEventListener('DOMContentLoaded', () => {
             const saved = localStorage.getItem('theme') || 'dark';
-            if(saved === 'light') {
+            if (saved === 'light') {
                 document.body.classList.add('light');
                 document.getElementById('themeIcon').className = 'fa-solid fa-sun';
             }
+
+            const savedView = localStorage.getItem('viewMode') || 'cards';
+            setViewMode(savedView);
+
             loadAlbums();
+            loadVersion();
+            startGlobalPolling();
         });
 
         function toggleTheme() {
@@ -159,12 +1168,22 @@
             document.getElementById('themeIcon').className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
         }
 
+        function setViewMode(mode) {
+            currentViewMode = mode;
+            localStorage.setItem('viewMode', mode);
+
+            document.querySelectorAll('.view-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById('view' + mode.charAt(0).toUpperCase() + mode.slice(1)).classList.add('active');
+
+            applyFilters();
+        }
+
         function applyFilters() {
             const term = document.getElementById('artistSearch').value.toLowerCase();
             const sortType = document.getElementById('sortFilter').value;
-            
-            let filtered = allAlbums.filter(album => 
-                album.title.toLowerCase().includes(term) || 
+
+            let filtered = allAlbums.filter(album =>
+                album.title.toLowerCase().includes(term) ||
                 album.artist.artistName.toLowerCase().includes(term)
             );
 
@@ -172,28 +1191,31 @@
                 filtered.sort((a, b) => b.missingTrackCount - a.missingTrackCount);
             } else if (sortType === 'alpha') {
                 filtered.sort((a, b) => a.title.localeCompare(b.title));
-            } else { 
+            } else {
                 filtered.sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate));
             }
 
-            renderGrid(filtered);
+            if (currentViewMode === 'cards') renderCards(filtered);
+            else if (currentViewMode === 'list') renderList(filtered);
+            else if (currentViewMode === 'table') renderTable(filtered);
         }
 
         document.getElementById('artistSearch').addEventListener('input', applyFilters);
         document.getElementById('sortFilter').addEventListener('change', applyFilters);
 
-        function renderGrid(albums) {
-            const grid = document.getElementById('albumGrid');
-            grid.innerHTML = '';
+        function renderCards(albums) {
+            const container = document.getElementById('albumContainer');
+            container.className = 'grid';
+            container.innerHTML = '';
 
-            if(albums.length === 0) {
-                grid.innerHTML = '<div style="grid-column:1/-1;text-align:center">No albums match your criteria.</div>';
+            if (albums.length === 0) {
+                container.innerHTML = '<div style="grid-column:1/-1;text-align:center">No albums match your criteria.</div>';
                 return;
             }
 
             albums.forEach((album, index) => {
                 const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
-                const year = album.releaseDate?.substring(0,4) || '';
+                const year = album.releaseDate?.substring(0, 4) || '';
                 const div = document.createElement('div');
                 div.className = 'card';
                 div.style.animationDelay = `${index * 0.05}s`;
@@ -204,63 +1226,212 @@
                         <div class="card-artist">${album.artist.artistName}</div>
                         <div style="font-size:0.8rem; color:var(--text-dim); margin-bottom:1rem">${year} • ${album.missingTrackCount} Missing</div>
                         <div class="card-actions">
-                            <button class="btn btn-primary" onclick="startDownload(${album.id})">Download</button>
+                            <button class="btn btn-primary" onclick="addToQueue(${album.id})">Add to Queue</button>
                         </div>
                     </div>
-                    <div class="download-overlay" id="overlay-${album.id}">
-                        <div style="margin-bottom:0.5rem; font-weight:bold;" id="status-${album.id}">Starting...</div>
-                        <div style="font-size:0.9rem; color:#ccc" id="substatus-${album.id}">0%</div>
+                    <div class="card-progress-indicator" id="card-progress-${album.id}">
+                        <div class="mini-progress-bar">
+                            <div class="mini-progress-fill" id="mini-fill-${album.id}" style="width: 0%"></div>
+                        </div>
+                        <div class="mini-progress-text">
+                            <span class="mini-progress-track" id="mini-track-${album.id}">Track 0/0</span>
+                            <span id="mini-percent-${album.id}">0%</span>
+                        </div>
                     </div>
                 `;
-                grid.appendChild(div);
+                container.appendChild(div);
             });
+        }
+
+        function renderList(albums) {
+            const container = document.getElementById('albumContainer');
+            container.className = 'list-view';
+            container.innerHTML = '';
+
+            if (albums.length === 0) {
+                container.innerHTML = '<div style="text-align:center">No albums match your criteria.</div>';
+                return;
+            }
+
+            albums.forEach(album => {
+                const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
+                const year = album.releaseDate?.substring(0, 4) || '';
+                const div = document.createElement('div');
+                div.className = 'list-item';
+                div.innerHTML = `
+                    <img src="${cover}" class="list-item-img">
+                    <div class="list-item-info">
+                        <div class="list-item-title">${album.title}</div>
+                        <div class="list-item-artist">${album.artist.artistName} • ${year} • ${album.missingTrackCount} Missing</div>
+                    </div>
+                    <div class="list-item-actions">
+                        <button class="btn btn-primary" onclick="addToQueue(${album.id})">Add to Queue</button>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function renderTable(albums) {
+            const container = document.getElementById('albumContainer');
+            container.className = 'table-view';
+
+            if (albums.length === 0) {
+                container.innerHTML = '<div style="text-align:center">No albums match your criteria.</div>';
+                return;
+            }
+
+            let html = '<table><thead><tr><th>Cover</th><th>Title</th><th>Artist</th><th>Year</th><th>Missing</th><th>Action</th></tr></thead><tbody>';
+
+            albums.forEach(album => {
+                const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
+                const year = album.releaseDate?.substring(0, 4) || '';
+                html += `
+                    <tr>
+                        <td><img src="${cover}" class="table-img"></td>
+                        <td>${album.title}</td>
+                        <td>${album.artist.artistName}</td>
+                        <td>${year}</td>
+                        <td>${album.missingTrackCount}</td>
+                        <td><button class="btn btn-primary" onclick="addToQueue(${album.id})">Add to Queue</button></td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
         }
 
         async function testConnection() {
             const el = document.getElementById('connectionStatus');
-            el.style.display = 'block'; el.innerHTML = 'Testing...';
+            el.style.display = 'block';
+            el.innerHTML = 'Testing...';
             const res = await fetch('/api/test-connection');
             const data = await res.json();
-            el.innerHTML = data.status === 'success' 
-                ? `<span style="color:var(--primary)">Connected to Lidarr ${data.lidarr_version}</span>` 
+            el.innerHTML = data.status === 'success'
+                ? `<span style="color:var(--primary)">Connected to Lidarr ${data.lidarr_version}</span>`
                 : `<span style="color:var(--danger)">Error: ${data.error}</span>`;
         }
 
         async function loadAlbums() {
-            const grid = document.getElementById('albumGrid');
-            grid.innerHTML = '<div style="grid-column:1/-1;text-align:center">Loading...</div>';
+            const container = document.getElementById('albumContainer');
+            container.innerHTML = '<div style="text-align:center">Loading...</div>';
             const res = await fetch('/api/missing-albums');
             allAlbums = await res.json();
             applyFilters();
         }
 
-        async function startDownload(id) {
-            document.getElementById(`overlay-${id}`).classList.add('active');
-            await fetch(`/api/download/${id}`, { method: 'POST' });
-            if(!pollingInterval) pollingInterval = setInterval(poll, 1000);
+        async function addToQueue(id) {
+            await fetch('/api/download/' + id, { method: 'POST' });
         }
 
-        async function poll() {
-            const res = await fetch('/api/download/status');
-            const data = await res.json();
-            if(!data.active) {
-                clearInterval(pollingInterval); pollingInterval = null;
-                document.querySelectorAll('.download-overlay').forEach(e => e.classList.remove('active'));
-                loadAlbums();
-                return;
-            }
-            const ov = document.getElementById(`overlay-${data.album_id}`);
-            if(ov) {
-                ov.classList.add('active');
-                if(data.progress.percent) {
-                    document.getElementById(`substatus-${data.album_id}`).innerText = `${data.progress.percent} (${data.progress.speed})`;
-                    document.getElementById(`status-${data.album_id}`).innerText = "Downloading";
-                } else if (data.progress.current) {
-                    document.getElementById(`substatus-${data.album_id}`).innerText = `Track ${data.progress.current}/${data.progress.total}`;
-                    document.getElementById(`status-${data.album_id}`).innerText = "Processing";
+        function startGlobalPolling() {
+            setInterval(updateProgress, 1000);
+        }
+
+        async function updateProgress() {
+            try {
+                const res = await fetch('/api/download/status');
+                const data = await res.json();
+
+                if (!data.active) {
+                    isProgressMinimized = false;
+                    document.getElementById('progressContainer').classList.remove('active');
+                    document.getElementById('progressMinimizedBtn').classList.remove('active');
+                    document.querySelectorAll('.card-progress-indicator').forEach(e => e.classList.remove('active'));
+                    return;
                 }
+
+                if (!isProgressMinimized) {
+                    const progressContainer = document.getElementById('progressContainer');
+                    progressContainer.classList.add('active');
+                } else {
+                    document.getElementById('progressMinimizedBtn').classList.add('active');
+                }
+
+                if (data.album_title) {
+                    document.getElementById('progressAlbumTitle').textContent = data.album_title;
+                }
+                if (data.artist_name) {
+                    document.getElementById('progressArtistName').textContent = data.artist_name;
+                }
+                if (data.current_track_title) {
+                    document.getElementById('currentTrackTitle').textContent = data.current_track_title;
+                }
+
+                if (data.progress.current && data.progress.total) {
+                    document.getElementById('trackProgress').textContent = `Track ${data.progress.current}/${data.progress.total}`;
+
+                    const overallPercent = data.progress.overall_percent || Math.round((data.progress.current / data.progress.total) * 100);
+                    document.getElementById('overallPercent').textContent = `${overallPercent}%`;
+                    document.getElementById('progressFill').style.width = `${overallPercent}%`;
+
+                    const cardProgress = document.getElementById(`card-progress-${data.album_id}`);
+                    if (cardProgress) {
+                        cardProgress.classList.add('active');
+                        document.getElementById(`mini-fill-${data.album_id}`).style.width = `${overallPercent}%`;
+                        document.getElementById(`mini-track-${data.album_id}`).textContent = `Track ${data.progress.current}/${data.progress.total}`;
+                        document.getElementById(`mini-percent-${data.album_id}`).textContent = `${overallPercent}%`;
+                    }
+                }
+
+                if (data.progress.percent) {
+                    document.getElementById('trackStatus').textContent = `Downloading: ${data.progress.percent}`;
+                    document.getElementById('downloadSpeed').textContent = data.progress.speed || '--';
+                } else {
+                    document.getElementById('trackStatus').textContent = 'Processing track...';
+                    document.getElementById('downloadSpeed').textContent = '--';
+                }
+
+                const queueRes = await fetch('/api/download/queue');
+                const queue = await queueRes.json();
+
+                if (queue.length > 0) {
+                    document.getElementById('progressQueue').style.display = 'block';
+                    document.getElementById('queueCount').textContent = queue.length;
+                    document.getElementById('queueList').innerHTML = queue.slice(0, 3).map((item, index) => `
+                        <div class="queue-item-mini">
+                            <div class="queue-item-position">${index + 1}</div>
+                            <div class="queue-item-text">${item.title} - ${item.artist}</div>
+                        </div>
+                    `).join('');
+                } else {
+                    document.getElementById('progressQueue').style.display = 'none';
+                }
+            } catch (e) {
+            }
+        }
+
+        function hideProgress() {
+            isProgressMinimized = true;
+            document.getElementById('progressContainer').classList.remove('active');
+            document.getElementById('progressMinimizedBtn').classList.add('active');
+        }
+
+        function restoreProgress() {
+            isProgressMinimized = false;
+            document.getElementById('progressContainer').classList.add('active');
+            document.getElementById('progressMinimizedBtn').classList.remove('active');
+        }
+
+        async function stopDownload() {
+            if (confirm('Are you sure you want to stop the current download?')) {
+                await fetch('/api/download/stop', { method: 'POST' });
+                hideProgress();
+            }
+        }
+
+        async function loadVersion() {
+            try {
+                const res = await fetch('/api/version');
+                const data = await res.json();
+                if (data.version) {
+                    document.getElementById('versionDisplay').textContent = `• v${data.version}`;
+                }
+            } catch (e) {
             }
         }
     </script>
 </body>
+
 </html>
