@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Downloads - Lidarr YouTube Downloader</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/1384/1384060.png">
+    <style>
+        :root {
+            --bg: #09090b;
+            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.05) 0%, transparent 50%);
+            --surface: #18181b;
+            --surface-glass: rgba(24, 24, 27, 0.7);
+            --surface-hover: #27272a;
+            --text: #fafafa;
+            --text-dim: #a1a1aa;
+            --primary: #10b981;
+            --danger: #ef4444;
+            --border: #27272a;
+            --border-glass: rgba(255, 255, 255, 0.1);
+            --radius: 16px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
+            --glow: 0 0 20px rgba(16, 185, 129, 0.3);
+        }
+
+        body.light {
+            --bg: #f4f4f5;
+            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.03) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.03) 0%, transparent 50%);
+            --surface: #ffffff;
+            --surface-glass: rgba(255, 255, 255, 0.7);
+            --surface-hover: #f4f4f5;
+            --text: #18181b;
+            --text-dim: #71717a;
+            --border: #e4e4e7;
+            --border-glass: rgba(0, 0, 0, 0.1);
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            --glow: 0 0 20px rgba(16, 185, 129, 0.2);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            background-image: var(--bg-pattern);
+            background-attachment: fixed;
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border-bottom: 1px solid var(--border-glass);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            padding: 1rem 0;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        }
+
+        .nav-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-weight: 800;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            cursor: pointer;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--text);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%) scaleX(0);
+            width: 80%;
+            height: 2px;
+            background: linear-gradient(90deg, var(--primary), #06d6a0);
+            transition: transform 0.3s ease;
+        }
+
+        .nav-links a:hover::after {
+            transform: translateX(-50%) scaleX(1);
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .icon-btn {
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-glass);
+            color: var(--text);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+        }
+
+        .icon-btn:hover {
+            background: var(--surface-hover);
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+            transform: scale(1.05);
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            width: 100%;
+            flex: 1;
+        }
+
+        .section {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            padding: 1.5rem;
+            border-radius: var(--radius);
+            border: 1px solid var(--border-glass);
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow);
+        }
+
+        .section-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .current-download {
+            padding: 1rem;
+            background: var(--surface);
+            border-radius: 12px;
+            margin-bottom: 1rem;
+        }
+
+        .current-album-info {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .current-album-cover {
+            width: 80px;
+            height: 80px;
+            border-radius: 8px;
+            object-fit: cover;
+        }
+
+        .current-album-details h3 {
+            font-size: 1.1rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .current-album-details p {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        .progress-bar-container {
+            margin-bottom: 1rem;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+            color: var(--text-dim);
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: var(--border);
+            border-radius: 999px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981, #06d6a0);
+            border-radius: 999px;
+            transition: width 0.3s ease;
+        }
+
+        .queue-item {
+            display: flex;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--surface);
+            border-radius: 12px;
+            margin-bottom: 0.75rem;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .queue-item:hover {
+            transform: translateX(4px);
+            border: 1px solid var(--primary);
+        }
+
+        .queue-position {
+            width: 32px;
+            height: 32px;
+            background: var(--primary);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+
+        .queue-album-cover {
+            width: 50px;
+            height: 50px;
+            border-radius: 8px;
+            object-fit: cover;
+        }
+
+        .queue-album-info {
+            flex: 1;
+        }
+
+        .queue-album-title {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .queue-album-artist {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+        }
+
+        .queue-actions button {
+            background: transparent;
+            border: 1px solid var(--danger);
+            color: var(--danger);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .queue-actions button:hover {
+            background: var(--danger);
+            color: white;
+        }
+
+        .history-item {
+            display: flex;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--surface);
+            border-radius: 12px;
+            margin-bottom: 0.75rem;
+            align-items: center;
+        }
+
+        .status-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+        }
+
+        .status-icon.success {
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--primary);
+        }
+
+        .status-icon.error {
+            background: rgba(239, 68, 68, 0.2);
+            color: var(--danger);
+        }
+
+        .history-info {
+            flex: 1;
+        }
+
+        .history-title {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+
+        .history-meta {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+            border: none;
+            padding: 0.75rem 1rem;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 1rem;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+            box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .btn-danger:active {
+            transform: scale(0.96);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-dim);
+        }
+
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border-glass);
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px);
+            margin-top: auto;
+        }
+
+        @media (max-width: 768px) {
+            .nav-container {
+                flex-wrap: wrap;
+                padding: 1rem;
+                gap: 0.75rem;
+            }
+
+            .logo {
+                width: 100%;
+                justify-content: center;
+                font-size: 1rem;
+            }
+
+            .logo-link {
+                width: 100%;
+                display: block;
+                text-align: center;
+            }
+
+            .nav-links {
+                width: 100%;
+                justify-content: center;
+                flex-wrap: wrap;
+                gap: 0.25rem;
+            }
+
+            .nav-links a {
+                padding: 0.4rem 0.8rem;
+                font-size: 0.85rem;
+            }
+
+            .controls {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            .current-album-info {
+                flex-direction: column;
+            }
+
+            .queue-item {
+                flex-direction: column;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="nav-container">
+            <a href="/" class="logo-link" style="text-decoration: none;">
+                <div class="logo">🎵 Lidarr YouTube Downloader</div>
+            </a>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/downloads">Downloads</a>
+                <a href="/settings">Settings</a>
+            </div>
+            <div class="controls">
+                <button class="icon-btn" onclick="toggleTheme()"><i class="fa-solid fa-moon"
+                        id="themeIcon"></i></button>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="section">
+            <div class="section-title">
+                <i class="fa-solid fa-download"></i>
+                Current Download
+            </div>
+            <div id="currentDownload" class="empty-state">
+                <i class="fa-solid fa-cloud-arrow-down"></i>
+                <p>No active download</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">
+                <i class="fa-solid fa-list-ol"></i>
+                Download Queue
+            </div>
+            <div id="downloadQueue"></div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">
+                <i class="fa-solid fa-clock-rotate-left"></i>
+                Recent History
+            </div>
+            <div id="downloadHistory"></div>
+        </div>
+    </div>
+
+    <footer>
+        Made with love ❤️ <span id="versionDisplay"></span>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const saved = localStorage.getItem('theme') || 'dark';
+            if (saved === 'light') {
+                document.body.classList.add('light');
+                document.getElementById('themeIcon').className = 'fa-solid fa-sun';
+            }
+            loadVersion();
+            updateAll();
+            setInterval(updateAll, 2000);
+        });
+
+        function toggleTheme() {
+            document.body.classList.toggle('light');
+            const isLight = document.body.classList.contains('light');
+            localStorage.setItem('theme', isLight ? 'light' : 'dark');
+            document.getElementById('themeIcon').className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+        }
+
+        async function updateAll() {
+            await updateCurrent();
+            await updateQueue();
+            await updateHistory();
+        }
+
+        async function updateCurrent() {
+            const res = await fetch('/api/download/status');
+            const data = await res.json();
+            const container = document.getElementById('currentDownload');
+
+            if (!data.active) {
+                container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-cloud-arrow-down"></i><p>No active download</p></div>';
+                return;
+            }
+
+            const percent = data.progress.overall_percent || 0;
+            container.innerHTML = `
+                <div class="current-download">
+                    <div class="current-album-details">
+                        <h3>${data.album_title || 'Unknown Album'}</h3>
+                        <p>${data.artist_name || 'Unknown Artist'}</p>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-label">
+                            <span>Track ${data.progress.current || 0}/${data.progress.total || 0}</span>
+                            <span>${percent}%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" style="width: ${percent}%"></div>
+                        </div>
+                    </div>
+                    <p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem;">
+                        ${data.current_track_title || 'Preparing...'}
+                    </p>
+                    <button class="btn-danger" onclick="stopDownload()">
+                        <i class="fa-solid fa-stop"></i> Stop Download
+                    </button>
+                </div>
+            `;
+        }
+
+        async function updateQueue() {
+            const res = await fetch('/api/download/queue');
+            const queue = await res.json();
+            const container = document.getElementById('downloadQueue');
+
+            if (queue.length === 0) {
+                container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-list-check"></i><p>Queue is empty</p></div>';
+                return;
+            }
+
+            container.innerHTML = queue.map((item, index) => `
+                <div class="queue-item">
+                    <div class="queue-position">${index + 1}</div>
+                    <img src="${item.cover || ''}" class="queue-album-cover">
+                    <div class="queue-album-info">
+                        <div class="queue-album-title">${item.title}</div>
+                        <div class="queue-album-artist">${item.artist}</div>
+                    </div>
+                    <div class="queue-actions">
+                        <button onclick="removeFromQueue(${item.id})">Remove</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function updateHistory() {
+            const res = await fetch('/api/download/history');
+            const history = await res.json();
+            const container = document.getElementById('downloadHistory');
+
+            if (history.length === 0) {
+                container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-history"></i><p>No download history</p></div>';
+                return;
+            }
+
+            container.innerHTML = history.reverse().map(item => `
+                <div class="history-item">
+                    <div class="status-icon ${item.success ? 'success' : 'error'}">
+                        <i class="fa-solid fa-${item.success ? 'check' : 'xmark'}"></i>
+                    </div>
+                    <div class="history-info">
+                        <div class="history-title">${item.album_title || 'Unknown'}</div>
+                        <div class="history-meta">${item.artist_name || 'Unknown Artist'} • ${new Date(item.timestamp * 1000).toLocaleString()}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function removeFromQueue(id) {
+            await fetch('/api/download/queue/' + id, { method: 'DELETE' });
+            updateQueue();
+        }
+
+        async function stopDownload() {
+            if (confirm('Are you sure you want to stop the current download?')) {
+                await fetch('/api/download/stop', { method: 'POST' });
+                setTimeout(updateAll, 500);
+            }
+        }
+
+        async function loadVersion() {
+            try {
+                const res = await fetch('/api/version');
+                const data = await res.json();
+                if (data.version) {
+                    document.getElementById('versionDisplay').textContent = `• v${data.version}`;
+                }
+            } catch (e) {
+            }
+        }
+    </script>
+</body>
+
+</html>
