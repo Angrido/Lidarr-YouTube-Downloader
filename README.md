@@ -87,7 +87,6 @@ A modern, feature-rich web application that automatically downloads missing albu
 
 If you prefer using standard Docker Compose:
 ```yaml
-version: '3'
 services:
   lidarr-downloader:
     image: angrido/lidarr-downloader:latest
