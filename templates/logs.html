@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logs - Lidarr YouTube Downloader</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/1384/1384060.png">
+    <style>
+        :root {
+            --bg: #09090b;
+            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.05) 0%, transparent 50%);
+            --surface: #18181b;
+            --surface-glass: rgba(24, 24, 27, 0.7);
+            --surface-hover: #27272a;
+            --text: #fafafa;
+            --text-dim: #a1a1aa;
+            --primary: #10b981;
+            --primary-hover: #059669;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --border: #27272a;
+            --border-glass: rgba(255, 255, 255, 0.1);
+            --radius: 16px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
+            --glow: 0 0 20px rgba(16, 185, 129, 0.3);
+        }
+
+        body.light {
+            --bg: #f4f4f5;
+            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.03) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.03) 0%, transparent 50%);
+            --surface: #ffffff;
+            --surface-glass: rgba(255, 255, 255, 0.7);
+            --surface-hover: #f4f4f5;
+            --text: #18181b;
+            --text-dim: #71717a;
+            --border: #e4e4e7;
+            --border-glass: rgba(0, 0, 0, 0.1);
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            --glow: 0 0 20px rgba(16, 185, 129, 0.2);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            background-image: var(--bg-pattern);
+            background-attachment: fixed;
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border-bottom: 1px solid var(--border-glass);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            padding: 1rem 0;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+        }
+
+        .nav-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            font-weight: 800;
+            font-size: 1.2rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            cursor: pointer;
+            text-decoration: none;
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--text);
+            text-decoration: none;
+            font-weight: 500;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: var(--primary);
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%) scaleX(0);
+            width: 80%;
+            height: 2px;
+            background: linear-gradient(90deg, var(--primary), #06d6a0);
+            transition: transform 0.3s ease;
+        }
+
+        .nav-links a:hover::after {
+            transform: translateX(-50%) scaleX(1);
+        }
+
+        .nav-links a.active {
+            color: var(--primary);
+        }
+
+        .controls {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .icon-btn {
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-glass);
+            color: var(--text);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            transition: all 0.3s ease;
+        }
+
+        .icon-btn:hover {
+            background: var(--surface-hover);
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+            transform: scale(1.05);
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            width: 100%;
+            flex: 1;
+        }
+
+        .page-header {
+            margin-bottom: 2rem;
+        }
+
+        .page-title {
+            font-size: 2rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .page-subtitle {
+            color: var(--text-dim);
+            font-size: 1rem;
+        }
+
+        .controls-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .filter-group {
+            display: flex;
+            gap: 0.5rem;
+            flex: 1;
+            flex-wrap: wrap;
+        }
+
+        select.filter-select {
+            padding: 0.75rem 2rem 0.75rem 1rem;
+            border-radius: 30px;
+            border: 1px solid var(--border-glass);
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+            color: var(--text);
+            appearance: none;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.3s ease;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2310b981' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+        }
+
+        select.filter-select:focus {
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 10px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+            box-shadow: 0 6px 25px rgba(239, 68, 68, 0.6);
+            transform: translateY(-2px);
+        }
+
+        .btn-danger:active {
+            transform: scale(0.96);
+        }
+
+        .logs-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .log-card {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            border: 1px solid var(--border-glass);
+            transition: all 0.3s ease;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .log-card:hover {
+            transform: translateX(4px);
+            box-shadow: var(--shadow);
+        }
+
+        .log-card.download_started {
+            border-left: 4px solid #3b82f6;
+        }
+
+        .log-card.download_success {
+            border-left: 4px solid var(--primary);
+        }
+
+        .log-card.partial_success {
+            border-left: 4px solid var(--warning);
+        }
+
+        .log-card.import_success {
+            border-left: 4px solid var(--primary);
+        }
+
+        .log-card.import_failed {
+            border-left: 4px solid var(--danger);
+        }
+
+        .log-card.album_error {
+            border-left: 4px solid var(--danger);
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .log-info {
+            flex: 1;
+        }
+
+        .log-type {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem 0.75rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .log-type.download_started {
+            background: rgba(59, 130, 246, 0.1);
+            color: #3b82f6;
+        }
+
+        .log-type.download_success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--primary);
+        }
+
+        .log-type.partial_success {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+        }
+
+        .log-type.import_success {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--primary);
+        }
+
+        .log-type.import_failed {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+        }
+
+        .log-type.album_error {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+        }
+
+        .log-album {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+
+        .log-artist {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        .log-details {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background: var(--bg);
+            border-radius: 8px;
+            font-size: 0.85rem;
+        }
+
+        .log-details-title {
+            font-weight: 600;
+            color: var(--text-dim);
+            margin-bottom: 0.5rem;
+        }
+
+        .failed-tracks-list {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .failed-tracks-list li {
+            padding: 0.25rem 0;
+            color: var(--text-dim);
+        }
+
+        .failed-tracks-list li::before {
+            content: "• ";
+            color: var(--danger);
+            font-weight: bold;
+        }
+
+        .log-timestamp {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            margin-top: 0.5rem;
+        }
+
+        .log-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .btn-icon {
+            background: transparent;
+            border: 1px solid var(--border-glass);
+            color: var(--text-dim);
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+        }
+
+        .btn-icon:hover {
+            background: var(--danger);
+            border-color: var(--danger);
+            color: white;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+        }
+
+        .empty-state-icon {
+            font-size: 4rem;
+            color: var(--text-dim);
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        .empty-state-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+
+        .empty-state-text {
+            color: var(--text-dim);
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border-glass);
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px);
+            margin-top: auto;
+        }
+
+        @media (max-width: 768px) {
+            .nav-container {
+                flex-wrap: wrap;
+                padding: 1rem;
+                gap: 0.75rem;
+            }
+
+            .logo {
+                width: 100%;
+                justify-content: center;
+                font-size: 1rem;
+            }
+
+            .logo-link {
+                width: 100%;
+                display: block;
+                text-align: center;
+            }
+
+            .nav-links {
+                width: 100%;
+                justify-content: center;
+                flex-wrap: wrap;
+                gap: 0.25rem;
+            }
+
+            .nav-links a {
+                padding: 0.4rem 0.8rem;
+                font-size: 0.85rem;
+            }
+
+            .controls {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .container {
+                padding: 1rem;
+            }
+
+            .page-header {
+                text-align: center;
+            }
+
+            .page-title {
+                font-size: 1.5rem;
+            }
+
+            .controls-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .filter-group {
+                width: 100%;
+            }
+
+            .btn {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <nav class="nav-container">
+            <a href="/" class="logo-link" style="text-decoration: none;">
+                <div class="logo">🎵 Lidarr YouTube Downloader</div>
+            </a>
+            <div class="nav-links">
+                <a href="/"><i class="fas fa-home"></i> Home</a>
+                <a href="/downloads"><i class="fas fa-download"></i> Downloads</a>
+                <a href="/logs" class="active"><i class="fas fa-list"></i> Logs</a>
+                <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
+            </div>
+            <div class="controls">
+                <button class="icon-btn" onclick="toggleTheme()">
+                    <i class="fas fa-moon" id="theme-icon"></i>
+                </button>
+            </div>
+        </nav>
+    </header>
+
+    <div class="container">
+        <div class="page-header">
+            <h1 class="page-title">📋 Download Logs</h1>
+            <p class="page-subtitle">Track errors and issues during downloads</p>
+        </div>
+
+        <div class="controls-row">
+            <div class="filter-group">
+                <select class="filter-select" id="filterType" onchange="filterLogs()">
+                    <option value="all">All Types</option>
+                    <option value="download_started">Download Started</option>
+                    <option value="download_success">Download Success</option>
+                    <option value="partial_success">Partial Success</option>
+                    <option value="import_success">Import Success</option>
+                    <option value="import_failed">Import Failed</option>
+                    <option value="album_error">Album Error</option>
+                </select>
+            </div>
+            <button class="btn btn-danger" onclick="clearAllLogs()">
+                <i class="fas fa-trash"></i>
+                Clear All Logs
+            </button>
+        </div>
+
+        <div class="logs-container" id="logsContainer">
+            <!-- Logs will be inserted here -->
+        </div>
+
+        <div class="empty-state" id="emptyState" style="display: none;">
+            <div class="empty-state-icon">
+                <i class="fas fa-check-circle"></i>
+            </div>
+            <h2 class="empty-state-title">No Errors Found</h2>
+            <p class="empty-state-text">All downloads completed successfully! 🎉</p>
+        </div>
+    </div>
+
+    <footer>
+        Made with love ❤️ <span id="versionDisplay"></span>
+    </footer>
+
+    <script>
+        let allLogs = [];
+        let currentFilter = 'all';
+
+        // Theme toggle
+        function toggleTheme() {
+            document.body.classList.toggle('light');
+            const icon = document.getElementById('theme-icon');
+            if (document.body.classList.contains('light')) {
+                icon.classList.remove('fa-moon');
+                icon.classList.add('fa-sun');
+                localStorage.setItem('theme', 'light');
+            } else {
+                icon.classList.remove('fa-sun');
+                icon.classList.add('fa-moon');
+                localStorage.setItem('theme', 'dark');
+            }
+        }
+
+        // Load theme from localStorage
+        if (localStorage.getItem('theme') === 'light') {
+            document.body.classList.add('light');
+            document.getElementById('theme-icon').classList.remove('fa-moon');
+            document.getElementById('theme-icon').classList.add('fa-sun');
+        }
+
+        // Fetch logs from API
+        async function fetchLogs() {
+            try {
+                const response = await fetch('/api/logs');
+                allLogs = await response.json();
+                filterLogs();
+            } catch (error) {
+                console.error('Error fetching logs:', error);
+            }
+        }
+
+        // Format timestamp
+        function formatTimestamp(timestamp) {
+            const date = new Date(timestamp * 1000);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+
+            if (diffMins < 1) return 'Just now';
+            if (diffMins < 60) return `${diffMins} minute${diffMins > 1 ? 's' : ''} ago`;
+            if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
+            if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
+
+            return date.toLocaleString();
+        }
+
+        // Get log type display name and icon
+        function getLogTypeInfo(type) {
+            const types = {
+                'download_started': { name: 'Download Started', icon: 'fa-play-circle' },
+                'download_success': { name: 'Download Success', icon: 'fa-check-circle' },
+                'partial_success': { name: 'Partial Success', icon: 'fa-exclamation-triangle' },
+                'import_success': { name: 'Import Success', icon: 'fa-check-double' },
+                'import_failed': { name: 'Import Failed', icon: 'fa-times-circle' },
+                'album_error': { name: 'Album Error', icon: 'fa-exclamation-circle' }
+            };
+            return types[type] || { name: type, icon: 'fa-info-circle' };
+        }
+
+        // Filter logs
+        function filterLogs() {
+            currentFilter = document.getElementById('filterType').value;
+            const filtered = currentFilter === 'all'
+                ? allLogs
+                : allLogs.filter(log => log.type === currentFilter);
+
+            renderLogs(filtered);
+        }
+
+        // Render logs
+        function renderLogs(logs) {
+            const container = document.getElementById('logsContainer');
+            const emptyState = document.getElementById('emptyState');
+
+            if (logs.length === 0) {
+                container.innerHTML = '';
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            emptyState.style.display = 'none';
+            container.innerHTML = logs.map(log => {
+                const typeInfo = getLogTypeInfo(log.type);
+                const failedTracksHtml = log.failed_tracks && log.failed_tracks.length > 0
+                    ? `<div class="log-details">
+                        <div class="log-details-title">Failed Tracks (${log.failed_tracks.length}):</div>
+                        <ul class="failed-tracks-list">
+                            ${log.failed_tracks.map(track => `<li>${track}</li>`).join('')}
+                        </ul>
+                    </div>`
+                    : '';
+
+                return `
+                    <div class="log-card ${log.type}" id="log-${log.id}">
+                        <div class="log-header">
+                            <div class="log-info">
+                                <div class="log-type ${log.type}">
+                                    <i class="fas ${typeInfo.icon}"></i>
+                                    ${typeInfo.name}
+                                </div>
+                                <div class="log-album">${log.album_title}</div>
+                                <div class="log-artist">by ${log.artist_name}</div>
+                            </div>
+                            <div class="log-actions">
+                                <button class="btn-icon" onclick="dismissLog('${log.id}')" title="Dismiss">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        ${log.details ? `<div class="log-details"><div class="log-details-title">Details:</div>${log.details}</div>` : ''}
+                        ${failedTracksHtml}
+                        <div class="log-timestamp">
+                            <i class="fas fa-clock"></i> ${formatTimestamp(log.timestamp)}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Dismiss a single log
+        async function dismissLog(logId) {
+            if (!confirm('Are you sure you want to dismiss this log entry?')) return;
+
+            try {
+                const response = await fetch(`/api/logs/${logId}/dismiss`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    // Remove from UI with animation
+                    const logCard = document.getElementById(`log-${logId}`);
+                    if (logCard) {
+                        logCard.style.animation = 'slideOut 0.3s ease forwards';
+                        setTimeout(() => {
+                            fetchLogs();
+                        }, 300);
+                    }
+                } else {
+                    alert('Failed to dismiss log');
+                }
+            } catch (error) {
+                console.error('Error dismissing log:', error);
+                alert('Failed to dismiss log');
+            }
+        }
+
+        // Clear all logs
+        async function clearAllLogs() {
+            if (!confirm('Are you sure you want to clear all logs? This action cannot be undone.')) return;
+
+            try {
+                const response = await fetch('/api/logs/clear', {
+                    method: 'POST'
+                });
+
+                if (response.ok) {
+                    fetchLogs();
+                } else {
+                    alert('Failed to clear logs');
+                }
+            } catch (error) {
+                console.error('Error clearing logs:', error);
+                alert('Failed to clear logs');
+            }
+        }
+
+        // Add slideOut animation
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes slideOut {
+                to {
+                    opacity: 0;
+                    transform: translateX(-20px);
+                }
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Initial fetch
+        fetchLogs();
+
+        // Refresh logs every 30 seconds
+        setInterval(fetchLogs, 30000);
+
+        // Load version
+        async function loadVersion() {
+            try {
+                const res = await fetch('/api/version');
+                const data = await res.json();
+                if (data.version) {
+                    document.getElementById('versionDisplay').textContent = `• v${data.version}`;
+                }
+            } catch (e) {
+            }
+        }
+        loadVersion();
+    </script>
+</body>
+
+</html>
