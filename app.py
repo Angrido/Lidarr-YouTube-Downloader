@@ -25,7 +25,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 CONFIG_FILE = '/config/config.json'
 DOWNLOAD_DIR = os.getenv('DOWNLOAD_PATH', '')
@@ -436,6 +436,8 @@ def process_album_download(album_id, force=False):
 
         logger.info(f"📦 Total tracks to download: {len(tracks_to_download)}")
         
+        failed_tracks = []
+        
         for idx, track in enumerate(tracks_to_download, 1):
             if download_process['stop']:
                 logger.warning(f"⏹️  Download stopped by user")
@@ -476,6 +478,7 @@ def process_album_download(album_id, force=False):
                 shutil.move(actual_file, final_file)
             else:
                 logger.warning(f"⚠️  Failed to download track: {track_title}")
+                failed_tracks.append(track_title)
             
             # Update progress after track completion
             download_process['progress']['current'] = idx
@@ -484,11 +487,18 @@ def process_album_download(album_id, force=False):
 
         set_permissions(artist_path)
         
+        if failed_tracks:
+            failed_list = "\n".join([f"• {t}" for t in failed_tracks])
+            send_telegram(f"❌ Download failed\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n\nFailed tracks:\n{failed_list}")
+            logger.warning(f"⚠️  Download completed with {len(failed_tracks)} failed tracks")
+        else:
+            send_telegram(f"✅ Download successful\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n📦 Tracks: {len(tracks_to_download)}/{len(tracks_to_download)}")
+            logger.info(f"✅ All tracks downloaded successfully")
+        
         logger.info(f"📥 Importing album to Lidarr...")
         if force_lidarr_import(album_path, artist_id, album_id, release_id):
             logger.info(f"✅ Album imported successfully: {artist_name} - {album_title}")
             lidarr_request('command', method='POST', data={'name': 'RefreshArtist', 'artistId': artist_id})
-            send_telegram(f"✅ Album downloaded: {artist_name} - {album_title}")
             return {'success': True}
         else:
             logger.error(f"❌ Import failed for album: {artist_name} - {album_title}")
@@ -496,6 +506,9 @@ def process_album_download(album_id, force=False):
             
     except Exception as e:
         logger.error(f"❌ Error during album download: {str(e)}")
+        artist_name = download_process.get('artist_name', 'Unknown')
+        album_title = download_process.get('album_title', 'Unknown')
+        send_telegram(f"❌ Download failed\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}")
         return {'error': str(e)}
     finally:
         with queue_lock:
