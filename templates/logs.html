@@ -301,6 +301,10 @@
             border-left: 4px solid var(--warning);
         }
 
+        .log-card.import_partial {
+            border-left: 4px solid var(--warning);
+        }
+
         .log-card.import_success {
             border-left: 4px solid var(--primary);
         }
@@ -346,6 +350,11 @@
         }
 
         .log-type.partial_success {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+        }
+
+        .log-type.import_partial {
             background: rgba(245, 158, 11, 0.1);
             color: var(--warning);
         }
@@ -568,6 +577,7 @@
                     <option value="download_success">Download Success</option>
                     <option value="partial_success">Partial Success</option>
                     <option value="import_success">Import Success</option>
+                    <option value="import_partial">Import Partial</option>
                     <option value="import_failed">Import Failed</option>
                     <option value="album_error">Album Error</option>
                 </select>
@@ -579,7 +589,7 @@
         </div>
 
         <div class="logs-container" id="logsContainer">
-            <!-- Logs will be inserted here -->
+            
         </div>
 
         <div class="empty-state" id="emptyState" style="display: none;">
@@ -656,6 +666,7 @@
                 'download_success': { name: 'Download Success', icon: 'fa-check-circle' },
                 'partial_success': { name: 'Partial Success', icon: 'fa-exclamation-triangle' },
                 'import_success': { name: 'Import Success', icon: 'fa-check-double' },
+                'import_partial': { name: 'Import Partial', icon: 'fa-exclamation-triangle' },
                 'import_failed': { name: 'Import Failed', icon: 'fa-times-circle' },
                 'album_error': { name: 'Album Error', icon: 'fa-exclamation-circle' }
             };
