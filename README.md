@@ -1,42 +1,37 @@
 # 🎵 Lidarr YouTube Downloader
 
-![Lidarr Integration](https://img.shields.io/badge/Integration-Lidarr-green?style=flat-square&logo=lidarr)
-![Docker](https://img.shields.io/badge/Docker-Ready-blue?style=flat-square&logo=docker)
-![Python](https://img.shields.io/badge/Python-3.12-yellow?style=flat-square&logo=python)
+<div align="center">
 
-A modern, feature-rich web application that automatically downloads missing albums from your Lidarr library using YouTube as a source. Built with Flask and featuring a beautiful glassmorphism UI with advanced download management.
+![Version](https://img.shields.io/badge/version-1.2.0-blue.svg?style=for-the-badge)
+![Python](https://img.shields.io/badge/python-3.12+-yellow.svg?style=for-the-badge&logo=python&logoColor=white)
+![Docker](https://img.shields.io/badge/docker-ready-blue.svg?style=for-the-badge&logo=docker&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)
 
-## ✨ Features
+**The missing link between Lidarr and YouTube.**
+<br>Automatically find, download, tag, and import albums that are hard to find on standard indexers.
 
-### 🎨 Modern UI
-- **Glassmorphism Design** - Beautiful, modern interface with blur effects and gradient animations
-- **Dark/Light Theme** - Seamless theme switching with persistent preferences
-- **Responsive Layout** - Optimized for desktop, tablet, and mobile devices
-- **Multiple View Modes** - Switch between Cards, List, and Table views
+</div>
 
-### 📥 Advanced Download Management
-- **Download Queue System** - Queue multiple albums for sequential processing
-- **Persistent Progress** - Real-time progress tracking visible across all pages
-- **Minimizable Progress** - Minimize progress to a floating button while browsing
-- **In-Card Progress** - See download progress directly on album cards
-- **Stop Downloads** - Cancel active downloads anytime
-- **Download History** - Track all completed downloads with success/failure status
+---
 
-### 🤖 Automation
-- **Smart Scheduler** - Automatically check for missing albums at configurable intervals
-- **Duplicate Prevention** - Intelligent filtering to avoid re-downloading existing albums
-- **Queue Integration** - Automatically adds new missing albums to the download queue
-- **Auto-Download Toggle** - Enable/disable automatic downloads while keeping monitoring active
+## ✨ Why this?
 
-### 📱 Notifications
-- **Telegram Integration** - Get notified about downloads and scheduler activities
-- **Real-time Updates** - Live status updates without page refresh
+Lidarr is amazing for managing music libraries, but sometimes the albums you want just aren't available on Usenet or Torrents. **Lidarr YouTube Downloader** solves this by bridging the gap: it uses Lidarr's "Missing" list to find high-quality audio on YouTube, tags it perfectly with MusicBrainz metadata, and imports it right back into your library.
 
-### 📋 Management Pages
-- **Dashboard** - Browse and manage your library with powerful filtering
-- **Downloads** - Monitor active downloads, queue, and history
-- **Settings** - Configure automation, Telegram, and application preferences
+## 🚀 Features
 
+*   **Seamless Lidarr Integration**: Automatically fetches missing albums from your Lidarr wanted list.
+*   **High-Quality Audio**: Downloads the best available audio from YouTube (up to 320kbps/Opus) using `yt-dlp`.
+*   **Auto-Tagging**: Applies ID3 tags (Artist, Album, Title, Cover Art) using data from Lidarr and iTunes.
+*   **Modern Web UI**: A beautiful, responsive dashboard to track downloads in real-time.
+    *   Dark & Light mode support 🌙/☀️
+    *   Live progress bars & speed stats 📊
+    *   Download queue management 📋
+*   **Smart Notifications**: Get instant updates via **Telegram** when downloads start, finish, or fail.
+*   **Robust Error Handling**:
+    *   Handles "Partial Downloads" gracefully (imports what succeeded).
+    *   Safety checks to prevent accidental file deletion.
+*   **Docker Ready**: configure and deploy in seconds.
 ---
 
 ## 📸 Screenshots
@@ -104,31 +99,6 @@ services:
       - LIDARR_PATH=/music
     restart: unless-stopped
 ```
-
-## 📖 Usage
-
-### Dashboard
-1. **Browse Albums** - View all missing albums from your Lidarr library
-2. **Search & Filter** - Use the search box and sorting options
-3. **Change View** - Switch between Cards, List, or Table view
-4. **Add to Queue** - Click "Add to Queue" on any album
-
-### Downloads Page
-- **Monitor Progress** - See current download with real-time updates
-- **Manage Queue** - Reorder or remove queued albums
-- **View History** - Check past downloads and their status
-- **Stop Downloads** - Cancel active downloads if needed
-
-### Settings
-- **Automation** - Configure scheduler interval and auto-download
-- **Telegram** - Set up notification bot
-- **Theme** - Switch between dark and light modes
-
-### Progress Container
-- **Minimize** - Click X to minimize to a floating button
-- **Restore** - Click the floating button to restore full view
-- **Queue Preview** - See next 3 albums in queue
-- **Stop** - Cancel current download
 
 ---
 
