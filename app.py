@@ -23,7 +23,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.2.2"
+VERSION = "1.2.3"
 
 CONFIG_FILE = "/config/config.json"
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
@@ -245,7 +245,19 @@ def sanitize_filename(name):
     return name.strip()
 
 
-def download_track_youtube(query, output_path, track_title_original):
+def download_track_youtube(query, output_path, track_title_original, expected_duration_ms=None):
+    """
+    Download a track from YouTube with improved duration matching.
+    
+    Args:
+        query: Search query string
+        output_path: Path to save the downloaded file
+        track_title_original: Original track title for forbidden word checking
+        expected_duration_ms: Expected track duration in milliseconds from Lidarr (optional)
+    
+    Returns:
+        bool: True if download succeeded, False otherwise
+    """
     ydl_opts_search = {
         "format": "bestaudio/best",
         "quiet": True,
@@ -255,13 +267,18 @@ def download_track_youtube(query, output_path, track_title_original):
     }
 
     candidates = []
+    config = load_config()
+    forbidden_words = config.get("forbidden_words", ["remix", "cover", "mashup", "bootleg", "live", "dj mix"])
+    duration_tolerance = config.get("duration_tolerance", 10)
+    
+    expected_duration_sec = None
+    if expected_duration_ms:
+        expected_duration_sec = expected_duration_ms / 1000.0
+        logger.info(f"📏 Expected track duration: {int(expected_duration_sec // 60)}:{int(expected_duration_sec % 60):02d} ({int(expected_duration_sec)}s)")
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
             search_results = ydl.extract_info(f"ytsearch10:{query}", download=False)
-
-            config = load_config()
-            forbidden_words = config.get("forbidden_words", ["remix", "cover", "mashup", "bootleg", "live", "dj mix"])
 
             for entry in search_results.get("entries", []):
                 title = entry.get("title", "").lower()
@@ -271,21 +288,55 @@ def download_track_youtube(query, output_path, track_title_original):
                 is_clean = True
                 for word in forbidden_words:
                     if word in title and word not in track_title_original.lower():
+                        logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - contains forbidden word '{word}'")
                         is_clean = False
                         break
 
-                if duration > 900 or duration < 30:
-                    is_clean = False
+                if not is_clean:
+                    continue
 
-                if is_clean and url:
-                    candidates.append(url)
-    except:
+                if expected_duration_sec:
+                    min_duration = max(15, expected_duration_sec - duration_tolerance - 60)
+                    max_duration = expected_duration_sec + duration_tolerance + 300
+                    
+                    if duration < min_duration or duration > max_duration:
+                        logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - duration {int(duration)}s outside range [{int(min_duration)}s - {int(max_duration)}s]")
+                        continue
+                    
+                    duration_diff = abs(duration - expected_duration_sec)
+                    duration_score = 1000 - duration_diff
+                else:
+                    if duration < 15 or duration > 7200:
+                        logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - duration {int(duration)}s outside permissive range [15s - 7200s]")
+                        continue
+                    duration_score = 500
+
+                if url:
+                    candidates.append({
+                        "url": url,
+                        "title": entry.get("title", ""),
+                        "duration": duration,
+                        "score": duration_score
+                    })
+                    logger.debug(f"   ✓ Added candidate '{entry.get('title', '')}' - duration {int(duration)}s, score {int(duration_score)}")
+    except Exception as e:
+        logger.error(f"   ❌ Search failed: {str(e)}")
         pass
 
     if not candidates:
+        logger.warning(f"   ⚠️  No suitable candidates found after filtering")
         return False
 
-    for video_url in candidates:
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    
+    if expected_duration_sec:
+        best_candidate = candidates[0]
+        duration_diff = abs(best_candidate["duration"] - expected_duration_sec)
+        logger.info(f"   🎯 Best match: '{best_candidate['title']}' (duration: {int(best_candidate['duration'])}s, diff: {int(duration_diff)}s)")
+    else:
+        logger.info(f"   🎯 Selected: '{candidates[0]['title']}' (duration: {int(candidates[0]['duration'])}s)")
+
+    for candidate in candidates:
         try:
             ydl_opts_download = {
                 "format": "bestaudio/best",
@@ -303,9 +354,10 @@ def download_track_youtube(query, output_path, track_title_original):
             }
 
             with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
-                ydl_dl.download([video_url])
+                ydl_dl.download([candidate["url"]])
             return True
         except:
+            logger.debug(f"   ⚠️  Failed to download '{candidate['title']}', trying next candidate...")
             continue
 
     return False
@@ -610,7 +662,6 @@ def process_album_download(album_id, force=False):
                 f"⬇️  Downloading track {idx}/{len(tracks_to_download)}: {track_title}"
             )
 
-            query = f"{artist_name} {track_title} official audio"
             sanitized_track = sanitize_filename(track_title)
 
             temp_file = os.path.join(album_path, f"temp_{track_num:02d}")
@@ -618,7 +669,25 @@ def process_album_download(album_id, force=False):
                 album_path, f"{track_num:02d} - {sanitized_track}.mp3"
             )
 
-            download_success = download_track_youtube(query, temp_file, track_title)
+            track_duration_ms = track.get("duration")
+            
+            download_success = False
+            queries_to_try = []
+            
+            queries_to_try.append(f"{artist_name} {track_title} official audio")
+            
+            if "/" in track_title or " - " in track_title:
+                simplified_title = track_title.split("/")[0].split(" - ")[0].strip()
+                if simplified_title != track_title:
+                    queries_to_try.append(f"{artist_name} {simplified_title} official audio")
+                    logger.info(f"   💡 Will try simplified query: '{simplified_title}'")
+            
+            for idx, query in enumerate(queries_to_try):
+                if idx > 0:
+                    logger.info(f"   🔄 Trying alternative search query ({idx+1}/{len(queries_to_try)})...")
+                download_success = download_track_youtube(query, temp_file, track_title, track_duration_ms)
+                if download_success:
+                    break
             actual_file = temp_file + ".mp3"
 
             if download_success and os.path.exists(actual_file):
