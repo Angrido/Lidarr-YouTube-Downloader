@@ -23,7 +23,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.2.3"
+VERSION = "1.2.4"
 
 CONFIG_FILE = "/config/config.json"
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
@@ -65,6 +65,15 @@ def load_config():
         "xml_metadata_enabled": os.getenv("XML_METADATA_ENABLED", "true").lower()
         == "true",
         "forbidden_words": ["remix", "cover", "mashup", "bootleg", "live", "dj mix"],
+        # yt-dlp hardening (403 mitigation)
+        "yt_cookies_file": os.getenv("YT_COOKIES_FILE", ""),
+        "yt_force_ipv4": os.getenv("YT_FORCE_IPV4", "true").lower() == "true",
+        "yt_player_client": os.getenv("YT_PLAYER_CLIENT", "android"),  # android|web|ios
+        "yt_retries": int(os.getenv("YT_RETRIES", "10")),
+        "yt_fragment_retries": int(os.getenv("YT_FRAGMENT_RETRIES", "10")),
+        "yt_sleep_requests": int(os.getenv("YT_SLEEP_REQUESTS", "1")),
+        "yt_sleep_interval": int(os.getenv("YT_SLEEP_INTERVAL", "1")),
+        "yt_max_sleep_interval": int(os.getenv("YT_MAX_SLEEP_INTERVAL", "5")),
         "path_conflict": False,
     }
     
@@ -258,16 +267,38 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
     Returns:
         bool: True if download succeeded, False otherwise
     """
+    def build_common_opts(player_client=None):
+        cfg = load_config()
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "retries": int(cfg.get("yt_retries", 10)),
+            "fragment_retries": int(cfg.get("yt_fragment_retries", 10)),
+            "sleep_interval_requests": int(cfg.get("yt_sleep_requests", 1)),
+            "sleep_interval": int(cfg.get("yt_sleep_interval", 1)),
+            "max_sleep_interval": int(cfg.get("yt_max_sleep_interval", 5)),
+            "noplaylist": True,
+        }
+        cookies_path = (cfg.get("yt_cookies_file") or "").strip()
+        if cookies_path and os.path.exists(cookies_path):
+            opts["cookiefile"] = cookies_path
+        elif cookies_path and not os.path.exists(cookies_path):
+            logger.warning(f"⚠️ YT_COOKIES_FILE not found: {cookies_path}")
+        if cfg.get("yt_force_ipv4", True):
+            # Force IPv4 via source_address
+            opts["source_address"] = "0.0.0.0"
+        if player_client:
+            opts["extractor_args"] = {"youtube": {"player_client": [player_client]}}
+        return opts
+
+    config = load_config()
     ydl_opts_search = {
+        **build_common_opts(player_client=config.get("yt_player_client", "android") or None),
         "format": "bestaudio/best",
-        "quiet": True,
-        "no_warnings": True,
         "extract_flat": True,
-        "noplaylist": True,
     }
 
     candidates = []
-    config = load_config()
     forbidden_words = config.get("forbidden_words", ["remix", "cover", "mashup", "bootleg", "live", "dj mix"])
     duration_tolerance = config.get("duration_tolerance", 10)
     
@@ -337,8 +368,20 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
         logger.info(f"   🎯 Selected: '{candidates[0]['title']}' (duration: {int(candidates[0]['duration'])}s)")
 
     for candidate in candidates:
-        try:
+        # Try multiple extractor client profiles to bypass 403/age/region issues
+        clients_to_try = []
+        first_client = config.get("yt_player_client", "android")
+        if first_client:
+            clients_to_try.append(first_client)
+        for alt in ["web", "ios"]:
+            if alt != first_client:
+                clients_to_try.append(alt)
+        clients_to_try.append(None)  # finally, no explicit client override
+
+        last_err = None
+        for pc in clients_to_try:
             ydl_opts_download = {
+                **build_common_opts(player_client=pc),
                 "format": "bestaudio/best",
                 "postprocessors": [
                     {
@@ -348,17 +391,29 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
                     }
                 ],
                 "outtmpl": output_path,
-                "quiet": True,
-                "no_warnings": True,
                 "progress_hooks": [lambda d: update_progress(d)],
             }
-
-            with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
-                ydl_dl.download([candidate["url"]])
-            return True
-        except:
-            logger.debug(f"   ⚠️  Failed to download '{candidate['title']}', trying next candidate...")
-            continue
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
+                    ydl_dl.download([candidate["url"]])
+                return True
+            except Exception as e:
+                last_err = e
+                msg = str(e)
+                if "403" in msg:
+                    logger.debug(
+                        f"   ⊗ 403 with player_client={pc or 'default'}; ensure cookies are provided (YT_COOKIES_FILE) and try again"
+                    )
+                else:
+                    logger.debug(
+                        f"   ⊗ Failed with player_client={pc or 'default'}; {msg[:180]}"
+                    )
+                continue
+        if last_err:
+            logger.debug(
+                f"   ⚠️  Failed to download '{candidate['title']}' after trying multiple client profiles."
+            )
+        continue
 
     return False
 
