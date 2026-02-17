@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Logs - Lidarr YouTube Downloader</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
-    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/1384/1384060.png">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <style>
         :root {
             --bg: #09090b;
@@ -56,18 +56,18 @@
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            overflow-x: hidden;
         }
 
         header {
             background: var(--surface-glass);
-            backdrop-filter: blur(20px) saturate(180%);
-            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            backdrop-filter: blur(30px) saturate(200%);
+            -webkit-backdrop-filter: blur(30px) saturate(200%);
             border-bottom: 1px solid var(--border-glass);
             position: sticky;
             top: 0;
             z-index: 50;
-            padding: 1rem 0;
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+            padding: 0;
         }
 
         .nav-container {
@@ -77,91 +77,141 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            height: 64px;
         }
 
         .logo {
             font-weight: 800;
-            font-size: 1.2rem;
+            font-size: 1.25rem;
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            gap: 0.6rem;
+            background: linear-gradient(135deg, var(--primary), #06d6a0, #0891b2);
+            background-size: 200% 200%;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            cursor: pointer;
+            animation: gradient-shift 4s ease infinite;
+            letter-spacing: -0.02em;
             text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .logo-icon svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        @keyframes gradient-shift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
         }
 
         .nav-links {
             display: flex;
-            gap: 0.5rem;
+            gap: 0.25rem;
             align-items: center;
         }
 
         .nav-links a {
-            color: var(--text);
+            color: var(--text-dim);
             text-decoration: none;
             font-weight: 500;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            transition: all 0.3s ease;
+            font-size: 0.9rem;
+            padding: 0.5rem 0.9rem;
+            border-radius: 10px;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
             position: relative;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
         }
 
         .nav-links a:hover {
+            color: var(--text);
+            background: var(--surface-hover);
+        }
+
+        .nav-links a.active {
             color: var(--primary);
-            background: var(--surface-glass);
-            backdrop-filter: blur(10px);
+            background: rgba(16, 185, 129, 0.1);
         }
 
         .nav-links a::after {
             content: '';
             position: absolute;
-            bottom: 0;
+            bottom: 2px;
             left: 50%;
             transform: translateX(-50%) scaleX(0);
-            width: 80%;
+            width: 60%;
             height: 2px;
             background: linear-gradient(90deg, var(--primary), #06d6a0);
-            transition: transform 0.3s ease;
+            border-radius: 1px;
+            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
-        .nav-links a:hover::after {
+        .nav-links a:hover::after,
+        .nav-links a.active::after {
             transform: translateX(-50%) scaleX(1);
-        }
-
-        .nav-links a.active {
-            color: var(--primary);
         }
 
         .controls {
             display: flex;
-            gap: 1rem;
+            gap: 0.75rem;
             align-items: center;
         }
 
-        .icon-btn {
+        .theme-toggle {
             background: var(--surface-glass);
             backdrop-filter: blur(10px);
             border: 1px solid var(--border-glass);
             color: var(--text);
             width: 40px;
             height: 40px;
-            border-radius: 50%;
+            border-radius: 12px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             font-size: 1.1rem;
-            transition: all 0.3s ease;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
         }
 
-        .icon-btn:hover {
+        .theme-toggle:hover {
             background: var(--surface-hover);
             border-color: var(--primary);
             box-shadow: var(--glow);
-            transform: scale(1.05);
+            transform: scale(1.08);
+        }
+
+        .theme-toggle:active {
+            transform: scale(0.92);
+        }
+
+        .theme-toggle i {
+            transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .theme-toggle.spin i {
+            animation: themeSwitch 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes themeSwitch {
+            0% { transform: rotate(0deg) scale(1); opacity: 1; }
+            50% { transform: rotate(180deg) scale(0); opacity: 0; }
+            100% { transform: rotate(360deg) scale(1); opacity: 1; }
         }
 
         .container {
@@ -470,49 +520,54 @@
 
         footer {
             text-align: center;
-            padding: 2rem;
+            padding: 1.5rem 2rem;
             color: var(--text-dim);
             font-size: 0.9rem;
             border-top: 1px solid var(--border-glass);
             background: var(--surface-glass);
             backdrop-filter: blur(20px);
             margin-top: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .footer-github {
+            color: var(--text-dim);
+            font-size: 1.3rem;
+            transition: all 0.3s ease;
+            text-decoration: none;
+        }
+
+        .footer-github:hover {
+            color: var(--primary);
+            transform: scale(1.15);
         }
 
         @media (max-width: 768px) {
             .nav-container {
+                height: auto;
                 flex-wrap: wrap;
-                padding: 1rem;
-                gap: 0.75rem;
+                padding: 0.75rem 1rem;
+                gap: 0.5rem;
             }
 
             .logo {
-                width: 100%;
-                justify-content: center;
                 font-size: 1rem;
-            }
-
-            .logo-link {
-                width: 100%;
-                display: block;
-                text-align: center;
             }
 
             .nav-links {
                 width: 100%;
                 justify-content: center;
                 flex-wrap: wrap;
-                gap: 0.25rem;
+                gap: 0.15rem;
+                order: 3;
             }
 
             .nav-links a {
-                padding: 0.4rem 0.8rem;
-                font-size: 0.85rem;
-            }
-
-            .controls {
-                width: 100%;
-                justify-content: center;
+                padding: 0.35rem 0.7rem;
+                font-size: 0.8rem;
             }
 
             .container {
@@ -545,9 +600,14 @@
 
 <body>
     <header>
-        <nav class="nav-container">
-            <a href="/" class="logo-link" style="text-decoration: none;">
-                <div class="logo">🎵 Lidarr YouTube Downloader</div>
+        <div class="nav-container">
+            <a href="/" style="text-decoration: none;">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 32 32" fill="white"><rect x="4" y="18" width="4" height="8" rx="1"/><rect x="10" y="12" width="4" height="14" rx="1"/><rect x="18" y="6" width="4" height="20" rx="1"/><rect x="24" y="14" width="4" height="12" rx="1"/></svg>
+                    </div>
+                    LYD
+                </div>
             </a>
             <div class="nav-links">
                 <a href="/"><i class="fas fa-home"></i> Home</a>
@@ -556,16 +616,16 @@
                 <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
             </div>
             <div class="controls">
-                <button class="icon-btn" onclick="toggleTheme()">
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
                     <i class="fas fa-moon" id="theme-icon"></i>
                 </button>
             </div>
-        </nav>
+        </div>
     </header>
 
     <div class="container">
         <div class="page-header">
-            <h1 class="page-title">📋 Download Logs</h1>
+            <h1 class="page-title">📋 Logs</h1>
             <p class="page-subtitle">Track errors and issues during downloads</p>
         </div>
 
@@ -602,36 +662,42 @@
     </div>
 
     <footer>
-        Made with love ❤️ <span id="versionDisplay"></span>
+        <div>Made with love ❤️ <span id="versionDisplay"></span></div>
+        <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
     </footer>
 
     <script>
         let allLogs = [];
         let currentFilter = 'all';
 
-        // Theme toggle
+
         function toggleTheme() {
-            document.body.classList.toggle('light');
-            const icon = document.getElementById('theme-icon');
-            if (document.body.classList.contains('light')) {
-                icon.classList.remove('fa-moon');
-                icon.classList.add('fa-sun');
-                localStorage.setItem('theme', 'light');
-            } else {
-                icon.classList.remove('fa-sun');
-                icon.classList.add('fa-moon');
-                localStorage.setItem('theme', 'dark');
-            }
+            const toggle = document.getElementById('themeToggle');
+            toggle.classList.add('spin');
+            setTimeout(() => {
+                document.body.classList.toggle('light');
+                const icon = document.getElementById('theme-icon');
+                if (document.body.classList.contains('light')) {
+                    icon.classList.remove('fa-moon');
+                    icon.classList.add('fa-sun');
+                    localStorage.setItem('theme', 'light');
+                } else {
+                    icon.classList.remove('fa-sun');
+                    icon.classList.add('fa-moon');
+                    localStorage.setItem('theme', 'dark');
+                }
+            }, 250);
+            setTimeout(() => toggle.classList.remove('spin'), 500);
         }
 
-        // Load theme from localStorage
+
         if (localStorage.getItem('theme') === 'light') {
             document.body.classList.add('light');
             document.getElementById('theme-icon').classList.remove('fa-moon');
             document.getElementById('theme-icon').classList.add('fa-sun');
         }
 
-        // Fetch logs from API
+
         async function fetchLogs() {
             try {
                 const response = await fetch('/api/logs');
@@ -642,7 +708,7 @@
             }
         }
 
-        // Format timestamp
+
         function formatTimestamp(timestamp) {
             const date = new Date(timestamp * 1000);
             const now = new Date();
@@ -659,7 +725,7 @@
             return date.toLocaleString();
         }
 
-        // Get log type display name and icon
+
         function getLogTypeInfo(type) {
             const types = {
                 'download_started': { name: 'Download Started', icon: 'fa-play-circle' },
@@ -673,7 +739,7 @@
             return types[type] || { name: type, icon: 'fa-info-circle' };
         }
 
-        // Filter logs
+
         function filterLogs() {
             currentFilter = document.getElementById('filterType').value;
             const filtered = currentFilter === 'all'
@@ -683,7 +749,7 @@
             renderLogs(filtered);
         }
 
-        // Render logs
+
         function renderLogs(logs) {
             const container = document.getElementById('logsContainer');
             const emptyState = document.getElementById('emptyState');
@@ -733,7 +799,7 @@
             }).join('');
         }
 
-        // Dismiss a single log
+
         async function dismissLog(logId) {
             if (!confirm('Are you sure you want to dismiss this log entry?')) return;
 
@@ -743,7 +809,7 @@
                 });
 
                 if (response.ok) {
-                    // Remove from UI with animation
+
                     const logCard = document.getElementById(`log-${logId}`);
                     if (logCard) {
                         logCard.style.animation = 'slideOut 0.3s ease forwards';
@@ -760,7 +826,7 @@
             }
         }
 
-        // Clear all logs
+
         async function clearAllLogs() {
             if (!confirm('Are you sure you want to clear all logs? This action cannot be undone.')) return;
 
@@ -780,7 +846,7 @@
             }
         }
 
-        // Add slideOut animation
+
         const style = document.createElement('style');
         style.textContent = `
             @keyframes slideOut {
@@ -792,13 +858,13 @@
         `;
         document.head.appendChild(style);
 
-        // Initial fetch
+
         fetchLogs();
 
-        // Refresh logs every 30 seconds
+
         setInterval(fetchLogs, 30000);
 
-        // Load version
+
         async function loadVersion() {
             try {
                 const res = await fetch('/api/version');
@@ -810,6 +876,7 @@
             }
         }
         loadVersion();
+
     </script>
 </body>
 
