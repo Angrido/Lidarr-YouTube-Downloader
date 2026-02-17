@@ -2,8 +2,8 @@
 
 # 🎵 Lidarr YouTube Downloader
 
-![Version](https://img.shields.io/badge/version-1.2.4-blue.svg?style=for-the-badge)
-![Python](https://img.shields.io/badge/python-3.14+-yellow.svg?style=for-the-badge&logo=python&logoColor=white)
+![Version](https://img.shields.io/badge/version-1.3.0-blue.svg?style=for-the-badge)
+![Python Alpine](https://img.shields.io/badge/python-alpine-yellow.svg?style=for-the-badge&logo=python&logoColor=white)
 ![Docker](https://img.shields.io/badge/docker-ready-blue.svg?style=for-the-badge&logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)
 
