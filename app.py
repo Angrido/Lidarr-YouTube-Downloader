@@ -23,7 +23,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.2.4"
+VERSION = "1.3.0"
 
 CONFIG_FILE = "/config/config.json"
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
@@ -39,8 +39,46 @@ download_process = {
 
 download_queue = []
 download_history = []
-download_logs = []                            
+download_logs = []
 queue_lock = threading.Lock()
+
+HISTORY_FILE = "/config/download_history.json"
+LOGS_FILE = "/config/download_logs.json"
+
+
+def load_persistent_data():
+    global download_history, download_logs
+    os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r") as f:
+                download_history = json.load(f)
+        except:
+            download_history = []
+    if os.path.exists(LOGS_FILE):
+        try:
+            with open(LOGS_FILE, "r") as f:
+                download_logs = json.load(f)
+        except:
+            download_logs = []
+
+
+def save_history():
+    try:
+        os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
+        with open(HISTORY_FILE, "w") as f:
+            json.dump(download_history[-200:], f)
+    except:
+        pass
+
+
+def save_logs():
+    try:
+        os.makedirs(os.path.dirname(LOGS_FILE), exist_ok=True)
+        with open(LOGS_FILE, "w") as f:
+            json.dump(download_logs[-100:], f)
+    except:
+        pass
 
 
 def load_config():
@@ -65,10 +103,9 @@ def load_config():
         "xml_metadata_enabled": os.getenv("XML_METADATA_ENABLED", "true").lower()
         == "true",
         "forbidden_words": ["remix", "cover", "mashup", "bootleg", "live", "dj mix"],
-        # yt-dlp hardening (403 mitigation)
         "yt_cookies_file": os.getenv("YT_COOKIES_FILE", ""),
         "yt_force_ipv4": os.getenv("YT_FORCE_IPV4", "true").lower() == "true",
-        "yt_player_client": os.getenv("YT_PLAYER_CLIENT", "android"),  # android|web|ios
+        "yt_player_client": os.getenv("YT_PLAYER_CLIENT", "android"),
         "yt_retries": int(os.getenv("YT_RETRIES", "10")),
         "yt_fragment_retries": int(os.getenv("YT_FRAGMENT_RETRIES", "10")),
         "yt_sleep_requests": int(os.getenv("YT_SLEEP_REQUESTS", "1")),
@@ -113,13 +150,6 @@ def save_config(config):
 
 
 def send_telegram(message, log_type=None):
-    """
-    Send Telegram notification with optional log type filtering
-
-    Args:
-        message: Message to send
-        log_type: Optional log type to check against telegram_log_types filter
-    """
     config = load_config()
     if (
         config.get("telegram_enabled")
@@ -146,12 +176,6 @@ def send_telegram(message, log_type=None):
 def add_download_log(
     log_type, album_id, album_title, artist_name, details=None, failed_tracks=None
 ):
-    """
-    Add a log entry for download events
-
-    log_type: 'download_started', 'download_success', 'partial_success',
-              'import_success', 'import_failed', 'album_error'
-    """
     with queue_lock:
         log_entry = {
             "id": f"{int(time.time() * 1000)}_{album_id}",
@@ -165,9 +189,9 @@ def add_download_log(
             "dismissed": False,
         }
         download_logs.append(log_entry)
-                                 
         if len(download_logs) > 100:
             download_logs.pop(0)
+        save_logs()
 
 
 def lidarr_request(endpoint, method="GET", data=None, params=None):
@@ -255,18 +279,6 @@ def sanitize_filename(name):
 
 
 def download_track_youtube(query, output_path, track_title_original, expected_duration_ms=None):
-    """
-    Download a track from YouTube with improved duration matching.
-    
-    Args:
-        query: Search query string
-        output_path: Path to save the downloaded file
-        track_title_original: Original track title for forbidden word checking
-        expected_duration_ms: Expected track duration in milliseconds from Lidarr (optional)
-    
-    Returns:
-        bool: True if download succeeded, False otherwise
-    """
     def build_common_opts(player_client=None):
         cfg = load_config()
         opts = {
@@ -285,7 +297,6 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
         elif cookies_path and not os.path.exists(cookies_path):
             logger.warning(f"⚠️ YT_COOKIES_FILE not found: {cookies_path}")
         if cfg.get("yt_force_ipv4", True):
-            # Force IPv4 via source_address
             opts["source_address"] = "0.0.0.0"
         if player_client:
             opts["extractor_args"] = {"youtube": {"player_client": [player_client]}}
@@ -327,8 +338,8 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
                     continue
 
                 if expected_duration_sec:
-                    min_duration = max(15, expected_duration_sec - duration_tolerance - 60)
-                    max_duration = expected_duration_sec + duration_tolerance + 300
+                    min_duration = max(15, expected_duration_sec - duration_tolerance)
+                    max_duration = expected_duration_sec + duration_tolerance
                     
                     if duration < min_duration or duration > max_duration:
                         logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - duration {int(duration)}s outside range [{int(min_duration)}s - {int(max_duration)}s]")
@@ -368,7 +379,6 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
         logger.info(f"   🎯 Selected: '{candidates[0]['title']}' (duration: {int(candidates[0]['duration'])}s)")
 
     for candidate in candidates:
-        # Try multiple extractor client profiles to bypass 403/age/region issues
         clients_to_try = []
         first_client = config.get("yt_player_client", "android")
         if first_client:
@@ -376,7 +386,7 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
         for alt in ["web", "ios"]:
             if alt != first_client:
                 clients_to_try.append(alt)
-        clients_to_try.append(None)  # finally, no explicit client override
+        clients_to_try.append(None)
 
         last_err = None
         for pc in clients_to_try:
@@ -581,6 +591,7 @@ def process_album_download(album_id, force=False):
         return {"error": "Busy"}
     download_process["active"] = True
     download_process["stop"] = False
+    download_process["result_success"] = True
     download_process["progress"] = {
         "current": 0,
         "total": 0,
@@ -795,6 +806,7 @@ def process_album_download(album_id, force=False):
                     details=f"All {len(tracks_to_download)} track(s) failed to download",
                     failed_tracks=failed_tracks,
                 )
+                download_process["result_success"] = False
                 return {"error": "All tracks failed to download"}
 
             else:
@@ -926,7 +938,6 @@ def process_album_download(album_id, force=False):
             f"❌ Download failed\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}",
             log_type="album_error",
         )
-                                  
         add_download_log(
             log_type="album_error",
             album_id=album_id,
@@ -935,6 +946,7 @@ def process_album_download(album_id, force=False):
             details=f"Error: {str(e)}",
             failed_tracks=[],
         )
+        download_process["result_success"] = False
         return {"error": str(e)}
     finally:
         with queue_lock:
@@ -943,10 +955,11 @@ def process_album_download(album_id, force=False):
                     "album_id": download_process.get("album_id"),
                     "album_title": download_process.get("album_title", ""),
                     "artist_name": download_process.get("artist_name", ""),
-                    "success": "error" not in locals() or not locals().get("e"),
+                    "success": download_process.get("result_success", True),
                     "timestamp": time.time(),
                 }
             )
+            save_history()
         download_process["active"] = False
         download_process["progress"] = {}
         download_process["album_id"] = None
@@ -993,8 +1006,8 @@ def logs():
 def favicon():
     return send_from_directory(
         os.path.join(app.root_path, "static"),
-        "favicon.ico",
-        mimetype="image/vnd.microsoft.icon",
+        "favicon.svg",
+        mimetype="image/svg+xml",
     )
 
 
@@ -1141,7 +1154,6 @@ def api_xmlmetadata_toggle():
 
 @app.route("/api/logs", methods=["GET"])
 def api_get_logs():
-    """Get all download logs"""
     with queue_lock:
                                                                    
         return jsonify(
@@ -1151,19 +1163,19 @@ def api_get_logs():
 
 @app.route("/api/logs/clear", methods=["POST"])
 def api_clear_logs():
-    """Clear all logs"""
     with queue_lock:
         download_logs.clear()
+        save_logs()
     return jsonify({"success": True})
 
 
-@app.route("/api/logs/&lt;log_id&gt;/dismiss", methods=["DELETE"])
+@app.route("/api/logs/<log_id>/dismiss", methods=["DELETE"])
 def api_dismiss_log(log_id):
-    """Dismiss/delete a specific log entry"""
     with queue_lock:
         for i, log in enumerate(download_logs):
             if log["id"] == log_id:
                 download_logs.pop(i)
+                save_logs()
                 return jsonify({"success": True})
     return jsonify({"success": False, "error": "Log not found"}), 404
 
@@ -1242,6 +1254,7 @@ def process_download_queue():
 
 
 if __name__ == "__main__":
+    load_persistent_data()
     logger.info("🚀 Starting Lidarr YouTube Downloader...")
     logger.info(f"📌 Version: {VERSION}")
     logger.info(
