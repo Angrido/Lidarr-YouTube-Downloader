@@ -144,6 +144,32 @@
             background: rgba(16, 185, 129, 0.1);
         }
 
+        .nav-badge {
+            background: linear-gradient(135deg, #ef4444, #f87171);
+            color: white;
+            font-size: 0.65rem;
+            font-weight: 700;
+            min-width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 0 5px;
+            line-height: 1;
+            animation: badgePop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .nav-badge.active {
+            display: inline-flex;
+        }
+
+        @keyframes badgePop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.3); }
+            100% { transform: scale(1); }
+        }
+
         .nav-links a::after {
             content: '';
             position: absolute;
@@ -396,6 +422,11 @@
             border-left-color: var(--primary);
         }
 
+        .history-item.history-partial {
+            border-left-color: #f59e0b;
+            background: rgba(245, 158, 11, 0.05);
+        }
+
         .history-item.history-error {
             border-left-color: var(--danger);
             background: rgba(239, 68, 68, 0.05);
@@ -415,6 +446,11 @@
         .status-icon.success {
             background: rgba(16, 185, 129, 0.2);
             color: var(--primary);
+        }
+
+        .status-icon.partial {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
         }
 
         .status-icon.error {
@@ -469,6 +505,62 @@
         }
 
         .btn-danger:active {
+            transform: scale(0.96);
+        }
+
+        .btn-load-more {
+            display: block;
+            width: 100%;
+            padding: 1rem;
+            margin-top: 1rem;
+            border: 1px dashed var(--border-glass);
+            border-radius: var(--radius);
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+            color: var(--primary);
+            font-weight: 600;
+            font-size: 0.95rem;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .btn-load-more:hover {
+            background: rgba(16, 185, 129, 0.1);
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+            transform: translateY(-2px);
+        }
+
+        .btn-load-more:active {
+            transform: scale(0.98);
+        }
+
+        .btn-clear-history {
+            background: var(--danger);
+            color: white;
+            -webkit-text-fill-color: white;
+            -webkit-background-clip: unset;
+            background-clip: unset;
+            border: none;
+            padding: 0.6rem 1.2rem;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.4);
+        }
+
+        .btn-clear-history:hover {
+            background: #dc2626;
+            box-shadow: 0 6px 25px rgba(239, 68, 68, 0.6);
+            transform: translateY(-2px);
+        }
+
+        .btn-clear-history:active {
             transform: scale(0.96);
         }
 
@@ -565,7 +657,7 @@
             </a>
             <div class="nav-links">
                 <a href="/"><i class="fas fa-home"></i> Home</a>
-                <a href="/downloads" class="active"><i class="fas fa-download"></i> Downloads</a>
+                <a href="/downloads" class="active"><i class="fas fa-download"></i> Downloads <span class="nav-badge" id="queueBadge">0</span></a>
                 <a href="/logs"><i class="fas fa-list"></i> Logs</a>
                 <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
             </div>
@@ -598,11 +690,18 @@
         </div>
 
         <div class="section">
-            <div class="section-title">
-                <i class="fa-solid fa-clock-rotate-left"></i>
-                Recent History
+            <div class="section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                <span><i class="fa-solid fa-clock-rotate-left"></i> Recent History</span>
+                <button class="btn-clear-history" id="clearHistoryBtn" onclick="clearAllHistory()" style="display:none;">
+                    <i class="fa-solid fa-trash"></i> Clear All History
+                </button>
             </div>
             <div id="downloadHistory"></div>
+            <div id="historyLoadMore" style="display:none;">
+                <button class="btn-load-more" onclick="loadMoreHistory()">
+                    <i class="fa-solid fa-chevron-down"></i> Load More (<span id="historyRemaining">0</span> remaining)
+                </button>
+            </div>
         </div>
     </div>
 
@@ -612,6 +711,8 @@
     </footer>
 
     <script>
+        let eventSource = null;
+
         document.addEventListener('DOMContentLoaded', () => {
             const saved = localStorage.getItem('theme') || 'dark';
             if (saved === 'light') {
@@ -619,9 +720,25 @@
                 document.getElementById('themeIcon').className = 'fa-solid fa-sun';
             }
             loadVersion();
-            updateAll();
-            setInterval(updateAll, 2000);
+            updateHistory();
+            connectSSE();
         });
+
+        function connectSSE() {
+            if (eventSource) eventSource.close();
+            eventSource = new EventSource('/api/download/stream');
+            eventSource.onmessage = (event) => {
+                try {
+                    const payload = JSON.parse(event.data);
+                    updateCurrentFromSSE(payload.status);
+                    updateQueueFromSSE(payload.queue, payload.status);
+                } catch (e) {}
+            };
+            eventSource.onerror = () => {
+                eventSource.close();
+                setTimeout(connectSSE, 3000);
+            };
+        }
 
         function toggleTheme() {
             const toggle = document.getElementById('themeToggle');
@@ -635,23 +752,22 @@
             setTimeout(() => toggle.classList.remove('spin'), 500);
         }
 
-        async function updateAll() {
-            await updateCurrent();
-            await updateQueue();
-            await updateHistory();
-        }
+        let lastWasActive = false;
 
-        async function updateCurrent() {
-            const res = await fetch('/api/download/status');
-            const data = await res.json();
+        function updateCurrentFromSSE(data) {
             const container = document.getElementById('currentDownload');
 
             if (!data.active) {
+                if (lastWasActive) {
+                    updateHistory();
+                    lastWasActive = false;
+                }
                 container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-cloud-arrow-down"></i><p>No active download</p></div>';
                 return;
             }
+            lastWasActive = true;
 
-            const percent = data.progress.overall_percent || 0;
+            const percent = (data.progress && data.progress.overall_percent) || 0;
             container.innerHTML = `
                 <div class="current-download">
                     <div class="current-album-details">
@@ -660,7 +776,7 @@
                     </div>
                     <div class="progress-bar-container">
                         <div class="progress-label">
-                            <span>Track ${data.progress.current || 0}/${data.progress.total || 0}</span>
+                            <span>Track ${(data.progress && data.progress.current) || 0}/${(data.progress && data.progress.total) || 0}</span>
                             <span>${percent}%</span>
                         </div>
                         <div class="progress-bar">
@@ -677,10 +793,17 @@
             `;
         }
 
-        async function updateQueue() {
-            const res = await fetch('/api/download/queue');
-            const queue = await res.json();
+        function updateQueueFromSSE(queue, statusData) {
             const container = document.getElementById('downloadQueue');
+
+            const totalInQueue = queue.length + (statusData.active ? 1 : 0);
+            const badge = document.getElementById('queueBadge');
+            if (totalInQueue > 0) {
+                badge.textContent = totalInQueue;
+                badge.classList.add('active');
+            } else {
+                badge.classList.remove('active');
+            }
 
             if (queue.length === 0) {
                 container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-list-check"></i><p>Queue is empty</p></div>';
@@ -690,13 +813,10 @@
             const placeholderSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>`;
 
             container.innerHTML = queue.map((item, index) => {
-                const coverHtml = item.cover
-                    ? `<img src="${item.cover}" class="queue-album-cover">`
-                    : `<div class="queue-cover-placeholder">${placeholderSvg}</div>`;
                 return `
                 <div class="queue-item">
                     <div class="queue-position">${index + 1}</div>
-                    ${coverHtml}
+                    <div class="queue-cover-placeholder">${placeholderSvg}</div>
                     <div class="queue-album-info">
                         <div class="queue-album-title">${item.title}</div>
                         <div class="queue-album-artist">${item.artist}</div>
@@ -709,41 +829,104 @@
             }).join('');
         }
 
-        async function updateHistory() {
-            const res = await fetch('/api/download/history');
-            const history = await res.json();
-            const container = document.getElementById('downloadHistory');
+        const HISTORY_PER_PAGE = 25;
+        let allHistory = [];
+        let historyDisplayed = 0;
 
-            if (history.length === 0) {
-                container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-history"></i><p>No download history</p></div>';
-                return;
+        function renderHistoryItem(item) {
+            let statusClass, iconClass, label;
+            if (!item.success) {
+                statusClass = 'error';
+                iconClass = 'fa-solid fa-xmark';
+                label = '<div class="history-error-label"><i class="fa-solid fa-circle-exclamation"></i> Download Failed</div>';
+            } else if (item.partial) {
+                statusClass = 'partial';
+                iconClass = 'fa-solid fa-triangle-exclamation';
+                label = '<div class="history-error-label" style="color:#f59e0b"><i class="fa-solid fa-triangle-exclamation"></i> Partial Success</div>';
+            } else {
+                statusClass = 'success';
+                iconClass = 'fa-solid fa-check';
+                label = '';
             }
-
-            container.innerHTML = history.reverse().map(item => `
-                <div class="history-item ${item.success ? 'history-success' : 'history-error'}">
-                    <div class="status-icon ${item.success ? 'success' : 'error'}">
-                        <i class="fa-solid fa-${item.success ? 'check' : 'xmark'}"></i>
+            return `
+                <div class="history-item history-${statusClass}">
+                    <div class="status-icon ${statusClass}">
+                        <i class="${iconClass}"></i>
                     </div>
                     <div class="history-info">
                         <div class="history-title">${item.album_title || 'Unknown'}</div>
                         <div class="history-meta">${item.artist_name || 'Unknown Artist'} • ${new Date(item.timestamp * 1000).toLocaleString()}</div>
-                        ${!item.success ? '<div class="history-error-label"><i class="fa-solid fa-circle-exclamation"></i> Download Failed</div>' : ''}
+                        ${label}
                     </div>
                 </div>
-            `).join('');
+            `;
+        }
+
+        function updateHistoryLoadMore() {
+            const loadMoreDiv = document.getElementById('historyLoadMore');
+            const remaining = allHistory.length - historyDisplayed;
+            if (remaining > 0) {
+                document.getElementById('historyRemaining').textContent = remaining;
+                loadMoreDiv.style.display = 'block';
+            } else {
+                loadMoreDiv.style.display = 'none';
+            }
+        }
+
+        function loadMoreHistory() {
+            const container = document.getElementById('downloadHistory');
+            const nextBatch = allHistory.slice(historyDisplayed, historyDisplayed + HISTORY_PER_PAGE);
+            container.insertAdjacentHTML('beforeend', nextBatch.map(renderHistoryItem).join(''));
+            historyDisplayed += nextBatch.length;
+            updateHistoryLoadMore();
+        }
+
+        async function updateHistory() {
+            const res = await fetch('/api/download/history');
+            const history = await res.json();
+            const container = document.getElementById('downloadHistory');
+            const clearBtn = document.getElementById('clearHistoryBtn');
+
+            if (history.length === 0) {
+                container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-history"></i><p>No download history</p></div>';
+                document.getElementById('historyLoadMore').style.display = 'none';
+                clearBtn.style.display = 'none';
+                return;
+            }
+
+            clearBtn.style.display = 'flex';
+            allHistory = history.reverse();
+            historyDisplayed = Math.min(HISTORY_PER_PAGE, allHistory.length);
+            container.innerHTML = allHistory.slice(0, historyDisplayed).map(renderHistoryItem).join('');
+            updateHistoryLoadMore();
+        }
+
+        async function clearAllHistory() {
+            if (!confirm('Are you sure you want to clear all download history? This action cannot be undone.')) return;
+            try {
+                const res = await fetch('/api/download/history/clear', { method: 'POST' });
+                if (res.ok) {
+                    updateHistory();
+                } else {
+                    alert('Failed to clear history');
+                }
+            } catch (e) {
+                console.error('Error clearing history:', e);
+                alert('Failed to clear history');
+            }
         }
 
         async function removeFromQueue(id) {
             await fetch('/api/download/queue/' + id, { method: 'DELETE' });
-            updateQueue();
         }
 
         async function stopDownload() {
             if (confirm('Are you sure you want to stop the current download?')) {
                 await fetch('/api/download/stop', { method: 'POST' });
-                setTimeout(updateAll, 500);
             }
         }
+
+        setInterval(updateHistory, 10000);
 
         async function loadVersion() {
             try {
