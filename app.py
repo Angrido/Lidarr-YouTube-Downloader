@@ -6,7 +6,7 @@ import shutil
 import re
 import logging
 from pathlib import Path
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, Response
 import requests
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, TIT2, TPE1, TPE2, TALB, TDRC, TRCK, APIC, TXXX, UFID
@@ -23,7 +23,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.3.0"
+VERSION = "1.3.5"
 
 CONFIG_FILE = "/config/config.json"
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
@@ -42,8 +42,25 @@ download_history = []
 download_logs = []
 queue_lock = threading.Lock()
 
+rate_limit_store = {}
+RATE_LIMIT_WINDOW = 2
+RATE_LIMIT_MAX = 5
+
+
+def check_rate_limit(key, window=RATE_LIMIT_WINDOW, max_requests=RATE_LIMIT_MAX):
+    now = time.time()
+    if key not in rate_limit_store:
+        rate_limit_store[key] = []
+    rate_limit_store[key] = [t for t in rate_limit_store[key] if now - t < window]
+    if len(rate_limit_store[key]) >= max_requests:
+        return False
+    rate_limit_store[key].append(now)
+    return True
+
 HISTORY_FILE = "/config/download_history.json"
 LOGS_FILE = "/config/download_logs.json"
+album_cache = {}
+ALBUM_CACHE_TTL = 300
 
 
 def load_persistent_data():
@@ -67,7 +84,7 @@ def save_history():
     try:
         os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
         with open(HISTORY_FILE, "w") as f:
-            json.dump(download_history[-200:], f)
+            json.dump(download_history[-25:], f)
     except:
         pass
 
@@ -363,11 +380,11 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
                     logger.debug(f"   ✓ Added candidate '{entry.get('title', '')}' - duration {int(duration)}s, score {int(duration_score)}")
     except Exception as e:
         logger.error(f"   ❌ Search failed: {str(e)}")
-        pass
+        return f"Search failed: {str(e)[:120]}"
 
     if not candidates:
         logger.warning(f"   ⚠️  No suitable candidates found after filtering")
-        return False
+        return "No suitable YouTube match found (filtered by duration/forbidden words)"
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
     
@@ -425,7 +442,10 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
             )
         continue
 
-    return False
+    last_error_msg = str(last_err)[:120] if last_err else "Unknown error"
+    if last_err and "403" in str(last_err):
+        return f"HTTP 403 Forbidden - try providing/refreshing YouTube cookies"
+    return f"Download failed after all attempts: {last_error_msg}"
 
 
 def update_progress(d):
@@ -592,6 +612,7 @@ def process_album_download(album_id, force=False):
     download_process["active"] = True
     download_process["stop"] = False
     download_process["result_success"] = True
+    download_process["result_partial"] = False
     download_process["progress"] = {
         "current": 0,
         "total": 0,
@@ -737,26 +758,26 @@ def process_album_download(album_id, force=False):
 
             track_duration_ms = track.get("duration")
             
-            download_success = False
+            download_result = None
             queries_to_try = []
-            
+
             queries_to_try.append(f"{artist_name} {track_title} official audio")
-            
+
             if "/" in track_title or " - " in track_title:
                 simplified_title = track_title.split("/")[0].split(" - ")[0].strip()
                 if simplified_title != track_title:
                     queries_to_try.append(f"{artist_name} {simplified_title} official audio")
                     logger.info(f"   💡 Will try simplified query: '{simplified_title}'")
-            
-            for idx, query in enumerate(queries_to_try):
-                if idx > 0:
-                    logger.info(f"   🔄 Trying alternative search query ({idx+1}/{len(queries_to_try)})...")
-                download_success = download_track_youtube(query, temp_file, track_title, track_duration_ms)
-                if download_success:
+
+            for qi, query in enumerate(queries_to_try):
+                if qi > 0:
+                    logger.info(f"   🔄 Trying alternative search query ({qi+1}/{len(queries_to_try)})...")
+                download_result = download_track_youtube(query, temp_file, track_title, track_duration_ms)
+                if download_result is True:
                     break
             actual_file = temp_file + ".mp3"
 
-            if download_success and os.path.exists(actual_file):
+            if download_result is True and os.path.exists(actual_file):
                 logger.info(f"✅ Track downloaded successfully: {track_title}")
                 time.sleep(0.5)
                 logger.info(f"🏷️  Adding metadata tags...")
@@ -775,8 +796,9 @@ def process_album_download(album_id, force=False):
                     )
                 shutil.move(actual_file, final_file)
             else:
-                logger.warning(f"⚠️  Failed to download track: {track_title}")
-                failed_tracks.append(track_title)
+                fail_reason = download_result if isinstance(download_result, str) else "Download failed or file not found"
+                logger.warning(f"⚠️  Failed to download track: {track_title} — {fail_reason}")
+                failed_tracks.append({"title": track_title, "reason": fail_reason})
 
                                                     
             download_process["progress"]["current"] = idx
@@ -788,7 +810,7 @@ def process_album_download(album_id, force=False):
         set_permissions(artist_path)
 
         if failed_tracks:
-            failed_list = "\n".join([f"• {t}" for t in failed_tracks])
+            failed_list = "\n".join([f"• {t['title']}" for t in failed_tracks])
 
             if len(failed_tracks) == len(tracks_to_download):
                 send_telegram(
@@ -810,6 +832,7 @@ def process_album_download(album_id, force=False):
                 return {"error": "All tracks failed to download"}
 
             else:
+                download_process["result_partial"] = True
                 send_telegram(
                     f"⚠️ Partial Download Completed\n🎵 Album: {album_title}\n🎤 Artist: {artist_name}\n\nFailed tracks:\n{failed_list}",
                     log_type="partial_success",
@@ -956,9 +979,11 @@ def process_album_download(album_id, force=False):
                     "album_title": download_process.get("album_title", ""),
                     "artist_name": download_process.get("artist_name", ""),
                     "success": download_process.get("result_success", True),
+                    "partial": download_process.get("result_partial", False),
                     "timestamp": time.time(),
                 }
             )
+            download_history[:] = download_history[-25:]
             save_history()
         download_process["active"] = False
         download_process["progress"] = {}
@@ -1016,6 +1041,9 @@ def api_config():
     if request.method == "GET":
         return jsonify(load_config())
     else:
+        client_ip = request.remote_addr or "unknown"
+        if not check_rate_limit(f"config:{client_ip}", window=5, max_requests=3):
+            return jsonify({"success": False, "message": "Too many requests"}), 429
         current = load_config()
         current.update(request.json)
         save_config(current)
@@ -1039,6 +1067,9 @@ def api_album_details(album_id):
 
 @app.route("/api/download/<int:album_id>", methods=["POST"])
 def api_download(album_id):
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(f"download:{client_ip}"):
+        return jsonify({"success": False, "message": "Too many requests, please slow down"}), 429
     with queue_lock:
         if (
             album_id not in download_queue
@@ -1054,6 +1085,9 @@ def api_download(album_id):
 
 @app.route("/api/download/stop", methods=["POST"])
 def api_download_stop():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(f"stop:{client_ip}", window=5, max_requests=3):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
     download_process["stop"] = True
     with queue_lock:
         download_queue.clear()
@@ -1065,9 +1099,61 @@ def api_download_status():
     return jsonify(download_process)
 
 
+@app.route("/api/download/stream")
+def api_download_stream():
+    def generate():
+        while True:
+            with queue_lock:
+                queue_data = []
+                for album_id in download_queue:
+                    album = get_album_cached(album_id)
+                    if "error" not in album:
+                        queue_data.append({
+                            "id": album_id,
+                            "title": album.get("title", ""),
+                            "artist": album.get("artist", {}).get("artistName", ""),
+                        })
+            data = {
+                "status": dict(download_process),
+                "queue": queue_data
+            }
+            yield f"data: {json.dumps(data)}\n\n"
+            time.sleep(1)
+
+    return Response(generate(), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.route("/api/stats")
+def api_stats():
+    today_start = time.time() - (time.time() % 86400)
+    with queue_lock:
+        downloaded_today = sum(
+            1 for h in download_history
+            if h.get("success") and h.get("timestamp", 0) >= today_start
+        )
+        in_queue = len(download_queue) + (1 if download_process["active"] else 0)
+    return jsonify({
+        "in_queue": in_queue,
+        "downloaded_today": downloaded_today
+    })
+
+
 @app.route("/api/version")
 def api_version():
     return jsonify({"version": VERSION})
+
+
+def get_album_cached(album_id):
+    now = time.time()
+    if album_id in album_cache:
+        cached, ts = album_cache[album_id]
+        if now - ts < ALBUM_CACHE_TTL:
+            return cached
+    album = lidarr_request(f"album/{album_id}")
+    if "error" not in album:
+        album_cache[album_id] = (album, now)
+    return album
 
 
 @app.route("/api/download/queue", methods=["GET"])
@@ -1075,7 +1161,7 @@ def api_get_queue():
     with queue_lock:
         queue_with_details = []
         for album_id in download_queue:
-            album = lidarr_request(f"album/{album_id}")
+            album = get_album_cached(album_id)
             if "error" not in album:
                 queue_with_details.append(
                     {
@@ -1124,7 +1210,7 @@ def api_clear_queue():
 
 @app.route("/api/download/history")
 def api_download_history():
-    return jsonify(download_history[-20:])
+    return jsonify(download_history)
 
 
 @app.route("/api/scheduler/toggle", methods=["POST"])
@@ -1159,6 +1245,14 @@ def api_get_logs():
         return jsonify(
             sorted(download_logs, key=lambda x: x["timestamp"], reverse=True)
         )
+
+
+@app.route("/api/download/history/clear", methods=["POST"])
+def api_clear_history():
+    with queue_lock:
+        download_history.clear()
+        save_history()
+    return jsonify({"success": True})
 
 
 @app.route("/api/logs/clear", methods=["POST"])
