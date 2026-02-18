@@ -140,6 +140,32 @@
             background: rgba(16, 185, 129, 0.1);
         }
 
+        .nav-badge {
+            background: linear-gradient(135deg, #ef4444, #f87171);
+            color: white;
+            font-size: 0.65rem;
+            font-weight: 700;
+            min-width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 0 5px;
+            line-height: 1;
+            animation: badgePop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .nav-badge.active {
+            display: inline-flex;
+        }
+
+        @keyframes badgePop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.3); }
+            100% { transform: scale(1); }
+        }
+
         .nav-links a::after {
             content: '';
             position: absolute;
@@ -404,7 +430,15 @@
         }
 
         .table-view table {
-            min-width: 500px;
+            min-width: 650px;
+        }
+
+        .table-desktop {
+            display: table;
+        }
+
+        .table-mobile {
+            display: none;
         }
 
         .card {
@@ -683,13 +717,42 @@
             max-width: 280px;
         }
 
-        .table-album-artist {
-            font-size: 0.8rem;
-            color: var(--text-dim);
+        .table-artist, .table-year {
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            max-width: 280px;
+        }
+
+        .table-artist {
+            max-width: 180px;
+        }
+
+        .table-year {
+            color: var(--text-dim);
+            font-size: 0.9rem;
+        }
+
+        .th-sortable {
+            cursor: pointer;
+            user-select: none;
+            transition: color 0.2s ease;
+            position: relative;
+        }
+
+        .th-sortable:hover {
+            color: var(--primary);
+        }
+
+        .th-sortable .sort-arrow {
+            margin-left: 0.3rem;
+            font-size: 0.65rem;
+            opacity: 0.3;
+            transition: opacity 0.2s ease;
+        }
+
+        .th-sortable.sort-active .sort-arrow {
+            opacity: 1;
+            color: var(--primary);
         }
 
         .download-overlay {
@@ -1168,39 +1231,114 @@
             }
 
             .table-view {
-                overflow-x: auto;
-                -webkit-overflow-scrolling: touch;
                 margin: 0 -1rem;
                 padding: 0 1rem;
+                overflow-x: hidden;
             }
 
-            .table-view table {
-                min-width: 420px;
+            .table-desktop {
+                display: none !important;
+            }
+
+            .table-mobile {
+                display: table !important;
+                width: 100%;
+                min-width: 0 !important;
+                table-layout: fixed;
+                font-size: 0.8rem;
+            }
+
+            .table-mobile th,
+            .table-mobile td {
+                padding: 0.5rem 0.4rem;
+            }
+
+            .table-mobile th:first-child,
+            .table-mobile td:first-child {
+                padding-left: 0.5rem;
+            }
+
+            .table-mobile th:last-child,
+            .table-mobile td:last-child {
+                width: 44px;
+                text-align: center;
+                padding-left: 0;
+                padding-right: 0.3rem;
+            }
+
+            .table-mobile th:nth-child(2),
+            .table-mobile td:nth-child(2) {
+                width: 50px;
+                text-align: center;
+                padding-left: 0;
+                padding-right: 0;
+                font-size: 0.75rem;
+            }
+
+            .table-mobile .mob-cell {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+
+            .table-mobile .mob-cover {
+                width: 32px;
+                height: 32px;
+                border-radius: 6px;
+                object-fit: cover;
+                flex-shrink: 0;
+            }
+
+            .table-mobile .mob-cover-ph {
+                width: 32px;
+                height: 32px;
+                border-radius: 6px;
+                flex-shrink: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: linear-gradient(135deg, #1a1a2e, #16213e);
+            }
+
+            .table-mobile .mob-cover-ph svg {
+                width: 50%;
+                height: 50%;
+                opacity: 0.3;
+            }
+
+            .table-mobile .mob-info {
+                min-width: 0;
+                flex: 1;
+            }
+
+            .table-mobile .mob-title {
+                font-weight: 600;
+                font-size: 0.8rem;
+                line-height: 1.3;
+                white-space: normal;
+                word-break: break-word;
+            }
+
+            .table-mobile .mob-artist {
+                font-size: 0.7rem;
+                color: var(--text-dim);
+                line-height: 1.2;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .table-mobile .mob-btn {
+                width: 34px;
+                height: 34px;
+                padding: 0 !important;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 8px;
                 font-size: 0.85rem;
             }
 
-            .table-album-title,
-            .table-album-artist {
-                max-width: 150px;
-            }
-
-            .table-view th,
-            .table-view td {
-                padding: 0.6rem 0.5rem;
-                white-space: nowrap;
-            }
-
-            .table-view .table-img,
-            .table-view .table-placeholder {
-                width: 36px;
-                height: 36px;
-                border-radius: 6px;
-            }
-
-            .table-view .btn {
-                padding: 0.4rem 0.6rem;
-                font-size: 0.8rem;
-            }
         }
 
         .alert-banner {
@@ -1232,6 +1370,163 @@
                 transform: translateY(0);
             }
         }
+
+        .btn-added {
+            background: #059669 !important;
+            animation: none !important;
+            pointer-events: none;
+            box-shadow: 0 4px 15px rgba(5, 150, 105, 0.4) !important;
+        }
+
+        .btn-downloading {
+            background: rgba(59, 130, 246, 0.15) !important;
+            color: #3b82f6 !important;
+            border: 1px solid rgba(59, 130, 246, 0.3) !important;
+            pointer-events: none;
+            cursor: default;
+            box-shadow: none !important;
+        }
+
+        .btn-downloading::before {
+            display: none !important;
+        }
+
+        .btn-adding {
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        @keyframes rippleEffect {
+            0% {
+                transform: scale(0);
+                opacity: 0.6;
+            }
+            100% {
+                transform: scale(4);
+                opacity: 0;
+            }
+        }
+
+        .btn-ripple::after {
+            content: '';
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            margin-top: -15px;
+            margin-left: -15px;
+            animation: rippleEffect 0.6s ease-out;
+        }
+
+        .stats-bar {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            padding: 1.25rem;
+            text-align: center;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--glow);
+            border-color: rgba(16, 185, 129, 0.3);
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1.2;
+        }
+
+        .stat-label {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-top: 0.25rem;
+            font-weight: 500;
+        }
+
+        .stat-icon {
+            font-size: 1.2rem;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+        }
+
+        @media (max-width: 768px) {
+            .stats-bar {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 0.75rem;
+            }
+
+            .stat-card {
+                padding: 1rem;
+            }
+
+            .stat-value {
+                font-size: 1.5rem;
+            }
+        }
+
+        .skeleton-card {
+            background: var(--surface-glass);
+            border-radius: var(--radius);
+            overflow: hidden;
+            border: 1px solid var(--border-glass);
+        }
+
+        .skeleton-img {
+            width: 100%;
+            padding-top: 100%;
+            background: linear-gradient(90deg, var(--surface) 25%, var(--surface-hover) 50%, var(--surface) 75%);
+            background-size: 200% 100%;
+            animation: skeletonShimmer 1.5s ease-in-out infinite;
+        }
+
+        .skeleton-content {
+            padding: 1.25rem;
+        }
+
+        .skeleton-line {
+            height: 14px;
+            border-radius: 7px;
+            background: linear-gradient(90deg, var(--surface) 25%, var(--surface-hover) 50%, var(--surface) 75%);
+            background-size: 200% 100%;
+            animation: skeletonShimmer 1.5s ease-in-out infinite;
+            margin-bottom: 0.75rem;
+        }
+
+        .skeleton-line.short { width: 60%; }
+        .skeleton-line.medium { width: 80%; }
+
+        .skeleton-btn {
+            height: 38px;
+            border-radius: 10px;
+            background: linear-gradient(90deg, var(--surface) 25%, var(--surface-hover) 50%, var(--surface) 75%);
+            background-size: 200% 100%;
+            animation: skeletonShimmer 1.5s ease-in-out infinite;
+            margin-top: 1rem;
+        }
+
+        @keyframes skeletonShimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
     </style>
 </head>
 
@@ -1248,7 +1543,7 @@
             </a>
             <div class="nav-links">
                 <a href="/" class="active"><i class="fas fa-home"></i> Home</a>
-                <a href="/downloads"><i class="fas fa-download"></i> Downloads</a>
+                <a href="/downloads"><i class="fas fa-download"></i> Downloads <span class="nav-badge" id="queueBadge">0</span></a>
                 <a href="/logs"><i class="fas fa-list"></i> Logs</a>
                 <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
             </div>
@@ -1268,6 +1563,29 @@
                 <p style="margin: 0.25rem 0 0; font-size: 0.9rem; opacity: 0.9;">
                     This configuration disabled auto-cleanup to prevent data loss. Please update your settings.
                 </p>
+            </div>
+        </div>
+
+        <div class="stats-bar" id="statsBar">
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fa-solid fa-compact-disc"></i></div>
+                <div class="stat-value" id="statTotal">-</div>
+                <div class="stat-label">Total Albums</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fa-solid fa-music"></i></div>
+                <div class="stat-value" id="statMissing">-</div>
+                <div class="stat-label">Missing Tracks</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fa-solid fa-list-ol"></i></div>
+                <div class="stat-value" id="statQueue">-</div>
+                <div class="stat-label">In Queue</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fa-solid fa-circle-check"></i></div>
+                <div class="stat-value" id="statToday">-</div>
+                <div class="stat-label">Downloaded Today</div>
             </div>
         </div>
 
@@ -1298,6 +1616,9 @@
             <div class="controls-row">
                 <button class="btn btn-secondary" onclick="testConnection()">Check Connection</button>
                 <button class="btn btn-primary" onclick="loadAlbums()">Refresh Library</button>
+                <button class="btn btn-primary" id="downloadAllBtn" onclick="downloadAllMissing(event)" style="background: linear-gradient(135deg, #0891b2, #06d6a0); animation: none;">
+                    <i class="fa-solid fa-download"></i> Download All Missing
+                </button>
             </div>
             <div id="connectionStatus" style="margin-top:1rem; display:none"></div>
         </div>
@@ -1372,6 +1693,10 @@
         let allAlbums = [];
         let currentViewMode = 'cards';
         let isProgressMinimized = false;
+        const ALBUMS_PER_PAGE = 50;
+        let displayedCount = 0;
+        let currentFiltered = [];
+        let queuedAlbumIds = new Set();
 
         document.addEventListener('DOMContentLoaded', () => {
             const saved = localStorage.getItem('theme') || 'dark';
@@ -1414,69 +1739,122 @@
             const term = document.getElementById('artistSearch').value.toLowerCase();
             const sortType = document.getElementById('sortFilter').value;
 
-            let filtered = allAlbums.filter(album =>
+            currentFiltered = allAlbums.filter(album =>
                 album.title.toLowerCase().includes(term) ||
                 album.artist.artistName.toLowerCase().includes(term)
             );
 
             if (sortType === 'missing') {
-                filtered.sort((a, b) => b.missingTrackCount - a.missingTrackCount);
+                currentFiltered.sort((a, b) => b.missingTrackCount - a.missingTrackCount);
             } else if (sortType === 'alpha') {
-                filtered.sort((a, b) => a.title.localeCompare(b.title));
+                currentFiltered.sort((a, b) => a.title.localeCompare(b.title));
             } else {
-                filtered.sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate));
+                currentFiltered.sort((a, b) => new Date(b.releaseDate) - new Date(a.releaseDate));
             }
 
-            if (currentViewMode === 'cards') renderCards(filtered);
-            else if (currentViewMode === 'list') renderList(filtered);
-            else if (currentViewMode === 'table') renderTable(filtered);
+            displayedCount = Math.min(ALBUMS_PER_PAGE, currentFiltered.length);
+
+            if (currentViewMode === 'cards') renderCards();
+            else if (currentViewMode === 'list') renderList();
+            else if (currentViewMode === 'table') renderTable();
+
+            updateLoadMoreBtn();
+            updateQueueButtons();
         }
 
-        document.getElementById('artistSearch').addEventListener('input', applyFilters);
+        function loadMore() {
+            const prevCount = displayedCount;
+            displayedCount = Math.min(displayedCount + ALBUMS_PER_PAGE, currentFiltered.length);
+            const slice = currentFiltered.slice(prevCount, displayedCount);
+
+            if (currentViewMode === 'cards') appendCards(slice);
+            else if (currentViewMode === 'list') appendList(slice);
+            else if (currentViewMode === 'table') appendTableRows(slice);
+
+            updateLoadMoreBtn();
+        }
+
+        function updateLoadMoreBtn() {
+            let loadMoreBtn = document.getElementById('loadMoreBtn');
+            if (displayedCount < currentFiltered.length) {
+                if (!loadMoreBtn) {
+                    loadMoreBtn = document.createElement('div');
+                    loadMoreBtn.id = 'loadMoreBtn';
+                    loadMoreBtn.style.cssText = 'text-align:center; margin-top:2rem;';
+                    document.getElementById('albumContainer').after(loadMoreBtn);
+                }
+                const remaining = currentFiltered.length - displayedCount;
+                loadMoreBtn.innerHTML = `<button class="btn btn-secondary" onclick="loadMore()" style="padding:0.8rem 2rem; min-width:200px;">
+                    <i class="fa-solid fa-angles-down"></i> Load More (${remaining} remaining)
+                </button>
+                <div style="margin-top:0.5rem; font-size:0.8rem; color:var(--text-dim);">Showing ${displayedCount} of ${currentFiltered.length}</div>`;
+            } else {
+                if (loadMoreBtn) loadMoreBtn.remove();
+            }
+        }
+
+        let searchDebounceTimer = null;
+        document.getElementById('artistSearch').addEventListener('input', () => {
+            clearTimeout(searchDebounceTimer);
+            searchDebounceTimer = setTimeout(applyFilters, 300);
+        });
         document.getElementById('sortFilter').addEventListener('change', applyFilters);
 
         const placeholderSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>`;
+
+        function createCardElement(album, index) {
+            const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
+            const year = album.releaseDate?.substring(0, 4) || '';
+            const div = document.createElement('div');
+            div.className = 'card';
+            div.style.animationDelay = `${(index % ALBUMS_PER_PAGE) * 0.05}s`;
+            const coverHtml = cover
+                ? `<div class="card-img-container"><img src="${cover}" class="card-img"></div>`
+                : `<div class="card-img-container"><div class="cover-placeholder">${placeholderSvg}</div></div>`;
+            div.innerHTML = `
+                ${coverHtml}
+                <div class="card-content">
+                    <div class="card-title">${album.title}</div>
+                    <div class="card-artist">${album.artist.artistName}</div>
+                    <div style="font-size:0.8rem; color:var(--text-dim); margin-bottom:1rem">${year} • ${album.missingTrackCount} Missing</div>
+                    <div class="card-actions">
+                        <button class="btn btn-primary" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)">Add to Queue</button>
+                    </div>
+                </div>
+                <div class="card-progress-indicator" id="card-progress-${album.id}">
+                    <div class="mini-progress-bar">
+                        <div class="mini-progress-fill" id="mini-fill-${album.id}" style="width: 0%"></div>
+                    </div>
+                    <div class="mini-progress-text">
+                        <span class="mini-progress-track" id="mini-track-${album.id}">Track 0/0</span>
+                        <span id="mini-percent-${album.id}">0%</span>
+                    </div>
+                </div>
+            `;
+            return div;
+        }
 
         function renderCards(albums) {
             const container = document.getElementById('albumContainer');
             container.className = 'grid';
             container.innerHTML = '';
 
-            if (albums.length === 0) {
+            if (currentFiltered.length === 0) {
                 container.innerHTML = '<div style="grid-column:1/-1;text-align:center">No albums match your criteria.</div>';
                 return;
             }
 
-            albums.forEach((album, index) => {
-                const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
-                const year = album.releaseDate?.substring(0, 4) || '';
-                const div = document.createElement('div');
-                div.className = 'card';
-                div.style.animationDelay = `${index * 0.05}s`;
-                const coverHtml = cover
-                    ? `<div class="card-img-container"><img src="${cover}" class="card-img"></div>`
-                    : `<div class="card-img-container"><div class="cover-placeholder">${placeholderSvg}</div></div>`;
-                div.innerHTML = `
-                    ${coverHtml}
-                    <div class="card-content">
-                        <div class="card-title">${album.title}</div>
-                        <div class="card-artist">${album.artist.artistName}</div>
-                        <div style="font-size:0.8rem; color:var(--text-dim); margin-bottom:1rem">${year} • ${album.missingTrackCount} Missing</div>
-                        <div class="card-actions">
-                            <button class="btn btn-primary" onclick="addToQueue(${album.id})">Add to Queue</button>
-                        </div>
-                    </div>
-                    <div class="card-progress-indicator" id="card-progress-${album.id}">
-                        <div class="mini-progress-bar">
-                            <div class="mini-progress-fill" id="mini-fill-${album.id}" style="width: 0%"></div>
-                        </div>
-                        <div class="mini-progress-text">
-                            <span class="mini-progress-track" id="mini-track-${album.id}">Track 0/0</span>
-                            <span id="mini-percent-${album.id}">0%</span>
-                        </div>
-                    </div>
-                `;
-                container.appendChild(div);
+            const page = currentFiltered.slice(0, displayedCount);
+            page.forEach((album, index) => {
+                container.appendChild(createCardElement(album, index));
+            });
+        }
+
+        function appendCards(albums) {
+            const container = document.getElementById('albumContainer');
+            const startIndex = displayedCount - albums.length;
+            albums.forEach((album, i) => {
+                container.appendChild(createCardElement(album, startIndex + i));
             });
         }
 
@@ -1485,63 +1863,158 @@
             container.className = 'list-view';
             container.innerHTML = '';
 
-            if (albums.length === 0) {
+            if (currentFiltered.length === 0) {
                 container.innerHTML = '<div style="text-align:center">No albums match your criteria.</div>';
                 return;
             }
 
-            albums.forEach(album => {
-                const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
-                const year = album.releaseDate?.substring(0, 4) || '';
-                const div = document.createElement('div');
-                div.className = 'list-item';
-                const listCoverHtml = cover
-                    ? `<img src="${cover}" class="list-item-img">`
-                    : `<div class="list-item-placeholder">${placeholderSvg}</div>`;
-                div.innerHTML = `
-                    ${listCoverHtml}
-                    <div class="list-item-info">
-                        <div class="list-item-title">${album.title}</div>
-                        <div class="list-item-artist">${album.artist.artistName} • ${year} • ${album.missingTrackCount} Missing</div>
-                    </div>
-                    <div class="list-item-actions">
-                        <button class="btn btn-primary" onclick="addToQueue(${album.id})">Add to Queue</button>
-                    </div>
-                `;
-                container.appendChild(div);
+            const page = currentFiltered.slice(0, displayedCount);
+            page.forEach(album => {
+                container.appendChild(createListElement(album));
             });
+        }
+
+        function createListElement(album) {
+            const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
+            const year = album.releaseDate?.substring(0, 4) || '';
+            const div = document.createElement('div');
+            div.className = 'list-item';
+            const listCoverHtml = cover
+                ? `<img src="${cover}" class="list-item-img">`
+                : `<div class="list-item-placeholder">${placeholderSvg}</div>`;
+            div.innerHTML = `
+                ${listCoverHtml}
+                <div class="list-item-info">
+                    <div class="list-item-title">${album.title}</div>
+                    <div class="list-item-artist">${album.artist.artistName} • ${year} • ${album.missingTrackCount} Missing</div>
+                </div>
+                <div class="list-item-actions">
+                    <button class="btn btn-primary" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)">Add to Queue</button>
+                </div>
+            `;
+            return div;
+        }
+
+        function appendList(albums) {
+            const container = document.getElementById('albumContainer');
+            albums.forEach(album => {
+                container.appendChild(createListElement(album));
+            });
+        }
+
+        let tableSortState = { column: null, direction: 'asc' };
+
+        function getTableSortArrow(col) {
+            if (tableSortState.column !== col) return '<span class="sort-arrow">↕</span>';
+            return tableSortState.direction === 'asc'
+                ? '<span class="sort-arrow">▲</span>'
+                : '<span class="sort-arrow">▼</span>';
         }
 
         function renderTable(albums) {
             const container = document.getElementById('albumContainer');
             container.className = 'table-view';
 
-            if (albums.length === 0) {
+            if (currentFiltered.length === 0) {
                 container.innerHTML = '<div style="text-align:center">No albums match your criteria.</div>';
                 return;
             }
 
-            let html = '<table><thead><tr><th>Cover</th><th>Album</th><th>Year</th><th>Missing</th><th>Action</th></tr></thead><tbody>';
+            const page = currentFiltered.slice(0, displayedCount);
 
-            albums.forEach(album => {
-                const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
-                const year = album.releaseDate?.substring(0, 4) || '';
-                const tableCoverHtml = cover
-                    ? `<img src="${cover}" class="table-img">`
-                    : `<div class="table-placeholder">${placeholderSvg}</div>`;
-                html += `
-                    <tr>
-                        <td>${tableCoverHtml}</td>
-                        <td><div class="table-album-title">${album.title}</div><div class="table-album-artist">${album.artist.artistName}</div></td>
-                        <td>${year}</td>
-                        <td>${album.missingTrackCount}</td>
-                        <td><button class="btn btn-primary" onclick="addToQueue(${album.id})">Add to Queue</button></td>
-                    </tr>
-                `;
+            let desktopHtml = `<table class="table-desktop"><thead><tr>
+                <th>Cover</th>
+                <th>Album</th>
+                <th class="th-sortable ${tableSortState.column === 'artist' ? 'sort-active' : ''}" onclick="sortTableBy('artist')">Artist ${getTableSortArrow('artist')}</th>
+                <th class="th-sortable ${tableSortState.column === 'year' ? 'sort-active' : ''}" onclick="sortTableBy('year')">Year ${getTableSortArrow('year')}</th>
+                <th class="th-sortable ${tableSortState.column === 'missing' ? 'sort-active' : ''}" onclick="sortTableBy('missing')">Missing ${getTableSortArrow('missing')}</th>
+                <th>Action</th>
+            </tr></thead><tbody>`;
+
+            let mobileHtml = `<table class="table-mobile"><thead><tr>
+                <th>Album</th><th>Missing</th><th></th>
+            </tr></thead><tbody>`;
+
+            page.forEach(album => {
+                desktopHtml += createTableRowHtml(album);
+                mobileHtml += createMobileRowHtml(album);
             });
 
-            html += '</tbody></table>';
-            container.innerHTML = html;
+            desktopHtml += '</tbody></table>';
+            mobileHtml += '</tbody></table>';
+            container.innerHTML = desktopHtml + mobileHtml;
+        }
+
+        function createTableRowHtml(album) {
+            const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
+            const year = album.releaseDate?.substring(0, 4) || '';
+            const tableCoverHtml = cover
+                ? `<img src="${cover}" class="table-img">`
+                : `<div class="table-placeholder">${placeholderSvg}</div>`;
+            return `
+                <tr>
+                    <td>${tableCoverHtml}</td>
+                    <td><div class="table-album-title">${album.title}</div></td>
+                    <td><span class="table-artist">${album.artist.artistName}</span></td>
+                    <td><span class="table-year">${year}</span></td>
+                    <td>${album.missingTrackCount}</td>
+                    <td><button class="btn btn-primary" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)">Add to Queue</button></td>
+                </tr>
+            `;
+        }
+
+        function sortTableBy(column) {
+            if (tableSortState.column === column) {
+                tableSortState.direction = tableSortState.direction === 'asc' ? 'desc' : 'asc';
+            } else {
+                tableSortState.column = column;
+                tableSortState.direction = 'asc';
+            }
+
+            const dir = tableSortState.direction === 'asc' ? 1 : -1;
+            if (column === 'artist') {
+                currentFiltered.sort((a, b) => dir * a.artist.artistName.localeCompare(b.artist.artistName));
+            } else if (column === 'year') {
+                currentFiltered.sort((a, b) => dir * ((a.releaseDate || '').localeCompare(b.releaseDate || '')));
+            } else if (column === 'missing') {
+                currentFiltered.sort((a, b) => dir * (a.missingTrackCount - b.missingTrackCount));
+            }
+
+            displayedCount = Math.min(ALBUMS_PER_PAGE, currentFiltered.length);
+            renderTable();
+            updateLoadMoreBtn();
+            updateQueueButtons();
+        }
+
+        function createMobileRowHtml(album) {
+            const cover = album.images?.find(i => i.coverType === 'cover')?.remoteUrl || '';
+            const year = album.releaseDate?.substring(0, 4) || '';
+            const artistYear = year ? `${album.artist.artistName} · ${year}` : album.artist.artistName;
+            const coverHtml = cover
+                ? `<img src="${cover}" class="mob-cover">`
+                : `<div class="mob-cover-ph">${placeholderSvg}</div>`;
+            return `
+                <tr>
+                    <td><div class="mob-cell">${coverHtml}<div class="mob-info"><div class="mob-title">${album.title}</div><div class="mob-artist">${artistYear}</div></div></div></td>
+                    <td>${album.missingTrackCount}</td>
+                    <td><button class="btn btn-primary mob-btn" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)" title="Add to Queue"><i class="fa-solid fa-download"></i></button></td>
+                </tr>
+            `;
+        }
+
+        function appendTableRows(albums) {
+            const desktopTbody = document.querySelector('#albumContainer .table-desktop tbody');
+            if (desktopTbody) {
+                albums.forEach(album => {
+                    desktopTbody.insertAdjacentHTML('beforeend', createTableRowHtml(album));
+                });
+            }
+            const mobileTbody = document.querySelector('#albumContainer .table-mobile tbody');
+            if (mobileTbody) {
+                albums.forEach(album => {
+                    mobileTbody.insertAdjacentHTML('beforeend', createMobileRowHtml(album));
+                });
+            }
         }
 
         async function testConnection() {
@@ -1555,93 +2028,248 @@
                 : `<span style="color:var(--danger)">Error: ${data.error}</span>`;
         }
 
-        async function loadAlbums() {
+        function showSkeletonLoading() {
             const container = document.getElementById('albumContainer');
-            container.innerHTML = '<div style="text-align:center">Loading...</div>';
+            container.className = 'grid';
+            let skeletons = '';
+            for (let i = 0; i < 8; i++) {
+                skeletons += `
+                    <div class="skeleton-card" style="animation-delay: ${i * 0.1}s">
+                        <div class="skeleton-img"></div>
+                        <div class="skeleton-content">
+                            <div class="skeleton-line medium"></div>
+                            <div class="skeleton-line short"></div>
+                            <div class="skeleton-line short" style="width:40%"></div>
+                            <div class="skeleton-btn"></div>
+                        </div>
+                    </div>
+                `;
+            }
+            container.innerHTML = skeletons;
+        }
+
+        async function loadAlbums() {
+            showSkeletonLoading();
             const res = await fetch('/api/missing-albums');
             allAlbums = await res.json();
             applyFilters();
+            updateStats();
         }
 
-        async function addToQueue(id) {
-            await fetch('/api/download/' + id, { method: 'POST' });
-        }
-
-        function startGlobalPolling() {
-            setInterval(updateProgress, 1000);
-        }
-
-        async function updateProgress() {
+        async function updateStats() {
+            const totalAlbums = allAlbums.length;
+            const totalMissing = allAlbums.reduce((sum, a) => sum + (a.missingTrackCount || 0), 0);
+            document.getElementById('statTotal').textContent = totalAlbums;
+            document.getElementById('statMissing').textContent = totalMissing;
             try {
-                const res = await fetch('/api/download/status');
-                const data = await res.json();
+                const res = await fetch('/api/stats');
+                const stats = await res.json();
+                document.getElementById('statQueue').textContent = stats.in_queue;
+                document.getElementById('statToday').textContent = stats.downloaded_today;
+            } catch (e) {}
+        }
 
-                if (!data.active) {
-                    isProgressMinimized = false;
-                    document.getElementById('progressContainer').classList.remove('active');
-                    document.getElementById('progressMinimizedBtn').classList.remove('active');
-                    document.querySelectorAll('.card-progress-indicator').forEach(e => e.classList.remove('active'));
-                    return;
-                }
-
-                if (!isProgressMinimized) {
-                    const progressContainer = document.getElementById('progressContainer');
-                    progressContainer.classList.add('active');
-                } else {
-                    document.getElementById('progressMinimizedBtn').classList.add('active');
-                }
-
-                if (data.album_title) {
-                    document.getElementById('progressAlbumTitle').textContent = data.album_title;
-                }
-                if (data.artist_name) {
-                    document.getElementById('progressArtistName').textContent = data.artist_name;
-                }
-                if (data.current_track_title) {
-                    document.getElementById('currentTrackTitle').textContent = data.current_track_title;
-                }
-
-                if (data.progress.current && data.progress.total) {
-                    document.getElementById('trackProgress').textContent = `Track ${data.progress.current}/${data.progress.total}`;
-
-                    const overallPercent = data.progress.overall_percent || Math.round((data.progress.current / data.progress.total) * 100);
-                    document.getElementById('overallPercent').textContent = `${overallPercent}%`;
-                    document.getElementById('progressFill').style.width = `${overallPercent}%`;
-
-                    const cardProgress = document.getElementById(`card-progress-${data.album_id}`);
-                    if (cardProgress) {
-                        cardProgress.classList.add('active');
-                        document.getElementById(`mini-fill-${data.album_id}`).style.width = `${overallPercent}%`;
-                        document.getElementById(`mini-track-${data.album_id}`).textContent = `Track ${data.progress.current}/${data.progress.total}`;
-                        document.getElementById(`mini-percent-${data.album_id}`).textContent = `${overallPercent}%`;
-                    }
-                }
-
-                if (data.progress.percent) {
-                    document.getElementById('trackStatus').textContent = `Downloading: ${data.progress.percent}`;
-                    document.getElementById('downloadSpeed').textContent = data.progress.speed || '--';
-                } else {
-                    document.getElementById('trackStatus').textContent = 'Processing track...';
-                    document.getElementById('downloadSpeed').textContent = '--';
-                }
-
-                const queueRes = await fetch('/api/download/queue');
-                const queue = await queueRes.json();
-
-                if (queue.length > 0) {
-                    document.getElementById('progressQueue').style.display = 'block';
-                    document.getElementById('queueCount').textContent = queue.length;
-                    document.getElementById('queueList').innerHTML = queue.slice(0, 3).map((item, index) => `
-                        <div class="queue-item-mini">
-                            <div class="queue-item-position">${index + 1}</div>
-                            <div class="queue-item-text">${item.title} - ${item.artist}</div>
-                        </div>
-                    `).join('');
-                } else {
-                    document.getElementById('progressQueue').style.display = 'none';
+        async function addToQueue(id, event) {
+            const btn = event ? event.currentTarget : null;
+            const isMobBtn = btn && btn.classList.contains('mob-btn');
+            if (btn) {
+                btn.classList.add('btn-adding', 'btn-ripple');
+                btn.innerHTML = isMobBtn ? '<i class="fa-solid fa-spinner fa-spin"></i>' : '<i class="fa-solid fa-spinner fa-spin"></i> Adding...';
+            }
+            try {
+                await fetch('/api/download/' + id, { method: 'POST' });
+                if (btn) {
+                    btn.classList.remove('btn-adding', 'btn-ripple');
+                    btn.classList.add('btn-added');
+                    btn.innerHTML = isMobBtn ? '<i class="fa-solid fa-check"></i>' : '<i class="fa-solid fa-check"></i> Added ✓';
+                    setTimeout(() => {
+                        btn.classList.remove('btn-added');
+                        if (!btn.classList.contains('btn-downloading')) {
+                            if (btn.classList.contains('mob-btn')) {
+                                btn.innerHTML = '<i class="fa-solid fa-download"></i>';
+                            } else {
+                                btn.innerHTML = 'Add to Queue';
+                            }
+                            btn.style.pointerEvents = '';
+                        }
+                    }, 2500);
                 }
             } catch (e) {
+                if (btn) {
+                    btn.classList.remove('btn-adding', 'btn-ripple');
+                    btn.innerHTML = isMobBtn ? '<i class="fa-solid fa-xmark"></i>' : '<i class="fa-solid fa-xmark"></i> Error';
+                    btn.style.background = 'var(--danger)';
+                    setTimeout(() => {
+                        btn.style.background = '';
+                        if (!btn.classList.contains('btn-downloading')) {
+                            if (btn.classList.contains('mob-btn')) {
+                                btn.innerHTML = '<i class="fa-solid fa-download"></i>';
+                            } else {
+                                btn.innerHTML = 'Add to Queue';
+                            }
+                            btn.style.pointerEvents = '';
+                        }
+                    }, 2000);
+                }
             }
+        }
+
+        async function downloadAllMissing(event) {
+            const btn = event ? event.currentTarget : document.getElementById('downloadAllBtn');
+            const term = document.getElementById('artistSearch').value.toLowerCase();
+            const filtered = allAlbums.filter(album =>
+                album.title.toLowerCase().includes(term) ||
+                album.artist.artistName.toLowerCase().includes(term)
+            );
+            if (filtered.length === 0) return;
+            if (!confirm(`Add ${filtered.length} albums to download queue?`)) return;
+
+            btn.classList.add('btn-adding');
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Adding 0/${filtered.length}...`;
+
+            let added = 0;
+            for (const album of filtered) {
+                try {
+                    await fetch('/api/download/' + album.id, { method: 'POST' });
+                    added++;
+                    btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Adding ${added}/${filtered.length}...`;
+                } catch (e) {}
+            }
+
+            btn.classList.remove('btn-adding');
+            btn.classList.add('btn-added');
+            btn.innerHTML = `<i class="fa-solid fa-check"></i> ${added} Added ✓`;
+            setTimeout(() => {
+                btn.classList.remove('btn-added');
+                btn.innerHTML = '<i class="fa-solid fa-download"></i> Download All Missing';
+                btn.style.pointerEvents = '';
+            }, 3000);
+        }
+
+        let statsCounter = 0;
+        let eventSource = null;
+
+        function startGlobalPolling() {
+            connectSSE();
+            setInterval(() => {
+                statsCounter++;
+                if (statsCounter % 10 === 0) updateStats();
+            }, 1000);
+        }
+
+        function connectSSE() {
+            if (eventSource) eventSource.close();
+            eventSource = new EventSource('/api/download/stream');
+            eventSource.onmessage = (event) => {
+                try {
+                    const payload = JSON.parse(event.data);
+                    handleProgressUpdate(payload.status, payload.queue);
+                } catch (e) {}
+            };
+            eventSource.onerror = () => {
+                eventSource.close();
+                setTimeout(connectSSE, 3000);
+            };
+        }
+
+        function handleProgressUpdate(data, queue) {
+            if (!data.active) {
+                isProgressMinimized = false;
+                document.getElementById('progressContainer').classList.remove('active');
+                document.getElementById('progressMinimizedBtn').classList.remove('active');
+                document.querySelectorAll('.card-progress-indicator').forEach(e => e.classList.remove('active'));
+                const badge = document.getElementById('queueBadge');
+                badge.classList.remove('active');
+                queuedAlbumIds = new Set();
+                updateQueueButtons();
+                return;
+            }
+
+            if (!isProgressMinimized) {
+                document.getElementById('progressContainer').classList.add('active');
+            } else {
+                document.getElementById('progressMinimizedBtn').classList.add('active');
+            }
+
+            if (data.album_title) document.getElementById('progressAlbumTitle').textContent = data.album_title;
+            if (data.artist_name) document.getElementById('progressArtistName').textContent = data.artist_name;
+            if (data.current_track_title) document.getElementById('currentTrackTitle').textContent = data.current_track_title;
+
+            if (data.progress && data.progress.current && data.progress.total) {
+                document.getElementById('trackProgress').textContent = `Track ${data.progress.current}/${data.progress.total}`;
+
+                const overallPercent = data.progress.overall_percent || Math.round((data.progress.current / data.progress.total) * 100);
+                document.getElementById('overallPercent').textContent = `${overallPercent}%`;
+                document.getElementById('progressFill').style.width = `${overallPercent}%`;
+
+                const cardProgress = document.getElementById(`card-progress-${data.album_id}`);
+                if (cardProgress) {
+                    cardProgress.classList.add('active');
+                    document.getElementById(`mini-fill-${data.album_id}`).style.width = `${overallPercent}%`;
+                    document.getElementById(`mini-track-${data.album_id}`).textContent = `Track ${data.progress.current}/${data.progress.total}`;
+                    document.getElementById(`mini-percent-${data.album_id}`).textContent = `${overallPercent}%`;
+                }
+            }
+
+            if (data.progress && data.progress.percent) {
+                document.getElementById('trackStatus').textContent = `Downloading: ${data.progress.percent}`;
+                document.getElementById('downloadSpeed').textContent = data.progress.speed || '--';
+            } else {
+                document.getElementById('trackStatus').textContent = 'Processing track...';
+                document.getElementById('downloadSpeed').textContent = '--';
+            }
+
+            queuedAlbumIds = new Set(queue.map(q => q.id));
+            if (data.active && data.album_id) queuedAlbumIds.add(data.album_id);
+
+            const totalInQueue = queue.length + (data.active ? 1 : 0);
+            const badge = document.getElementById('queueBadge');
+            if (totalInQueue > 0) {
+                badge.textContent = totalInQueue;
+                badge.classList.add('active');
+            } else {
+                badge.classList.remove('active');
+            }
+
+            if (queue.length > 0) {
+                document.getElementById('progressQueue').style.display = 'block';
+                document.getElementById('queueCount').textContent = queue.length;
+                document.getElementById('queueList').innerHTML = queue.slice(0, 3).map((item, index) => `
+                    <div class="queue-item-mini">
+                        <div class="queue-item-position">${index + 1}</div>
+                        <div class="queue-item-text">${item.title} - ${item.artist}</div>
+                    </div>
+                `).join('');
+            } else {
+                document.getElementById('progressQueue').style.display = 'none';
+            }
+
+            updateQueueButtons();
+        }
+
+        function updateQueueButtons() {
+            document.querySelectorAll('[data-album-id]').forEach(btn => {
+                const albumId = parseInt(btn.dataset.albumId);
+                if (queuedAlbumIds.has(albumId)) {
+                    if (!btn.classList.contains('btn-downloading')) {
+                        btn.classList.add('btn-downloading');
+                        if (btn.classList.contains('mob-btn')) {
+                            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+                        } else {
+                            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading';
+                        }
+                    }
+                } else {
+                    if (btn.classList.contains('btn-downloading')) {
+                        btn.classList.remove('btn-downloading');
+                        if (btn.classList.contains('mob-btn')) {
+                            btn.innerHTML = '<i class="fa-solid fa-download"></i>';
+                        } else {
+                            btn.innerHTML = 'Add to Queue';
+                        }
+                    }
+                }
+            });
         }
 
         function hideProgress() {
