@@ -5,7 +5,11 @@ import threading
 import shutil
 import re
 import logging
+import uuid
+import math
 from pathlib import Path
+from xml.sax.saxutils import escape as xml_escape
+from difflib import SequenceMatcher
 from flask import Flask, render_template, request, jsonify, send_from_directory, Response
 import requests
 from mutagen.mp3 import MP3
@@ -23,7 +27,13 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.3.5"
+VERSION = "1.4.0"
+
+
+@app.context_processor
+def inject_version():
+    return {"APP_VERSION": VERSION}
+
 
 CONFIG_FILE = "/config/config.json"
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
@@ -35,6 +45,7 @@ download_process = {
     "album_title": "",
     "artist_name": "",
     "current_track_title": "",
+    "cover_url": "",
 }
 
 download_queue = []
@@ -70,13 +81,15 @@ def load_persistent_data():
         try:
             with open(HISTORY_FILE, "r") as f:
                 download_history = json.load(f)
-        except:
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load history file: {e}")
             download_history = []
     if os.path.exists(LOGS_FILE):
         try:
             with open(LOGS_FILE, "r") as f:
                 download_logs = json.load(f)
-        except:
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load logs file: {e}")
             download_logs = []
 
 
@@ -85,8 +98,8 @@ def save_history():
         os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
         with open(HISTORY_FILE, "w") as f:
             json.dump(download_history[-25:], f)
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to save history: {e}")
 
 
 def save_logs():
@@ -94,8 +107,8 @@ def save_logs():
         os.makedirs(os.path.dirname(LOGS_FILE), exist_ok=True)
         with open(LOGS_FILE, "w") as f:
             json.dump(download_logs[-100:], f)
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to save logs: {e}")
 
 
 def load_config():
@@ -114,12 +127,12 @@ def load_config():
         "telegram_log_types": [
             "partial_success",
             "import_partial",
-            "import_failed",
             "album_error",
         ],                        
         "xml_metadata_enabled": os.getenv("XML_METADATA_ENABLED", "true").lower()
         == "true",
-        "forbidden_words": ["remix", "cover", "mashup", "bootleg", "live", "dj mix"],
+        "forbidden_words": ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute"],
+        "duration_tolerance": int(os.getenv("DURATION_TOLERANCE", "10")),
         "yt_cookies_file": os.getenv("YT_COOKIES_FILE", ""),
         "yt_force_ipv4": os.getenv("YT_FORCE_IPV4", "true").lower() == "true",
         "yt_player_client": os.getenv("YT_PLAYER_CLIENT", "android"),
@@ -141,8 +154,10 @@ def load_config():
                         config[key] = file_config[key]
             if "scheduler_interval" in config:
                 config["scheduler_interval"] = int(config["scheduler_interval"])
-        except:
-            pass
+            if "duration_tolerance" in config:
+                config["duration_tolerance"] = int(config["duration_tolerance"])
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load config file: {e}")
 
     def norm(p):
         return os.path.normcase(os.path.abspath(str(p))).rstrip("\\/") if p else ""
@@ -162,6 +177,8 @@ def save_config(config):
     os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
     if "scheduler_interval" in config:
         config["scheduler_interval"] = int(config["scheduler_interval"])
+    if "duration_tolerance" in config:
+        config["duration_tolerance"] = int(config["duration_tolerance"])
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)
 
@@ -186,8 +203,8 @@ def send_telegram(message, log_type=None):
                 json={"chat_id": config["telegram_chat_id"], "text": message},
                 timeout=10,
             )
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"⚠️ Telegram notification failed: {e}")
 
 
 def add_download_log(
@@ -240,7 +257,8 @@ def get_missing_albums():
                 album["missingTrackCount"] = total - files
             return records
         return []
-    except:
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to get missing albums: {e}")
         return []
 
 
@@ -267,8 +285,8 @@ def get_itunes_tracks(artist, album_name):
                     }
                 )
             return tracks
-    except:
-        pass
+    except Exception as e:
+        logger.debug(f"iTunes tracks lookup failed: {e}")
     return []
 
 
@@ -285,14 +303,18 @@ def get_itunes_artwork(artist, album):
                 .replace("100x100", "3000x3000")
             )
             return requests.get(artwork_url, timeout=15).content
-    except:
-        pass
+    except Exception as e:
+        logger.debug(f"iTunes artwork lookup failed: {e}")
     return None
 
 
 def sanitize_filename(name):
     name = re.sub(r'[<>:"/\\|?*]', "", name)
-    return name.strip()
+    name = name.replace("..", "").replace("~", "")
+    name = name.strip(". ")
+    if not name:
+        name = "untitled"
+    return name
 
 
 def download_track_youtube(query, output_path, track_title_original, expected_duration_ms=None):
@@ -327,73 +349,135 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
     }
 
     candidates = []
-    forbidden_words = config.get("forbidden_words", ["remix", "cover", "mashup", "bootleg", "live", "dj mix"])
+    forbidden_words = config.get("forbidden_words", ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute"])
     duration_tolerance = config.get("duration_tolerance", 10)
-    
+
     expected_duration_sec = None
     if expected_duration_ms:
         expected_duration_sec = expected_duration_ms / 1000.0
         logger.info(f"📏 Expected track duration: {int(expected_duration_sec // 60)}:{int(expected_duration_sec % 60):02d} ({int(expected_duration_sec)}s)")
 
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
-            search_results = ydl.extract_info(f"ytsearch10:{query}", download=False)
+    def _title_similarity(yt_title, track_title, artist_name):
+        yt_lower = yt_title.lower()
+        expected_lower = f"{artist_name} {track_title}".lower()
+        score = SequenceMatcher(None, yt_lower, expected_lower).ratio()
+        track_lower = track_title.lower()
+        if track_lower in yt_lower:
+            score += 0.3
+        if artist_name.lower() in yt_lower:
+            score += 0.2
+        return min(score, 1.0)
 
-            for entry in search_results.get("entries", []):
-                title = entry.get("title", "").lower()
-                url = entry.get("url")
-                duration = entry.get("duration", 0)
+    def _is_official_channel(channel_name, artist_name):
+        if not channel_name:
+            return False
+        ch = channel_name.lower()
+        ar = artist_name.lower()
+        if ar in ch:
+            return True
+        for suffix in [" - topic", "vevo", " official"]:
+            if suffix in ch:
+                return True
+        return False
 
-                is_clean = True
-                for word in forbidden_words:
-                    if word in title and word not in track_title_original.lower():
-                        logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - contains forbidden word '{word}'")
-                        is_clean = False
-                        break
+    def _check_forbidden(yt_title_lower, track_title_lower, forbidden_list):
+        for word in forbidden_list:
+            if " " in word:
+                if word in yt_title_lower and word not in track_title_lower:
+                    return word
+            else:
+                pattern = r'\b' + re.escape(word) + r'\b'
+                if re.search(pattern, yt_title_lower) and not re.search(pattern, track_title_lower):
+                    return word
+        return None
 
-                if not is_clean:
-                    continue
+    artist_part = query.split(" ")[0] if " " in query else query
+    search_queries = [query]
+    base_track = track_title_original
+    base_artist = query.replace(f" {track_title_original} official audio", "").replace(f" {track_title_original}", "").strip()
+    if not base_artist:
+        base_artist = artist_part
 
-                if expected_duration_sec:
-                    min_duration = max(15, expected_duration_sec - duration_tolerance)
-                    max_duration = expected_duration_sec + duration_tolerance
-                    
-                    if duration < min_duration or duration > max_duration:
-                        logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - duration {int(duration)}s outside range [{int(min_duration)}s - {int(max_duration)}s]")
+    alt_q = f"{base_artist} {base_track}"
+    if alt_q != query and alt_q not in search_queries:
+        search_queries.append(alt_q)
+
+    alt_q2 = f"{base_track} {base_artist}"
+    if alt_q2 not in search_queries:
+        search_queries.append(alt_q2)
+
+    alt_q3 = f"{base_track} audio"
+    if alt_q3 not in search_queries:
+        search_queries.append(alt_q3)
+
+    for qi, sq in enumerate(search_queries):
+        if candidates:
+            break
+        if qi > 0:
+            logger.info(f"   🔄 Fallback search ({qi+1}/{len(search_queries)}): \"{sq}\"")
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
+                search_results = ydl.extract_info(f"ytsearch15:{sq}", download=False)
+
+                for entry in search_results.get("entries", []):
+                    title = entry.get("title", "").lower()
+                    url = entry.get("url")
+                    duration = entry.get("duration", 0)
+                    channel = entry.get("channel", "") or entry.get("uploader", "") or ""
+                    view_count = entry.get("view_count", 0) or 0
+
+                    blocked_word = _check_forbidden(title, track_title_original.lower(), forbidden_words)
+                    if blocked_word:
+                        logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - forbidden word '{blocked_word}'")
                         continue
-                    
-                    duration_diff = abs(duration - expected_duration_sec)
-                    duration_score = 1000 - duration_diff
-                else:
-                    if duration < 15 or duration > 7200:
-                        logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - duration {int(duration)}s outside permissive range [15s - 7200s]")
-                        continue
-                    duration_score = 500
 
-                if url:
-                    candidates.append({
-                        "url": url,
-                        "title": entry.get("title", ""),
-                        "duration": duration,
-                        "score": duration_score
-                    })
-                    logger.debug(f"   ✓ Added candidate '{entry.get('title', '')}' - duration {int(duration)}s, score {int(duration_score)}")
-    except Exception as e:
-        logger.error(f"   ❌ Search failed: {str(e)}")
-        return f"Search failed: {str(e)[:120]}"
+                    if expected_duration_sec:
+                        min_duration = max(15, expected_duration_sec - duration_tolerance)
+                        max_duration = expected_duration_sec + duration_tolerance
+
+                        if duration < min_duration or duration > max_duration:
+                            logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - duration {int(duration)}s outside [{int(min_duration)}s - {int(max_duration)}s]")
+                            continue
+
+                        duration_diff = abs(duration - expected_duration_sec)
+                        duration_score = max(0, 1.0 - (duration_diff / max(duration_tolerance, 1)))
+                    else:
+                        if duration < 15 or duration > 7200:
+                            continue
+                        duration_score = 0.5
+
+                    title_score = _title_similarity(entry.get("title", ""), track_title_original, base_artist)
+
+                    official_bonus = 0.15 if _is_official_channel(channel, base_artist) else 0.0
+
+                    view_score = 0.0
+                    if view_count > 0:
+                        view_score = min(0.1, math.log10(max(view_count, 1)) / 100)
+
+                    total_score = (duration_score * 0.35) + (title_score * 0.40) + official_bonus + view_score
+
+                    if url:
+                        candidates.append({
+                            "url": url,
+                            "title": entry.get("title", ""),
+                            "duration": duration,
+                            "channel": channel,
+                            "score": total_score
+                        })
+                        logger.debug(f"   ✓ Candidate '{entry.get('title', '')}' — score={total_score:.2f} (dur={duration_score:.2f} title={title_score:.2f} official={official_bonus:.2f} views={view_score:.3f})")
+        except Exception as e:
+            logger.error(f"   ❌ Search failed for \"{sq}\": {str(e)}")
+            if qi == len(search_queries) - 1 and not candidates:
+                return f"Search failed: {str(e)[:120]}"
 
     if not candidates:
-        logger.warning(f"   ⚠️  No suitable candidates found after filtering")
+        logger.warning(f"   ⚠️  No suitable candidates found after {len(search_queries)} search queries")
         return "No suitable YouTube match found (filtered by duration/forbidden words)"
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
-    
-    if expected_duration_sec:
-        best_candidate = candidates[0]
-        duration_diff = abs(best_candidate["duration"] - expected_duration_sec)
-        logger.info(f"   🎯 Best match: '{best_candidate['title']}' (duration: {int(best_candidate['duration'])}s, diff: {int(duration_diff)}s)")
-    else:
-        logger.info(f"   🎯 Selected: '{candidates[0]['title']}' (duration: {int(candidates[0]['duration'])}s)")
+
+    best = candidates[0]
+    logger.info(f"   🎯 Best match: '{best['title']}' (score={best['score']:.2f}, duration={int(best['duration'])}s, channel='{best.get('channel', '')}')")
 
     for candidate in candidates:
         clients_to_try = []
@@ -469,15 +553,15 @@ def set_permissions(path):
                     os.chmod(os.path.join(root, f), 0o666)
         else:
             os.chmod(path, 0o666)
-    except:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to set permissions on {path}: {e}")
 
 
 def tag_mp3(file_path, track_info, album_info, cover_data):
     try:
         try:
             audio = MP3(file_path, ID3=ID3)
-        except:
+        except Exception:
             audio = MP3(file_path)
             audio.add_tags()
         if audio.tags is None:
@@ -496,7 +580,7 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
             audio.tags.add(
                 TRCK(encoding=3, text=f"{t_num}/{album_info.get('trackCount', 0)}")
             )
-        except:
+        except (ValueError, KeyError):
             pass
 
         if album_info.get("releases"):
@@ -558,7 +642,8 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
 
         audio.save(v2_version=3)
         return True
-    except:
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to tag MP3 {file_path}: {e}")
         return False
 
 
@@ -569,27 +654,31 @@ def create_xml_metadata(
         sanitized_title = sanitize_filename(title)
         filename = f"{track_num:02d} - {sanitized_title}.xml"
         file_path = os.path.join(output_dir, filename)
+        safe_title = xml_escape(title)
+        safe_artist = xml_escape(artist)
+        safe_album = xml_escape(album)
         mb_album = (
-            f"  <musicbrainzalbumid>{album_id}</musicbrainzalbumid>\n"
+            f"  <musicbrainzalbumid>{xml_escape(str(album_id))}</musicbrainzalbumid>\n"
             if album_id
             else ""
         )
         mb_artist = (
-            f"  <musicbrainzartistid>{artist_id}</musicbrainzartistid>\n"
+            f"  <musicbrainzartistid>{xml_escape(str(artist_id))}</musicbrainzartistid>\n"
             if artist_id
             else ""
         )
         content = f"""<song>
-  <title>{title}</title>
-  <artist>{artist}</artist>
-  <performingartist>{artist}</performingartist>
-  <albumartist>{artist}</albumartist>
-  <album>{album}</album>
+  <title>{safe_title}</title>
+  <artist>{safe_artist}</artist>
+  <performingartist>{safe_artist}</performingartist>
+  <albumartist>{safe_artist}</albumartist>
+  <album>{safe_album}</album>
 {mb_album}{mb_artist}</song>"""
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(content)
         return True
-    except:
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to create XML metadata: {e}")
         return False
 
 
@@ -624,6 +713,7 @@ def process_album_download(album_id, force=False):
     download_process["album_title"] = ""
     download_process["artist_name"] = ""
     download_process["current_track_title"] = ""
+    download_process["cover_url"] = ""
 
     try:
         album = lidarr_request(f"album/{album_id}")
@@ -641,8 +731,8 @@ def process_album_download(album_id, force=False):
                 tracks_res = lidarr_request(f"track?albumId={album_id}")
                 if isinstance(tracks_res, list) and len(tracks_res) > 0:
                     tracks = tracks_res
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to fetch tracks from Lidarr: {e}")
 
         if not tracks:
             tracks = get_itunes_tracks(album["artist"]["artistName"], album["title"])
@@ -658,6 +748,10 @@ def process_album_download(album_id, force=False):
                                                  
         download_process["album_title"] = album_title
         download_process["artist_name"] = artist_name
+        download_process["cover_url"] = next(
+            (img["remoteUrl"] for img in album.get("images", []) if img.get("coverType") == "cover"),
+            ""
+        )
 
         release_id = get_valid_release_id(album)
         if release_id == 0:
@@ -701,7 +795,7 @@ def process_album_download(album_id, force=False):
                     continue
                 try:
                     track_num = int(t.get("trackNumber", 0))
-                except:
+                except (ValueError, TypeError):
                     track_num = 0
 
                 track_title = t["title"]
@@ -734,7 +828,7 @@ def process_album_download(album_id, force=False):
             track_title = track["title"]
             try:
                 track_num = int(track.get("trackNumber", idx))
-            except:
+            except (ValueError, TypeError):
                 track_num = idx
 
                                        
@@ -751,30 +845,19 @@ def process_album_download(album_id, force=False):
 
             sanitized_track = sanitize_filename(track_title)
 
-            temp_file = os.path.join(album_path, f"temp_{track_num:02d}")
+            temp_file = os.path.join(album_path, f"temp_{track_num:02d}_{uuid.uuid4().hex[:8]}")
             final_file = os.path.join(
                 album_path, f"{track_num:02d} - {sanitized_track}.mp3"
             )
 
             track_duration_ms = track.get("duration")
-            
-            download_result = None
-            queries_to_try = []
 
-            queries_to_try.append(f"{artist_name} {track_title} official audio")
-
-            if "/" in track_title or " - " in track_title:
-                simplified_title = track_title.split("/")[0].split(" - ")[0].strip()
-                if simplified_title != track_title:
-                    queries_to_try.append(f"{artist_name} {simplified_title} official audio")
-                    logger.info(f"   💡 Will try simplified query: '{simplified_title}'")
-
-            for qi, query in enumerate(queries_to_try):
-                if qi > 0:
-                    logger.info(f"   🔄 Trying alternative search query ({qi+1}/{len(queries_to_try)})...")
-                download_result = download_track_youtube(query, temp_file, track_title, track_duration_ms)
-                if download_result is True:
-                    break
+            download_result = download_track_youtube(
+                f"{artist_name} {track_title} official audio",
+                temp_file,
+                track_title,
+                track_duration_ms,
+            )
             actual_file = temp_file + ".mp3"
 
             if download_result is True and os.path.exists(actual_file):
@@ -991,6 +1074,7 @@ def process_album_download(album_id, force=False):
         download_process["album_title"] = ""
         download_process["artist_name"] = ""
         download_process["current_track_title"] = ""
+        download_process["cover_url"] = ""
 
 
 @app.route("/api/test-connection")
@@ -1003,7 +1087,7 @@ def api_test_connection():
                 "lidarr_version": system.get("version", "Unknown"),
             }
         )
-    except:
+    except Exception:
         return jsonify({"status": "error"})
 
 
@@ -1045,7 +1129,19 @@ def api_config():
         if not check_rate_limit(f"config:{client_ip}", window=5, max_requests=3):
             return jsonify({"success": False, "message": "Too many requests"}), 429
         current = load_config()
-        current.update(request.json)
+        incoming = request.json or {}
+        ALLOWED_CONFIG_KEYS = {
+            "scheduler_interval", "telegram_bot_token", "telegram_chat_id",
+            "telegram_enabled", "telegram_log_types", "download_path",
+            "lidarr_path", "forbidden_words", "duration_tolerance",
+            "scheduler_enabled", "scheduler_auto_download",
+            "xml_metadata_enabled", "yt_cookies_file", "yt_force_ipv4",
+            "yt_player_client", "yt_retries", "yt_fragment_retries",
+            "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
+        }
+        for key, value in incoming.items():
+            if key in ALLOWED_CONFIG_KEYS:
+                current[key] = value
         save_config(current)
         return jsonify({"success": True})
 
@@ -1101,24 +1197,32 @@ def api_download_status():
 
 @app.route("/api/download/stream")
 def api_download_stream():
+    SSE_TIMEOUT = 3600
+
     def generate():
-        while True:
-            with queue_lock:
-                queue_data = []
-                for album_id in download_queue:
-                    album = get_album_cached(album_id)
-                    if "error" not in album:
-                        queue_data.append({
-                            "id": album_id,
-                            "title": album.get("title", ""),
-                            "artist": album.get("artist", {}).get("artistName", ""),
-                        })
-            data = {
-                "status": dict(download_process),
-                "queue": queue_data
-            }
-            yield f"data: {json.dumps(data)}\n\n"
-            time.sleep(1)
+        start_time = time.time()
+        try:
+            while True:
+                if time.time() - start_time > SSE_TIMEOUT:
+                    break
+                with queue_lock:
+                    queue_data = []
+                    for album_id in download_queue:
+                        album = get_album_cached(album_id)
+                        if "error" not in album:
+                            queue_data.append({
+                                "id": album_id,
+                                "title": album.get("title", ""),
+                                "artist": album.get("artist", {}).get("artistName", ""),
+                            })
+                data = {
+                    "status": dict(download_process),
+                    "queue": queue_data
+                }
+                yield f"data: {json.dumps(data)}\n\n"
+                time.sleep(1)
+        except GeneratorExit:
+            return
 
     return Response(generate(), mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -1139,9 +1243,6 @@ def api_stats():
     })
 
 
-@app.route("/api/version")
-def api_version():
-    return jsonify({"version": VERSION})
 
 
 def get_album_cached(album_id):
@@ -1304,7 +1405,8 @@ def scheduled_check():
                 f"🤖 Scheduler: Found {len(new_albums)} new missing albums, adding to queue..."
             )
             send_telegram(
-                f"🚀 Scheduler: Adding {len(new_albums)} new missing albums to queue..."
+                f"🚀 Scheduler: Adding {len(new_albums)} new missing albums to queue...",
+                log_type="download_started",
             )
             with queue_lock:
                 for album in new_albums:
@@ -1314,7 +1416,8 @@ def scheduled_check():
                 f"🔍 Scheduler: Found {len(new_albums)} missing albums (Auto-Download disabled)"
             )
             send_telegram(
-                f"🔍 Scheduler: Found {len(new_albums)} missing albums (Auto-DL Disabled)"
+                f"🔍 Scheduler: Found {len(new_albums)} missing albums (Auto-DL Disabled)",
+                log_type="download_started",
             )
 
 
@@ -1340,10 +1443,10 @@ def process_download_queue():
                     if download_queue:
                         next_album_id = download_queue.pop(0)
                         threading.Thread(
-                            target=process_album_download, args=(next_album_id, False)
+                            target=process_album_download, args=(next_album_id, False), daemon=True
                         ).start()
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f"⚠️ Queue processor error: {e}")
         time.sleep(2)
 
 
