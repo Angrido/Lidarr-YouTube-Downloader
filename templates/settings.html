@@ -13,6 +13,7 @@
             --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.05) 0%, transparent 50%);
             --surface: #18181b;
             --surface-glass: rgba(24, 24, 27, 0.7);
+            --surface-hover: #27272a;
             --text: #fafafa;
             --text-dim: #a1a1aa;
             --primary: #10b981;
@@ -28,6 +29,7 @@
             --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.03) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.03) 0%, transparent 50%);
             --surface: #ffffff;
             --surface-glass: rgba(255, 255, 255, 0.7);
+            --surface-hover: #f4f4f5;
             --text: #18181b;
             --text-dim: #71717a;
             --border: #e4e4e7;
@@ -678,15 +680,6 @@
                         <span>🎤 Karaoke</span>
                     </label>
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                        <input type="checkbox" id="fw_acoustic" value="acoustic" style="width: auto; cursor: pointer;">
-                        <span>🎻 Acoustic</span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                        <input type="checkbox" id="fw_instrumental" value="instrumental"
-                            style="width: auto; cursor: pointer;">
-                        <span>🎹 Instrumental</span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                         <input type="checkbox" id="fw_slowed" value="slowed" style="width: auto; cursor: pointer;">
                         <span>🐌 Slowed</span>
                     </label>
@@ -695,9 +688,24 @@
                         <span>🌊 Reverb</span>
                     </label>
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                        <input type="checkbox" id="fw_nightcore" value="nightcore"
-                            style="width: auto; cursor: pointer;">
+                        <input type="checkbox" id="fw_nightcore" value="nightcore" style="width: auto; cursor: pointer;">
                         <span>⚡ Nightcore</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_spedup" value="sped up" style="width: auto; cursor: pointer;">
+                        <span>⏩ Sped Up</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_instrumental" value="instrumental" style="width: auto; cursor: pointer;">
+                        <span>🎹 Instrumental</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_acapella" value="acapella" style="width: auto; cursor: pointer;">
+                        <span>🗣️ Acapella</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_tribute" value="tribute" style="width: auto; cursor: pointer;">
+                        <span>🏆 Tribute</span>
                     </label>
                 </div>
             </div>
@@ -753,11 +761,6 @@
                         <span>✅ Import Success / Partial</span>
                     </label>
                     <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                        <input type="checkbox" id="log_import_failed" value="import_failed"
-                            style="width: auto; cursor: pointer;">
-                        <span>❌ Import Failed</span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                         <input type="checkbox" id="log_album_error" value="album_error"
                             style="width: auto; cursor: pointer;">
                         <span>❌ Album Error</span>
@@ -806,7 +809,7 @@
     </div>
 
     <footer>
-        <div>Made with love ❤️ <span id="versionDisplay"></span></div>
+        <div>Made with love ❤️ - {{ APP_VERSION }}</div>
         <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
     </footer>
 
@@ -840,7 +843,6 @@
                 document.getElementById('themeIcon').className = 'fa-solid fa-sun';
             }
             loadConfig();
-            loadVersion();
         });
 
         function toggleTheme() {
@@ -858,16 +860,16 @@
         async function loadConfig() {
             const res = await fetch('/api/config');
             const conf = await res.json();
-            document.getElementById('interval').value = conf.scheduler_interval;
-            document.getElementById('botToken').value = conf.telegram_bot_token;
-            document.getElementById('chatId').value = conf.telegram_chat_id;
+            document.getElementById('interval').value = conf.scheduler_interval || 60;
+            document.getElementById('botToken').value = conf.telegram_bot_token || '';
+            document.getElementById('chatId').value = conf.telegram_chat_id || '';
 
 
 
             const logTypes = conf.telegram_log_types || [];
 
 
-            ['download_started', 'import_failed', 'album_error'].forEach(type => {
+            ['download_started', 'album_error'].forEach(type => {
                 const checkbox = document.getElementById(`log_${type}`);
                 if (checkbox) checkbox.checked = logTypes.includes(type);
             });
@@ -888,8 +890,8 @@
             document.getElementById('lidarrPath').value = conf.lidarr_path || '';
 
 
-            const forbiddenWords = conf.forbidden_words || ["remix", "cover", "mashup", "bootleg", "live", "dj mix"];
-            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_acoustic', 'fw_instrumental', 'fw_slowed', 'fw_reverb', 'fw_nightcore'];
+            const forbiddenWords = conf.forbidden_words || ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute"];
+            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute'];
 
             forbiddenWordIds.forEach(id => {
                 const checkbox = document.getElementById(id);
@@ -953,7 +955,7 @@
             const selectedLogTypes = [];
 
 
-            ['download_started', 'import_failed', 'album_error'].forEach(type => {
+            ['download_started', 'album_error'].forEach(type => {
                 const checkbox = document.getElementById(`log_${type}`);
                 if (checkbox && checkbox.checked) {
                     selectedLogTypes.push(type);
@@ -982,8 +984,8 @@
             }
 
 
-            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_acoustic', 'fw_instrumental', 'fw_slowed', 'fw_reverb', 'fw_nightcore'];
-            const forbiddenWords = forbiddenWordIds
+            const forbiddenWordIdsSave = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute'];
+            const forbiddenWords = forbiddenWordIdsSave
                 .map(id => document.getElementById(id))
                 .filter(checkbox => checkbox && checkbox.checked)
                 .map(checkbox => checkbox.value);
@@ -1006,17 +1008,6 @@
                 })
             });
             showToast('success', 'Configuration Saved!', 'Changes to Download Path and Lidarr Path require an application restart.');
-        }
-
-        async function loadVersion() {
-            try {
-                const res = await fetch('/api/version');
-                const data = await res.json();
-                if (data.version) {
-                    document.getElementById('versionDisplay').textContent = `• v${data.version}`;
-                }
-            } catch (e) {
-            }
         }
 
         async function updateQueueBadge() {
