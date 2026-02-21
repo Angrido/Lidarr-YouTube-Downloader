@@ -28,7 +28,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 
 
 @app.context_processor
