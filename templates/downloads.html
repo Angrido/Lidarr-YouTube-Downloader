@@ -269,49 +269,107 @@
         }
 
         .current-download {
-            padding: 1rem;
-            background: var(--surface);
-            border-radius: 12px;
-            margin-bottom: 1rem;
-        }
-
-        .current-album-info {
             display: flex;
-            gap: 1rem;
-            margin-bottom: 1rem;
+            gap: 1.25rem;
+            padding: 1.25rem;
+            background: var(--surface);
+            border-radius: 14px;
+            border: 1px solid var(--border-glass);
+            position: relative;
+            overflow: hidden;
         }
 
-        .current-album-cover {
-            width: 80px;
-            height: 80px;
-            border-radius: 8px;
+        .current-download::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.04), transparent 60%);
+            pointer-events: none;
+        }
+
+        .current-cover {
+            width: 90px;
+            height: 90px;
+            border-radius: 10px;
             object-fit: cover;
+            flex-shrink: 0;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        }
+
+        .current-cover-placeholder {
+            width: 90px;
+            height: 90px;
+            border-radius: 10px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #1a1a2e, #16213e);
+        }
+
+        .current-cover-placeholder svg {
+            width: 40%;
+            height: 40%;
+            opacity: 0.3;
+        }
+
+        .current-body {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
         }
 
         .current-album-details h3 {
-            font-size: 1.1rem;
-            margin-bottom: 0.25rem;
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .current-album-details p {
             color: var(--text-dim);
-            font-size: 0.9rem;
+            font-size: 0.85rem;
+            margin: 0;
+        }
+
+        .current-track-label {
+            color: var(--primary);
+            font-size: 0.8rem;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .current-track-label i {
+            font-size: 0.7rem;
+            animation: pulse-icon 1.5s ease infinite;
+        }
+
+        @keyframes pulse-icon {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
         }
 
         .progress-bar-container {
-            margin-bottom: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
         }
 
         .progress-label {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 0.5rem;
-            font-size: 0.9rem;
+            font-size: 0.8rem;
             color: var(--text-dim);
         }
 
         .progress-bar {
-            height: 8px;
+            height: 6px;
             background: var(--border);
             border-radius: 999px;
             overflow: hidden;
@@ -324,20 +382,46 @@
             transition: width 0.3s ease;
         }
 
+        .current-actions {
+            display: flex;
+            justify-content: flex-end;
+        }
+
+        .current-stop-btn {
+            background: transparent;
+            border: 1px solid var(--danger);
+            color: var(--danger);
+            padding: 0.4rem 0.9rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 600;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .current-stop-btn:hover {
+            background: var(--danger);
+            color: white;
+        }
+
         .queue-item {
             display: flex;
-            gap: 1rem;
-            padding: 1rem;
+            gap: 0.85rem;
+            padding: 0.85rem;
             background: var(--surface);
             border-radius: 12px;
-            margin-bottom: 0.75rem;
+            margin-bottom: 0.65rem;
             align-items: center;
             transition: all 0.3s ease;
+            border: 1px solid transparent;
         }
 
         .queue-item:hover {
             transform: translateX(4px);
-            border: 1px solid var(--primary);
+            border-color: var(--border-glass);
         }
 
         .queue-position {
@@ -354,15 +438,17 @@
         }
 
         .queue-album-cover {
-            width: 50px;
-            height: 50px;
+            width: 46px;
+            height: 46px;
             border-radius: 8px;
             object-fit: cover;
+            flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
         }
 
         .queue-cover-placeholder {
-            width: 50px;
-            height: 50px;
+            width: 46px;
+            height: 46px;
             border-radius: 8px;
             display: flex;
             align-items: center;
@@ -432,6 +518,10 @@
             background: rgba(239, 68, 68, 0.05);
         }
 
+        .history-item.history-manual {
+            border-left-color: #8b5cf6;
+        }
+
         .status-icon {
             width: 36px;
             height: 36px;
@@ -458,6 +548,11 @@
             color: var(--danger);
         }
 
+        .status-icon.manual {
+            background: rgba(139, 92, 246, 0.2);
+            color: #8b5cf6;
+        }
+
         .history-info {
             flex: 1;
         }
@@ -480,6 +575,19 @@
             padding: 0.2rem 0.6rem;
             background: rgba(239, 68, 68, 0.1);
             color: var(--danger);
+            font-size: 0.75rem;
+            font-weight: 600;
+            border-radius: 6px;
+        }
+
+        .history-manual-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            margin-top: 0.35rem;
+            padding: 0.2rem 0.6rem;
+            background: rgba(139, 92, 246, 0.1);
+            color: #8b5cf6;
             font-size: 0.75rem;
             font-weight: 600;
             border-radius: 6px;
@@ -632,13 +740,23 @@
                 padding: 1rem;
             }
 
-            .current-album-info {
+            .current-download {
                 flex-direction: column;
+                align-items: center;
+                text-align: center;
             }
 
-            .queue-item {
-                flex-direction: column;
-                text-align: center;
+            .current-cover, .current-cover-placeholder {
+                width: 70px;
+                height: 70px;
+            }
+
+            .current-track-label {
+                justify-content: center;
+            }
+
+            .current-actions {
+                justify-content: center;
             }
         }
     </style>
@@ -706,7 +824,7 @@
     </div>
 
     <footer>
-        <div>Made with love ❤️ - {{ APP_VERSION }}</div>
+        <div>Made with love ❤️ • {{ APP_VERSION }}</div>
         <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
     </footer>
 
@@ -718,6 +836,15 @@
             const div = document.createElement('div');
             div.appendChild(document.createTextNode(str));
             return div.innerHTML;
+        }
+
+        function sanitizeUrl(url) {
+            if (!url) return '';
+            try {
+                const u = new URL(url);
+                if (u.protocol === 'https:' || u.protocol === 'http:') return u.href;
+            } catch (_) {}
+            return '';
         }
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -774,27 +901,38 @@
             lastWasActive = true;
 
             const percent = (data.progress && data.progress.overall_percent) || 0;
+            const placeholderSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>`;
+            const safeCover = sanitizeUrl(data.cover_url);
+            const coverHtml = safeCover
+                ? `<img class="current-cover" src="${safeCover}" alt="">`
+                : `<div class="current-cover-placeholder">${placeholderSvg}</div>`;
             container.innerHTML = `
                 <div class="current-download">
-                    <div class="current-album-details">
-                        <h3>${escapeHtml(data.album_title || 'Unknown Album')}</h3>
-                        <p>${data.artist_name || 'Unknown Artist'}</p>
-                    </div>
-                    <div class="progress-bar-container">
-                        <div class="progress-label">
-                            <span>Track ${(data.progress && data.progress.current) || 0}/${(data.progress && data.progress.total) || 0}</span>
-                            <span>${percent}%</span>
+                    ${coverHtml}
+                    <div class="current-body">
+                        <div class="current-album-details">
+                            <h3>${escapeHtml(data.album_title || 'Unknown Album')}</h3>
+                            <p>${escapeHtml(data.artist_name || 'Unknown Artist')}</p>
                         </div>
-                        <div class="progress-bar">
-                            <div class="progress-fill" style="width: ${percent}%"></div>
+                        <div class="current-track-label">
+                            <i class="fa-solid fa-compact-disc fa-spin"></i>
+                            ${escapeHtml(data.current_track_title || 'Preparing...')}
+                        </div>
+                        <div class="progress-bar-container">
+                            <div class="progress-label">
+                                <span>Track ${(data.progress && data.progress.current) || 0}/${(data.progress && data.progress.total) || 0}</span>
+                                <span>${percent}%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" style="width: ${percent}%"></div>
+                            </div>
+                        </div>
+                        <div class="current-actions">
+                            <button class="current-stop-btn" onclick="stopDownload()">
+                                <i class="fa-solid fa-stop"></i> Stop
+                            </button>
                         </div>
                     </div>
-                    <p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 0.5rem;">
-                        ${data.current_track_title || 'Preparing...'}
-                    </p>
-                    <button class="btn-danger" onclick="stopDownload()">
-                        <i class="fa-solid fa-stop"></i> Stop Download
-                    </button>
                 </div>
             `;
         }
@@ -819,10 +957,14 @@
             const placeholderSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>`;
 
             container.innerHTML = queue.map((item, index) => {
+                const safeQCover = sanitizeUrl(item.cover_url);
+                const queueCover = safeQCover
+                    ? `<img class="queue-album-cover" src="${safeQCover}" alt="">`
+                    : `<div class="queue-cover-placeholder">${placeholderSvg}</div>`;
                 return `
                 <div class="queue-item">
                     <div class="queue-position">${index + 1}</div>
-                    <div class="queue-cover-placeholder">${placeholderSvg}</div>
+                    ${queueCover}
                     <div class="queue-album-info">
                         <div class="queue-album-title">${escapeHtml(item.title)}</div>
                         <div class="queue-album-artist">${escapeHtml(item.artist)}</div>
@@ -841,7 +983,12 @@
 
         function renderHistoryItem(item) {
             let statusClass, iconClass, label;
-            if (!item.success) {
+            if (item.manual) {
+                statusClass = 'manual';
+                iconClass = 'fa-solid fa-hand-pointer';
+                const trackInfo = item.track_title ? `: ${escapeHtml(item.track_title)}` : '';
+                label = `<div class="history-manual-label"><i class="fa-solid fa-hand-pointer"></i> Manual Download${trackInfo}</div>`;
+            } else if (!item.success) {
                 statusClass = 'error';
                 iconClass = 'fa-solid fa-xmark';
                 label = '<div class="history-error-label"><i class="fa-solid fa-circle-exclamation"></i> Download Failed</div>';
