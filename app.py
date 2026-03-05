@@ -2,6 +2,8 @@ import os
 import json
 import time
 import threading
+import base64
+from datetime import datetime
 import shutil
 import re
 import logging
@@ -28,7 +30,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.5.1"
+VERSION = "1.5.2"
 
 
 @app.context_processor
@@ -94,12 +96,13 @@ def check_rate_limit(key, window=RATE_LIMIT_WINDOW, max_requests=RATE_LIMIT_MAX)
 
 HISTORY_FILE = "/config/download_history.json"
 LOGS_FILE = "/config/download_logs.json"
+FAILED_FILE = "/config/last_failed_result.json"
 album_cache = {}
 ALBUM_CACHE_TTL = 300
 
 
 def load_persistent_data():
-    global download_history, download_logs
+    global download_history, download_logs, last_failed_result
     os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
     if os.path.exists(HISTORY_FILE):
         try:
@@ -115,6 +118,18 @@ def load_persistent_data():
         except Exception as e:
             logger.warning(f"⚠️ Failed to load logs file: {e}")
             download_logs = []
+    if os.path.exists(FAILED_FILE):
+        try:
+            with open(FAILED_FILE, "r") as f:
+                data = json.load(f)
+            if data.get("cover_data_b64"):
+                data["cover_data"] = base64.b64decode(data.pop("cover_data_b64"))
+            else:
+                data.pop("cover_data_b64", None)
+                data["cover_data"] = None
+            last_failed_result.update(data)
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to load failed result file: {e}")
 
 
 _file_write_lock = threading.Lock()
@@ -125,9 +140,23 @@ def save_history():
         os.makedirs(os.path.dirname(HISTORY_FILE), exist_ok=True)
         with _file_write_lock:
             with open(HISTORY_FILE, "w") as f:
-                json.dump(download_history[-25:], f)
+                json.dump(download_history, f)
     except Exception as e:
         logger.warning(f"⚠️ Failed to save history: {e}")
+
+
+def save_failed_result():
+    try:
+        os.makedirs(os.path.dirname(FAILED_FILE), exist_ok=True)
+        data = {k: v for k, v in last_failed_result.items() if k != "cover_data"}
+        raw = last_failed_result.get("cover_data")
+        if raw:
+            data["cover_data_b64"] = base64.b64encode(raw).decode("utf-8")
+        with _file_write_lock:
+            with open(FAILED_FILE, "w") as f:
+                json.dump(data, f)
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to save failed result: {e}")
 
 
 def save_logs():
@@ -1214,6 +1243,7 @@ def process_album_download(album_id, force=False):
                 "artist_name": "", "cover_url": "", "album_path": "",
                 "album_data": None, "cover_data": None, "lidarr_album_path": "",
             })
+        save_failed_result()
 
         with queue_lock:
             download_history.append(
@@ -1226,7 +1256,6 @@ def process_album_download(album_id, force=False):
                     "timestamp": time.time(),
                 }
             )
-            download_history[:] = download_history[-25:]
             save_history()
         download_process["active"] = False
         download_process["progress"] = {}
@@ -1471,7 +1500,8 @@ def api_download_stream():
 
 @app.route("/api/stats")
 def api_stats():
-    today_start = time.time() - (time.time() % 86400)
+    now = datetime.now()
+    today_start = datetime(now.year, now.month, now.day).timestamp()
     with queue_lock:
         downloaded_today = sum(
             1 for h in download_history
@@ -1842,6 +1872,7 @@ def api_download_manual():
             t for t in last_failed_result.get("failed_tracks", [])
             if t.get("title", "").lower() != track_title.lower()
         ]
+        save_failed_result()
 
         artist_id = album_data.get("artist", {}).get("id")
         if artist_id:
@@ -1879,7 +1910,6 @@ def api_download_manual():
                     "timestamp": time.time(),
                 }
             )
-            download_history[:] = download_history[-25:]
             save_history()
 
         return jsonify({"success": True, "message": f"Track '{track_title}' downloaded successfully"})
