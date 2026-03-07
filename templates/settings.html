@@ -637,6 +637,19 @@
                 </label>
                 <button class="toggle-btn" id="xmlMetadataBtn" onclick="toggleXmlMetadata()">Loading...</button>
             </div>
+            <div class="input-group">
+                <label>
+                    Concurrent Track Downloads
+                    <div class="label-description">Number of tracks downloaded simultaneously per album. Higher values speed up downloads but increase the risk of being rate-limited or banned by YouTube. Recommended: 2.</div>
+                </label>
+                <select id="concurrentTracks" style="max-width:120px;">
+                    <option value="1">1 (safe)</option>
+                    <option value="2">2 (default)</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5 (risky)</option>
+                </select>
+            </div>
         </div>
 
         <div class="settings-section">
@@ -992,6 +1005,7 @@
 
 
             document.getElementById('durationTolerance').value = conf.duration_tolerance || 10;
+            document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
 
             // Discord
             document.getElementById('discordWebhook').value = conf.discord_webhook_url || '';
@@ -1065,16 +1079,20 @@
         async function updateYtdlp() {
             const btn = document.getElementById('ytdlpUpdateBtn');
             btn.disabled = true;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Updating yt-dlp...';
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking...';
             try {
                 const res = await fetch('/api/ytdlp/update', { method: 'POST' });
                 const data = await res.json();
                 if (data.success) {
                     document.getElementById('ytdlpVersion').textContent = data.new_version;
-                    if (data.old_version === data.new_version) {
+                    if (!data.updated) {
                         showToast('success', 'Already Up to Date', `yt-dlp ${data.new_version} is the latest version.`);
                     } else {
-                        showToast('success', 'Update Successful', `yt-dlp updated from ${data.old_version} to ${data.new_version}`);
+                        showToast('info', 'Update Installed', `yt-dlp updated from ${data.old_version} to ${data.new_version}. Restart required to apply.`);
+                        btn.disabled = false;
+                        btn.innerHTML = '<i class="fa-solid fa-power-off"></i> Restart App';
+                        btn.onclick = restartApp;
+                        return;
                     }
                 } else {
                     showToast('error', 'Update Failed', data.message || 'Unknown error');
@@ -1084,6 +1102,28 @@
             } finally {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Check for Updates';
+                btn.onclick = updateYtdlp;
+            }
+        }
+
+        async function restartApp() {
+            const btn = document.getElementById('ytdlpUpdateBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Restarting...';
+            try {
+                const res = await fetch('/api/restart', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('success', 'Restarting', 'App is restarting, page will reload shortly...');
+                    setTimeout(() => window.location.reload(), 4000);
+                } else {
+                    showToast('error', 'Restart Failed', data.message || 'Unknown error');
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fa-solid fa-power-off"></i> Restart App';
+                }
+            } catch (e) {
+                showToast('info', 'Restarting', 'App is restarting...');
+                setTimeout(() => window.location.reload(), 4000);
             }
         }
 
@@ -1196,7 +1236,8 @@
                     download_path: document.getElementById('downloadPath').value,
                     lidarr_path: document.getElementById('lidarrPath').value,
                     forbidden_words: forbiddenWords,
-                    duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10
+                    duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10,
+                    concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2
                 })
             });
             showToast('success', 'Configuration Saved!', 'Changes to Download Path and Lidarr Path require an application restart.');
