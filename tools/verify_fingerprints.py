@@ -11,7 +11,7 @@ Usage:
     python verify_fingerprints.py --acoustid-api-key KEY   # uses Lidarr artists
     python verify_fingerprints.py /path -a --acoustid-api-key KEY | jq '.status'
 
-Environment variables (also read from ~/.env and ./.env):
+Environment variables (also read from ./.env and ~/.env):
     LIDARR_URL         - Lidarr server URL (e.g., http://localhost:8686)
     LIDARR_API_KEY     - Lidarr API key
     ACOUSTID_API_KEY   - AcoustID API key (get one at https://acoustid.org/new-application)
@@ -45,15 +45,18 @@ RATE_LIMIT_INTERVAL = 0.34  # ~3 requests per second
 _last_request_time = 0.0
 
 
-def load_dotenv():
-    """Load variables from .env files into os.environ (without overwriting).
+DOTENV_KEYS = {"LIDARR_URL", "LIDARR_API_KEY", "ACOUSTID_API_KEY"}
 
-    Checks $HOME/.env first, then ./.env. Later files take precedence for
-    keys not already in the environment.
+
+def load_dotenv():
+    """Load allowed keys from .env files into os.environ.
+
+    Checks ./.env first, then $HOME/.env. The first value found for a key
+    wins — existing env vars are never overwritten.
     """
     candidates = [
-        Path.home() / ".env",
         Path.cwd() / ".env",
+        Path.home() / ".env",
     ]
     for env_path in candidates:
         if not env_path.is_file():
@@ -67,7 +70,7 @@ def load_dotenv():
             key, _, value = line.partition("=")
             key = key.strip()
             value = value.strip().strip("\"'")
-            if key and key not in os.environ:
+            if key in DOTENV_KEYS and key not in os.environ:
                 os.environ[key] = value
 
 
