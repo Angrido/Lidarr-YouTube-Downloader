@@ -11,7 +11,7 @@ Usage:
     python verify_fingerprints.py --acoustid-api-key KEY   # uses Lidarr artists
     python verify_fingerprints.py /path -a --acoustid-api-key KEY | jq '.status'
 
-Environment variables:
+Environment variables (also read from ~/.env and ./.env):
     LIDARR_URL         - Lidarr server URL (e.g., http://localhost:8686)
     LIDARR_API_KEY     - Lidarr API key
     ACOUSTID_API_KEY   - AcoustID API key (get one at https://acoustid.org/new-application)
@@ -43,6 +43,32 @@ ACOUSTID_API_URL = "https://api.acoustid.org/v2/lookup"
 RATE_LIMIT_INTERVAL = 0.34  # ~3 requests per second
 
 _last_request_time = 0.0
+
+
+def load_dotenv():
+    """Load variables from .env files into os.environ (without overwriting).
+
+    Checks $HOME/.env first, then ./.env. Later files take precedence for
+    keys not already in the environment.
+    """
+    candidates = [
+        Path.home() / ".env",
+        Path.cwd() / ".env",
+    ]
+    for env_path in candidates:
+        if not env_path.is_file():
+            continue
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip("\"'")
+            if key and key not in os.environ:
+                os.environ[key] = value
 
 
 def parse_args():
@@ -328,6 +354,7 @@ def process_file(filepath, api_key, threshold):
 
 def main():
     args = parse_args()
+    load_dotenv()
     config = get_config(args)
     check_fpcalc()
 
