@@ -1,8 +1,11 @@
 import os
+import sys
 import json
 import time
 import threading
 import base64
+import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 import shutil
 import re
@@ -30,7 +33,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.5.2"
+VERSION = "1.5.3"
 
 
 @app.context_processor
@@ -191,6 +194,7 @@ def load_config():
         == "true",
         "forbidden_words": ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute"],
         "duration_tolerance": int(os.getenv("DURATION_TOLERANCE", "10")),
+        "concurrent_tracks": int(os.getenv("CONCURRENT_TRACKS", "2")),
         "yt_cookies_file": os.getenv("YT_COOKIES_FILE", ""),
         "yt_force_ipv4": os.getenv("YT_FORCE_IPV4", "true").lower() == "true",
         "yt_player_client": os.getenv("YT_PLAYER_CLIENT", "android"),
@@ -964,72 +968,60 @@ def process_album_download(album_id, force=False):
 
         logger.info(f"📦 Total tracks to download: {len(tracks_to_download)}")
 
-        for idx, track in enumerate(tracks_to_download, 1):
+        total = len(tracks_to_download)
+        completed_count = 0
+        _track_lock = threading.Lock()
+        xml_enabled = load_config().get("xml_metadata_enabled", True)
+        concurrent_tracks = max(1, min(5, load_config().get("concurrent_tracks", 2)))
+
+        download_process["progress"]["total"] = total
+        download_process["progress"]["current"] = 0
+        download_process["progress"]["overall_percent"] = 0
+
+        def _download_single(track):
+            nonlocal total_downloaded_size, completed_count
+
             if download_process["stop"]:
-                logger.warning(f"⏹️  Download stopped by user")
-                return {"stopped": True}
+                return
 
             track_title = track["title"]
             try:
-                track_num = int(track.get("trackNumber", idx))
+                track_num = int(track.get("trackNumber", 0))
             except (ValueError, TypeError):
-                track_num = idx
-
-                                       
-            download_process["current_track_title"] = track_title
-            download_process["progress"]["current"] = idx
-            download_process["progress"]["total"] = len(tracks_to_download)
-            download_process["progress"]["overall_percent"] = int(
-                (idx / len(tracks_to_download)) * 100
-            )
-
-            logger.info(
-                f"⬇️  Downloading track {idx}/{len(tracks_to_download)}: {track_title}"
-            )
+                track_num = 0
 
             sanitized_track = sanitize_filename(track_title)
-
             temp_file = os.path.join(album_path, f"temp_{track_num:02d}_{uuid.uuid4().hex[:8]}")
-            final_file = os.path.join(
-                album_path, f"{track_num:02d} - {sanitized_track}.mp3"
-            )
+            final_file = os.path.join(album_path, f"{track_num:02d} - {sanitized_track}.mp3")
 
-            track_duration_ms = track.get("duration")
+            logger.info(f"⬇️  Downloading: {track_title}")
 
             download_result = download_track_youtube(
                 f"{artist_name} {track_title} official audio",
                 temp_file,
                 track_title,
-                track_duration_ms,
+                track.get("duration"),
             )
             actual_file = temp_file + ".mp3"
 
             if download_result is True and os.path.exists(actual_file):
                 logger.info(f"✅ Track downloaded successfully: {track_title}")
                 time.sleep(0.5)
-                logger.info(f"🏷️  Adding metadata tags...")
                 tag_mp3(actual_file, track, album, cover_data)
-                config = load_config()
-                if config.get("xml_metadata_enabled", True):
-                    logger.info(f"📄 Creating XML metadata file...")
+                if xml_enabled:
                     create_xml_metadata(
-                        album_path,
-                        artist_name,
-                        album_title,
-                        track_num,
-                        track_title,
-                        album_mbid,
-                        artist_mbid,
+                        album_path, artist_name, album_title,
+                        track_num, track_title, album_mbid, artist_mbid,
                     )
-                try:
-                    total_downloaded_size += os.path.getsize(actual_file)
-                except OSError:
-                    pass
+                with _track_lock:
+                    try:
+                        total_downloaded_size += os.path.getsize(actual_file)
+                    except OSError:
+                        pass
                 shutil.move(actual_file, final_file)
             else:
                 fail_reason = download_result if isinstance(download_result, str) else "Download failed or file not found"
-                logger.warning(f"⚠️  Failed to download track: {track_title} — {fail_reason}")
-                # Clean up temp files from failed download
+                logger.warning(f"⚠️  Failed: {track_title} — {fail_reason}")
                 for ext in [".mp3", ".webm", ".m4a", ".part", ""]:
                     tmp = temp_file + ext
                     if os.path.exists(tmp):
@@ -1037,14 +1029,26 @@ def process_album_download(album_id, force=False):
                             os.remove(tmp)
                         except Exception:
                             pass
-                failed_tracks.append({"title": track_title, "reason": fail_reason, "track_num": track_num})
+                with _track_lock:
+                    failed_tracks.append({"title": track_title, "reason": fail_reason, "track_num": track_num})
 
-                                                    
-            download_process["progress"]["current"] = idx
-            download_process["progress"]["total"] = len(tracks_to_download)
-            download_process["progress"]["overall_percent"] = int(
-                (idx / len(tracks_to_download)) * 100
-            )
+            with _track_lock:
+                completed_count += 1
+                download_process["current_track_title"] = track_title
+                download_process["progress"]["current"] = completed_count
+                download_process["progress"]["overall_percent"] = int((completed_count / total) * 100) if total > 0 else 0
+
+        with ThreadPoolExecutor(max_workers=concurrent_tracks) as executor:
+            futures = {executor.submit(_download_single, track): track for track in tracks_to_download}
+            for future in as_completed(futures):
+                if download_process["stop"]:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    logger.warning(f"⏹️  Download stopped by user")
+                    return {"stopped": True}
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.warning(f"⚠️ Track worker exception: {e}")
 
         set_permissions(artist_path)
 
@@ -1377,36 +1381,50 @@ def api_ytdlp_version():
     return jsonify({"version": get_ytdlp_version()})
 
 
+def _pip_update_ytdlp():
+    old_version = get_ytdlp_version()
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-U", "yt-dlp"],
+            capture_output=True, text=True, timeout=120
+        )
+        if result.returncode != 0:
+            return None, None, result.stderr[-500:] if result.stderr else "pip failed"
+        new_version = get_ytdlp_version()
+        return old_version, new_version, None
+    except subprocess.TimeoutExpired:
+        return None, None, "Update timed out (120s)"
+    except Exception as e:
+        return None, None, str(e)
+
+
 @app.route("/api/ytdlp/update", methods=["POST"])
 def api_ytdlp_update():
     client_ip = request.remote_addr or "unknown"
     if not check_rate_limit(f"ytdlp_update:{client_ip}", window=60, max_requests=1):
         return jsonify({"success": False, "message": "Update already in progress or rate limited"}), 429
-    old_version = get_ytdlp_version()
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["pip", "install", "-U", "yt-dlp"],
-            capture_output=True, text=True, timeout=120
-        )
-        if result.returncode == 0:
-            import importlib
-            importlib.reload(yt_dlp)
-            new_version = get_ytdlp_version()
-            return jsonify({
-                "success": True,
-                "old_version": old_version,
-                "new_version": new_version,
-            })
-        else:
-            return jsonify({
-                "success": False,
-                "message": result.stderr[-500:] if result.stderr else "Update failed",
-            })
-    except subprocess.TimeoutExpired:
-        return jsonify({"success": False, "message": "Update timed out (120s)"})
-    except Exception as e:
-        return jsonify({"success": False, "message": str(e)})
+    old_version, new_version, error = _pip_update_ytdlp()
+    if error:
+        return jsonify({"success": False, "message": error})
+    updated = old_version != new_version
+    return jsonify({
+        "success": True,
+        "old_version": old_version,
+        "new_version": new_version,
+        "updated": updated,
+        "restart_required": updated,
+    })
+
+
+@app.route("/api/restart", methods=["POST"])
+def api_restart():
+    if download_process.get("active"):
+        return jsonify({"success": False, "message": "A download is in progress. Stop it before restarting."})
+    def _do_restart():
+        time.sleep(0.5)
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    threading.Thread(target=_do_restart, daemon=True).start()
+    return jsonify({"success": True})
 
 
 @app.route("/api/missing-albums")
@@ -1713,12 +1731,21 @@ def api_youtube_search():
     try:
         items = []
         seen_urls = set()
+
+        def _entry_watch_url(entry):
+            wp = entry.get("webpage_url", "")
+            if wp:
+                return wp
+            vid = entry.get("id", "")
+            if vid:
+                return f"https://www.youtube.com/watch?v={vid}"
+            return entry.get("url", "")
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # YouTube Music first (official songs, fewer user uploads)
             try:
                 music_results = ydl.extract_info(f"ytmsearch10:{query}", download=False)
                 for entry in (music_results or {}).get("entries", []):
-                    url = entry.get("url", "")
+                    url = _entry_watch_url(entry)
                     if url and url not in seen_urls:
                         seen_urls.add(url)
                         items.append({
@@ -1731,11 +1758,10 @@ def api_youtube_search():
                         })
             except Exception:
                 pass
-            # Regular YouTube as supplemental results
             try:
                 yt_results = ydl.extract_info(f"ytsearch5:{query}", download=False)
                 for entry in (yt_results or {}).get("entries", []):
-                    url = entry.get("url", "")
+                    url = _entry_watch_url(entry)
                     if url and url not in seen_urls:
                         seen_urls.add(url)
                         items.append({
@@ -1751,6 +1777,99 @@ def api_youtube_search():
         return jsonify({"results": items})
     except Exception as e:
         return jsonify({"results": [], "error": str(e)[:200]}), 500
+
+
+_audio_stream_cache = {}
+
+@app.route("/api/youtube/stream", methods=["GET"])
+def api_youtube_stream():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(f"yt_stream:{client_ip}", window=5, max_requests=6):
+        return "Too many requests", 429
+    url = request.args.get("url", "").strip()
+    if not url:
+        return "Missing url", 400
+
+    now = time.time()
+    cached = _audio_stream_cache.get(url)
+    if cached and now - cached["ts"] < 300:
+        audio_url = cached["audio_url"]
+        http_headers = cached["http_headers"]
+    else:
+        config = load_config()
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "format": "bestaudio/best",
+            "noplaylist": True,
+        }
+        cookies_path = (config.get("yt_cookies_file") or "").strip()
+        if cookies_path and os.path.exists(cookies_path):
+            ydl_opts["cookiefile"] = cookies_path
+        if config.get("yt_force_ipv4", True):
+            ydl_opts["source_address"] = "0.0.0.0"
+        pc = config.get("yt_player_client", "android")
+        if pc:
+            ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if not info:
+                return "Could not extract info", 404
+            audio_url = ""
+            http_headers = info.get("http_headers", {})
+            requested = info.get("requested_formats") or []
+            if requested:
+                for fmt in requested:
+                    if fmt.get("vcodec") == "none" or fmt.get("acodec") != "none":
+                        audio_url = fmt.get("url", "")
+                        if fmt.get("http_headers"):
+                            http_headers = fmt["http_headers"]
+                        break
+            if not audio_url:
+                audio_url = info.get("url", "")
+            if not audio_url:
+                return "No audio stream found", 404
+            _audio_stream_cache[url] = {
+                "audio_url": audio_url,
+                "http_headers": http_headers,
+                "ts": now,
+            }
+            for k in list(_audio_stream_cache):
+                if now - _audio_stream_cache[k]["ts"] > 600:
+                    del _audio_stream_cache[k]
+        except Exception as e:
+            logger.warning(f"Stream extraction failed: {e}")
+            return str(e)[:200], 500
+
+    proxy_headers = {
+        "User-Agent": http_headers.get("User-Agent", ""),
+        "Referer": http_headers.get("Referer", ""),
+        "Accept": "*/*",
+    }
+    range_header = request.headers.get("Range")
+    if range_header:
+        proxy_headers["Range"] = range_header
+
+    try:
+        upstream = requests.get(audio_url, headers=proxy_headers, stream=True, timeout=30)
+        resp_headers = {
+            "Content-Type": upstream.headers.get("Content-Type", "audio/webm"),
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "no-cache",
+        }
+        if "Content-Length" in upstream.headers:
+            resp_headers["Content-Length"] = upstream.headers["Content-Length"]
+        if "Content-Range" in upstream.headers:
+            resp_headers["Content-Range"] = upstream.headers["Content-Range"]
+        return Response(
+            upstream.iter_content(chunk_size=16384),
+            status=upstream.status_code,
+            headers=resp_headers,
+        )
+    except Exception as e:
+        logger.warning(f"Stream proxy failed: {e}")
+        return "Stream unavailable", 502
 
 
 @app.route("/api/download/manual", methods=["POST"])
@@ -1991,16 +2110,28 @@ def setup_scheduler():
 def process_download_queue():
     while True:
         try:
-            if not download_process["active"] and download_queue:
-                with queue_lock:
-                    if download_queue:
-                        next_album_id = download_queue.pop(0)
-                        threading.Thread(
-                            target=process_album_download, args=(next_album_id, False), daemon=True
-                        ).start()
+            with queue_lock:
+                if not download_process["active"] and download_queue:
+                    next_album_id = download_queue.pop(0)
+                    threading.Thread(
+                        target=process_album_download, args=(next_album_id, False), daemon=True
+                    ).start()
         except Exception as e:
             logger.warning(f"⚠️ Queue processor error: {e}")
         time.sleep(2)
+
+
+def _startup_ytdlp_update():
+    logger.info("🔍 Checking for yt-dlp updates...")
+    old_version, new_version, error = _pip_update_ytdlp()
+    if error:
+        logger.warning(f"⚠️ yt-dlp update check failed: {error}")
+        return
+    if old_version != new_version:
+        logger.info(f"✅ yt-dlp updated {old_version} → {new_version}, restarting...")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    else:
+        logger.info(f"✅ yt-dlp {new_version} is up to date")
 
 
 if __name__ == "__main__":
@@ -2013,5 +2144,6 @@ if __name__ == "__main__":
     setup_scheduler()
     threading.Thread(target=run_scheduler, daemon=True).start()
     threading.Thread(target=process_download_queue, daemon=True).start()
+    threading.Thread(target=_startup_ytdlp_update, daemon=True).start()
     logger.info("✅ Application started successfully on http://0.0.0.0:5000")
     app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
