@@ -21,3 +21,4 @@ env/
 # Project specific
 /config/
 *.log
+tmp/

@@ -16,20 +16,54 @@ pip install -r requirements.txt
 export LIDARR_URL=http://your-lidarr:8686
 export LIDARR_API_KEY=your_key
 export DOWNLOAD_PATH=/tmp/downloads
+export LIDARR_PATH=/tmp/downloads
+export PUID=1000
+export PGID=1000
+export UMASK=002
 python app.py
 ```
 
-The app runs on port 5000. In Docker it's exposed as 5005:5000.
+The app runs on port 5000.
 
-## Docker Build & Run
+### Docker Compose (recommended)
+
+Create a `.env` file with the required variables (see `docker-compose.yml`):
+
+```env
+HOST_DOWNLOAD_PATH=/DATA/Downloads
+DOWNLOAD_PATH=/DATA/Downloads
+HOST_MUSIC_PATH=/DATA/Music
+HOST_CONFIG=./config
+PUID=1000
+PGID=1000
+UMASK=002
+LIDARR_URL=http://192.168.1.X:8686
+LIDARR_API_KEY=your_key
+LIDARR_PATH=/DATA/Downloads
+WEBUI_PORT=5005
+```
+
+Then run:
+
+```bash
+docker compose up -d
+```
+
+### Docker Build & Run (manual)
 
 ```bash
 docker build -t lidarr-downloader .
 docker run -p 5005:5000 \
+  -e PUID=1000 \
+  -e PGID=1000 \
+  -e UMASK=002 \
   -e LIDARR_URL=http://192.168.1.X:8686 \
   -e LIDARR_API_KEY=your_key \
   -e DOWNLOAD_PATH=/DATA/Downloads \
+  -e LIDARR_PATH=/DATA/Downloads \
   -v /DATA/Downloads:/DATA/Downloads \
+  -v /DATA/Music:/music \
+  -v ./config:/config \
   lidarr-downloader
 ```
 
