@@ -18,6 +18,10 @@ env/
 *.swp
 *.swo
 
+# Test artifacts
+.pytest_cache/
+pytest-of-*/
+
 # Project specific
 /config/
 *.log
