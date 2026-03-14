@@ -13,6 +13,7 @@ import logging
 import uuid
 import math
 import urllib.parse
+import urllib.request
 from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 from difflib import SequenceMatcher
@@ -33,7 +34,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.5.3"
+VERSION = "1.5.4"
 
 
 @app.context_processor
@@ -80,7 +81,7 @@ ALLOWED_CONFIG_KEYS = {
     "telegram_enabled", "telegram_log_types", "download_path",
     "lidarr_path", "forbidden_words", "duration_tolerance",
     "scheduler_enabled", "scheduler_auto_download",
-    "xml_metadata_enabled", "yt_cookies_file", "yt_force_ipv4",
+    "xml_metadata_enabled", "concurrent_tracks", "yt_cookies_file", "yt_force_ipv4",
     "yt_player_client", "yt_retries", "yt_fragment_retries",
     "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
     "discord_enabled", "discord_webhook_url", "discord_log_types",
@@ -192,7 +193,7 @@ def load_config():
         ],                        
         "xml_metadata_enabled": os.getenv("XML_METADATA_ENABLED", "true").lower()
         == "true",
-        "forbidden_words": ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute"],
+        "forbidden_words": ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute", "reaction"],
         "duration_tolerance": int(os.getenv("DURATION_TOLERANCE", "10")),
         "concurrent_tracks": int(os.getenv("CONCURRENT_TRACKS", "2")),
         "yt_cookies_file": os.getenv("YT_COOKIES_FILE", ""),
@@ -486,7 +487,6 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
         "format": "bestaudio/best",
         "extract_flat": True,
     }
-
     candidates = []
     forbidden_words = config.get("forbidden_words", ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute"])
     duration_tolerance = config.get("duration_tolerance", 10)
@@ -549,6 +549,64 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
     if alt_q3 not in search_queries:
         search_queries.append(alt_q3)
 
+    def _entry_url(entry):
+        wp = entry.get("webpage_url", "")
+        if wp:
+            return wp
+        vid = entry.get("id", "")
+        if vid:
+            return f"https://www.youtube.com/watch?v={vid}"
+        return entry.get("url", "")
+
+    def _collect_candidates(entries):
+        found = []
+        for entry in entries:
+            title = entry.get("title", "").lower()
+            if not title:
+                continue
+            url = _entry_url(entry)
+            duration = entry.get("duration", 0) or 0
+            channel = entry.get("channel", "") or entry.get("uploader", "") or ""
+            view_count = entry.get("view_count", 0) or 0
+
+            blocked_word = _check_forbidden(title, track_title_original.lower(), forbidden_words)
+            if blocked_word:
+                logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - forbidden word '{blocked_word}'")
+                continue
+
+            if expected_duration_sec:
+                min_duration = max(15, expected_duration_sec - duration_tolerance)
+                max_duration = expected_duration_sec + duration_tolerance
+
+                if duration < min_duration or duration > max_duration:
+                    logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - duration {int(duration)}s outside [{int(min_duration)}s - {int(max_duration)}s]")
+                    continue
+
+                duration_diff = abs(duration - expected_duration_sec)
+                duration_score = max(0, 1.0 - (duration_diff / max(duration_tolerance, 1)))
+            else:
+                if duration < 15 or duration > 7200:
+                    continue
+                duration_score = 0.5
+
+            title_score = _title_similarity(entry.get("title", ""), track_title_original, base_artist)
+            official_bonus = 0.15 if _is_official_channel(channel, base_artist) else 0.0
+            view_score = 0.0
+            if view_count > 0:
+                view_score = min(0.1, math.log10(max(view_count, 1)) / 100)
+            total_score = (duration_score * 0.35) + (title_score * 0.40) + official_bonus + view_score
+
+            if url:
+                found.append({
+                    "url": url,
+                    "title": entry.get("title", ""),
+                    "duration": duration,
+                    "channel": channel,
+                    "score": total_score,
+                })
+                logger.debug(f"   ✓ Candidate '{entry.get('title', '')}' — score={total_score:.2f} (dur={duration_score:.2f} title={title_score:.2f} official={official_bonus:.2f} views={view_score:.3f})")
+        return found
+
     for qi, sq in enumerate(search_queries):
         if candidates:
             break
@@ -556,54 +614,8 @@ def download_track_youtube(query, output_path, track_title_original, expected_du
             logger.info(f"   🔄 Fallback search ({qi+1}/{len(search_queries)}): \"{sq}\"")
         try:
             with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
-                search_results = ydl.extract_info(f"ytsearch15:{sq}", download=False)
-
-                for entry in search_results.get("entries", []):
-                    title = entry.get("title", "").lower()
-                    url = entry.get("url")
-                    duration = entry.get("duration", 0)
-                    channel = entry.get("channel", "") or entry.get("uploader", "") or ""
-                    view_count = entry.get("view_count", 0) or 0
-
-                    blocked_word = _check_forbidden(title, track_title_original.lower(), forbidden_words)
-                    if blocked_word:
-                        logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - forbidden word '{blocked_word}'")
-                        continue
-
-                    if expected_duration_sec:
-                        min_duration = max(15, expected_duration_sec - duration_tolerance)
-                        max_duration = expected_duration_sec + duration_tolerance
-
-                        if duration < min_duration or duration > max_duration:
-                            logger.debug(f"   ⊗ Rejected '{entry.get('title', '')}' - duration {int(duration)}s outside [{int(min_duration)}s - {int(max_duration)}s]")
-                            continue
-
-                        duration_diff = abs(duration - expected_duration_sec)
-                        duration_score = max(0, 1.0 - (duration_diff / max(duration_tolerance, 1)))
-                    else:
-                        if duration < 15 or duration > 7200:
-                            continue
-                        duration_score = 0.5
-
-                    title_score = _title_similarity(entry.get("title", ""), track_title_original, base_artist)
-
-                    official_bonus = 0.15 if _is_official_channel(channel, base_artist) else 0.0
-
-                    view_score = 0.0
-                    if view_count > 0:
-                        view_score = min(0.1, math.log10(max(view_count, 1)) / 100)
-
-                    total_score = (duration_score * 0.35) + (title_score * 0.40) + official_bonus + view_score
-
-                    if url:
-                        candidates.append({
-                            "url": url,
-                            "title": entry.get("title", ""),
-                            "duration": duration,
-                            "channel": channel,
-                            "score": total_score
-                        })
-                        logger.debug(f"   ✓ Candidate '{entry.get('title', '')}' — score={total_score:.2f} (dur={duration_score:.2f} title={title_score:.2f} official={official_bonus:.2f} views={view_score:.3f})")
+                yt_results = ydl.extract_info(f"ytsearch15:{sq}", download=False)
+                candidates.extend(_collect_candidates((yt_results or {}).get("entries", [])))
         except Exception as e:
             logger.error(f"   ❌ Search failed for \"{sq}\": {str(e)}")
             if qi == len(search_queries) - 1 and not candidates:
@@ -1416,13 +1428,21 @@ def api_ytdlp_update():
     })
 
 
+def _exec_restart():
+    try:
+        os.closerange(3, 65536)
+    except Exception:
+        pass
+    os.execv(sys.executable, [sys.executable] + sys.argv)
+
+
 @app.route("/api/restart", methods=["POST"])
 def api_restart():
     if download_process.get("active"):
         return jsonify({"success": False, "message": "A download is in progress. Stop it before restarting."})
     def _do_restart():
         time.sleep(0.5)
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        _exec_restart()
     threading.Thread(target=_do_restart, daemon=True).start()
     return jsonify({"success": True})
 
@@ -1742,38 +1762,18 @@ def api_youtube_search():
             return entry.get("url", "")
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            try:
-                music_results = ydl.extract_info(f"ytmsearch10:{query}", download=False)
-                for entry in (music_results or {}).get("entries", []):
-                    url = _entry_watch_url(entry)
-                    if url and url not in seen_urls:
-                        seen_urls.add(url)
-                        items.append({
-                            "title": entry.get("title", ""),
-                            "url": url,
-                            "duration": entry.get("duration", 0),
-                            "channel": entry.get("channel", "") or entry.get("uploader", "") or "",
-                            "thumbnail": entry.get("thumbnail", ""),
-                            "source": "youtube_music",
-                        })
-            except Exception:
-                pass
-            try:
-                yt_results = ydl.extract_info(f"ytsearch5:{query}", download=False)
-                for entry in (yt_results or {}).get("entries", []):
-                    url = _entry_watch_url(entry)
-                    if url and url not in seen_urls:
-                        seen_urls.add(url)
-                        items.append({
-                            "title": entry.get("title", ""),
-                            "url": url,
-                            "duration": entry.get("duration", 0),
-                            "channel": entry.get("channel", "") or entry.get("uploader", "") or "",
-                            "thumbnail": entry.get("thumbnail", ""),
-                            "source": "youtube",
-                        })
-            except Exception:
-                pass
+            yt_results = ydl.extract_info(f"ytsearch10:{query}", download=False)
+            for entry in (yt_results or {}).get("entries", []):
+                url = _entry_watch_url(entry)
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    items.append({
+                        "title": entry.get("title", ""),
+                        "url": url,
+                        "duration": entry.get("duration", 0),
+                        "channel": entry.get("channel", "") or entry.get("uploader", "") or "",
+                        "thumbnail": entry.get("thumbnail", ""),
+                    })
         return jsonify({"results": items})
     except Exception as e:
         return jsonify({"results": [], "error": str(e)[:200]}), 500
@@ -2121,17 +2121,35 @@ def process_download_queue():
         time.sleep(2)
 
 
+def _get_ytdlp_pypi_version():
+    try:
+        req = urllib.request.Request(
+            "https://pypi.org/pypi/yt-dlp/json",
+            headers={"User-Agent": "lidarr-yt-downloader"}
+        )
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.loads(r.read())["info"]["version"]
+    except Exception:
+        return None
+
+
 def _startup_ytdlp_update():
-    logger.info("🔍 Checking for yt-dlp updates...")
-    old_version, new_version, error = _pip_update_ytdlp()
-    if error:
-        logger.warning(f"⚠️ yt-dlp update check failed: {error}")
+    current = get_ytdlp_version()
+    logger.info(f"🔍 Checking for yt-dlp updates (installed: {current})...")
+    latest = _get_ytdlp_pypi_version()
+    if not latest:
+        logger.warning("⚠️ Could not reach PyPI to check yt-dlp version")
         return
-    if old_version != new_version:
-        logger.info(f"✅ yt-dlp updated {old_version} → {new_version}, restarting...")
-        os.execv(sys.executable, [sys.executable] + sys.argv)
-    else:
-        logger.info(f"✅ yt-dlp {new_version} is up to date")
+    if current == latest:
+        logger.info(f"✅ yt-dlp {current} is up to date")
+        return
+    logger.info(f"⬆️ Updating yt-dlp {current} → {latest}...")
+    _, new_version, error = _pip_update_ytdlp()
+    if error:
+        logger.warning(f"⚠️ yt-dlp update failed: {error}")
+        return
+    logger.info(f"✅ yt-dlp updated {current} → {new_version}, restarting...")
+    _exec_restart()
 
 
 if __name__ == "__main__":
