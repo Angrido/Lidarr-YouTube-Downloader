@@ -720,6 +720,10 @@
                         <input type="checkbox" id="fw_tribute" value="tribute" style="width: auto; cursor: pointer;">
                         <span>🏆 Tribute</span>
                     </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_reaction" value="reaction" style="width: auto; cursor: pointer;">
+                        <span>😲 Reaction</span>
+                    </label>
                 </div>
             </div>
             <div class="input-group">
@@ -993,8 +997,8 @@
             document.getElementById('lidarrPath').value = conf.lidarr_path || '';
 
 
-            const forbiddenWords = conf.forbidden_words || ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute"];
-            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute'];
+            const forbiddenWords = conf.forbidden_words || ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute", "reaction"];
+            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute', 'fw_reaction'];
 
             forbiddenWordIds.forEach(id => {
                 const checkbox = document.getElementById(id);
