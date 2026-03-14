@@ -26,3 +26,4 @@ pytest-of-*/
 /config/
 *.log
 tmp/
+.serena/
