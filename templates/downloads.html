@@ -518,8 +518,9 @@
             background: rgba(239, 68, 68, 0.05);
         }
 
-        .history-item.history-manual {
-            border-left-color: #8b5cf6;
+        .history-album-row {
+            cursor: pointer;
+            user-select: none;
         }
 
         .status-icon {
@@ -548,9 +549,41 @@
             color: var(--danger);
         }
 
-        .status-icon.manual {
-            background: rgba(139, 92, 246, 0.2);
-            color: #8b5cf6;
+        .history-expand-icon {
+            color: var(--text-dim);
+            font-size: 0.75rem;
+            transition: transform 0.2s ease;
+            width: 20px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .history-expand-icon.expanded {
+            transform: rotate(90deg);
+            color: var(--primary);
+        }
+
+        .history-track-badge {
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .history-track-badge.badge-success {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--primary);
+        }
+
+        .history-track-badge.badge-partial {
+            background: rgba(245, 158, 11, 0.15);
+            color: #f59e0b;
+        }
+
+        .history-track-badge.badge-error {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
         }
 
         .history-info {
@@ -580,17 +613,73 @@
             border-radius: 6px;
         }
 
-        .history-manual-label {
-            display: inline-flex;
+        .track-detail-grid {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-top: none;
+            border-radius: 0 0 12px 12px;
+            padding: 0.5rem;
+            margin-bottom: 0.75rem;
+            margin-top: -0.75rem;
+        }
+
+        .track-detail-header,
+        .track-detail-row {
+            display: grid;
+            grid-template-columns: 40px 1fr 1fr 65px 55px 130px;
+            padding: 0.4rem 0.75rem;
             align-items: center;
-            gap: 0.35rem;
-            margin-top: 0.35rem;
-            padding: 0.2rem 0.6rem;
-            background: rgba(139, 92, 246, 0.1);
-            color: #8b5cf6;
+            font-size: 0.8rem;
+        }
+
+        .track-detail-header {
+            color: var(--text-dim);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .track-detail-row {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .track-detail-row.track-failed {
+            background: rgba(239, 68, 68, 0.05);
+        }
+
+        .track-detail-row a {
+            color: #3b82f6;
+            text-decoration: none;
             font-size: 0.75rem;
-            font-weight: 600;
-            border-radius: 6px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .track-detail-row a:hover {
+            text-decoration: underline;
+        }
+
+        .track-attempts {
+            color: var(--text-dim);
+            font-size: 0.7rem;
+            margin-left: 0.3rem;
+        }
+
+        @media (max-width: 768px) {
+            .track-detail-header,
+            .track-detail-row {
+                grid-template-columns: 30px 1fr 60px;
+            }
+            .track-detail-header > :nth-child(3),
+            .track-detail-header > :nth-child(4),
+            .track-detail-header > :nth-child(6),
+            .track-detail-row > :nth-child(3),
+            .track-detail-row > :nth-child(4),
+            .track-detail-row > :nth-child(6) {
+                display: none;
+            }
         }
 
         .btn-danger {
@@ -998,40 +1087,209 @@
         let historyTotalPages = 1;
         let historyTotal = 0;
 
+        function getAlbumStatus(item) {
+            if (item.fail_count === 0) return 'success';
+            if (item.success_count === 0) return 'error';
+            return 'partial';
+        }
+
         function renderHistoryItem(item) {
-            let statusClass, iconClass, label;
-            if (item.manual) {
-                statusClass = 'manual';
-                iconClass = 'fa-solid fa-hand-pointer';
-                const trackInfo = item.track_title ? `: ${escapeHtml(item.track_title)}` : '';
-                label = `<div class="history-manual-label"><i class="fa-solid fa-hand-pointer"></i> Manual Download${trackInfo}</div>`;
-            } else if (!item.success) {
-                statusClass = 'error';
-                iconClass = 'fa-solid fa-xmark';
-                label = '<div class="history-error-label"><i class="fa-solid fa-circle-exclamation"></i> Download Failed</div>';
-            } else if (item.partial) {
-                statusClass = 'partial';
-                iconClass = 'fa-solid fa-triangle-exclamation';
-                label = '<div class="history-error-label" style="color:#f59e0b"><i class="fa-solid fa-triangle-exclamation"></i> Partial Success</div>';
-            } else {
-                statusClass = 'success';
-                iconClass = 'fa-solid fa-check';
-                label = '';
+            const status = getAlbumStatus(item);
+            const iconMap = {
+                success: 'fa-solid fa-check',
+                partial: 'fa-solid fa-triangle-exclamation',
+                error: 'fa-solid fa-xmark',
+            };
+            const badgeClass = 'badge-' + status;
+            const albumId = item.album_id;
+
+            const wrapper = document.createElement('div');
+
+            const row = document.createElement('div');
+            row.className = 'history-item history-' + status + ' history-album-row';
+            row.addEventListener('click', function() { toggleTracks(row, albumId); });
+
+            const expandIcon = document.createElement('span');
+            expandIcon.className = 'history-expand-icon';
+            expandIcon.id = 'expand-icon-' + albumId;
+            const chevron = document.createElement('i');
+            chevron.className = 'fa-solid fa-chevron-right';
+            expandIcon.appendChild(chevron);
+            row.appendChild(expandIcon);
+
+            const statusIcon = document.createElement('div');
+            statusIcon.className = 'status-icon ' + status;
+            const icon = document.createElement('i');
+            icon.className = iconMap[status];
+            statusIcon.appendChild(icon);
+            row.appendChild(statusIcon);
+
+            const info = document.createElement('div');
+            info.className = 'history-info';
+            const title = document.createElement('div');
+            title.className = 'history-title';
+            title.textContent = item.album_title || 'Unknown';
+            info.appendChild(title);
+            const meta = document.createElement('div');
+            meta.className = 'history-meta';
+            meta.textContent = (item.artist_name || 'Unknown Artist') + ' \u2022 ' + new Date(item.latest_timestamp * 1000).toLocaleString();
+            info.appendChild(meta);
+            row.appendChild(info);
+
+            const badge = document.createElement('span');
+            badge.className = 'history-track-badge ' + badgeClass;
+            badge.textContent = item.success_count + '/' + item.total_count + ' tracks';
+            row.appendChild(badge);
+
+            wrapper.appendChild(row);
+
+            const grid = document.createElement('div');
+            grid.className = 'track-detail-grid';
+            grid.id = 'tracks-' + albumId;
+            grid.style.display = 'none';
+            wrapper.appendChild(grid);
+
+            return wrapper;
+        }
+
+        async function toggleTracks(row, albumId) {
+            const grid = document.getElementById('tracks-' + albumId);
+            const icon = document.getElementById('expand-icon-' + albumId);
+
+            if (grid.style.display !== 'none') {
+                grid.style.display = 'none';
+                icon.classList.remove('expanded');
+                return;
             }
-            // All values are escaped via escapeHtml; statusClass and iconClass
-            // are derived from hardcoded string literals above, not user input.
-            return `
-                <div class="history-item history-${statusClass}">
-                    <div class="status-icon ${statusClass}">
-                        <i class="${iconClass}"></i>
-                    </div>
-                    <div class="history-info">
-                        <div class="history-title">${escapeHtml(item.album_title || 'Unknown')}</div>
-                        <div class="history-meta">${escapeHtml(item.artist_name || 'Unknown Artist')} \u2022 ${new Date(item.timestamp * 1000).toLocaleString()}</div>
-                        ${label}
-                    </div>
-                </div>
-            `;
+
+            icon.classList.add('expanded');
+            grid.textContent = '';
+            const loading = document.createElement('div');
+            loading.style.cssText = 'padding:1rem;color:var(--text-dim);text-align:center;';
+            loading.textContent = 'Loading...';
+            grid.appendChild(loading);
+            grid.style.display = 'block';
+
+            try {
+                const resp = await fetch('/api/download/history/' + albumId + '/tracks');
+                const tracks = await resp.json();
+                if (tracks.length === 0) {
+                    grid.textContent = '';
+                    const empty = document.createElement('div');
+                    empty.style.cssText = 'padding:1rem;color:var(--text-dim);text-align:center;';
+                    empty.textContent = 'No track data';
+                    grid.appendChild(empty);
+                    return;
+                }
+
+                const byTrack = {};
+                for (const t of tracks) {
+                    const key = t.track_title;
+                    if (!byTrack[key]) byTrack[key] = [];
+                    byTrack[key].push(t);
+                }
+
+                const sorted = Object.values(byTrack).map(function(attempts) {
+                    attempts.sort(function(a, b) { return b.timestamp - a.timestamp; });
+                    return { latest: attempts[0], attempts: attempts.length };
+                });
+                sorted.sort(function(a, b) { return a.latest.track_number - b.latest.track_number; });
+
+                const container = document.createDocumentFragment();
+
+                const header = document.createElement('div');
+                header.className = 'track-detail-header';
+                ['#', 'Track', 'YouTube Source', 'Score', 'Dur.', 'Downloaded'].forEach(function(text) {
+                    const cell = document.createElement('div');
+                    cell.textContent = text;
+                    header.appendChild(cell);
+                });
+                container.appendChild(header);
+
+                sorted.forEach(function(item) {
+                    var t = item.latest;
+                    var attempts = item.attempts;
+                    var isFailed = !t.success;
+                    var detailRow = document.createElement('div');
+                    detailRow.className = isFailed ? 'track-detail-row track-failed' : 'track-detail-row';
+
+                    var numCell = document.createElement('div');
+                    numCell.style.color = 'var(--text-dim)';
+                    numCell.textContent = String(t.track_number).padStart(2, '0');
+                    detailRow.appendChild(numCell);
+
+                    var titleCell = document.createElement('div');
+                    titleCell.style.color = isFailed ? 'var(--danger)' : 'var(--text)';
+                    titleCell.textContent = t.track_title;
+                    if (attempts > 1) {
+                        var attemptBadge = document.createElement('span');
+                        attemptBadge.className = 'track-attempts';
+                        attemptBadge.title = attempts + ' download attempts';
+                        attemptBadge.textContent = '(' + attempts + ' attempts)';
+                        titleCell.appendChild(attemptBadge);
+                    }
+                    detailRow.appendChild(titleCell);
+
+                    var ytCell = document.createElement('div');
+                    if (isFailed) {
+                        ytCell.style.cssText = 'color:var(--danger);font-size:0.75rem;';
+                        ytCell.textContent = t.error_message || 'Failed';
+                    } else if (t.youtube_url) {
+                        var safeUrl = sanitizeUrl(t.youtube_url);
+                        if (safeUrl) {
+                            var link = document.createElement('a');
+                            link.href = safeUrl;
+                            link.target = '_blank';
+                            link.rel = 'noopener';
+                            link.title = t.youtube_title || t.youtube_url;
+                            link.textContent = t.youtube_title || t.youtube_url;
+                            ytCell.appendChild(link);
+                        } else {
+                            ytCell.style.color = 'var(--text-dim)';
+                            ytCell.textContent = t.youtube_title || '\u2014';
+                        }
+                    } else {
+                        ytCell.style.color = 'var(--text-dim)';
+                        ytCell.textContent = '\u2014';
+                    }
+                    detailRow.appendChild(ytCell);
+
+                    var scoreCell = document.createElement('div');
+                    if (isFailed) {
+                        scoreCell.style.color = 'var(--text-dim)';
+                        scoreCell.textContent = '\u2014';
+                    } else {
+                        scoreCell.style.color = '#6ee7b7';
+                        scoreCell.textContent = t.match_score ? t.match_score.toFixed(2) : '\u2014';
+                    }
+                    detailRow.appendChild(scoreCell);
+
+                    var durCell = document.createElement('div');
+                    durCell.style.color = 'var(--text-dim)';
+                    if (isFailed || !t.duration_seconds) {
+                        durCell.textContent = '\u2014';
+                    } else {
+                        durCell.textContent = Math.floor(t.duration_seconds / 60) + ':' + String(t.duration_seconds % 60).padStart(2, '0');
+                    }
+                    detailRow.appendChild(durCell);
+
+                    var timeCell = document.createElement('div');
+                    timeCell.style.cssText = 'color:var(--text-dim);font-size:0.75rem;';
+                    timeCell.textContent = new Date(t.timestamp * 1000).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+                    detailRow.appendChild(timeCell);
+
+                    container.appendChild(detailRow);
+                });
+
+                grid.textContent = '';
+                grid.appendChild(container);
+            } catch (e) {
+                grid.textContent = '';
+                var errDiv = document.createElement('div');
+                errDiv.style.cssText = 'padding:1rem;color:var(--danger);text-align:center;';
+                errDiv.textContent = 'Failed to load tracks';
+                grid.appendChild(errDiv);
+            }
         }
 
         // Builds a compact array of page numbers with ellipsis gaps.
@@ -1135,10 +1393,10 @@
             }
 
             clearBtn.style.display = 'flex';
-            // Items are already sorted newest-first by the API.
-            // renderHistoryItem only interpolates escapeHtml()-sanitised
-            // values and hardcoded class literals, so this is safe.
-            container.innerHTML = data.items.map(renderHistoryItem).join('');
+            container.textContent = '';
+            data.items.forEach(function(item) {
+                container.appendChild(renderHistoryItem(item));
+            });
             renderPagination(
                 'historyPagination', historyCurrentPage,
                 historyTotalPages, historyTotal,
