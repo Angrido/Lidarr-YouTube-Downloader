@@ -1,7 +1,6 @@
 """Tests for Flask route handlers in app.py."""
 
 import json
-import time
 from unittest.mock import patch
 
 import pytest

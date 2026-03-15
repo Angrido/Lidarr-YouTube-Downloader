@@ -19,7 +19,9 @@ Run after any changes to route handlers or error handling:
 - [ ] `GET /api/test-connection` — returns `{"status": "success", "lidarr_version": "..."}` when Lidarr is reachable
 - [ ] `GET /api/test-connection` — returns `{"status": "error", "message": "..."}` when Lidarr is unreachable
 - [ ] `GET /api/missing-albums` — returns JSON array (may be empty)
-- [ ] `GET /api/download/history` — returns paginated response with `items`, `total`, `page`, `pages`
+- [ ] `GET /api/download/history` — returns paginated response with grouped albums (each item has `success_count`, `fail_count`, `total_count`)
+- [ ] `GET /api/download/history/<album_id>/tracks` — returns track-level download records
+- [ ] `GET /api/download/failed` — returns failed tracks inferred from most recent download batch
 - [ ] `GET /api/logs` — returns paginated response
 - [ ] `GET /api/config` — returns config dict with all expected keys
 - [ ] `POST /api/download/queue` with `{"album_id": N}` — returns `{"success": true, "queue_length": N}`
@@ -47,6 +49,11 @@ Run with `agent-browser` after changes to frontend JavaScript or template logic:
 - [ ] **Downloads page**: Remove album from queue — disappears from queue
 - [ ] **Downloads page**: Clear queue — all items removed
 - [ ] **Downloads page**: Pagination controls work for history and queue
+- [ ] **Downloads page**: History shows album rows with color-coded track count badges
+- [ ] **Downloads page**: Click album row to expand — shows track detail grid
+- [ ] **Downloads page**: Expanded tracks show YouTube links, match scores, durations
+- [ ] **Downloads page**: Failed tracks shown with red background and error message
+- [ ] **Downloads page**: Multiple attempt indicator shows "(N attempts)" on re-downloaded tracks
 - [ ] **Logs page**: Dismiss a log entry — entry removed
 - [ ] **Logs page**: Clear all logs — all entries removed
 - [ ] **Logs page**: Filter by log type — only matching entries shown

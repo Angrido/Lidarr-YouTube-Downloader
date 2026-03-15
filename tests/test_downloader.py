@@ -1,7 +1,5 @@
 from unittest.mock import patch
 
-import pytest
-
 from downloader import (
     _check_forbidden,
     _is_official_channel,
