@@ -183,7 +183,6 @@ def process_album_download(album_id, force=False):
             album_title=album_title,
             artist_name=artist_name,
             details=f"Starting download of {len(tracks)} track(s)",
-            failed_tracks=[],
         )
         send_notifications(
             f"Download Started\n"
@@ -224,6 +223,9 @@ def process_album_download(album_id, force=False):
         failed_tracks, total_downloaded_size = _download_tracks(
             tracks_to_download, album_path, artist_name, album_title,
             album, album_mbid, artist_mbid, cover_data,
+            album_id=album_id,
+            cover_url=download_process.get("cover_url", ""),
+            lidarr_album_path=lidarr_album_path,
         )
 
         set_permissions(artist_path)
@@ -291,47 +293,10 @@ def process_album_download(album_id, force=False):
             album_title=album_title,
             artist_name=artist_name,
             details=f"Error: {e}",
-            failed_tracks=[],
         )
         download_process["result_success"] = False
         return {"error": str(e)}
     finally:
-        with queue_lock:
-            _cover_url = download_process.get("cover_url", "")
-            _album_title = download_process.get("album_title", "") or album_title
-            _artist_name = download_process.get("artist_name", "") or artist_name
-            _result_success = download_process.get("result_success", True)
-            _result_partial = download_process.get("result_partial", False)
-            _album_id = download_process.get("album_id")
-
-        if failed_tracks:
-            models.save_failed_tracks(
-                album_id=album_id,
-                album_title=_album_title,
-                artist_name=_artist_name,
-                cover_url=_cover_url,
-                album_path=album_path,
-                lidarr_album_path=lidarr_album_path,
-                tracks=[
-                    {
-                        "title": t["title"],
-                        "reason": t["reason"],
-                        "track_num": t.get("track_num", 0),
-                    }
-                    for t in failed_tracks
-                ],
-            )
-        else:
-            models.clear_failed_tracks()
-
-        models.add_history_entry(
-            album_id=_album_id,
-            album_title=_album_title,
-            artist_name=_artist_name,
-            success=_result_success,
-            partial=_result_partial,
-        )
-
         with queue_lock:
             download_process["active"] = False
             download_process["progress"] = {}
@@ -367,6 +332,7 @@ def _filter_tracks(tracks, force, album_path):
 def _download_tracks(
     tracks_to_download, album_path, artist_name, album_title,
     album, album_mbid, artist_mbid, cover_data,
+    album_id, cover_url, lidarr_album_path,
 ):
     """Download each track, tag, and create XML metadata.
 
@@ -418,7 +384,7 @@ def _download_tracks(
         )
         actual_file = temp_file + ".mp3"
 
-        if download_result is True and os.path.exists(actual_file):
+        if download_result.get("success") and os.path.exists(actual_file):
             logger.info(
                 f"Track downloaded successfully: {track_title}"
             )
@@ -437,11 +403,26 @@ def _download_tracks(
             except OSError:
                 pass
             shutil.move(actual_file, final_file)
+            models.add_track_download(
+                album_id=album_id, album_title=album_title,
+                artist_name=artist_name, track_title=track_title,
+                track_number=track_num, success=True,
+                error_message="",
+                youtube_url=download_result.get("youtube_url", ""),
+                youtube_title=download_result.get(
+                    "youtube_title", ""
+                ),
+                match_score=download_result.get("match_score", 0.0),
+                duration_seconds=download_result.get(
+                    "duration_seconds", 0
+                ),
+                album_path=album_path,
+                lidarr_album_path=lidarr_album_path,
+                cover_url=cover_url,
+            )
         else:
-            fail_reason = (
-                download_result
-                if isinstance(download_result, str)
-                else "Download failed or file not found"
+            fail_reason = download_result.get(
+                "error_message", "Download failed or file not found"
             )
             logger.warning(
                 f"Failed to download track: {track_title}"
@@ -459,6 +440,17 @@ def _download_tracks(
                 "reason": fail_reason,
                 "track_num": track_num,
             })
+            models.add_track_download(
+                album_id=album_id, album_title=album_title,
+                artist_name=artist_name, track_title=track_title,
+                track_number=track_num, success=False,
+                error_message=fail_reason,
+                youtube_url="", youtube_title="",
+                match_score=0.0, duration_seconds=0,
+                album_path=album_path,
+                lidarr_album_path=lidarr_album_path,
+                cover_url=cover_url,
+            )
 
         download_process["progress"]["current"] = idx
         download_process["progress"]["total"] = len(tracks_to_download)
@@ -513,7 +505,6 @@ def _handle_post_download(
                     f"All {len(tracks_to_download)} track(s)"
                     " failed to download"
                 ),
-                failed_tracks=failed_tracks,
             )
             download_process["result_success"] = False
             return {"error": "All tracks failed to download"}
@@ -548,7 +539,6 @@ def _handle_post_download(
                 f"{len(failed_tracks)} track(s) failed to download"
                 f" out of {len(tracks_to_download)}"
             ),
-            failed_tracks=failed_tracks,
             total_file_size=total_downloaded_size,
         )
     else:
@@ -561,7 +551,6 @@ def _handle_post_download(
                 f"Successfully downloaded"
                 f" {len(tracks_to_download)} track(s)"
             ),
-            failed_tracks=[],
             total_file_size=total_downloaded_size,
         )
         send_notifications(
@@ -658,7 +647,6 @@ def _log_import_result(
                 f"Album imported with {len(failed_tracks)}"
                 " failed tracks"
             ),
-            failed_tracks=failed_tracks,
             total_file_size=total_downloaded_size,
         )
         send_notifications(
@@ -685,7 +673,6 @@ def _log_import_result(
             album_title=album_title,
             artist_name=artist_name,
             details="Album downloaded and refreshing in Lidarr",
-            failed_tracks=[],
             total_file_size=total_downloaded_size,
         )
         send_notifications(
