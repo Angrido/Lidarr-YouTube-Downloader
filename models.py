@@ -40,8 +40,18 @@ def _paginate(query, count_query, params, page, per_page):
 # --- Track Downloads ---
 
 
+def get_latest_download_album_id():
+    """Return the album_id from the most recent track download, or None."""
+    conn = db.get_db()
+    row = conn.execute(
+        "SELECT DISTINCT album_id FROM track_downloads"
+        " ORDER BY timestamp DESC LIMIT 1"
+    ).fetchone()
+    return row[0] if row else None
+
+
 def add_track_download(
-    album_id, album_title, artist_name, track_title, track_number,
+    *, album_id, album_title, artist_name, track_title, track_number,
     success, error_message, youtube_url, youtube_title, match_score,
     duration_seconds, album_path, lidarr_album_path, cover_url,
 ):

@@ -472,12 +472,8 @@ def api_dismiss_log(log_id):
 
 @app.route("/api/download/failed")
 def api_download_failed():
-    conn = db.get_db()
-    row = conn.execute(
-        "SELECT DISTINCT album_id FROM track_downloads"
-        " ORDER BY timestamp DESC LIMIT 1"
-    ).fetchone()
-    if row is None:
+    album_id = models.get_latest_download_album_id()
+    if album_id is None:
         return jsonify({
             "failed_tracks": [],
             "album_id": None,
@@ -487,7 +483,7 @@ def api_download_failed():
             "album_path": "",
             "lidarr_album_path": "",
         })
-    return jsonify(models.get_failed_tracks_for_retry(row[0]))
+    return jsonify(models.get_failed_tracks_for_retry(album_id))
 
 
 # --- Scheduler routes ---
@@ -625,12 +621,7 @@ def api_download_manual():
     if youtube_url is None:
         return jsonify({"success": False, "message": "Invalid YouTube URL"}), 400
 
-    conn = db.get_db()
-    latest_row = conn.execute(
-        "SELECT DISTINCT album_id FROM track_downloads"
-        " ORDER BY timestamp DESC LIMIT 1"
-    ).fetchone()
-    album_id_ctx = latest_row[0] if latest_row else None
+    album_id_ctx = models.get_latest_download_album_id()
     if not album_id_ctx:
         return jsonify({
             "success": False,

@@ -223,3 +223,33 @@ def test_migrate_v1_to_v2_indexes(temp_db):
     assert "idx_track_dl_timestamp" in indexes
     assert "idx_track_dl_youtube_url" in indexes
     conn.close()
+
+
+def test_migrate_v1_to_v2_rollback_on_failure(temp_db, monkeypatch):
+    """If migration fails, V1 schema remains and version stays at 1."""
+    _create_v1_db(temp_db)
+
+    def bad_migration(conn):
+        conn.execute("DROP TABLE IF EXISTS download_history")
+        raise RuntimeError("Simulated migration failure")
+
+    monkeypatch.setattr("db._migrate_v1_to_v2", bad_migration)
+
+    with pytest.raises(RuntimeError, match="Simulated migration failure"):
+        init_db()
+
+    conn = sqlite3.connect(temp_db)
+    row = conn.execute(
+        "SELECT version FROM schema_version"
+        " ORDER BY version DESC LIMIT 1"
+    ).fetchone()
+    assert row[0] == 1
+
+    tables = {
+        row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    assert "failed_tracks" in tables
+    assert "track_downloads" not in tables
+    conn.close()

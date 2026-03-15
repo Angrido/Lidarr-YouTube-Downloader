@@ -220,12 +220,18 @@ def process_album_download(album_id, force=False):
 
         logger.info(f"Total tracks to download: {len(tracks_to_download)}")
 
+        album_ctx = {
+            "artist_name": artist_name,
+            "album_title": album_title,
+            "album_id": album_id,
+            "album_mbid": album_mbid,
+            "artist_mbid": artist_mbid,
+            "cover_data": cover_data,
+            "cover_url": download_process.get("cover_url", ""),
+            "lidarr_album_path": lidarr_album_path,
+        }
         failed_tracks, total_downloaded_size = _download_tracks(
-            tracks_to_download, album_path, artist_name, album_title,
-            album, album_mbid, artist_mbid, cover_data,
-            album_id=album_id,
-            cover_url=download_process.get("cover_url", ""),
-            lidarr_album_path=lidarr_album_path,
+            tracks_to_download, album_path, album, album_ctx,
         )
 
         set_permissions(artist_path)
@@ -330,15 +336,30 @@ def _filter_tracks(tracks, force, album_path):
 
 
 def _download_tracks(
-    tracks_to_download, album_path, artist_name, album_title,
-    album, album_mbid, artist_mbid, cover_data,
-    album_id, cover_url, lidarr_album_path,
+    tracks_to_download, album_path, album, album_ctx,
 ):
     """Download each track, tag, and create XML metadata.
+
+    Args:
+        tracks_to_download: List of track dicts to download.
+        album_path: Local directory for downloaded files.
+        album: Full album data dict from Lidarr.
+        album_ctx: Dict with keys: artist_name, album_title, album_id,
+            album_mbid, artist_mbid, cover_data, cover_url,
+            lidarr_album_path.
 
     Returns:
         Tuple of (failed_tracks list, total_downloaded_size int).
     """
+    artist_name = album_ctx["artist_name"]
+    album_title = album_ctx["album_title"]
+    album_id = album_ctx["album_id"]
+    album_mbid = album_ctx["album_mbid"]
+    artist_mbid = album_ctx["artist_mbid"]
+    cover_data = album_ctx["cover_data"]
+    cover_url = album_ctx["cover_url"]
+    lidarr_album_path = album_ctx["lidarr_album_path"]
+
     failed_tracks = []
     total_downloaded_size = 0
 
@@ -403,23 +424,29 @@ def _download_tracks(
             except OSError:
                 pass
             shutil.move(actual_file, final_file)
-            models.add_track_download(
-                album_id=album_id, album_title=album_title,
-                artist_name=artist_name, track_title=track_title,
-                track_number=track_num, success=True,
-                error_message="",
-                youtube_url=download_result.get("youtube_url", ""),
-                youtube_title=download_result.get(
-                    "youtube_title", ""
-                ),
-                match_score=download_result.get("match_score", 0.0),
-                duration_seconds=download_result.get(
-                    "duration_seconds", 0
-                ),
-                album_path=album_path,
-                lidarr_album_path=lidarr_album_path,
-                cover_url=cover_url,
-            )
+            try:
+                models.add_track_download(
+                    album_id=album_id, album_title=album_title,
+                    artist_name=artist_name, track_title=track_title,
+                    track_number=track_num, success=True,
+                    error_message="",
+                    youtube_url=download_result.get("youtube_url", ""),
+                    youtube_title=download_result.get(
+                        "youtube_title", ""
+                    ),
+                    match_score=download_result.get("match_score", 0.0),
+                    duration_seconds=download_result.get(
+                        "duration_seconds", 0
+                    ),
+                    album_path=album_path,
+                    lidarr_album_path=lidarr_album_path,
+                    cover_url=cover_url,
+                )
+            except Exception:
+                logger.error(
+                    "Failed to record track download for '%s' (album %d)",
+                    track_title, album_id, exc_info=True,
+                )
         else:
             fail_reason = download_result.get(
                 "error_message", "Download failed or file not found"
@@ -440,17 +467,23 @@ def _download_tracks(
                 "reason": fail_reason,
                 "track_num": track_num,
             })
-            models.add_track_download(
-                album_id=album_id, album_title=album_title,
-                artist_name=artist_name, track_title=track_title,
-                track_number=track_num, success=False,
-                error_message=fail_reason,
-                youtube_url="", youtube_title="",
-                match_score=0.0, duration_seconds=0,
-                album_path=album_path,
-                lidarr_album_path=lidarr_album_path,
-                cover_url=cover_url,
-            )
+            try:
+                models.add_track_download(
+                    album_id=album_id, album_title=album_title,
+                    artist_name=artist_name, track_title=track_title,
+                    track_number=track_num, success=False,
+                    error_message=fail_reason,
+                    youtube_url="", youtube_title="",
+                    match_score=0.0, duration_seconds=0,
+                    album_path=album_path,
+                    lidarr_album_path=lidarr_album_path,
+                    cover_url=cover_url,
+                )
+            except Exception:
+                logger.error(
+                    "Failed to record track download for '%s' (album %d)",
+                    track_title, album_id, exc_info=True,
+                )
 
         download_process["progress"]["current"] = idx
         download_process["progress"]["total"] = len(tracks_to_download)

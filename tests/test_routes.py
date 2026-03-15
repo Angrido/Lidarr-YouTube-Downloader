@@ -34,6 +34,19 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
+def _add_track(models, **overrides):
+    """Add a track download with sensible defaults, overriding any keys."""
+    defaults = {
+        "album_id": 1, "album_title": "A", "artist_name": "A",
+        "track_title": "T1", "track_number": 1, "success": True,
+        "error_message": "", "youtube_url": "", "youtube_title": "",
+        "match_score": 0.0, "duration_seconds": 0, "album_path": "",
+        "lidarr_album_path": "", "cover_url": "",
+    }
+    defaults.update(overrides)
+    models.add_track_download(**defaults)
+
+
 class TestHistoryRoutes:
     def test_get_history_empty(self, client):
         resp = client.get("/api/download/history")
@@ -46,13 +59,16 @@ class TestHistoryRoutes:
     def test_get_history_grouped(self, client):
         import models
 
-        models.add_track_download(
-            1, "Album A", "Artist A", "T1", 1, True, "",
-            "http://yt/1", "vid1", 0.9, 200, "", "", "",
+        _add_track(
+            models, album_id=1, album_title="Album A",
+            artist_name="Artist A", track_title="T1",
+            youtube_url="http://yt/1", youtube_title="vid1",
+            match_score=0.9, duration_seconds=200,
         )
-        models.add_track_download(
-            1, "Album A", "Artist A", "T2", 2, False, "fail",
-            "", "", 0.0, 0, "", "", "",
+        _add_track(
+            models, album_id=1, album_title="Album A",
+            artist_name="Artist A", track_title="T2",
+            track_number=2, success=False, error_message="fail",
         )
         resp = client.get("/api/download/history")
         data = resp.get_json()
@@ -65,9 +81,9 @@ class TestHistoryRoutes:
         import models
 
         for i in range(5):
-            models.add_track_download(
-                i, f"Album {i}", "Artist", "T1", 1, True, "",
-                "", "", 0.0, 0, "", "", "",
+            _add_track(
+                models, album_id=i, album_title=f"Album {i}",
+                artist_name="Artist",
             )
         resp = client.get("/api/download/history?page=1&per_page=2")
         data = resp.get_json()
@@ -78,10 +94,7 @@ class TestHistoryRoutes:
     def test_clear_history(self, client):
         import models
 
-        models.add_track_download(
-            1, "A", "A", "T1", 1, True, "",
-            "", "", 0.0, 0, "", "", "",
-        )
+        _add_track(models)
         resp = client.post("/api/download/history/clear")
         assert resp.status_code == 200
         resp2 = client.get("/api/download/history")
@@ -92,13 +105,18 @@ class TestTracksEndpoint:
     def test_get_tracks_for_album(self, client):
         import models
 
-        models.add_track_download(
-            42, "Album", "Artist", "Track1", 1, True, "",
-            "http://yt/1", "vid1", 0.92, 240, "/dl", "/music", "",
+        _add_track(
+            models, album_id=42, album_title="Album",
+            artist_name="Artist", track_title="Track1",
+            youtube_url="http://yt/1", youtube_title="vid1",
+            match_score=0.92, duration_seconds=240,
+            album_path="/dl", lidarr_album_path="/music",
         )
-        models.add_track_download(
-            42, "Album", "Artist", "Track2", 2, False, "no match",
-            "", "", 0.0, 0, "/dl", "/music", "",
+        _add_track(
+            models, album_id=42, album_title="Album",
+            artist_name="Artist", track_title="Track2",
+            track_number=2, success=False, error_message="no match",
+            album_path="/dl", lidarr_album_path="/music",
         )
         resp = client.get("/api/download/history/42/tracks")
         assert resp.status_code == 200
@@ -176,17 +194,23 @@ class TestFailedTracksRoute:
     def test_get_failed_tracks_with_data(self, client):
         import models
 
-        models.add_track_download(
-            42, "Test Album", "Test Artist", "Track 1", 1,
-            False, "Not found", "", "", 0.0, 0,
-            "/tmp/downloads/test", "/tmp/music/test",
-            "http://example.com/cover.jpg",
+        _add_track(
+            models, album_id=42, album_title="Test Album",
+            artist_name="Test Artist", track_title="Track 1",
+            success=False, error_message="Not found",
+            album_path="/tmp/downloads/test",
+            lidarr_album_path="/tmp/music/test",
+            cover_url="http://example.com/cover.jpg",
         )
-        models.add_track_download(
-            42, "Test Album", "Test Artist", "Track 2", 2,
-            True, "", "http://yt/1", "vid", 0.9, 200,
-            "/tmp/downloads/test", "/tmp/music/test",
-            "http://example.com/cover.jpg",
+        _add_track(
+            models, album_id=42, album_title="Test Album",
+            artist_name="Test Artist", track_title="Track 2",
+            track_number=2, success=True,
+            youtube_url="http://yt/1", youtube_title="vid",
+            match_score=0.9, duration_seconds=200,
+            album_path="/tmp/downloads/test",
+            lidarr_album_path="/tmp/music/test",
+            cover_url="http://example.com/cover.jpg",
         )
         resp = client.get("/api/download/failed")
         data = resp.get_json()
@@ -204,10 +228,7 @@ class TestStatsRoute:
     def test_stats_with_downloads(self, client):
         import models
 
-        models.add_track_download(
-            1, "A", "A", "T1", 1, True, "",
-            "", "", 0.0, 0, "", "", "",
-        )
+        _add_track(models)
         resp = client.get("/api/stats")
         data = resp.get_json()
         assert data["downloaded_today"] == 1

@@ -17,6 +17,22 @@ def temp_db(tmp_path, monkeypatch):
     db.close_db()
 
 
+def _make_album_ctx(**overrides):
+    """Build a default album_ctx dict, overriding any keys."""
+    ctx = {
+        "artist_name": "Artist",
+        "album_title": "Album",
+        "album_id": 42,
+        "album_mbid": "mbid",
+        "artist_mbid": "artist_mbid",
+        "cover_data": None,
+        "cover_url": "",
+        "lidarr_album_path": "",
+    }
+    ctx.update(overrides)
+    return ctx
+
+
 class TestDownloadTracks:
     """_download_tracks calls add_track_download per track."""
 
@@ -60,11 +76,12 @@ class TestDownloadTracks:
         }
         download_process["current_track_title"] = ""
 
-        failed, size = _download_tracks(
-            [track], album_path, "Artist", "Album",
-            album, "mbid", "artist_mbid", None,
-            album_id=42, cover_url="http://cover.jpg",
+        album_ctx = _make_album_ctx(
+            cover_url="http://cover.jpg",
             lidarr_album_path="/music/a",
+        )
+        failed, size = _download_tracks(
+            [track], album_path, album, album_ctx,
         )
 
         assert len(failed) == 0
@@ -106,10 +123,8 @@ class TestDownloadTracks:
         download_process["current_track_title"] = ""
 
         failed, size = _download_tracks(
-            [track], album_path, "Artist", "Album",
-            {"tracks": [track]}, "mbid", "artist_mbid", None,
-            album_id=42, cover_url="",
-            lidarr_album_path="",
+            [track], album_path, {"tracks": [track]},
+            _make_album_ctx(),
         )
 
         assert len(failed) == 1

@@ -1172,6 +1172,9 @@
 
             try {
                 const resp = await fetch('/api/download/history/' + albumId + '/tracks');
+                if (!resp.ok) {
+                    throw new Error('Server returned ' + resp.status);
+                }
                 const tracks = await resp.json();
                 if (tracks.length === 0) {
                     grid.textContent = '';
