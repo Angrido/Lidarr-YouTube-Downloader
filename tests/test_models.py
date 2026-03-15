@@ -307,6 +307,29 @@ def test_clear_queue():
     assert len(models.get_queue()) == 0
 
 
+def test_get_latest_download_album_id_empty():
+    assert models.get_latest_download_album_id() is None
+
+
+def test_get_latest_download_album_id_returns_most_recent():
+    models.add_track_download(
+        album_id=10, album_title="A", artist_name="A",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    time.sleep(0.01)
+    models.add_track_download(
+        album_id=20, album_title="B", artist_name="B",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    assert models.get_latest_download_album_id() == 20
+
+
 def test_get_history_album_ids_since_empty():
     result = models.get_history_album_ids_since(time.time() - 10)
     assert result == set()
