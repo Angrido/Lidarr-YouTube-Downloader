@@ -9,7 +9,7 @@ import time
 logger = logging.getLogger(__name__)
 
 DB_PATH = "/config/lidarr-downloader.db"
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _local = threading.local()
 
@@ -141,10 +141,11 @@ def init_db():
         conn.execute(
             "INSERT INTO schema_version (version, applied_at)"
             " VALUES (?, ?)",
-            (SCHEMA_VERSION, time.time()),
+            (1, time.time()),
         )
         conn.commit()
-        logger.info("Database initialized at schema version %d", SCHEMA_VERSION)
+        logger.info("Database initialized at schema version 1")
+        _run_migrations(conn, 1)
     else:
         current = conn.execute(
             "SELECT version FROM schema_version"
@@ -154,19 +155,97 @@ def init_db():
         _run_migrations(conn, current_version)
 
 
+def _migrate_v1_to_v2(conn):
+    """Replace download_history + failed_tracks with track_downloads.
+
+    Drops all old data (no track-level info to preserve) and recreates
+    download_logs without the failed_tracks column.
+    """
+    conn.execute("DROP TABLE IF EXISTS download_history")
+    conn.execute("DROP TABLE IF EXISTS failed_tracks")
+    conn.execute("DROP TABLE IF EXISTS download_logs")
+
+    conn.execute("""
+        CREATE TABLE track_downloads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            album_id INTEGER NOT NULL,
+            album_title TEXT NOT NULL,
+            artist_name TEXT NOT NULL,
+            track_title TEXT NOT NULL,
+            track_number INTEGER NOT NULL DEFAULT 0,
+            success INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT DEFAULT '',
+            youtube_url TEXT DEFAULT '',
+            youtube_title TEXT DEFAULT '',
+            match_score REAL DEFAULT 0.0,
+            duration_seconds INTEGER DEFAULT 0,
+            album_path TEXT DEFAULT '',
+            lidarr_album_path TEXT DEFAULT '',
+            cover_url TEXT DEFAULT '',
+            timestamp REAL NOT NULL
+        )
+    """)
+
+    conn.execute(
+        "CREATE INDEX idx_track_dl_album_id"
+        " ON track_downloads(album_id)"
+    )
+    conn.execute(
+        "CREATE INDEX idx_track_dl_album_id_success"
+        " ON track_downloads(album_id, success)"
+    )
+    conn.execute(
+        "CREATE INDEX idx_track_dl_timestamp"
+        " ON track_downloads(timestamp)"
+    )
+    conn.execute(
+        "CREATE INDEX idx_track_dl_youtube_url"
+        " ON track_downloads(youtube_url)"
+    )
+
+    conn.execute("""
+        CREATE TABLE download_logs (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            album_id INTEGER NOT NULL,
+            album_title TEXT NOT NULL,
+            artist_name TEXT NOT NULL,
+            timestamp REAL NOT NULL,
+            details TEXT DEFAULT '',
+            total_file_size INTEGER DEFAULT 0
+        )
+    """)
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_logs_timestamp"
+        " ON download_logs(timestamp)"
+    )
+
+
 def _run_migrations(conn, current_version):
     """Run any pending schema migrations sequentially."""
     migrations = {
-        # 2: _migrate_v1_to_v2,
+        2: _migrate_v1_to_v2,
     }
     for version in sorted(migrations):
         if current_version < version:
-            logger.info("Running migration to schema version %d...", version)
-            migrations[version](conn)
-            conn.execute(
-                "INSERT INTO schema_version (version, applied_at)"
-                " VALUES (?, ?)",
-                (version, time.time()),
+            logger.info(
+                "Running migration to schema version %d...", version
             )
-            conn.commit()
-            logger.info("Migration to version %d complete", version)
+            try:
+                conn.execute("BEGIN")
+                migrations[version](conn)
+                conn.execute(
+                    "INSERT INTO schema_version (version, applied_at)"
+                    " VALUES (?, ?)",
+                    (version, time.time()),
+                )
+                conn.commit()
+                logger.info("Migration to version %d complete", version)
+            except Exception:
+                conn.rollback()
+                logger.error(
+                    "Migration to version %d failed, rolled back",
+                    version, exc_info=True,
+                )
+                raise
