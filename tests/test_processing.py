@@ -71,10 +71,6 @@ class TestDownloadTracks:
         mock_dl.side_effect = create_mp3
 
         download_process["stop"] = False
-        download_process["progress"] = {
-            "current": 0, "total": 0, "overall_percent": 0,
-        }
-        download_process["current_track_title"] = ""
 
         album_ctx = _make_album_ctx(
             cover_url="http://cover.jpg",
@@ -117,10 +113,6 @@ class TestDownloadTracks:
         }
 
         download_process["stop"] = False
-        download_process["progress"] = {
-            "current": 0, "total": 0, "overall_percent": 0,
-        }
-        download_process["current_track_title"] = ""
 
         failed, size = _download_tracks(
             [track], album_path, {"tracks": [track]},
@@ -132,3 +124,61 @@ class TestDownloadTracks:
         assert len(tracks) == 1
         assert tracks[0]["success"] == 0
         assert tracks[0]["error_message"] == "No suitable match"
+
+
+class TestTrackStateModel:
+    """download_process tracks list and TrackSkippedException."""
+
+    def test_download_process_has_tracks_list(self):
+        from processing import download_process
+        assert "tracks" in download_process
+        assert isinstance(download_process["tracks"], list)
+        assert download_process["current_track_index"] == -1
+
+    def test_download_process_no_legacy_fields(self):
+        from processing import download_process
+        assert "progress" not in download_process
+        assert "current_track_title" not in download_process
+
+    def test_track_skipped_exception_exists(self):
+        from processing import TrackSkippedException
+        assert issubclass(TrackSkippedException, Exception)
+
+    def test_update_progress_sets_track_fields(self):
+        from processing import download_process, update_progress
+        download_process["tracks"] = [
+            {"track_title": "T1", "track_number": 1, "status": "downloading",
+             "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": False},
+        ]
+        download_process["current_track_index"] = 0
+        update_progress({
+            "status": "downloading",
+            "_percent_str": " 45.2% ",
+            "_speed_str": " 2.4MiB/s ",
+        })
+        track = download_process["tracks"][0]
+        assert track["progress_percent"] == "45.2%"
+        assert track["progress_speed"] == "2.4MiB/s"
+        # cleanup
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1
+
+    def test_update_progress_raises_on_skip_flag(self):
+        from processing import (
+            TrackSkippedException, download_process, update_progress,
+        )
+        download_process["tracks"] = [
+            {"track_title": "T1", "track_number": 1, "status": "downloading",
+             "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": True},
+        ]
+        download_process["current_track_index"] = 0
+        with pytest.raises(TrackSkippedException):
+            update_progress({"status": "downloading",
+                             "_percent_str": "10%", "_speed_str": "1MiB/s"})
+        # cleanup
+        download_process["tracks"] = []
+        download_process["current_track_index"] = -1

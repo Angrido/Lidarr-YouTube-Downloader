@@ -32,24 +32,31 @@ DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 download_process = {
     "active": False,
     "stop": False,
-    "progress": {},
     "album_id": None,
     "album_title": "",
     "artist_name": "",
-    "current_track_title": "",
     "cover_url": "",
+    "tracks": [],
+    "current_track_index": -1,
 }
 
 queue_lock = threading.Lock()
 
 
+class TrackSkippedException(Exception):
+    """Raised from yt-dlp progress hook when track skip is requested."""
+
+
 def update_progress(d):
-    """yt-dlp progress hook that updates download_process state."""
+    """yt-dlp progress hook that updates per-track progress state."""
     if d["status"] == "downloading":
-        download_process["progress"].update({
-            "percent": d.get("_percent_str", "0%").strip(),
-            "speed": d.get("_speed_str", "N/A").strip(),
-        })
+        idx = download_process.get("current_track_index", -1)
+        if idx >= 0 and idx < len(download_process["tracks"]):
+            track = download_process["tracks"][idx]
+            track["progress_percent"] = d.get("_percent_str", "0%").strip()
+            track["progress_speed"] = d.get("_speed_str", "N/A").strip()
+            if track.get("skip"):
+                raise TrackSkippedException()
 
 
 def get_download_status():
