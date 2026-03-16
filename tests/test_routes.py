@@ -501,6 +501,23 @@ class TestSkipTrackRoute:
             download_process["active"] = False
             download_process["tracks"] = []
 
+    def test_skip_negative_index(self, client):
+        from processing import download_process
+        download_process["active"] = True
+        download_process["tracks"] = [
+            {"track_title": "T1", "track_number": 1, "status": "pending",
+             "youtube_url": "", "youtube_title": "",
+             "progress_percent": "", "progress_speed": "",
+             "error_message": "", "skip": False},
+        ]
+        try:
+            resp = client.post("/api/download/skip-track",
+                               json={"track_index": -1})
+            assert resp.status_code == 400
+        finally:
+            download_process["active"] = False
+            download_process["tracks"] = []
+
 
 class TestQueueTracksRoute:
     """GET /api/download/queue/<album_id>/tracks returns track list."""

@@ -281,6 +281,12 @@ def api_download_stop():
 
 @app.route("/api/download/skip-track", methods=["POST"])
 def api_skip_track():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"skip_track:{client_ip}", rate_limit_store,
+        window=5, max_requests=10,
+    ):
+        return jsonify({"error": "Too many requests"}), 429
     data = request.json or {}
     track_index = data.get("track_index")
     if track_index is None:

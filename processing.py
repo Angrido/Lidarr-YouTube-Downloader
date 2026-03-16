@@ -440,8 +440,8 @@ def _download_tracks(
 
         track_duration_ms = track.get("duration")
 
-        def _skip_check():
-            return track_state.get("skip", False)
+        def _skip_check(ts=track_state):
+            return ts.get("skip", False)
 
         try:
             download_result = download_track_youtube(
@@ -489,8 +489,9 @@ def _download_tracks(
                 )
             try:
                 total_downloaded_size += os.path.getsize(actual_file)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.debug("Could not get file size for %s: %s",
+                             actual_file, e)
             shutil.move(actual_file, final_file)
             track_state["status"] = "done"
             try:
