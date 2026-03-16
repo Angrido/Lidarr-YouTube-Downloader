@@ -28,6 +28,9 @@ Run after any changes to route handlers or error handling:
 - [ ] `POST /api/download/queue` with empty JSON `{}` — does not crash (returns 200)
 - [ ] `POST /api/download/queue/bulk` with `{"album_ids": [1,2,3]}` — returns added count
 - [ ] `POST /api/download/queue/bulk` with `{"album_ids": "not a list"}` — returns 400
+- [ ] `POST /api/download/skip-track` with `{"track_index": 0}` when no active download — returns 409
+- [ ] `POST /api/download/skip-track` with `{"track_index": 0}` during active download — returns 200 and sets skip flag
+- [ ] `GET /api/download/queue/<album_id>/tracks` — returns track list with title, track_number, has_file
 
 ## UI Page Load Tests
 
@@ -60,6 +63,28 @@ Run with `agent-browser` after changes to frontend JavaScript or template logic:
 - [ ] **Logs page**: Pagination controls work
 - [ ] **Index page**: Click download on a missing album — album queues and download starts
 - [ ] **Index page**: Click stop download — active download stops
+
+## Track-Level Downloads UI Tests
+
+Run after changes to Current Download or Download Queue sections:
+
+- [ ] **Current Download**: Shows all tracks in album with per-track status during active download
+- [ ] **Current Download**: Active track has highlighted background, progress bar, and speed
+- [ ] **Current Download**: Done tracks show green checkmark and YouTube link
+- [ ] **Current Download**: Pending tracks are dimmed (lower opacity)
+- [ ] **Current Download**: Failed tracks show red background and error message on hover
+- [ ] **Current Download**: Overall progress bar reflects (done + failed + skipped) / total
+- [ ] **Skip active track**: Click Skip on downloading track — stops within a few seconds, next track starts
+- [ ] **Skip pending track**: Click Skip on pending track — marked as skipped, never downloads
+- [ ] **Skip searching track**: Click Skip while searching YouTube — search aborts, moves to next
+- [ ] **Stop All**: Stops current track and clears entire queue (existing behavior preserved)
+- [ ] **Download Queue**: Position 1 auto-expanded showing track list
+- [ ] **Download Queue**: Other positions collapsed with expand chevron
+- [ ] **Download Queue**: Click chevron to expand/collapse track list
+- [ ] **Download Queue**: Track count badge shown on each queue item
+- [ ] **Download Queue**: Tracks with existing files shown with strikethrough
+- [ ] **Download Queue**: Expansion state preserved across SSE updates (1-second rebuilds)
+- [ ] **Download Queue**: Remove button still works (doesn't toggle expansion)
 
 ## Scheduler Tests
 
