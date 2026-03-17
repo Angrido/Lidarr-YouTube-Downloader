@@ -270,7 +270,7 @@
 
         .current-download {
             display: flex;
-            gap: 1.25rem;
+            flex-direction: column;
             padding: 1.25rem;
             background: var(--surface);
             border-radius: 14px;
@@ -287,19 +287,44 @@
             pointer-events: none;
         }
 
+        .current-album-details {
+            text-align: center;
+            padding-top: 4px;
+            margin-bottom: 12px;
+        }
+
+        .current-album-details h3 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .current-album-details p {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            margin: 2px 0 0 0;
+        }
+
+        .current-progress-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+
         .current-cover {
-            width: 90px;
-            height: 90px;
-            border-radius: 10px;
+            width: 72px;
+            height: 72px;
+            border-radius: 8px;
             object-fit: cover;
             flex-shrink: 0;
             box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
         }
 
         .current-cover-placeholder {
-            width: 90px;
-            height: 90px;
-            border-radius: 10px;
+            width: 72px;
+            height: 72px;
+            border-radius: 8px;
             flex-shrink: 0;
             display: flex;
             align-items: center;
@@ -313,62 +338,22 @@
             opacity: 0.3;
         }
 
-        .current-body {
+        .progress-bar-area {
             flex: 1;
             min-width: 0;
             display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .current-album-details h3 {
-            font-size: 1.05rem;
-            font-weight: 700;
-            margin: 0;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .current-album-details p {
-            color: var(--text-dim);
-            font-size: 0.85rem;
-            margin: 0;
-        }
-
-        .current-track-label {
-            color: var(--primary);
-            font-size: 0.8rem;
-            font-weight: 500;
-            display: flex;
             align-items: center;
-            gap: 0.4rem;
+            gap: 10px;
         }
 
-        .current-track-label i {
-            font-size: 0.7rem;
-            animation: pulse-icon 1.5s ease infinite;
-        }
-
-        @keyframes pulse-icon {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
-
-        .progress-bar-container {
-            display: flex;
-            flex-direction: column;
-            gap: 0.35rem;
-        }
-
-        .progress-label {
-            display: flex;
-            justify-content: space-between;
+        .progress-track-count {
             font-size: 0.8rem;
             color: var(--text-dim);
+            white-space: nowrap;
         }
 
         .progress-bar {
+            flex: 1;
             height: 6px;
             background: var(--border);
             border-radius: 999px;
@@ -382,16 +367,20 @@
             transition: width 0.3s ease;
         }
 
-        .current-actions {
-            display: flex;
-            justify-content: flex-end;
+        .progress-percent {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            white-space: nowrap;
+            min-width: 32px;
+            text-align: right;
         }
 
         .current-stop-btn {
+            flex-shrink: 0;
             background: transparent;
             border: 1px solid var(--danger);
             color: var(--danger);
-            padding: 0.4rem 0.9rem;
+            padding: 0.5rem 0.9rem;
             border-radius: 8px;
             cursor: pointer;
             font-size: 0.8rem;
@@ -400,6 +389,7 @@
             display: flex;
             align-items: center;
             gap: 0.4rem;
+            white-space: nowrap;
         }
 
         .current-stop-btn:hover {
@@ -849,23 +839,13 @@
                 padding: 1rem;
             }
 
-            .current-download {
-                flex-direction: column;
-                align-items: center;
-                text-align: center;
+            .current-progress-row {
+                gap: 10px;
             }
 
             .current-cover, .current-cover-placeholder {
-                width: 70px;
-                height: 70px;
-            }
-
-            .current-track-label {
-                justify-content: center;
-            }
-
-            .current-actions {
-                justify-content: center;
+                width: 56px;
+                height: 56px;
             }
         }
 
@@ -924,6 +904,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
             font-size: 0.8rem;
+            text-align: center;
         }
         .current-track-yt a { color: var(--primary); text-decoration: none; }
         .current-track-status { font-size: 0.8rem; text-align: center; }
@@ -1138,6 +1119,21 @@
             var wrapper = document.createElement('div');
             wrapper.className = 'current-download';
 
+            // Album title + artist centered on top
+            var details = document.createElement('div');
+            details.className = 'current-album-details';
+            var h3 = document.createElement('h3');
+            h3.textContent = data.album_title || 'Unknown Album';
+            var pArtist = document.createElement('p');
+            pArtist.textContent = data.artist_name || 'Unknown Artist';
+            details.appendChild(h3);
+            details.appendChild(pArtist);
+            wrapper.appendChild(details);
+
+            // Progress row: Cover | progress bar | Stop All
+            var progRow = document.createElement('div');
+            progRow.className = 'current-progress-row';
+
             // Cover image
             var safeCover = sanitizeUrl(data.cover_url);
             if (safeCover) {
@@ -1145,7 +1141,7 @@
                 img.className = 'current-cover';
                 img.src = safeCover;
                 img.alt = '';
-                wrapper.appendChild(img);
+                progRow.appendChild(img);
             } else {
                 var ph = document.createElement('div');
                 ph.className = 'current-cover-placeholder';
@@ -1156,48 +1152,30 @@
                 svgPath.setAttribute('d', 'M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z');
                 svg.appendChild(svgPath);
                 ph.appendChild(svg);
-                wrapper.appendChild(ph);
+                progRow.appendChild(ph);
             }
 
-            // Body
-            var body = document.createElement('div');
-            body.className = 'current-body';
-
-            // Album header
-            var details = document.createElement('div');
-            details.className = 'current-album-details';
-            var h3 = document.createElement('h3');
-            h3.textContent = data.album_title || 'Unknown Album';
-            var pArtist = document.createElement('p');
-            pArtist.textContent = data.artist_name || 'Unknown Artist';
-            details.appendChild(h3);
-            details.appendChild(pArtist);
-            body.appendChild(details);
-
-            // Overall progress bar
-            var progContainer = document.createElement('div');
-            progContainer.className = 'progress-bar-container';
-            var progLabel = document.createElement('div');
-            progLabel.className = 'progress-label';
-            var spanLeft = document.createElement('span');
-            spanLeft.textContent = 'Track ' + doneCount + '/' + tracks.length;
-            var spanRight = document.createElement('span');
-            spanRight.textContent = overallPercent + '%';
-            progLabel.appendChild(spanLeft);
-            progLabel.appendChild(spanRight);
+            // Progress bar area: Track N/M [bar] XX%
+            var progArea = document.createElement('div');
+            progArea.className = 'progress-bar-area';
+            var trackCount = document.createElement('span');
+            trackCount.className = 'progress-track-count';
+            trackCount.textContent = 'Track ' + doneCount + '/' + tracks.length;
             var progBar = document.createElement('div');
             progBar.className = 'progress-bar';
             var progFill = document.createElement('div');
             progFill.className = 'progress-fill';
             progFill.style.width = overallPercent + '%';
             progBar.appendChild(progFill);
-            progContainer.appendChild(progLabel);
-            progContainer.appendChild(progBar);
-            body.appendChild(progContainer);
+            var percentEl = document.createElement('span');
+            percentEl.className = 'progress-percent';
+            percentEl.textContent = overallPercent + '%';
+            progArea.appendChild(trackCount);
+            progArea.appendChild(progBar);
+            progArea.appendChild(percentEl);
+            progRow.appendChild(progArea);
 
             // Stop All button
-            var actions = document.createElement('div');
-            actions.className = 'current-actions';
             var stopBtn = document.createElement('button');
             stopBtn.className = 'current-stop-btn';
             stopBtn.onclick = stopDownload;
@@ -1205,8 +1183,9 @@
             stopIcon.className = 'fa-solid fa-stop';
             stopBtn.appendChild(stopIcon);
             stopBtn.appendChild(document.createTextNode(' Stop All'));
-            actions.appendChild(stopBtn);
-            body.appendChild(actions);
+            progRow.appendChild(stopBtn);
+
+            wrapper.appendChild(progRow);
 
             // Track grid
             var grid = document.createElement('div');
@@ -1310,8 +1289,7 @@
                 grid.appendChild(row);
             });
 
-            body.appendChild(grid);
-            wrapper.appendChild(body);
+            wrapper.appendChild(grid);
             container.replaceChildren(wrapper);
         }
 
