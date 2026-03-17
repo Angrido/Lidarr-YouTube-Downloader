@@ -23,6 +23,7 @@ ALLOWED_CONFIG_KEYS = {
     "yt_player_client", "yt_retries", "yt_fragment_retries",
     "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
     "discord_enabled", "discord_webhook_url", "discord_log_types",
+    "acoustid_enabled", "acoustid_api_key",
 }
 
 
@@ -80,6 +81,10 @@ def load_config():
             "import_partial",
             "album_error",
         ],
+        "acoustid_enabled": (
+            os.getenv("ACOUSTID_ENABLED", "true").lower() == "true"
+        ),
+        "acoustid_api_key": os.getenv("ACOUSTID_API_KEY", ""),
         "path_conflict": False,
     }
 

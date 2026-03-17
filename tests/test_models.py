@@ -34,6 +34,42 @@ def test_add_track_download():
     assert tracks[0]["success"] == 1
 
 
+def test_add_track_download_with_acoustid():
+    models.add_track_download(
+        album_id=1, album_title="Album1", artist_name="Artist1",
+        track_title="Track1", track_number=1, success=True,
+        error_message="", youtube_url="https://youtube.com/watch?v=abc",
+        youtube_title="Artist1 - Track1", match_score=0.92,
+        duration_seconds=240, album_path="/downloads/a",
+        lidarr_album_path="/music/a", cover_url="http://cover.jpg",
+        acoustid_fingerprint_id="fp-123",
+        acoustid_score=0.95,
+        acoustid_recording_id="rec-456",
+        acoustid_recording_title="Track One",
+    )
+    tracks = models.get_track_downloads_for_album(1)
+    assert len(tracks) == 1
+    assert tracks[0]["acoustid_fingerprint_id"] == "fp-123"
+    assert tracks[0]["acoustid_score"] == 0.95
+    assert tracks[0]["acoustid_recording_id"] == "rec-456"
+    assert tracks[0]["acoustid_recording_title"] == "Track One"
+
+
+def test_add_track_download_acoustid_defaults():
+    models.add_track_download(
+        album_id=2, album_title="A", artist_name="A",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    tracks = models.get_track_downloads_for_album(2)
+    assert tracks[0]["acoustid_fingerprint_id"] == ""
+    assert tracks[0]["acoustid_score"] == 0.0
+    assert tracks[0]["acoustid_recording_id"] == ""
+    assert tracks[0]["acoustid_recording_title"] == ""
+
+
 def test_get_track_downloads_for_album_ordered_newest_first():
     models.add_track_download(
         album_id=1, album_title="A", artist_name="A",

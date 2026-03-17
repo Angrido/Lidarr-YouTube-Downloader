@@ -568,6 +568,14 @@ def api_xmlmetadata_toggle():
     return jsonify({"enabled": config["xml_metadata_enabled"]})
 
 
+@app.route("/api/acoustid/toggle", methods=["POST"])
+def api_acoustid_toggle():
+    config = load_config()
+    config["acoustid_enabled"] = not config.get("acoustid_enabled", True)
+    save_config(config)
+    return jsonify({"enabled": config["acoustid_enabled"]})
+
+
 # --- YouTube search ---
 
 

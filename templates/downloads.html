@@ -616,7 +616,7 @@
         .track-detail-header,
         .track-detail-row {
             display: grid;
-            grid-template-columns: 40px 1fr 1fr 65px 55px 130px;
+            grid-template-columns: 40px 1fr 1fr 65px 65px 55px 130px;
             padding: 0.4rem 0.75rem;
             align-items: center;
             font-size: 0.8rem;
@@ -664,10 +664,12 @@
             }
             .track-detail-header > :nth-child(3),
             .track-detail-header > :nth-child(4),
-            .track-detail-header > :nth-child(6),
+            .track-detail-header > :nth-child(5),
+            .track-detail-header > :nth-child(7),
             .track-detail-row > :nth-child(3),
             .track-detail-row > :nth-child(4),
-            .track-detail-row > :nth-child(6) {
+            .track-detail-row > :nth-child(5),
+            .track-detail-row > :nth-child(7) {
                 display: none;
             }
         }
@@ -913,6 +915,7 @@
         .status-skipped { color: #f59e0b; }
         .status-searching { color: #3b82f6; }
         .status-tagging { color: #a855f7; }
+        .status-fingerprinting { color: #c084fc; }
         .status-downloading { color: var(--primary); }
         .current-track-skip-btn {
             background: transparent;
@@ -1195,7 +1198,7 @@
                 var row = document.createElement('div');
                 row.className = 'current-track-row';
                 var isActive = (i === data.current_track_index &&
-                    (track.status === 'downloading' || track.status === 'searching' || track.status === 'tagging'));
+                    (track.status === 'downloading' || track.status === 'searching' || track.status === 'tagging' || track.status === 'fingerprinting'));
                 if (isActive) {
                     row.classList.add('active');
                 } else {
@@ -1266,6 +1269,9 @@
                 } else if (track.status === 'tagging') {
                     statusSpan.className = 'status-tagging';
                     statusSpan.textContent = 'Tagging...';
+                } else if (track.status === 'fingerprinting') {
+                    statusSpan.className = 'status-fingerprinting';
+                    statusSpan.textContent = 'Fingerprinting...';
                 } else if (track.status === 'downloading') {
                     statusSpan.className = 'status-downloading';
                     statusSpan.textContent = track.progress_percent || 'Downloading';
@@ -1543,7 +1549,7 @@
 
                 var header = document.createElement('div');
                 header.className = 'track-detail-header';
-                ['#', 'Track', 'YouTube Source', 'Score', 'Dur.', 'Downloaded'].forEach(function(text) {
+                ['#', 'Track', 'YouTube Source', 'Score', 'AcoustID', 'Dur.', 'Downloaded'].forEach(function(text) {
                     var cell = document.createElement('div');
                     cell.textContent = text;
                     header.appendChild(cell);
@@ -1607,6 +1613,19 @@
                         scoreCell.textContent = t.match_score ? t.match_score.toFixed(2) : '\u2014';
                     }
                     detailRow.appendChild(scoreCell);
+
+                    var acoustidCell = document.createElement('div');
+                    if (isFailed || !t.acoustid_score) {
+                        acoustidCell.style.color = 'var(--text-dim)';
+                        acoustidCell.textContent = '\u2014';
+                    } else {
+                        acoustidCell.style.color = t.acoustid_score >= 0.85 ? '#6ee7b7' : '#fbbf24';
+                        acoustidCell.textContent = t.acoustid_score.toFixed(2);
+                        if (t.acoustid_recording_title) {
+                            acoustidCell.title = t.acoustid_recording_title + ' (' + t.acoustid_recording_id + ')';
+                        }
+                    }
+                    detailRow.appendChild(acoustidCell);
 
                     var durCell = document.createElement('div');
                     durCell.style.color = 'var(--text-dim)';

@@ -35,7 +35,7 @@ def test_init_db_sets_schema_version(temp_db):
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
     conn.close()
-    assert row[0] == 2
+    assert row[0] == 3
 
 
 def test_init_db_idempotent(temp_db):
@@ -44,8 +44,8 @@ def test_init_db_idempotent(temp_db):
     conn = sqlite3.connect(temp_db)
     rows = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()
     conn.close()
-    # V1 insert + V2 migration insert = 2 rows
-    assert rows[0] == 2
+    # V1 insert + V2 migration + V3 migration = 3 rows
+    assert rows[0] == 3
 
 
 def test_get_db_returns_connection(temp_db):
@@ -185,7 +185,7 @@ def test_migrate_v1_to_v2_creates_track_downloads(temp_db):
         "SELECT version FROM schema_version"
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
-    assert row[0] == 2
+    assert row[0] == 3
     conn.close()
 
 
@@ -252,4 +252,122 @@ def test_migrate_v1_to_v2_rollback_on_failure(temp_db, monkeypatch):
     }
     assert "failed_tracks" in tables
     assert "track_downloads" not in tables
+    conn.close()
+
+
+# --- V2 to V3 Migration ---
+
+
+def _create_v2_db(db_path):
+    """Create a V2 schema database directly."""
+    import time
+
+    conn = sqlite3.connect(db_path)
+    conn.executescript("""
+        CREATE TABLE schema_version (
+            version INTEGER NOT NULL,
+            applied_at REAL NOT NULL
+        );
+        CREATE TABLE track_downloads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            album_id INTEGER NOT NULL,
+            album_title TEXT NOT NULL,
+            artist_name TEXT NOT NULL,
+            track_title TEXT NOT NULL,
+            track_number INTEGER NOT NULL DEFAULT 0,
+            success INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT DEFAULT '',
+            youtube_url TEXT DEFAULT '',
+            youtube_title TEXT DEFAULT '',
+            match_score REAL DEFAULT 0.0,
+            duration_seconds INTEGER DEFAULT 0,
+            album_path TEXT DEFAULT '',
+            lidarr_album_path TEXT DEFAULT '',
+            cover_url TEXT DEFAULT '',
+            timestamp REAL NOT NULL
+        );
+        CREATE TABLE download_logs (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            album_id INTEGER NOT NULL,
+            album_title TEXT NOT NULL,
+            artist_name TEXT NOT NULL,
+            timestamp REAL NOT NULL,
+            details TEXT DEFAULT '',
+            total_file_size INTEGER DEFAULT 0
+        );
+        CREATE TABLE download_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            album_id INTEGER NOT NULL UNIQUE,
+            position INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'queued'
+                CHECK (status IN ('queued', 'downloading'))
+        );
+    """)
+    conn.execute(
+        "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+        (1, time.time()),
+    )
+    conn.execute(
+        "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+        (2, time.time()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_migrate_v2_to_v3_adds_acoustid_columns(temp_db):
+    """V2 schema migrates to V3: acoustid columns added."""
+    _create_v2_db(temp_db)
+
+    init_db()
+
+    conn = sqlite3.connect(temp_db)
+    cols = [
+        row[1] for row in conn.execute(
+            "PRAGMA table_info(track_downloads)"
+        )
+    ]
+    assert "acoustid_fingerprint_id" in cols
+    assert "acoustid_score" in cols
+    assert "acoustid_recording_id" in cols
+    assert "acoustid_recording_title" in cols
+
+    row = conn.execute(
+        "SELECT version FROM schema_version"
+        " ORDER BY version DESC LIMIT 1"
+    ).fetchone()
+    assert row[0] == 3
+    conn.close()
+
+
+def test_migrate_v2_to_v3_preserves_existing_data(temp_db):
+    """V2→V3 migration preserves existing track_downloads rows."""
+    import time as _time
+
+    _create_v2_db(temp_db)
+
+    conn = sqlite3.connect(temp_db)
+    conn.execute(
+        "INSERT INTO track_downloads"
+        " (album_id, album_title, artist_name, track_title,"
+        "  track_number, success, timestamp)"
+        " VALUES (1, 'Album', 'Artist', 'Track', 1, 1, ?)",
+        (_time.time(),),
+    )
+    conn.commit()
+    conn.close()
+
+    init_db()
+
+    conn = sqlite3.connect(temp_db)
+    row = conn.execute(
+        "SELECT acoustid_fingerprint_id, acoustid_score,"
+        " acoustid_recording_id, acoustid_recording_title"
+        " FROM track_downloads WHERE album_id = 1"
+    ).fetchone()
+    assert row[0] == ""
+    assert row[1] == 0.0
+    assert row[2] == ""
+    assert row[3] == ""
     conn.close()

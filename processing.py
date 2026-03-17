@@ -16,6 +16,7 @@ import uuid
 import models
 from config import load_config
 from downloader import download_track_youtube
+from fingerprint import fingerprint_track
 from lidarr import get_valid_release_id, lidarr_request
 from metadata import (
     create_xml_metadata,
@@ -550,6 +551,21 @@ def _download_tracks(
                     album_path, artist_name, album_title,
                     track_num, track_title, album_mbid, artist_mbid,
                 )
+
+            fp_data = {}
+            if config.get("acoustid_enabled", True):
+                api_key = config.get("acoustid_api_key", "")
+                if api_key:
+                    track_state["status"] = "fingerprinting"
+                    fp_result = fingerprint_track(actual_file, api_key)
+                    if fp_result:
+                        fp_data = fp_result
+                    else:
+                        logger.warning(
+                            "AcoustID fingerprint failed for: %s",
+                            track_title,
+                        )
+
             try:
                 total_downloaded_size += os.path.getsize(actual_file)
             except OSError as e:
@@ -574,6 +590,18 @@ def _download_tracks(
                     album_path=album_path,
                     lidarr_album_path=lidarr_album_path,
                     cover_url=cover_url,
+                    acoustid_fingerprint_id=fp_data.get(
+                        "acoustid_fingerprint_id", "",
+                    ),
+                    acoustid_score=fp_data.get(
+                        "acoustid_score", 0.0,
+                    ),
+                    acoustid_recording_id=fp_data.get(
+                        "acoustid_recording_id", "",
+                    ),
+                    acoustid_recording_title=fp_data.get(
+                        "acoustid_recording_title", "",
+                    ),
                 )
             except Exception:
                 logger.error(

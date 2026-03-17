@@ -15,5 +15,6 @@ services:
       - LIDARR_API_KEY=${LIDARR_API_KEY:?err}
       - DOWNLOAD_PATH=${DOWNLOAD_PATH:?err}
       - LIDARR_PATH=${LIDARR_PATH:?err}
+      - ACOUSTID_API_KEY=${ACOUSTID_API_KEY:-}
     ports:
       - "127.0.0.1:${WEBUI_PORT:?err}:5000"

@@ -9,7 +9,7 @@ import time
 logger = logging.getLogger(__name__)
 
 DB_PATH = "/config/lidarr-downloader.db"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _local = threading.local()
 
@@ -225,10 +225,31 @@ def _migrate_v1_to_v2(conn):
     )
 
 
+def _migrate_v2_to_v3(conn):
+    """Add AcoustID fingerprint columns to track_downloads."""
+    conn.execute(
+        "ALTER TABLE track_downloads"
+        " ADD COLUMN acoustid_fingerprint_id TEXT DEFAULT ''"
+    )
+    conn.execute(
+        "ALTER TABLE track_downloads"
+        " ADD COLUMN acoustid_score REAL DEFAULT 0.0"
+    )
+    conn.execute(
+        "ALTER TABLE track_downloads"
+        " ADD COLUMN acoustid_recording_id TEXT DEFAULT ''"
+    )
+    conn.execute(
+        "ALTER TABLE track_downloads"
+        " ADD COLUMN acoustid_recording_title TEXT DEFAULT ''"
+    )
+
+
 def _run_migrations(conn, current_version):
     """Run any pending schema migrations sequentially."""
     migrations = {
         2: _migrate_v1_to_v2,
+        3: _migrate_v2_to_v3,
     }
     for version in sorted(migrations):
         if current_version < version:
