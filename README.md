@@ -39,13 +39,14 @@ services:
     ports:
       - "5005:5000"
     volumes:
+      - ./config:/config
       - /DATA/Downloads:/DATA/Downloads
       - /DATA/Media/Music:/music
     environment:
       - LIDARR_URL=http://192.168.1.XXX:8686
       - LIDARR_API_KEY=your_api_key_here
       - DOWNLOAD_PATH=/DATA/Downloads
-      - LIDARR_PATH=/music 
+      - LIDARR_PATH=/music
     restart: unless-stopped
 ```
 
@@ -57,22 +58,39 @@ services:
 
 ### Required Settings
 
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `LIDARR_URL` | `http://192.168.1.10:8686` | Lidarr address (use IP) |
-| `LIDARR_API_KEY` | `abc123...` | From Lidarr → Settings → General |
-| `DOWNLOAD_PATH` | `/DATA/Downloads` | Download folder |
+| Variable         | Example                    | Description                      |
+| ---------------- | -------------------------- | -------------------------------- |
+| `LIDARR_URL`     | `http://192.168.1.10:8686` | Lidarr address (use IP)          |
+| `LIDARR_API_KEY` | `abc123...`                | From Lidarr → Settings → General |
+| `DOWNLOAD_PATH`  | `/DATA/Downloads`          | Download folder                  |
 
 ### Optional Settings
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `LIDARR_PATH` | - | Final library path (optional) |
-| `SCHEDULER_ENABLED` | `false` | Auto-check missing albums |
-| `SCHEDULER_INTERVAL` | `60` | Check interval (minutes) |
+| Variable             | Default | Description                   |
+| -------------------- | ------- | ----------------------------- |
+| `LIDARR_PATH`        | -       | Final library path (optional) |
+| `SCHEDULER_ENABLED`  | `false` | Auto-check missing albums     |
+| `SCHEDULER_INTERVAL` | `60`    | Check interval (minutes)      |
 
 > 💡 **All settings configurable via Web UI!**
 
+### YouTube Cookies (Recommended)
+
+YouTube may block downloads with a "Sign in to confirm you're not a bot" error. To fix this:
+
+1. Install a browser extension like "Get cookies.txt LOCALLY"
+2. Open an **incognito/private** window and log into a **throwaway** Google account on youtube.com
+3. Export cookies in **Netscape** format and save as `cookies.txt`
+4. Mount the file and set `YT_COOKIES_FILE`:
+
+```yaml
+volumes:
+  - ./cookies.txt:/cookies/cookies.txt
+environment:
+  - YT_COOKIES_FILE=/cookies/cookies.txt
+```
+
+> ⚠️ **Do not use your main Google account** — it may get flagged. Cookies expire periodically and will need re-exporting.
 
 ## 📸 Screenshots
 
@@ -101,6 +119,5 @@ Users are responsible for complying with copyright laws and YouTube's ToS.
 <div align="center">
 
 **Made with ❤️**
-
 
 </div>

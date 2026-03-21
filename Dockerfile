@@ -1,7 +1,7 @@
 FROM python:alpine
 
 RUN apk update && apk upgrade --no-cache && \
-    apk add --no-cache ffmpeg ca-certificates
+    apk add --no-cache ffmpeg ca-certificates deno
 
 WORKDIR /app
 

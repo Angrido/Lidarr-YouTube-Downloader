@@ -1397,7 +1397,7 @@ def _pip_update_ytdlp():
     old_version = get_ytdlp_version()
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-U", "yt-dlp"],
+            [sys.executable, "-m", "pip", "install", "-U", "yt-dlp[default]"],
             capture_output=True, text=True, timeout=120
         )
         if result.returncode != 0:

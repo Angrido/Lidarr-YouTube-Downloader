@@ -1,6 +1,6 @@
 Flask
 requests
-yt-dlp
+yt-dlp[default]
 mutagen
 schedule
 bing-image-downloader
