@@ -469,6 +469,10 @@ def _download_tracks(
         dl_result_box = [None]
         dl_error_box = [None]
 
+        banned_url_set = models.get_banned_urls_for_track(
+            album_id, track_title,
+        )
+
         def _run_download():
             try:
                 dl_result_box[0] = download_track_youtube(
@@ -478,6 +482,7 @@ def _download_tracks(
                     track_duration_ms,
                     progress_hook=progress_hook,
                     skip_check=_skip_check,
+                    banned_urls=banned_url_set,
                 )
             except TrackSkippedException:
                 dl_error_box[0] = "skipped"

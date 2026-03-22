@@ -132,6 +132,7 @@ def _build_common_opts(player_client=None):
 def download_track_youtube(
     query, output_path, track_title_original,
     expected_duration_ms=None, progress_hook=None, skip_check=None,
+    banned_urls=None,
 ):
     """Search YouTube and download the best matching track as MP3.
 
@@ -253,6 +254,14 @@ def download_track_youtube(
                         if duration < 15 or duration > 7200:
                             continue
                         duration_score = 0.5
+
+                    if banned_urls and url in banned_urls:
+                        logger.debug(
+                            "   Rejected '%s'"
+                            " - URL banned by user",
+                            entry.get("title", ""),
+                        )
+                        continue
 
                     title_score = _title_similarity(
                         entry.get("title", ""),
