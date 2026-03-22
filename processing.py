@@ -469,9 +469,17 @@ def _download_tracks(
         dl_result_box = [None]
         dl_error_box = [None]
 
-        banned_url_set = models.get_banned_urls_for_track(
-            album_id, track_title,
-        )
+        try:
+            banned_url_set = models.get_banned_urls_for_track(
+                album_id, track_title,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to fetch banned URLs for track '%s',"
+                " proceeding without ban filter",
+                track_title, exc_info=True,
+            )
+            banned_url_set = set()
 
         def _run_download():
             try:

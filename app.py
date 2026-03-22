@@ -514,7 +514,7 @@ def api_delete_track(track_id):
 
     file_deleted = False
     sanitized_track = sanitize_filename(track_data["track_title"])
-    track_num = track_data["track_number"]
+    track_num = track_data["track_number"] or 0
     album_path = track_data["album_path"]
     mp3_name = f"{track_num:02d} - {sanitized_track}.mp3"
     xml_name = f"{track_num:02d} - {sanitized_track}.xml"
@@ -526,24 +526,33 @@ def api_delete_track(track_id):
         file_deleted = True
     except FileNotFoundError:
         logger.warning("Track file not found for deletion: %s", mp3_path)
+    except OSError:
+        logger.error("Failed to delete track file: %s", mp3_path, exc_info=True)
     try:
         os.remove(xml_path)
-    except FileNotFoundError:
+    except OSError:
         pass
 
     url_banned = False
     body = request.get_json(silent=True) or {}
     if body.get("ban_url") and track_data.get("youtube_url"):
-        models.add_banned_url(
-            youtube_url=track_data["youtube_url"],
-            youtube_title=track_data.get("youtube_title", ""),
-            album_id=track_data["album_id"],
-            album_title=track_data.get("album_title", ""),
-            artist_name=track_data.get("artist_name", ""),
-            track_title=track_data["track_title"],
-            track_number=track_num,
-        )
-        url_banned = True
+        try:
+            models.add_banned_url(
+                youtube_url=track_data["youtube_url"],
+                youtube_title=track_data.get("youtube_title", ""),
+                album_id=track_data["album_id"],
+                album_title=track_data.get("album_title", ""),
+                artist_name=track_data.get("artist_name", ""),
+                track_title=track_data["track_title"],
+                track_number=track_num,
+            )
+            url_banned = True
+        except Exception:
+            logger.error(
+                "Failed to ban URL %s for track %s",
+                track_data["youtube_url"], track_data["track_title"],
+                exc_info=True,
+            )
 
     return jsonify({
         "success": True,

@@ -207,15 +207,53 @@ class TestBannedUrlFiltering:
         }
         mock_ydl.download.return_value = 0
 
-        result = download_track_youtube(
+        download_track_youtube(
             "Artist Track official audio",
             "/tmp/test_output",
             "Track",
             expected_duration_ms=200000,
             banned_urls={"banned_video_id"},
         )
-        if result and isinstance(result, dict) and result.get("success"):
-            assert result.get("youtube_url") != "banned_video_id"
+        # Verify the banned URL was never passed to ydl.download
+        if mock_ydl.download.called:
+            download_url = mock_ydl.download.call_args[0][0][0]
+            assert download_url != "banned_video_id"
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_all_candidates_banned_returns_failure(
+        self, mock_config, mock_ydl_class
+    ):
+        """When every candidate is banned, download fails gracefully."""
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 10,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Artist - Track",
+                    "url": "only_video_id",
+                    "duration": 200,
+                    "channel": "Artist",
+                    "view_count": 1000000,
+                },
+            ]
+        }
+
+        result = download_track_youtube(
+            "Artist Track official audio",
+            "/tmp/test_output",
+            "Track",
+            expected_duration_ms=200000,
+            banned_urls={"only_video_id"},
+        )
+        # Should fail — no candidates remain after filtering
+        assert not mock_ydl.download.called
+        assert isinstance(result, dict)
+        assert result.get("success") is False
 
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")
@@ -242,14 +280,15 @@ class TestBannedUrlFiltering:
         }
         mock_ydl.download.return_value = 0
 
-        result = download_track_youtube(
+        download_track_youtube(
             "Artist Track official audio",
             "/tmp/test_output",
             "Track",
             expected_duration_ms=200000,
             banned_urls=None,
         )
-        assert result is not None
+        # With no bans, the candidate should reach the download phase
+        assert mock_ydl.download.called
 
 
 class TestSkipCheck:

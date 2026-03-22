@@ -718,6 +718,42 @@ class TestDeleteTrackRoute:
         )
         assert resp.status_code == 404
 
+    def test_delete_track_ban_without_youtube_url(self, client, tmp_path):
+        import models
+        _add_track(
+            models, album_id=1, track_title="Song",
+            track_number=1, youtube_url="",
+            album_path=str(tmp_path),
+        )
+        mp3_path = tmp_path / "01 - Song.mp3"
+        mp3_path.write_text("fake mp3")
+        tracks = models.get_track_downloads_for_album(1)
+        resp = client.delete(
+            f"/api/download/track/{tracks[0]['id']}",
+            json={"ban_url": True},
+        )
+        data = resp.get_json()
+        assert data["success"] is True
+        assert data["url_banned"] is False
+        assert models.get_banned_urls(page=1, per_page=50)["total"] == 0
+
+    def test_delete_track_no_request_body(self, client, tmp_path):
+        import models
+        _add_track(
+            models, album_id=1, track_title="Song",
+            track_number=1, album_path=str(tmp_path),
+        )
+        mp3_path = tmp_path / "01 - Song.mp3"
+        mp3_path.write_text("fake mp3")
+        tracks = models.get_track_downloads_for_album(1)
+        resp = client.delete(
+            f"/api/download/track/{tracks[0]['id']}",
+        )
+        data = resp.get_json()
+        assert data["success"] is True
+        assert data["file_deleted"] is True
+        assert data["url_banned"] is False
+
 
 class TestBannedUrlsRoutes:
     def test_get_banned_urls_empty(self, client):
