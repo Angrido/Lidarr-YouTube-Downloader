@@ -35,7 +35,7 @@ def test_init_db_sets_schema_version(temp_db):
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
     conn.close()
-    assert row[0] == 3
+    assert row[0] == 4
 
 
 def test_init_db_idempotent(temp_db):
@@ -44,8 +44,8 @@ def test_init_db_idempotent(temp_db):
     conn = sqlite3.connect(temp_db)
     rows = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()
     conn.close()
-    # V1 insert + V2 migration + V3 migration = 3 rows
-    assert rows[0] == 3
+    # V1 insert + V2 migration + V3 migration + V4 migration = 4 rows
+    assert rows[0] == 4
 
 
 def test_get_db_returns_connection(temp_db):
@@ -185,7 +185,7 @@ def test_migrate_v1_to_v2_creates_track_downloads(temp_db):
         "SELECT version FROM schema_version"
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
-    assert row[0] == 3
+    assert row[0] == 4
     conn.close()
 
 
@@ -337,7 +337,7 @@ def test_migrate_v2_to_v3_adds_acoustid_columns(temp_db):
         "SELECT version FROM schema_version"
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
-    assert row[0] == 3
+    assert row[0] == 4
     conn.close()
 
 
@@ -371,3 +371,49 @@ def test_migrate_v2_to_v3_preserves_existing_data(temp_db):
     assert row[2] == ""
     assert row[3] == ""
     conn.close()
+
+
+# --- V3 to V4 Migration ---
+
+
+def test_migration_v3_to_v4_creates_banned_urls(temp_db):
+    init_db()
+    conn = sqlite3.connect(temp_db)
+    tables = [
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    ]
+    assert "banned_urls" in tables
+    cols = [
+        row[1]
+        for row in conn.execute("PRAGMA table_info(banned_urls)")
+    ]
+    assert "youtube_url" in cols
+    assert "album_id" in cols
+    assert "track_title" in cols
+    assert "banned_at" in cols
+    conn.close()
+
+
+def test_migration_v3_to_v4_adds_deleted_column(temp_db):
+    init_db()
+    conn = sqlite3.connect(temp_db)
+    cols = [
+        row[1]
+        for row in conn.execute("PRAGMA table_info(track_downloads)")
+    ]
+    assert "deleted" in cols
+    conn.close()
+
+
+def test_schema_version_is_4(temp_db):
+    init_db()
+    conn = sqlite3.connect(temp_db)
+    row = conn.execute(
+        "SELECT version FROM schema_version"
+        " ORDER BY version DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    assert row[0] == 4

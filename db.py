@@ -9,7 +9,7 @@ import time
 logger = logging.getLogger(__name__)
 
 DB_PATH = "/config/lidarr-downloader.db"
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _local = threading.local()
 
@@ -245,11 +245,42 @@ def _migrate_v2_to_v3(conn):
     )
 
 
+def _migrate_v3_to_v4(conn):
+    """Add banned_urls table and deleted column to track_downloads."""
+    conn.execute("""
+        CREATE TABLE banned_urls (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            youtube_url TEXT NOT NULL,
+            youtube_title TEXT,
+            album_id INTEGER NOT NULL,
+            album_title TEXT,
+            artist_name TEXT,
+            track_title TEXT NOT NULL,
+            track_number INTEGER,
+            banned_at REAL NOT NULL,
+            UNIQUE(youtube_url, album_id, track_title)
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX idx_banned_urls_lookup"
+        " ON banned_urls(album_id, track_title)"
+    )
+    conn.execute(
+        "CREATE INDEX idx_banned_urls_timestamp"
+        " ON banned_urls(banned_at)"
+    )
+    conn.execute(
+        "ALTER TABLE track_downloads"
+        " ADD COLUMN deleted INTEGER DEFAULT 0"
+    )
+
+
 def _run_migrations(conn, current_version):
     """Run any pending schema migrations sequentially."""
     migrations = {
         2: _migrate_v1_to_v2,
         3: _migrate_v2_to_v3,
+        4: _migrate_v3_to_v4,
     }
     for version in sorted(migrations):
         if current_version < version:
