@@ -381,3 +381,105 @@ def test_get_history_album_ids_since_future_timestamp():
     )
     result = models.get_history_album_ids_since(time.time() + 3600)
     assert result == set()
+
+
+# --- Banned URLs ---
+
+
+def test_add_banned_url():
+    models.add_banned_url(
+        youtube_url="https://youtube.com/watch?v=abc",
+        youtube_title="Wrong Video",
+        album_id=1,
+        album_title="Album1",
+        artist_name="Artist1",
+        track_title="Track1",
+        track_number=1,
+    )
+    result = models.get_banned_urls(page=1, per_page=50)
+    assert result["total"] == 1
+    item = result["items"][0]
+    assert item["youtube_url"] == "https://youtube.com/watch?v=abc"
+    assert item["track_title"] == "Track1"
+    assert item["album_id"] == 1
+
+
+def test_add_banned_url_duplicate_ignored():
+    models.add_banned_url(
+        youtube_url="https://youtube.com/watch?v=abc",
+        youtube_title="Wrong Video",
+        album_id=1, album_title="A", artist_name="A",
+        track_title="Track1", track_number=1,
+    )
+    models.add_banned_url(
+        youtube_url="https://youtube.com/watch?v=abc",
+        youtube_title="Wrong Video",
+        album_id=1, album_title="A", artist_name="A",
+        track_title="Track1", track_number=1,
+    )
+    result = models.get_banned_urls(page=1, per_page=50)
+    assert result["total"] == 1
+
+
+def test_get_banned_urls_for_track():
+    models.add_banned_url(
+        youtube_url="https://youtube.com/watch?v=abc",
+        youtube_title="V1", album_id=1, album_title="A",
+        artist_name="A", track_title="Track1", track_number=1,
+    )
+    models.add_banned_url(
+        youtube_url="https://youtube.com/watch?v=def",
+        youtube_title="V2", album_id=1, album_title="A",
+        artist_name="A", track_title="Track1", track_number=1,
+    )
+    # Different track - should not appear
+    models.add_banned_url(
+        youtube_url="https://youtube.com/watch?v=abc",
+        youtube_title="V1", album_id=1, album_title="A",
+        artist_name="A", track_title="Track2", track_number=2,
+    )
+    banned = models.get_banned_urls_for_track(1, "Track1")
+    assert banned == {
+        "https://youtube.com/watch?v=abc",
+        "https://youtube.com/watch?v=def",
+    }
+
+
+def test_remove_banned_url():
+    models.add_banned_url(
+        youtube_url="https://youtube.com/watch?v=abc",
+        youtube_title="V1", album_id=1, album_title="A",
+        artist_name="A", track_title="Track1", track_number=1,
+    )
+    result = models.get_banned_urls(page=1, per_page=50)
+    ban_id = result["items"][0]["id"]
+    assert models.remove_banned_url(ban_id) is True
+    assert models.get_banned_urls(page=1, per_page=50)["total"] == 0
+
+
+def test_remove_banned_url_nonexistent():
+    assert models.remove_banned_url(9999) is False
+
+
+def test_mark_track_deleted():
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="A",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="https://yt/abc",
+        youtube_title="vid", match_score=0.9,
+        duration_seconds=200, album_path="/dl/a",
+        lidarr_album_path="/music/a", cover_url="",
+    )
+    tracks = models.get_track_downloads_for_album(1)
+    track_id = tracks[0]["id"]
+    track_data = models.mark_track_deleted(track_id)
+    assert track_data is not None
+    assert track_data["album_path"] == "/dl/a"
+    assert track_data["track_title"] == "T1"
+    # Verify it's now marked deleted
+    tracks = models.get_track_downloads_for_album(1)
+    assert tracks[0]["deleted"] == 1
+
+
+def test_mark_track_deleted_nonexistent():
+    assert models.mark_track_deleted(9999) is None

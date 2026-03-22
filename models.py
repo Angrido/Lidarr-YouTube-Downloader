@@ -221,6 +221,73 @@ def clear_history():
     conn.commit()
 
 
+# --- Banned URLs ---
+
+
+def add_banned_url(
+    youtube_url, youtube_title, album_id, album_title,
+    artist_name, track_title, track_number,
+):
+    """Ban a YouTube URL for a specific track. Ignores duplicates."""
+    conn = db.get_db()
+    conn.execute(
+        """INSERT OR IGNORE INTO banned_urls
+           (youtube_url, youtube_title, album_id, album_title,
+            artist_name, track_title, track_number, banned_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            youtube_url, youtube_title, album_id, album_title,
+            artist_name, track_title, track_number, time.time(),
+        ),
+    )
+    conn.commit()
+
+
+def get_banned_urls(page=1, per_page=50):
+    """Return paginated banned URLs, newest first."""
+    query = "SELECT * FROM banned_urls ORDER BY banned_at DESC"
+    count_query = "SELECT COUNT(*) FROM banned_urls"
+    return _paginate(query, count_query, (), page, per_page)
+
+
+def get_banned_urls_for_track(album_id, track_title):
+    """Return set of banned YouTube URLs for a specific track."""
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT youtube_url FROM banned_urls"
+        " WHERE album_id = ? AND track_title = ?",
+        (album_id, track_title),
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
+def remove_banned_url(ban_id):
+    """Delete a ban by ID. Returns True if deleted."""
+    conn = db.get_db()
+    cursor = conn.execute(
+        "DELETE FROM banned_urls WHERE id = ?", (ban_id,)
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def mark_track_deleted(track_id):
+    """Set deleted=1 on a track download. Returns the row dict or None."""
+    conn = db.get_db()
+    row = conn.execute(
+        "SELECT * FROM track_downloads WHERE id = ?",
+        (track_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    conn.execute(
+        "UPDATE track_downloads SET deleted = 1 WHERE id = ?",
+        (track_id,),
+    )
+    conn.commit()
+    return dict(row)
+
+
 # --- Logs ---
 
 
