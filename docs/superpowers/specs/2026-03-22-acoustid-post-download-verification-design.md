@@ -27,7 +27,7 @@ After downloading a track from YouTube, verify it against the expected MusicBrai
 **`downloader.py`** — split into search + download:
 
 - `search_youtube_candidates(query, track_title, expected_duration_ms, skip_check, banned_urls) -> list[dict]`
-  Returns up to 10 ranked candidates. Extracts existing search + scoring logic.
+  Returns ranked candidates (up to 10, capped after filtering). The existing search uses `ytsearch15:`, filters by forbidden words/duration/banned URLs, then truncates to 10. Extracts existing search + scoring logic.
 
 - `download_youtube_candidate(candidate, output_path, progress_hook, skip_check) -> dict`
   Downloads a single candidate with client fallback. Extracts existing download logic.
@@ -49,31 +49,53 @@ The existing single-download flow is replaced with a candidate iteration loop.
 
 ```
 _process_single_track(idx, track):
+    expected_id = track.get("foreignRecordingId")
+        # Lidarr's /api/v1/track returns this field for MusicBrainz recording ID.
+        # iTunes fallback tracks won't have it — verification is skipped.
+
     candidates = search_youtube_candidates(...)
     all_unverified = True
+    best_unverified_candidate = None  # track best-scored unverified for fallback
 
     for candidate in candidates:
-        download_youtube_candidate(candidate) -> temp file
-        tag_mp3(temp_file, track, album, cover_data)
+        temp_file = fresh unique temp path per attempt
+        download_youtube_candidate(candidate) -> temp_file
 
-        if acoustid_enabled and track has foreignRecordingId:
-            result = verify_fingerprint(temp_file, foreignRecordingId, api_key)
+        if acoustid_enabled and expected_id:
+            tag_mp3(temp_file, track, album, cover_data)
+                # Tagging before fingerprinting is necessary: fpcalc reads
+                # raw audio so tags don't affect it, but we need the file
+                # ready to move on success. The cost is acceptable — tag_mp3
+                # only writes ID3 tags to the local file (no network calls).
+                # XML metadata and artwork are NOT created here — only after
+                # verification succeeds (see "accept" path below).
+
+            track_state["status"] = "verifying"
+            result = verify_fingerprint(temp_file, expected_id, api_key)
 
             if result.status == "verified":
-                -> accept file, record fp_data, move to final, done
+                -> create XML metadata, accept file, record fp_data,
+                   move to final, done
             elif result.status == "mismatch":
                 all_unverified = False
                 -> delete temp, ban URL, log rejection, try next
             elif result.status == "unverified":
-                -> delete temp, try next (don't ban)
+                -> delete temp, try next (don't ban — no AcoustID data)
+                if best_unverified_candidate is None:
+                    best_unverified_candidate = candidate
         else:
-            -> accept file (no verification possible), done
+            -> tag, create XML metadata, accept file, done
+              (no verification possible)
 
     if exhausted all candidates:
-        if all_unverified:
-            -> re-download best-scored candidate, accept without verification
+        if all_unverified and best_unverified_candidate is not None:
+            -> re-download best_unverified_candidate to a fresh temp file,
+               tag, create XML metadata, accept without verification
+               (fp_data fields set to empty/zero in track_downloads record)
         else:
             -> mark track as failed
+            error_message = "AcoustID verification failed: no candidate
+                matched expected recording <expected_id> (tried N candidates)"
 ```
 
 ### Track Status Flow
@@ -103,7 +125,7 @@ The "verifying" track status needs a display label in the SSE rendering code, us
 
 ## Error Handling & Edge Cases
 
-1. **Track has no `foreignRecordingId`** — Skip verification, accept download. Some tracks from Lidarr or iTunes fallback may lack a MusicBrainz recording ID.
+1. **Track has no `foreignRecordingId`** — Skip verification, accept download. Lidarr's `/api/v1/track` endpoint returns `foreignRecordingId` for tracks with MusicBrainz data. iTunes fallback tracks (from `get_itunes_tracks()`) won't have this field. The verification condition is `track.get("foreignRecordingId")` — missing or empty means skip.
 
 2. **`fpcalc` not installed / AcoustID disabled** — Verification skipped entirely. Downloads work as today.
 
@@ -113,9 +135,9 @@ The "verifying" track status needs a display label in the SSE rendering code, us
 
 5. **All candidates are unverified** — Re-download best-scored candidate and accept without verification.
 
-6. **Skip/stop during verification** — Honored immediately. Clean up temp file, mark as skipped.
+6. **Skip/stop during verification** — Honored immediately. Clean up temp file, mark as skipped. The `"verifying"` status must be added to `stop_download()`'s skip logic alongside `"pending"`, `"searching"`, `"downloading"`.
 
-7. **Concurrent downloads** — Verify-retry loop runs within `_process_single_track` thread. AcoustID rate limiting (`_throttle()`) uses global timing, so concurrent tracks respect the 3 req/sec limit.
+7. **Concurrent downloads** — Verify-retry loop runs within `_process_single_track` thread. AcoustID rate limiting (`_throttle()`) currently has a TOCTOU race on the global `_last_request_time` float. As part of this feature, add a `threading.Lock` to `_throttle()` to make it thread-safe under concurrent track downloads.
 
 8. **Re-download of previously downloaded album** — Banned URLs from verification rejections are filtered by `get_banned_urls_for_track()` at the start of each track download.
 
@@ -151,7 +173,7 @@ expected=<foreignRecordingId>, got=<acoustid_recording_id>
 - Candidate #1 mismatches, #2 verifies -> accepts #2, bans #1
 - All candidates mismatch -> track fails, all get banned
 - All candidates unverified -> accepts best-scored
-- Mix of mismatches and unverified -> accepts best unverified if exists, else fails
+- Mix of mismatches and unverified -> track fails (at least one mismatch means `all_unverified=False`, so no fallback)
 - Track has no foreignRecordingId -> skips verification
 - AcoustID disabled -> skips verification
 - Skip requested during verification -> skipped, temp cleaned
