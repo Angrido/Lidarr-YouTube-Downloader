@@ -885,6 +885,157 @@
             color: var(--primary);
         }
 
+        .track-expand-btn {
+            background: none;
+            border: 1px solid var(--border-glass);
+            color: var(--text-dim);
+            padding: 0.35rem 0.7rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .track-expand-btn:hover {
+            color: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .track-expand-btn .chevron {
+            transition: transform 0.2s ease;
+            font-size: 0.65rem;
+        }
+
+        .track-expand-btn.expanded .chevron {
+            transform: rotate(180deg);
+        }
+
+        .album-tracks-panel {
+            display: none;
+            padding: 0.75rem;
+            border-top: 1px solid var(--border-glass);
+            background: rgba(0, 0, 0, 0.15);
+        }
+
+        body.light .album-tracks-panel {
+            background: rgba(0, 0, 0, 0.03);
+        }
+
+        .album-tracks-panel.open {
+            display: block;
+        }
+
+        .track-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.4rem 0.5rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            transition: background 0.15s;
+        }
+
+        .track-row:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        body.light .track-row:hover {
+            background: rgba(0, 0, 0, 0.04);
+        }
+
+        .track-row .track-num {
+            color: var(--text-dim);
+            font-size: 0.75rem;
+            min-width: 1.5rem;
+            text-align: right;
+        }
+
+        .track-row .track-title {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .track-row .track-status-icon {
+            font-size: 0.75rem;
+        }
+
+        .track-row.has-file .track-title {
+            color: var(--text-dim);
+        }
+
+        .track-row.missing .track-title {
+            color: var(--text);
+        }
+
+        .track-manual-input {
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            margin-top: 0.3rem;
+            padding-left: 2rem;
+        }
+
+        .track-manual-input input {
+            flex: 1;
+            padding: 0.35rem 0.6rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-glass);
+            background: var(--surface-glass);
+            color: var(--text);
+            font-size: 0.8rem;
+            min-width: 0;
+        }
+
+        .track-manual-input input:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
+        }
+
+        .track-manual-input .manual-dl-btn {
+            background: linear-gradient(135deg, #10b981, #06d6a0);
+            border: none;
+            color: white;
+            padding: 0.35rem 0.6rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.75rem;
+            white-space: nowrap;
+            transition: all 0.2s ease;
+        }
+
+        .track-manual-input .manual-dl-btn:hover {
+            box-shadow: 0 2px 10px rgba(16, 185, 129, 0.4);
+            transform: translateY(-1px);
+        }
+
+        .track-manual-input .manual-dl-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .track-dl-result {
+            font-size: 0.75rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            margin-left: 2rem;
+            margin-top: 0.15rem;
+        }
+
+        .track-dl-result.success {
+            color: var(--primary);
+        }
+
+        .track-dl-result.error {
+            color: var(--danger);
+        }
+
         footer {
             text-align: center;
             padding: 1.5rem 2rem;
@@ -2568,8 +2719,12 @@
                     <div style="font-size:0.8rem; color:var(--text-dim); margin-bottom:1rem">${escapeHtml(year)} • ${album.missingTrackCount} Missing</div>
                     <div class="card-actions">
                         <button class="btn btn-primary" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)">Add to Queue</button>
+                        <button class="track-expand-btn" onclick="event.stopPropagation(); toggleAlbumTracks(${album.id}, this)">
+                            <i class="fa-solid fa-music" style="font-size:0.7rem"></i> Tracks <span class="chevron"><i class="fa-solid fa-chevron-down"></i></span>
+                        </button>
                     </div>
                 </div>
+                <div class="album-tracks-panel" id="album-tracks-${album.id}"></div>
                 <div class="card-progress-indicator" id="card-progress-${album.id}">
                     <div class="mini-progress-bar">
                         <div class="mini-progress-fill" id="mini-fill-${album.id}" style="width: 0%"></div>
@@ -2639,7 +2794,11 @@
                 </div>
                 <div class="list-item-actions">
                     <button class="btn btn-primary" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)">Add to Queue</button>
+                    <button class="track-expand-btn" onclick="event.stopPropagation(); toggleAlbumTracks(${album.id}, this)">
+                        <i class="fa-solid fa-music" style="font-size:0.7rem"></i> Tracks <span class="chevron"><i class="fa-solid fa-chevron-down"></i></span>
+                    </button>
                 </div>
+                <div class="album-tracks-panel" id="album-tracks-${album.id}" style="margin-top:0.75rem; border-top:1px solid var(--border-glass); border-radius:0 0 var(--radius) var(--radius);"></div>
             `;
             return div;
         }
@@ -2707,7 +2866,17 @@
                     <td><span class="table-artist">${escapeHtml(album.artist.artistName)}</span></td>
                     <td><span class="table-year">${escapeHtml(year)}</span></td>
                     <td>${album.missingTrackCount}</td>
-                    <td><button class="btn btn-primary" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)">Add to Queue</button></td>
+                    <td style="display:flex; gap:0.5rem; align-items:center;">
+                        <button class="btn btn-primary" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)">Add to Queue</button>
+                        <button class="track-expand-btn" onclick="event.stopPropagation(); toggleAlbumTracks(${album.id}, this)">
+                            <span class="chevron"><i class="fa-solid fa-chevron-down"></i></span>
+                        </button>
+                    </td>
+                </tr>
+                <tr class="album-tracks-table-row" id="album-tracks-row-${album.id}" style="display:none;">
+                    <td colspan="6" style="padding:0;">
+                        <div class="album-tracks-panel open" id="album-tracks-${album.id}"></div>
+                    </td>
                 </tr>
             `;
         }
@@ -2746,7 +2915,17 @@
                 <tr>
                     <td><div class="mob-cell">${coverHtml}<div class="mob-info"><div class="mob-title">${escapeHtml(album.title)}</div><div class="mob-artist">${artistYear}</div></div></div></td>
                     <td>${album.missingTrackCount}</td>
-                    <td><button class="btn btn-primary mob-btn" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)" title="Add to Queue"><i class="fa-solid fa-download"></i></button></td>
+                    <td style="display:flex; gap:0.25rem; align-items:center;">
+                        <button class="btn btn-primary mob-btn" data-album-id="${album.id}" onclick="addToQueue(${album.id}, event)" title="Add to Queue"><i class="fa-solid fa-download"></i></button>
+                        <button class="track-expand-btn" onclick="event.stopPropagation(); toggleAlbumTracks(${album.id}, this)" style="padding:0.35rem;" title="Show Tracks">
+                            <span class="chevron"><i class="fa-solid fa-chevron-down"></i></span>
+                        </button>
+                    </td>
+                </tr>
+                <tr class="album-tracks-table-row" id="album-tracks-mob-row-${album.id}" style="display:none;">
+                    <td colspan="3" style="padding:0;">
+                        <div class="album-tracks-panel open" id="album-tracks-mob-${album.id}"></div>
+                    </td>
                 </tr>
             `;
         }
@@ -2896,6 +3075,194 @@
                 btn.innerHTML = '<i class="fa-solid fa-download"></i> Download All Missing';
                 btn.style.pointerEvents = '';
             }, 3000);
+        }
+
+        const albumTracksCache = {};
+
+        async function toggleAlbumTracks(albumId, btn) {
+            const panels = document.querySelectorAll(`[id^="album-tracks-"][id$="-${albumId}"], #album-tracks-${albumId}`);
+            const tableRows = document.querySelectorAll(`[id^="album-tracks-"][id$="-row-${albumId}"]`);
+            const isExpanded = btn.classList.contains('expanded');
+
+            if (isExpanded) {
+                btn.classList.remove('expanded');
+                panels.forEach(p => p.classList.remove('open'));
+                tableRows.forEach(r => r.style.display = 'none');
+                return;
+            }
+
+            btn.classList.add('expanded');
+            panels.forEach(p => p.classList.add('open'));
+            tableRows.forEach(r => r.style.display = '');
+
+            if (!albumTracksCache[albumId]) {
+                panels.forEach(p => {
+                    p.textContent = '';
+                    const loadingDiv = document.createElement('div');
+                    loadingDiv.style.cssText = 'padding:0.5rem; color:var(--text-dim); font-size:0.8rem;';
+                    loadingDiv.textContent = 'Loading tracks...';
+                    const spinner = document.createElement('i');
+                    spinner.className = 'fa-solid fa-spinner fa-spin';
+                    spinner.style.marginRight = '0.3rem';
+                    loadingDiv.prepend(spinner);
+                    p.appendChild(loadingDiv);
+                });
+                try {
+                    const res = await fetch(`/api/download/queue/${albumId}/tracks`);
+                    if (!res.ok) throw new Error(`Server error ${res.status}`);
+                    const tracks = await res.json();
+                    albumTracksCache[albumId] = tracks;
+                } catch (e) {
+                    panels.forEach(p => {
+                        p.textContent = '';
+                        const errDiv = document.createElement('div');
+                        errDiv.style.cssText = 'padding:0.5rem; color:var(--danger); font-size:0.8rem;';
+                        errDiv.textContent = 'Failed to load tracks';
+                        p.appendChild(errDiv);
+                    });
+                    return;
+                }
+            }
+
+            const tracks = albumTracksCache[albumId];
+            renderTrackListDOM(albumId, tracks, panels);
+        }
+
+        function renderTrackListDOM(albumId, tracks, panels) {
+            panels.forEach(panel => {
+                panel.textContent = '';
+                if (!tracks || tracks.length === 0) {
+                    const emptyDiv = document.createElement('div');
+                    emptyDiv.style.cssText = 'padding:0.5rem; color:var(--text-dim); font-size:0.8rem;';
+                    emptyDiv.textContent = 'No track data available';
+                    panel.appendChild(emptyDiv);
+                    return;
+                }
+                tracks.forEach((track, idx) => {
+                    const hasFile = track.has_file;
+                    const row = document.createElement('div');
+                    row.className = `track-row ${hasFile ? 'has-file' : 'missing'}`;
+
+                    const numSpan = document.createElement('span');
+                    numSpan.className = 'track-num';
+                    numSpan.textContent = track.track_number;
+
+                    const titleSpan = document.createElement('span');
+                    titleSpan.className = 'track-title';
+                    titleSpan.textContent = track.title;
+
+                    const iconSpan = document.createElement('span');
+                    iconSpan.className = 'track-status-icon';
+                    const icon = document.createElement('i');
+                    icon.className = hasFile ? 'fa-solid fa-check' : 'fa-solid fa-xmark';
+                    icon.style.color = hasFile ? 'var(--primary)' : 'var(--danger)';
+                    iconSpan.appendChild(icon);
+
+                    row.append(numSpan, titleSpan, iconSpan);
+                    panel.appendChild(row);
+
+                    if (!hasFile) {
+                        const inputRow = document.createElement('div');
+                        inputRow.className = 'track-manual-input';
+                        inputRow.id = `track-input-${albumId}-${idx}`;
+
+                        const input = document.createElement('input');
+                        input.type = 'text';
+                        input.placeholder = 'YouTube URL...';
+                        input.id = `manual-url-${albumId}-${idx}`;
+                        input.addEventListener('keydown', (e) => {
+                            if (e.key === 'Enter') manualTrackDownload(albumId, idx);
+                        });
+
+                        const btn = document.createElement('button');
+                        btn.className = 'manual-dl-btn';
+                        btn.id = `manual-btn-${albumId}-${idx}`;
+                        btn.innerHTML = '<i class="fa-solid fa-download"></i> Download';
+                        btn.addEventListener('click', () => manualTrackDownload(albumId, idx));
+
+                        inputRow.append(input, btn);
+                        panel.appendChild(inputRow);
+
+                        const resultDiv = document.createElement('div');
+                        resultDiv.className = 'track-dl-result';
+                        resultDiv.id = `track-result-${albumId}-${idx}`;
+                        panel.appendChild(resultDiv);
+                    }
+                });
+            });
+        }
+
+        async function manualTrackDownload(albumId, trackIdx) {
+            const tracks = albumTracksCache[albumId];
+            if (!tracks || !tracks[trackIdx]) {
+                const el = document.getElementById(`track-result-${albumId}-${trackIdx}`);
+                if (el) {
+                    el.className = 'track-dl-result error';
+                    el.textContent = 'Track data unavailable -- try collapsing and re-expanding';
+                }
+                return;
+            }
+            const track = tracks[trackIdx];
+
+            const inputEl = document.getElementById(`manual-url-${albumId}-${trackIdx}`);
+            const btnEl = document.getElementById(`manual-btn-${albumId}-${trackIdx}`);
+            const resultEl = document.getElementById(`track-result-${albumId}-${trackIdx}`);
+            if (!inputEl || !btnEl || !resultEl) return;
+
+            const url = inputEl.value.trim();
+
+            if (!url) {
+                resultEl.className = 'track-dl-result error';
+                resultEl.textContent = 'Please enter a YouTube URL';
+                return;
+            }
+
+            btnEl.disabled = true;
+            btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Downloading...';
+            resultEl.textContent = '';
+
+            try {
+                const res = await fetch(`/api/album/${albumId}/track/manual-download`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        youtube_url: url,
+                        track_title: track.title,
+                        track_number: track.track_number,
+                        foreign_recording_id: track.foreign_recording_id || '',
+                    })
+                });
+                if (!res.ok) {
+                    let msg = `Server error (${res.status})`;
+                    try {
+                        const errData = await res.json();
+                        msg = errData.message || msg;
+                    } catch { /* non-JSON response */ }
+                    throw new Error(msg);
+                }
+                const data = await res.json();
+                if (data.success) {
+                    resultEl.className = 'track-dl-result success';
+                    let msg = 'Downloaded successfully';
+                    if (data.acoustid_score) {
+                        msg += ` (AcoustID: ${(data.acoustid_score * 100).toFixed(0)}%)`;
+                    }
+                    resultEl.textContent = msg;
+                    btnEl.innerHTML = '<i class="fa-solid fa-check"></i> Done';
+                    inputEl.disabled = true;
+                    track.has_file = true;
+                } else {
+                    resultEl.className = 'track-dl-result error';
+                    resultEl.textContent = data.message || 'Download failed';
+                    btnEl.innerHTML = '<i class="fa-solid fa-download"></i> Retry';
+                    btnEl.disabled = false;
+                }
+            } catch (e) {
+                resultEl.className = 'track-dl-result error';
+                resultEl.textContent = e.message || 'Download failed';
+                btnEl.innerHTML = '<i class="fa-solid fa-download"></i> Retry';
+                btnEl.disabled = false;
+            }
         }
 
         let statsCounter = 0;

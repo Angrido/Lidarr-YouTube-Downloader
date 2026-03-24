@@ -40,6 +40,7 @@ from processing import (
     stop_download,
 )
 from scheduler import run_scheduler, setup_scheduler
+from fingerprint import fingerprint_track
 from utils import check_rate_limit, format_bytes, sanitize_filename, set_permissions
 
 logging.basicConfig(
@@ -430,6 +431,7 @@ def api_queue_tracks(album_id):
             "title": t.get("title", ""),
             "track_number": t.get("trackNumber", 0),
             "has_file": t.get("hasFile", False),
+            "foreign_recording_id": t.get("foreignRecordingId", ""),
         }
         for t in tracks
     ]
@@ -967,16 +969,103 @@ def _execute_manual_download(
     youtube_url, track_title, track_num, target_path,
     album_data, album_id_ctx, failed_ctx, config,
 ):
-    """Download a single track manually and update state."""
-    import yt_dlp
-
-    sanitized_track = sanitize_filename(track_title)
-    temp_file = os.path.join(target_path, f"temp_manual_{uuid.uuid4().hex[:8]}")
-    final_file = os.path.join(
-        target_path, f"{int(track_num):02d} - {sanitized_track}.mp3"
+    """Download a single track manually (failed-track retry context)."""
+    return _execute_manual_dl(
+        youtube_url=youtube_url,
+        track_title=track_title,
+        track_num=track_num,
+        target_path=target_path,
+        album_data=album_data,
+        album_id=album_id_ctx,
+        album_title=failed_ctx.get("album_title", ""),
+        artist_name=failed_ctx.get("artist_name", ""),
+        config=config,
+        album_path=failed_ctx.get("album_path", ""),
+        lidarr_album_path=failed_ctx.get("lidarr_album_path", ""),
+        cover_url=failed_ctx.get("cover_url", ""),
     )
 
-    ydl_opts = {
+
+@app.route("/api/album/<int:album_id>/track/manual-download", methods=["POST"])
+def api_manual_track_download(album_id):
+    """Download a single track by user-supplied YouTube URL."""
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"manual_track:{client_ip}", rate_limit_store, window=5, max_requests=3
+    ):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
+
+    data = request.json or {}
+    youtube_url = data.get("youtube_url", "").strip()
+    track_title = data.get("track_title", "").strip()
+    track_num = data.get("track_number", 0)
+
+    if not youtube_url or not track_title:
+        return jsonify({"success": False, "message": "Missing required fields"}), 400
+
+    youtube_url = _validate_youtube_url(youtube_url)
+    if youtube_url is None:
+        return jsonify({"success": False, "message": "Invalid YouTube URL"}), 400
+
+    album_data = _get_album_cached(album_id)
+    if "error" in album_data:
+        return jsonify({
+            "success": False,
+            "message": f"Failed to fetch album: {album_data['error']}",
+        }), 500
+
+    artist_name = album_data.get("artist", {}).get("artistName", "Unknown")
+    album_title = album_data.get("title", "Unknown")
+    release_year = str(album_data.get("releaseDate", ""))[:4]
+    album_type = album_data.get("albumType", "Album")
+
+    sanitized_artist = sanitize_filename(artist_name)
+    sanitized_album = sanitize_filename(album_title)
+    if release_year:
+        album_folder = f"{sanitized_album} ({release_year}) [{album_type}]"
+    else:
+        album_folder = f"{sanitized_album} [{album_type}]"
+
+    config = load_config()
+    lidarr_path = config.get("lidarr_path", "")
+
+    if lidarr_path:
+        target_path = os.path.join(lidarr_path, sanitized_artist, album_folder)
+    elif DOWNLOAD_DIR:
+        target_path = os.path.join(DOWNLOAD_DIR, sanitized_artist, album_folder)
+    else:
+        return jsonify({"success": False, "message": "No download path configured"}), 400
+
+    if not _validate_target_path(target_path, config):
+        return jsonify({"success": False, "message": "Invalid target path"}), 400
+
+    os.makedirs(target_path, exist_ok=True)
+
+    cover_url = ""
+    images = album_data.get("images", [])
+    if images:
+        cover_url = images[0].get("remoteUrl", "")
+
+    return _execute_manual_dl(
+        youtube_url=youtube_url,
+        track_title=track_title,
+        track_num=track_num,
+        target_path=target_path,
+        album_data=album_data,
+        album_id=album_id,
+        album_title=album_title,
+        artist_name=artist_name,
+        config=config,
+        album_path=target_path,
+        lidarr_album_path=target_path if lidarr_path else "",
+        cover_url=cover_url,
+        run_acoustid=True,
+    )
+
+
+def _build_ydl_opts(config, temp_file):
+    """Build yt-dlp options dict from config."""
+    opts = {
         "quiet": True,
         "no_warnings": True,
         "format": "bestaudio/best",
@@ -990,55 +1079,122 @@ def _execute_manual_download(
     }
     cookies_path = (config.get("yt_cookies_file") or "").strip()
     if cookies_path and os.path.exists(cookies_path):
-        ydl_opts["cookiefile"] = cookies_path
+        opts["cookiefile"] = cookies_path
     if config.get("yt_force_ipv4", True):
-        ydl_opts["source_address"] = "0.0.0.0"
+        opts["source_address"] = "0.0.0.0"
     pc = config.get("yt_player_client", "android")
     if pc:
-        ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
+        opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
+    return opts
+
+
+def _cleanup_temp_files(temp_file):
+    """Remove leftover temp files from a failed download."""
+    for ext in [".mp3", ".webm", ".m4a", ".part"]:
+        tmp = temp_file + ext
+        if os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError as rm_err:
+                logger.debug("Failed to remove temp file %s: %s", tmp, rm_err)
+
+
+def _execute_manual_dl(
+    *, youtube_url, track_title, track_num, target_path,
+    album_data, album_id, album_title, artist_name, config,
+    album_path, lidarr_album_path, cover_url, run_acoustid=False,
+):
+    """Download a single track from a user-supplied YouTube URL.
+
+    Shared by both the failed-track retry endpoint and the
+    Home-page manual track download endpoint.
+    """
+    import yt_dlp
+
+    sanitized_track = sanitize_filename(track_title)
+    temp_file = os.path.join(target_path, f"temp_manual_{uuid.uuid4().hex[:8]}")
+    final_file = os.path.join(
+        target_path, f"{int(track_num):02d} - {sanitized_track}.mp3"
+    )
+
+    ydl_opts = _build_ydl_opts(config, temp_file)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([youtube_url])
+    except Exception as e:
+        logger.error("yt-dlp download failed for '%s': %s", track_title, e)
+        _cleanup_temp_files(temp_file)
+        return jsonify({"success": False, "message": str(e)[:200]}), 500
 
-        actual_file = temp_file + ".mp3"
-        if not os.path.exists(actual_file):
-            return jsonify({
-                "success": False,
-                "message": "Download failed -- file not created",
-            }), 500
+    actual_file = temp_file + ".mp3"
+    if not os.path.exists(actual_file):
+        _cleanup_temp_files(temp_file)
+        return jsonify({
+            "success": False,
+            "message": "Download failed -- file not created",
+        }), 500
 
-        track_info = {"title": track_title, "trackNumber": track_num}
-        for t in album_data.get("tracks", []):
-            if t.get("title", "").lower() == track_title.lower():
-                track_info = t
-                break
-
+    try:
+        track_info = _resolve_track_info(
+            track_title, track_num, album_data, album_id,
+        )
         tag_mp3(actual_file, track_info, album_data, None)
 
         if config.get("xml_metadata_enabled", True):
             create_xml_metadata(
-                target_path,
-                album_data["artist"]["artistName"],
-                album_data["title"],
-                int(track_num),
-                track_title,
+                target_path, artist_name, album_title,
+                int(track_num), track_title,
                 album_data.get("foreignAlbumId", ""),
-                album_data["artist"].get("foreignArtistId", ""),
+                album_data.get("artist", {}).get("foreignArtistId", ""),
             )
 
-        try:
-            manual_file_size = os.path.getsize(actual_file)
-        except OSError:
-            manual_file_size = 0
+        fp_data = {}
+        if run_acoustid:
+            fp_data = _run_manual_acoustid(config, actual_file)
+
+        file_size = os.path.getsize(actual_file)
         shutil.move(actual_file, final_file)
         set_permissions(final_file)
+    except Exception as e:
+        logger.error(
+            "Post-download processing failed for '%s': %s",
+            track_title, e, exc_info=True,
+        )
+        _cleanup_temp_files(temp_file)
+        return jsonify({"success": False, "message": str(e)[:200]}), 500
 
-        album_title = failed_ctx.get("album_title", "")
-        artist_name = failed_ctx.get("artist_name", "")
+    _record_manual_download(
+        album_id=album_id, album_title=album_title,
+        artist_name=artist_name, track_title=track_title,
+        track_num=track_num, youtube_url=youtube_url,
+        album_path=album_path, lidarr_album_path=lidarr_album_path,
+        cover_url=cover_url, fp_data=fp_data, file_size=file_size,
+    )
 
+    _refresh_lidarr_artist(album_data, track_title)
+
+    response = {
+        "success": True,
+        "message": f"Track '{track_title}' downloaded successfully",
+    }
+    if fp_data:
+        response["acoustid_score"] = fp_data.get("acoustid_score", 0.0)
+        response["acoustid_recording_id"] = fp_data.get(
+            "acoustid_recording_id", "",
+        )
+    return jsonify(response)
+
+
+def _record_manual_download(
+    *, album_id, album_title, artist_name, track_title, track_num,
+    youtube_url, album_path, lidarr_album_path, cover_url,
+    fp_data, file_size,
+):
+    """Record a manual download in the DB and add a log entry."""
+    try:
         models.add_track_download(
-            album_id=album_id_ctx, album_title=album_title,
+            album_id=album_id, album_title=album_title,
             artist_name=artist_name, track_title=track_title,
             track_number=int(track_num), success=True,
             error_message="",
@@ -1046,47 +1202,81 @@ def _execute_manual_download(
             youtube_title="Manual download",
             match_score=1.0,
             duration_seconds=0,
-            album_path=failed_ctx.get("album_path", ""),
-            lidarr_album_path=failed_ctx.get("lidarr_album_path", ""),
-            cover_url=failed_ctx.get("cover_url", ""),
+            album_path=album_path,
+            lidarr_album_path=lidarr_album_path,
+            cover_url=cover_url,
+            acoustid_fingerprint_id=fp_data.get("acoustid_fingerprint_id", ""),
+            acoustid_score=fp_data.get("acoustid_score", 0.0),
+            acoustid_recording_id=fp_data.get("acoustid_recording_id", ""),
+            acoustid_recording_title=fp_data.get("acoustid_recording_title", ""),
         )
-
-        artist_id = album_data.get("artist", {}).get("id")
-        if artist_id:
-            lidarr_request(
-                "command", method="POST",
-                data={"name": "RefreshArtist", "artistId": artist_id},
-            )
-
-        logger.info("Manual download successful: %s", track_title)
-
+    except Exception as db_err:
+        logger.error(
+            "Track downloaded but DB record failed for '%s': %s",
+            track_title, db_err, exc_info=True,
+        )
+    try:
         models.add_log(
             log_type="manual_download",
-            album_id=album_id_ctx or 0,
+            album_id=album_id or 0,
             album_title=album_title or "Unknown Album",
             artist_name=artist_name or "Unknown Artist",
             details=f"Manually downloaded track: {track_title} (from YouTube)",
-            total_file_size=manual_file_size,
+            total_file_size=file_size,
         )
+    except Exception as log_err:
+        logger.error("Failed to add log for '%s': %s", track_title, log_err)
 
-        return jsonify({
-            "success": True,
-            "message": f"Track '{track_title}' downloaded successfully",
-        })
+    logger.info("Manual download successful: %s", track_title)
 
-    except Exception as e:
+
+def _resolve_track_info(track_title, track_num, album_data, album_id):
+    """Find full track info from Lidarr data, falling back to minimal dict."""
+    track_info = {"title": track_title, "trackNumber": track_num}
+    tracks = album_data.get("tracks", [])
+    if not tracks:
+        tracks_res = lidarr_request(f"track?albumId={album_id}")
+        if isinstance(tracks_res, list):
+            tracks = tracks_res
+        else:
+            logger.warning(
+                "Could not fetch tracks from Lidarr for album %s",
+                album_id,
+            )
+    for t in tracks:
+        if t.get("title", "").lower() == track_title.lower():
+            track_info = t
+            break
+    return track_info
+
+
+def _run_manual_acoustid(config, filepath):
+    """Run AcoustID fingerprinting if configured. Always returns a dict."""
+    acoustid_api_key = config.get("acoustid_api_key", "")
+    if not config.get("acoustid_enabled") or not acoustid_api_key:
+        return {}
+    fp_result = fingerprint_track(filepath, acoustid_api_key)
+    return fp_result or {}
+
+
+def _refresh_lidarr_artist(album_data, track_title):
+    """Trigger a Lidarr RefreshArtist command, logging on failure."""
+    artist_id = album_data.get("artist", {}).get("id")
+    if not artist_id:
         logger.warning(
-            "Manual download failed for '%s': %s",
-            track_title, e, exc_info=True,
+            "No artist_id for album -- skipping Lidarr refresh after '%s'",
+            track_title,
         )
-        for ext in [".mp3", ".webm", ".m4a", ".part"]:
-            tmp = temp_file + ext
-            if os.path.exists(tmp):
-                try:
-                    os.remove(tmp)
-                except OSError as rm_err:
-                    logger.debug("Failed to remove temp file %s: %s", tmp, rm_err)
-        return jsonify({"success": False, "message": str(e)[:200]}), 500
+        return
+    result = lidarr_request(
+        "command", method="POST",
+        data={"name": "RefreshArtist", "artistId": artist_id},
+    )
+    if isinstance(result, dict) and "error" in result:
+        logger.warning(
+            "Lidarr RefreshArtist failed after manual download of '%s': %s",
+            track_title, result["error"],
+        )
 
 
 # --- Startup yt-dlp auto-update ---

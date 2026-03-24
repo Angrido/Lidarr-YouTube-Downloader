@@ -108,6 +108,33 @@ Run after changes to track deletion, URL banning, or related UI:
 - [ ] **Re-download**: Queue previously downloaded album — deleted track re-downloads with different URL (banned one skipped)
 - [ ] **Re-download**: Unban a URL, re-download — previously banned URL is now a candidate again
 
+## Manual Track URL Download Tests
+
+Run after changes to track expansion, manual URL download, or related UI on the Home page:
+
+- [ ] **Index page**: Each album card/list/table row shows a "Tracks" expand button
+- [ ] **Index page**: Click "Tracks" button — expands to show track list with loading spinner
+- [ ] **Index page**: Track list shows track numbers, titles, and status icons (green check / red x)
+- [ ] **Index page**: Tracks with files show green check icon and dimmed title
+- [ ] **Index page**: Missing tracks show red x icon and YouTube URL input field
+- [ ] **Index page**: Click "Tracks" again — collapses the track panel
+- [ ] **Index page**: Re-expand — cached tracks load instantly (no spinner)
+- [ ] **Index page**: All three view modes (card, list, table) show track expansion
+- [ ] **Index page**: Enter valid YouTube URL for missing track, click Download — shows spinner
+- [ ] **Index page**: Successful download — shows green "Downloaded successfully" with AcoustID score if available
+- [ ] **Index page**: Download button changes to "Done" and input is disabled after success
+- [ ] **Index page**: Enter invalid URL — shows "Invalid YouTube URL" error
+- [ ] **Index page**: Empty URL field — shows "Please enter a YouTube URL"
+- [ ] **Index page**: Press Enter in URL field — triggers download (keyboard shortcut)
+- [ ] **Index page**: Download failure — shows error message and "Retry" button
+- [ ] **Index page**: Download always accepts regardless of AcoustID score (no rejection)
+- [ ] **API**: `GET /api/download/queue/<album_id>/tracks` returns `foreign_recording_id`
+- [ ] **API**: `POST /api/album/<album_id>/track/manual-download` with valid data — returns success + AcoustID data
+- [ ] **API**: `POST /api/album/<album_id>/track/manual-download` with invalid URL — returns 400
+- [ ] **API**: `POST /api/album/<album_id>/track/manual-download` with missing fields — returns 400
+- [ ] **API**: Manual download triggers Lidarr RefreshArtist after file is placed
+- [ ] **API**: Manual download creates log entry with type "manual_download"
+
 ## Scheduler Tests
 
 Requires scheduler to be enabled in settings:

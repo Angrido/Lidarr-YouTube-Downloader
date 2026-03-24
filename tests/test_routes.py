@@ -792,3 +792,242 @@ class TestBannedUrlsRoutes:
     def test_remove_banned_url_not_found(self, client):
         resp = client.delete("/api/banned-urls/9999")
         assert resp.status_code == 404
+
+
+class TestQueueTracksExtendedFields:
+    """Track endpoint returns foreign_recording_id and duration_ms."""
+
+    @patch("app.lidarr_request")
+    def test_returns_foreign_recording_id(self, mock_lidarr, client):
+        mock_lidarr.return_value = [
+            {
+                "title": "Song",
+                "trackNumber": 1,
+                "hasFile": False,
+                "foreignRecordingId": "abc-123",
+            },
+        ]
+        resp = client.get("/api/download/queue/1/tracks")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data[0]["foreign_recording_id"] == "abc-123"
+
+    @patch("app.lidarr_request")
+    def test_missing_foreign_recording_id_defaults_empty(self, mock_lidarr, client):
+        mock_lidarr.return_value = [
+            {"title": "Song", "trackNumber": 1, "hasFile": False},
+        ]
+        resp = client.get("/api/download/queue/1/tracks")
+        data = resp.get_json()
+        assert data[0]["foreign_recording_id"] == ""
+
+
+class TestManualTrackDownload:
+    """POST /api/album/<album_id>/track/manual-download."""
+
+    @pytest.fixture(autouse=True)
+    def _bypass_rate_limit(self):
+        with patch("app.check_rate_limit", return_value=True):
+            yield
+
+    def test_missing_fields_returns_400(self, client):
+        resp = client.post(
+            "/api/album/1/track/manual-download",
+            json={"youtube_url": "https://youtube.com/watch?v=abc12345678"},
+        )
+        assert resp.status_code == 400
+        assert "Missing required fields" in resp.get_json()["message"]
+
+    def test_missing_url_returns_400(self, client):
+        resp = client.post(
+            "/api/album/1/track/manual-download",
+            json={"track_title": "Song", "track_number": 1},
+        )
+        assert resp.status_code == 400
+
+    def test_invalid_url_returns_400(self, client):
+        resp = client.post(
+            "/api/album/1/track/manual-download",
+            json={
+                "youtube_url": "https://evil.com/malware",
+                "track_title": "Song",
+                "track_number": 1,
+            },
+        )
+        assert resp.status_code == 400
+        assert "Invalid YouTube URL" in resp.get_json()["message"]
+
+    @patch("app._get_album_cached")
+    def test_album_not_found_returns_500(self, mock_album, client):
+        mock_album.return_value = {"error": "not found"}
+        resp = client.post(
+            "/api/album/999/track/manual-download",
+            json={
+                "youtube_url": "https://youtube.com/watch?v=abc12345678",
+                "track_title": "Song",
+                "track_number": 1,
+            },
+        )
+        assert resp.status_code == 500
+        assert "Failed to fetch album" in resp.get_json()["message"]
+
+    @patch("app.fingerprint_track")
+    @patch("app.lidarr_request")
+    @patch("app._get_album_cached")
+    @patch("app.set_permissions")
+    @patch("app.tag_mp3")
+    def test_successful_download(
+        self, mock_tag, mock_perms, mock_album, mock_lidarr,
+        mock_fp, client, tmp_path, monkeypatch,
+    ):
+        dl_path = str(tmp_path / "downloads")
+        monkeypatch.setattr("app.DOWNLOAD_DIR", dl_path)
+        monkeypatch.setattr("app.load_config", lambda: {
+            "acoustid_enabled": True,
+            "acoustid_api_key": "test-key",
+            "xml_metadata_enabled": False,
+            "yt_force_ipv4": False,
+            "yt_player_client": "",
+        })
+        mock_album.return_value = {
+            "title": "Test Album",
+            "releaseDate": "2024-01-01",
+            "albumType": "Album",
+            "foreignAlbumId": "mbid-1",
+            "artist": {
+                "artistName": "Test Artist",
+                "id": 42,
+                "foreignArtistId": "artist-mbid",
+            },
+            "images": [{"coverType": "cover", "remoteUrl": "http://img/c.jpg"}],
+        }
+        mock_lidarr.return_value = [
+            {"title": "Song", "trackNumber": 1, "hasFile": False},
+        ]
+        mock_fp.return_value = {
+            "acoustid_fingerprint_id": "fp-1",
+            "acoustid_score": 0.92,
+            "acoustid_recording_id": "rec-1",
+            "acoustid_recording_title": "Song",
+        }
+
+        import yt_dlp
+        import os
+
+        def fake_download(self_ydl, urls):
+            outtmpl = self_ydl.params.get("outtmpl", "")
+            if isinstance(outtmpl, dict):
+                outtmpl = outtmpl.get("default", "")
+            mp3_path = outtmpl + ".mp3"
+            os.makedirs(os.path.dirname(mp3_path), exist_ok=True)
+            with open(mp3_path, "wb") as f:
+                f.write(b"\x00" * 100)
+
+        with patch.object(yt_dlp.YoutubeDL, "download", fake_download):
+            resp = client.post(
+                "/api/album/1/track/manual-download",
+                json={
+                    "youtube_url": "https://youtube.com/watch?v=abc12345678",
+                    "track_title": "Song",
+                    "track_number": 1,
+                    "foreign_recording_id": "rec-1",
+                },
+            )
+
+        data = resp.get_json()
+        assert resp.status_code == 200, f"Expected 200 but got {resp.status_code}: {data}"
+        assert data["success"] is True
+        assert data["acoustid_score"] == 0.92
+
+    @patch("app._get_album_cached")
+    def test_no_download_path_returns_400(self, mock_album, client, monkeypatch):
+        monkeypatch.setattr("app.DOWNLOAD_DIR", "")
+        mock_album.return_value = {
+            "title": "Album",
+            "releaseDate": "2024-01-01",
+            "albumType": "Album",
+            "artist": {"artistName": "Artist", "id": 1, "foreignArtistId": "x"},
+            "images": [],
+        }
+        resp = client.post(
+            "/api/album/1/track/manual-download",
+            json={
+                "youtube_url": "https://youtube.com/watch?v=abc12345678",
+                "track_title": "Song",
+                "track_number": 1,
+            },
+        )
+        assert resp.status_code == 400
+        assert "No download path" in resp.get_json()["message"]
+
+    def test_rate_limiting(self, client):
+        """Verify rate limiting works (bypass fixture does NOT apply here)."""
+        with patch("app.check_rate_limit", return_value=False):
+            resp = client.post(
+                "/api/album/1/track/manual-download",
+                json={
+                    "youtube_url": "https://youtube.com/watch?v=abc12345678",
+                    "track_title": "Song",
+                    "track_number": 1,
+                },
+            )
+        assert resp.status_code == 429
+
+    @patch("app._get_album_cached")
+    @patch("app.set_permissions")
+    @patch("app.tag_mp3")
+    def test_ytdlp_exception_returns_500(
+        self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
+    ):
+        dl_path = str(tmp_path / "downloads")
+        monkeypatch.setattr("app.DOWNLOAD_DIR", dl_path)
+        mock_album.return_value = {
+            "title": "Album", "releaseDate": "2024-01-01",
+            "albumType": "Album", "foreignAlbumId": "m1",
+            "artist": {"artistName": "Artist", "id": 1, "foreignArtistId": "a1"},
+            "images": [],
+        }
+        import yt_dlp
+
+        def boom(self_ydl, urls):
+            raise Exception("yt-dlp exploded")
+
+        with patch.object(yt_dlp.YoutubeDL, "download", boom):
+            resp = client.post(
+                "/api/album/1/track/manual-download",
+                json={
+                    "youtube_url": "https://youtube.com/watch?v=abc12345678",
+                    "track_title": "Song",
+                    "track_number": 1,
+                },
+            )
+        assert resp.status_code == 500
+        assert "yt-dlp exploded" in resp.get_json()["message"]
+
+    @patch("app._get_album_cached")
+    @patch("app.set_permissions")
+    @patch("app.tag_mp3")
+    def test_file_not_created_returns_500(
+        self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
+    ):
+        dl_path = str(tmp_path / "downloads")
+        monkeypatch.setattr("app.DOWNLOAD_DIR", dl_path)
+        mock_album.return_value = {
+            "title": "Album", "releaseDate": "2024-01-01",
+            "albumType": "Album", "foreignAlbumId": "m1",
+            "artist": {"artistName": "Artist", "id": 1, "foreignArtistId": "a1"},
+            "images": [],
+        }
+        import yt_dlp
+
+        with patch.object(yt_dlp.YoutubeDL, "download", lambda self, urls: None):
+            resp = client.post(
+                "/api/album/1/track/manual-download",
+                json={
+                    "youtube_url": "https://youtube.com/watch?v=abc12345678",
+                    "track_title": "Song",
+                    "track_number": 1,
+                },
+            )
+        assert resp.status_code == 500
+        assert "file not created" in resp.get_json()["message"]
