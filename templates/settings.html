@@ -650,6 +650,19 @@
                     <option value="5">5 (risky)</option>
                 </select>
             </div>
+            <div class="input-group">
+                <label for="audioFormatSelect">
+                    Audio Format
+                    <div class="label-description">MP3 re-encodes to 320kbps. M4A and Opus preserve the original YouTube stream without transcoding (no generational loss).</div>
+                </label>
+                <select id="audioFormatSelect" onchange="saveAudioFormat(this.value)" style="max-width:220px;">
+                    <option value="mp3">MP3 (320kbps)</option>
+                    <option value="m4a">M4A / AAC (original, no transcode)</option>
+                    <option value="opus">Opus (original, no transcode)</option>
+                    <option value="flac">FLAC (lossless)</option>
+                    <option value="wav">WAV (uncompressed)</option>
+                </select>
+            </div>
         </div>
 
         <div class="settings-section">
@@ -971,16 +984,12 @@
             document.getElementById('botToken').value = conf.telegram_bot_token || '';
             document.getElementById('chatId').value = conf.telegram_chat_id || '';
 
-
-
             const logTypes = conf.telegram_log_types || [];
-
 
             ['download_started', 'album_error'].forEach(type => {
                 const checkbox = document.getElementById(`log_${type}`);
                 if (checkbox) checkbox.checked = logTypes.includes(type);
             });
-
 
             const dlOutcome = document.getElementById('log_download_outcome');
             if (dlOutcome) {
@@ -992,10 +1001,8 @@
                 impOutcome.checked = logTypes.includes('import_success') || logTypes.includes('import_partial');
             }
 
-
             document.getElementById('downloadPath').value = conf.download_path || '';
             document.getElementById('lidarrPath').value = conf.lidarr_path || '';
-
 
             const forbiddenWords = conf.forbidden_words || ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute", "reaction"];
             const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute', 'fw_reaction'];
@@ -1007,11 +1014,10 @@
                 }
             });
 
-
             document.getElementById('durationTolerance').value = conf.duration_tolerance || 10;
             document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
+            document.getElementById('audioFormatSelect').value = conf.audio_format || 'mp3';
 
-            // Discord
             document.getElementById('discordWebhook').value = conf.discord_webhook_url || '';
             const discordLogTypes = conf.discord_log_types || [];
             ['download_started', 'album_error'].forEach(type => {
@@ -1169,9 +1175,7 @@
         }
 
         async function saveConfig() {
-
             const selectedLogTypes = [];
-
 
             ['download_started', 'album_error'].forEach(type => {
                 const checkbox = document.getElementById(`log_${type}`);
@@ -1179,7 +1183,6 @@
                     selectedLogTypes.push(type);
                 }
             });
-
 
             if (document.getElementById('log_download_outcome').checked) {
                 selectedLogTypes.push('download_success');
@@ -1191,7 +1194,6 @@
                 selectedLogTypes.push('import_partial');
             }
 
-
             const dPath = document.getElementById('downloadPath').value.trim().replace(/\\/g, '/').toLowerCase();
             const lPath = document.getElementById('lidarrPath').value.trim().replace(/\\/g, '/').toLowerCase();
 
@@ -1201,14 +1203,12 @@
                 }
             }
 
-
             const forbiddenWordIdsSave = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute'];
             const forbiddenWords = forbiddenWordIdsSave
                 .map(id => document.getElementById(id))
                 .filter(checkbox => checkbox && checkbox.checked)
                 .map(checkbox => checkbox.value);
 
-            // Discord log types
             const discordSelectedLogTypes = [];
             ['download_started', 'album_error'].forEach(type => {
                 const cb = document.getElementById(`discord_log_${type}`);
@@ -1241,7 +1241,8 @@
                     lidarr_path: document.getElementById('lidarrPath').value,
                     forbidden_words: forbiddenWords,
                     duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10,
-                    concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2
+                    concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
+                audio_format: document.getElementById('audioFormatSelect').value || 'mp3'
                 })
             });
             showToast('success', 'Configuration Saved!', 'Changes to Download Path and Lidarr Path require an application restart.');
@@ -1267,6 +1268,14 @@
         }
         updateQueueBadge();
         setInterval(updateQueueBadge, 5000);
+
+        function saveAudioFormat(val) {
+            fetch('/api/config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({audio_format: val})
+            });
+        }
 
     </script>
 </body>
