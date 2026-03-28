@@ -39,7 +39,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.5.6"
+VERSION = "1.5.7"
 
 @app.context_processor
 def inject_version():
@@ -419,18 +419,38 @@ def get_itunes_tracks(artist, album_name):
 def get_itunes_artwork(artist, album):
     try:
         url = "https://itunes.apple.com/search"
-        params = {"term": f"{artist} {album}", "entity": "album", "limit": 1}
+        params = {"term": f"{artist} {album}", "entity": "album", "limit": 10}
         r = requests.get(url, params=params, timeout=10)
         data = r.json()
-        if data.get("resultCount", 0) > 0:
-            artwork_url = (
-                data["results"][0]
-                .get("artworkUrl100", "")
-                .replace("100x100", "3000x3000")
-            )
-            return requests.get(artwork_url, timeout=15).content
+        artist_lower = artist.lower()
+        for result in data.get("results", []):
+            result_artist = result.get("artistName", "").lower()
+            if artist_lower in result_artist or result_artist in artist_lower:
+                artwork_url = (
+                    result.get("artworkUrl100", "")
+                    .replace("100x100bb", "3000x3000bb")
+                    .replace("100x100", "3000x3000")
+                )
+                if artwork_url:
+                    return requests.get(artwork_url, timeout=15).content
     except Exception as e:
         logger.debug(f"iTunes artwork lookup failed: {e}")
+    return None
+
+
+def get_album_artwork(artist, album, lidarr_cover_url=""):
+    """Fetch album artwork: iTunes first (with artist validation), then Lidarr URL fallback."""
+    cover = get_itunes_artwork(artist, album)
+    if cover:
+        return cover
+    if lidarr_cover_url:
+        try:
+            r = requests.get(lidarr_cover_url, timeout=15)
+            if r.status_code == 200 and r.content:
+                logger.debug("Using Lidarr cover URL as artwork fallback")
+                return r.content
+        except Exception as e:
+            logger.debug(f"Lidarr cover URL download failed: {e}")
     return None
 
 def sanitize_filename(name):
@@ -1078,7 +1098,9 @@ def process_album_download(album_id, force=False):
             embed_data={"title": "Download Started", "description": f"{artist_name} — {album_title}", "color": 0x3498db, "fields": [{"name": "Tracks", "value": str(len(tracks)), "inline": True}]},
         )
 
-        cover_data = get_itunes_artwork(artist_name, album_title)
+        cover_data = get_album_artwork(
+            artist_name, album_title, download_process.get("cover_url", "")
+        )
         if cover_data:
             with open(os.path.join(album_path, "cover.jpg"), "wb") as f:
                 f.write(cover_data)
