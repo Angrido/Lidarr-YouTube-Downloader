@@ -988,7 +988,12 @@ def _execute_manual_download(
 
 @app.route("/api/album/<int:album_id>/track/manual-download", methods=["POST"])
 def api_manual_track_download(album_id):
-    """Download a single track by user-supplied YouTube URL."""
+    """Queue a single track for download by user-supplied YouTube URL.
+
+    Validates inputs synchronously, then spawns a background thread
+    that updates download_process state so the track appears in
+    Current Download / Download Queue via SSE.
+    """
     client_ip = request.remote_addr or "unknown"
     if not check_rate_limit(
         f"manual_track:{client_ip}", rate_limit_store, window=5, max_requests=3
@@ -1039,28 +1044,29 @@ def api_manual_track_download(album_id):
     if not _validate_target_path(target_path, config):
         return jsonify({"success": False, "message": "Invalid target path"}), 400
 
-    os.makedirs(target_path, exist_ok=True)
-
     cover_url = ""
     images = album_data.get("images", [])
     if images:
         cover_url = images[0].get("remoteUrl", "")
 
-    return _execute_manual_dl(
-        youtube_url=youtube_url,
-        track_title=track_title,
-        track_num=track_num,
-        target_path=target_path,
-        album_data=album_data,
-        album_id=album_id,
-        album_title=album_title,
-        artist_name=artist_name,
-        config=config,
-        album_path=target_path,
-        lidarr_album_path=target_path if lidarr_path else "",
-        cover_url=cover_url,
-        run_acoustid=True,
-    )
+    def _run_manual_download():
+        _execute_manual_dl_with_progress(
+            youtube_url=youtube_url,
+            track_title=track_title,
+            track_num=track_num,
+            target_path=target_path,
+            album_data=album_data,
+            album_id=album_id,
+            album_title=album_title,
+            artist_name=artist_name,
+            config=config,
+            album_path=target_path,
+            lidarr_album_path=target_path if lidarr_path else "",
+            cover_url=cover_url,
+        )
+
+    threading.Thread(target=_run_manual_download, daemon=True).start()
+    return jsonify({"success": True, "message": "Download queued"})
 
 
 def _build_ydl_opts(config, temp_file):
@@ -1099,6 +1105,172 @@ def _cleanup_temp_files(temp_file):
                 logger.debug("Failed to remove temp file %s: %s", tmp, rm_err)
 
 
+def _execute_manual_dl_with_progress(
+    *, youtube_url, track_title, track_num, target_path,
+    album_data, album_id, album_title, artist_name, config,
+    album_path, lidarr_album_path, cover_url,
+):
+    """Download a manual track with download_process state tracking.
+
+    Waits for any active download to finish, then sets up
+    download_process so the track appears in Current Download via SSE.
+    Runs in a background thread.
+    """
+    for _ in range(300):
+        if not download_process["active"]:
+            break
+        time.sleep(1)
+    else:
+        logger.warning(
+            "Manual download timed out waiting for active download: %s",
+            track_title,
+        )
+        return
+
+    with queue_lock:
+        download_process["active"] = True
+        download_process["stop"] = False
+        download_process["album_id"] = album_id
+        download_process["album_title"] = album_title
+        download_process["artist_name"] = artist_name
+        download_process["cover_url"] = cover_url
+        download_process["current_track_index"] = 0
+        download_process["tracks"] = [{
+            "track_title": track_title,
+            "track_number": int(track_num),
+            "status": "downloading",
+            "youtube_url": youtube_url,
+            "youtube_title": "",
+            "progress_percent": "",
+            "progress_speed": "",
+            "error_message": "",
+            "skip": False,
+        }]
+
+    try:
+        os.makedirs(target_path, exist_ok=True)
+        _do_manual_dl(
+            youtube_url=youtube_url,
+            track_title=track_title,
+            track_num=track_num,
+            target_path=target_path,
+            album_data=album_data,
+            album_id=album_id,
+            album_title=album_title,
+            artist_name=artist_name,
+            config=config,
+            album_path=album_path,
+            lidarr_album_path=lidarr_album_path,
+            cover_url=cover_url,
+        )
+    finally:
+        with queue_lock:
+            download_process["active"] = False
+            download_process["tracks"] = []
+            download_process["current_track_index"] = -1
+            download_process["album_id"] = None
+            download_process["album_title"] = ""
+            download_process["artist_name"] = ""
+            download_process["cover_url"] = ""
+
+
+def _do_manual_dl(
+    *, youtube_url, track_title, track_num, target_path,
+    album_data, album_id, album_title, artist_name, config,
+    album_path, lidarr_album_path, cover_url,
+):
+    """Core manual download logic with progress state updates."""
+    import yt_dlp
+
+    track_state = download_process["tracks"][0]
+
+    sanitized_track = sanitize_filename(track_title)
+    temp_file = os.path.join(target_path, f"temp_manual_{uuid.uuid4().hex[:8]}")
+    final_file = os.path.join(
+        target_path, f"{int(track_num):02d} - {sanitized_track}.mp3"
+    )
+
+    def progress_hook(d):
+        if d["status"] == "downloading":
+            track_state["progress_percent"] = (
+                d.get("_percent_str", "0%").strip()
+            )
+            track_state["progress_speed"] = (
+                d.get("_speed_str", "N/A").strip()
+            )
+
+    ydl_opts = _build_ydl_opts(config, temp_file)
+    ydl_opts["progress_hooks"] = [progress_hook]
+
+    youtube_title = ""
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(youtube_url, download=False)
+            if info:
+                youtube_title = info.get("title", "")
+                track_state["youtube_title"] = youtube_title
+            ydl.download([youtube_url])
+    except Exception as e:
+        logger.error("yt-dlp download failed for '%s': %s", track_title, e)
+        _cleanup_temp_files(temp_file)
+        track_state["status"] = "failed"
+        track_state["error_message"] = str(e)[:200]
+        return
+
+    actual_file = temp_file + ".mp3"
+    if not os.path.exists(actual_file):
+        _cleanup_temp_files(temp_file)
+        track_state["status"] = "failed"
+        track_state["error_message"] = "Download failed -- file not created"
+        return
+
+    track_state["status"] = "tagging"
+    try:
+        track_info = _resolve_track_info(
+            track_title, track_num, album_data, album_id,
+        )
+        tag_mp3(actual_file, track_info, album_data, None)
+
+        if config.get("xml_metadata_enabled", True):
+            create_xml_metadata(
+                target_path, artist_name, album_title,
+                int(track_num), track_title,
+                album_data.get("foreignAlbumId", ""),
+                album_data.get("artist", {}).get("foreignArtistId", ""),
+            )
+
+        fp_data = {}
+        if config.get("acoustid_enabled") and config.get("acoustid_api_key"):
+            track_state["status"] = "verifying"
+            fp_data = _run_manual_acoustid(config, actual_file)
+
+        file_size = os.path.getsize(actual_file)
+        shutil.move(actual_file, final_file)
+        set_permissions(final_file)
+    except Exception as e:
+        logger.error(
+            "Post-download processing failed for '%s': %s",
+            track_title, e, exc_info=True,
+        )
+        _cleanup_temp_files(temp_file)
+        track_state["status"] = "failed"
+        track_state["error_message"] = str(e)[:200]
+        return
+
+    track_state["status"] = "done"
+
+    _record_manual_download(
+        album_id=album_id, album_title=album_title,
+        artist_name=artist_name, track_title=track_title,
+        track_num=track_num, youtube_url=youtube_url,
+        youtube_title=youtube_title,
+        album_path=album_path, lidarr_album_path=lidarr_album_path,
+        cover_url=cover_url, fp_data=fp_data, file_size=file_size,
+    )
+
+    _refresh_lidarr_artist(album_data, track_title)
+
+
 def _execute_manual_dl(
     *, youtube_url, track_title, track_num, target_path,
     album_data, album_id, album_title, artist_name, config,
@@ -1106,8 +1278,7 @@ def _execute_manual_dl(
 ):
     """Download a single track from a user-supplied YouTube URL.
 
-    Shared by both the failed-track retry endpoint and the
-    Home-page manual track download endpoint.
+    Used by the failed-track retry endpoint (synchronous context).
     """
     import yt_dlp
 
@@ -1188,8 +1359,8 @@ def _execute_manual_dl(
 
 def _record_manual_download(
     *, album_id, album_title, artist_name, track_title, track_num,
-    youtube_url, album_path, lidarr_album_path, cover_url,
-    fp_data, file_size,
+    youtube_url, youtube_title="", album_path, lidarr_album_path,
+    cover_url, fp_data, file_size,
 ):
     """Record a manual download in the DB and add a log entry."""
     try:
@@ -1199,7 +1370,7 @@ def _record_manual_download(
             track_number=int(track_num), success=True,
             error_message="",
             youtube_url=youtube_url,
-            youtube_title="Manual download",
+            youtube_title=youtube_title or track_title,
             match_score=1.0,
             duration_seconds=0,
             album_path=album_path,

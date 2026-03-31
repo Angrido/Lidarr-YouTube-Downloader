@@ -913,6 +913,7 @@ class TestManualTrackDownload:
 
         import yt_dlp
         import os
+        import time
 
         def fake_download(self_ydl, urls):
             outtmpl = self_ydl.params.get("outtmpl", "")
@@ -923,7 +924,11 @@ class TestManualTrackDownload:
             with open(mp3_path, "wb") as f:
                 f.write(b"\x00" * 100)
 
-        with patch.object(yt_dlp.YoutubeDL, "download", fake_download):
+        def fake_extract(self_ydl, url, download=True):
+            return {"title": "Fake Video Title"}
+
+        with patch.object(yt_dlp.YoutubeDL, "download", fake_download), \
+             patch.object(yt_dlp.YoutubeDL, "extract_info", fake_extract):
             resp = client.post(
                 "/api/album/1/track/manual-download",
                 json={
@@ -934,10 +939,18 @@ class TestManualTrackDownload:
                 },
             )
 
-        data = resp.get_json()
-        assert resp.status_code == 200, f"Expected 200 but got {resp.status_code}: {data}"
-        assert data["success"] is True
-        assert data["acoustid_score"] == 0.92
+            data = resp.get_json()
+            assert resp.status_code == 200
+            assert data["success"] is True
+            assert data["message"] == "Download queued"
+
+            for _ in range(50):
+                from processing import download_process
+                if not download_process["active"]:
+                    break
+                time.sleep(0.1)
+
+        mock_tag.assert_called_once()
 
     @patch("app._get_album_cached")
     def test_no_download_path_returns_400(self, mock_album, client, monkeypatch):
@@ -976,7 +989,7 @@ class TestManualTrackDownload:
     @patch("app._get_album_cached")
     @patch("app.set_permissions")
     @patch("app.tag_mp3")
-    def test_ytdlp_exception_returns_500(
+    def test_ytdlp_exception_sets_failed_status(
         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
     ):
         dl_path = str(tmp_path / "downloads")
@@ -988,11 +1001,16 @@ class TestManualTrackDownload:
             "images": [],
         }
         import yt_dlp
+        import time
 
         def boom(self_ydl, urls):
             raise Exception("yt-dlp exploded")
 
-        with patch.object(yt_dlp.YoutubeDL, "download", boom):
+        def fake_extract(self_ydl, url, download=True):
+            return {"title": "Fake Title"}
+
+        with patch.object(yt_dlp.YoutubeDL, "download", boom), \
+             patch.object(yt_dlp.YoutubeDL, "extract_info", fake_extract):
             resp = client.post(
                 "/api/album/1/track/manual-download",
                 json={
@@ -1001,13 +1019,19 @@ class TestManualTrackDownload:
                     "track_number": 1,
                 },
             )
-        assert resp.status_code == 500
-        assert "yt-dlp exploded" in resp.get_json()["message"]
+            assert resp.status_code == 200
+            assert resp.get_json()["message"] == "Download queued"
+
+            for _ in range(50):
+                from processing import download_process
+                if not download_process["active"]:
+                    break
+                time.sleep(0.1)
 
     @patch("app._get_album_cached")
     @patch("app.set_permissions")
     @patch("app.tag_mp3")
-    def test_file_not_created_returns_500(
+    def test_file_not_created_sets_failed_status(
         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
     ):
         dl_path = str(tmp_path / "downloads")
@@ -1019,8 +1043,13 @@ class TestManualTrackDownload:
             "images": [],
         }
         import yt_dlp
+        import time
 
-        with patch.object(yt_dlp.YoutubeDL, "download", lambda self, urls: None):
+        def fake_extract(self_ydl, url, download=True):
+            return {"title": "Fake Title"}
+
+        with patch.object(yt_dlp.YoutubeDL, "download", lambda self, urls: None), \
+             patch.object(yt_dlp.YoutubeDL, "extract_info", fake_extract):
             resp = client.post(
                 "/api/album/1/track/manual-download",
                 json={
@@ -1029,5 +1058,11 @@ class TestManualTrackDownload:
                     "track_number": 1,
                 },
             )
-        assert resp.status_code == 500
-        assert "file not created" in resp.get_json()["message"]
+            assert resp.status_code == 200
+            assert resp.get_json()["message"] == "Download queued"
+
+            for _ in range(50):
+                from processing import download_process
+                if not download_process["active"]:
+                    break
+                time.sleep(0.1)
