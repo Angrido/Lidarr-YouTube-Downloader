@@ -18,15 +18,18 @@ QUEUE_STATUS_DOWNLOADING = "downloading"
 QUEUE_STATUSES = {QUEUE_STATUS_QUEUED, QUEUE_STATUS_DOWNLOADING}
 
 
-def _paginate(query, count_query, params, page, per_page):
-    """Run a paginated query and return a standard response dict."""
+def _paginate(query_with_limit, count_query, params, page, per_page):
+    """Run a paginated query and return a standard response dict.
+
+    query_with_limit must include 'LIMIT ? OFFSET ?' placeholders at the end.
+    """
     conn = db.get_db()
     total = conn.execute(count_query, params).fetchone()[0]
     pages = max(1, math.ceil(total / per_page))
     page = max(1, min(page, pages))
     offset = (page - 1) * per_page
     rows = conn.execute(
-        query + " LIMIT ? OFFSET ?", (*params, per_page, offset)
+        query_with_limit, (*params, per_page, offset)
     ).fetchall()
     return {
         "items": [dict(row) for row in rows],
@@ -123,6 +126,7 @@ def get_album_history(page=1, per_page=50):
         )
         GROUP BY album_id, album_title, artist_name
         ORDER BY latest_timestamp DESC
+        LIMIT ? OFFSET ?
     """
     count_query = """
         SELECT COUNT(DISTINCT album_id) FROM track_downloads
@@ -132,9 +136,7 @@ def get_album_history(page=1, per_page=50):
     pages = max(1, math.ceil(total / per_page))
     page = max(1, min(page, pages))
     offset = (page - 1) * per_page
-    rows = conn.execute(
-        query + " LIMIT ? OFFSET ?", (per_page, offset)
-    ).fetchall()
+    rows = conn.execute(query, (per_page, offset)).fetchall()
     return {
         "items": [dict(row) for row in rows],
         "total": total,
@@ -259,7 +261,7 @@ def add_banned_url(
 
 def get_banned_urls(page=1, per_page=50):
     """Return paginated banned URLs, newest first."""
-    query = "SELECT * FROM banned_urls ORDER BY banned_at DESC"
+    query = "SELECT * FROM banned_urls ORDER BY banned_at DESC LIMIT ? OFFSET ?"
     count_query = "SELECT COUNT(*) FROM banned_urls"
     return _paginate(query, count_query, (), page, per_page)
 
@@ -338,13 +340,17 @@ def get_logs(page=1, per_page=50, log_type=None):
         query = (
             "SELECT * FROM download_logs"
             " WHERE type = ? ORDER BY timestamp DESC"
+            " LIMIT ? OFFSET ?"
         )
         count_query = (
             "SELECT COUNT(*) FROM download_logs WHERE type = ?"
         )
         params = (log_type,)
     else:
-        query = "SELECT * FROM download_logs ORDER BY timestamp DESC"
+        query = (
+            "SELECT * FROM download_logs ORDER BY timestamp DESC"
+            " LIMIT ? OFFSET ?"
+        )
         count_query = "SELECT COUNT(*) FROM download_logs"
         params = ()
     return _paginate(query, count_query, params, page, per_page)

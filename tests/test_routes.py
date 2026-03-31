@@ -1062,7 +1062,145 @@ class TestManualTrackDownload:
             assert resp.get_json()["message"] == "Download queued"
 
             for _ in range(50):
-                from processing import download_process
+                from processing import download_process  # noqa: F811
                 if not download_process["active"]:
                     break
                 time.sleep(0.1)
+
+
+class TestYoutubeStreamValidation:
+    """Tests for SSRF prevention in /api/youtube/stream."""
+
+    def test_rejects_non_youtube_url(self, client):
+        resp = client.get(
+            "/api/youtube/stream", query_string={"url": "http://evil.com/malicious"}
+        )
+        assert resp.status_code == 400
+        assert b"Invalid YouTube URL" in resp.data
+
+    def test_rejects_internal_url(self, client):
+        resp = client.get(
+            "/api/youtube/stream",
+            query_string={"url": "http://169.254.169.254/metadata"},
+        )
+        assert resp.status_code == 400
+
+    def test_rejects_file_scheme(self, client):
+        resp = client.get(
+            "/api/youtube/stream",
+            query_string={"url": "file:///etc/passwd"},
+        )
+        assert resp.status_code == 400
+
+    def test_rejects_empty_url(self, client):
+        resp = client.get("/api/youtube/stream", query_string={"url": ""})
+        assert resp.status_code == 400
+
+    def test_rejects_missing_url(self, client):
+        resp = client.get("/api/youtube/stream")
+        assert resp.status_code == 400
+
+
+class TestSafeStreamUrl:
+    """Tests for _is_safe_stream_url CDN allowlist."""
+
+    def test_allows_googlevideo(self):
+        from app import _is_safe_stream_url
+
+        assert _is_safe_stream_url(
+            "https://rr3---sn-abc.googlevideo.com/videoplayback?id=123"
+        )
+
+    def test_allows_youtube(self):
+        from app import _is_safe_stream_url
+
+        assert _is_safe_stream_url("https://www.youtube.com/stream/123")
+
+    def test_blocks_arbitrary_domain(self):
+        from app import _is_safe_stream_url
+
+        assert not _is_safe_stream_url("https://evil.com/audio.mp3")
+
+    def test_blocks_internal_ip(self):
+        from app import _is_safe_stream_url
+
+        assert not _is_safe_stream_url("http://192.168.1.1/internal")
+
+    def test_blocks_file_scheme(self):
+        from app import _is_safe_stream_url
+
+        assert not _is_safe_stream_url("file:///etc/passwd")
+
+    def test_blocks_empty_string(self):
+        from app import _is_safe_stream_url
+
+        assert not _is_safe_stream_url("")
+
+
+class TestValidateYoutubeUrl:
+    """Tests for _validate_youtube_url allowlist."""
+
+    def test_accepts_standard_youtube(self):
+        from app import _validate_youtube_url
+
+        result = _validate_youtube_url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        assert result == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    def test_accepts_short_url(self):
+        from app import _validate_youtube_url
+
+        result = _validate_youtube_url("https://youtu.be/dQw4w9WgXcQ")
+        assert result is not None
+
+    def test_accepts_music_youtube(self):
+        from app import _validate_youtube_url
+
+        result = _validate_youtube_url(
+            "https://music.youtube.com/watch?v=dQw4w9WgXcQ"
+        )
+        assert result is not None
+
+    def test_accepts_bare_video_id(self):
+        from app import _validate_youtube_url
+
+        result = _validate_youtube_url("dQw4w9WgXcQ")
+        assert result == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+
+    def test_rejects_non_youtube(self):
+        from app import _validate_youtube_url
+
+        assert _validate_youtube_url("https://evil.com/watch?v=abc") is None
+
+    def test_rejects_internal_host(self):
+        from app import _validate_youtube_url
+
+        assert _validate_youtube_url("http://localhost:8080/admin") is None
+
+    def test_rejects_javascript_scheme(self):
+        from app import _validate_youtube_url
+
+        assert _validate_youtube_url("javascript:alert(1)") is None
+
+
+class TestPathContainment:
+    """Tests for path traversal prevention in manual downloads."""
+
+    def test_sanitize_filename_strips_path_separators(self):
+        from utils import sanitize_filename
+
+        result = sanitize_filename("../../etc/passwd")
+        assert "/" not in result
+        assert ".." not in result
+
+    def test_sanitize_filename_strips_backslash(self):
+        from utils import sanitize_filename
+
+        result = sanitize_filename("..\\..\\windows\\system32")
+        assert "\\" not in result
+        assert ".." not in result
+
+    def test_validate_target_path_blocks_escape(self, client, tmp_path):
+        from app import _validate_target_path
+
+        config = {"lidarr_path": str(tmp_path / "music")}
+        assert not _validate_target_path("/etc/evil", config)

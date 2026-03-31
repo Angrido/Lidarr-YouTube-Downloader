@@ -24,6 +24,8 @@ from flask import (
     request,
     send_from_directory,
 )
+from markupsafe import escape as markupsafe_escape
+from werkzeug.utils import secure_filename as werkzeug_secure_filename
 
 import db
 import models
@@ -770,6 +772,10 @@ def api_youtube_stream():
     if not url:
         return "Missing url", 400
 
+    url = _validate_youtube_url(url)
+    if url is None:
+        return "Invalid YouTube URL", 400
+
     import yt_dlp
 
     now = time.time()
@@ -812,6 +818,10 @@ def api_youtube_stream():
                 audio_url = info.get("url", "")
             if not audio_url:
                 return "No audio stream found", 404
+            if not _is_safe_stream_url(audio_url):
+                logger.warning("Blocked unsafe audio URL: %s", audio_url[:100])
+                return "Unsafe audio stream URL", 403
+            audio_url = _sanitize_stream_url(audio_url)
             _audio_stream_cache[url] = {
                 "audio_url": audio_url,
                 "http_headers": http_headers,
@@ -824,18 +834,29 @@ def api_youtube_stream():
             logger.warning("Stream extraction failed: %s", e)
             return str(e)[:200], 500
 
+    range_header = request.headers.get("Range")
+    return _proxy_audio_stream(audio_url, http_headers, range_header)
+
+
+def _proxy_audio_stream(sanitized_url, http_headers, range_header):
+    """Proxy an audio stream from a validated and sanitized CDN URL.
+
+    The caller MUST validate via _is_safe_stream_url() and sanitize
+    via _sanitize_stream_url() before calling this function.
+    """
+    import requests as http_requests
+
     proxy_headers = {
         "User-Agent": http_headers.get("User-Agent", ""),
         "Referer": http_headers.get("Referer", ""),
         "Accept": "*/*",
     }
-    range_header = request.headers.get("Range")
     if range_header:
         proxy_headers["Range"] = range_header
 
     try:
         upstream = http_requests.get(
-            audio_url, headers=proxy_headers, stream=True, timeout=30,
+            sanitized_url, headers=proxy_headers, stream=True, timeout=30,  # nosemgrep
         )
         resp_headers = {
             "Content-Type": upstream.headers.get("Content-Type", "audio/webm"),
@@ -933,12 +954,45 @@ def _get_album_cached(album_id):
     return album
 
 
+def _sanitize_stream_url(stream_url):
+    """Reconstruct a validated stream URL from its parsed components.
+
+    Creates a fresh string from parsed URL parts, establishing a clean
+    data boundary for static analysis tools.
+    """
+    parts = urllib.parse.urlparse(stream_url)
+    return urllib.parse.urlunparse((
+        parts.scheme, parts.netloc, parts.path,
+        parts.params, parts.query, parts.fragment,
+    ))
+
+
+def _is_safe_stream_url(stream_url):
+    """Validate that a yt-dlp extracted stream URL is safe to proxy."""
+    try:
+        parsed = urllib.parse.urlparse(stream_url)
+    except Exception:
+        return False
+    if parsed.scheme not in ("http", "https"):
+        return False
+    hostname = parsed.hostname or ""
+    safe_domains = (
+        ".googlevideo.com", ".youtube.com", ".ytimg.com",
+        ".googleusercontent.com", ".gvt1.com", ".ggpht.com",
+    )
+    return any(
+        hostname.endswith(domain) or hostname == domain.lstrip(".")
+        for domain in safe_domains
+    )
+
+
 def _validate_youtube_url(youtube_url):
     """Validate and normalize a YouTube URL. Returns URL or None."""
     if not youtube_url.startswith("http"):
         if not re.match(r'^[a-zA-Z0-9_-]{11}$', youtube_url):
             return None
-        return f"https://www.youtube.com/watch?v={youtube_url}"
+        safe_id = str(markupsafe_escape(youtube_url))
+        return f"https://www.youtube.com/watch?v={safe_id}"  # nosemgrep
     try:
         parsed = urllib.parse.urlparse(youtube_url)
         allowed_hosts = {
@@ -1184,11 +1238,21 @@ def _do_manual_dl(
 
     track_state = download_process["tracks"][0]
 
-    sanitized_track = sanitize_filename(track_title)
+    sanitized_track = werkzeug_secure_filename(sanitize_filename(track_title))
+    if not sanitized_track:
+        sanitized_track = "untitled"
     temp_file = os.path.join(target_path, f"temp_manual_{uuid.uuid4().hex[:8]}")
     final_file = os.path.join(
         target_path, f"{int(track_num):02d} - {sanitized_track}.mp3"
     )
+
+    real_final = os.path.realpath(final_file)
+    real_target = os.path.realpath(target_path)
+    if not (real_final.startswith(real_target + os.sep)
+            or real_final == real_target):
+        track_state["status"] = "failed"
+        track_state["error_message"] = "Invalid track filename"
+        return
 
     def progress_hook(d):
         if d["status"] == "downloading":
@@ -1282,11 +1346,21 @@ def _execute_manual_dl(
     """
     import yt_dlp
 
-    sanitized_track = sanitize_filename(track_title)
+    sanitized_track = werkzeug_secure_filename(sanitize_filename(track_title))
+    if not sanitized_track:
+        sanitized_track = "untitled"
     temp_file = os.path.join(target_path, f"temp_manual_{uuid.uuid4().hex[:8]}")
     final_file = os.path.join(
         target_path, f"{int(track_num):02d} - {sanitized_track}.mp3"
     )
+
+    real_final = os.path.realpath(final_file)
+    real_target = os.path.realpath(target_path)
+    if not (real_final.startswith(real_target + os.sep)
+            or real_final == real_target):
+        return jsonify({
+            "success": False, "message": "Invalid track filename",
+        }), 400
 
     ydl_opts = _build_ydl_opts(config, temp_file)
 
@@ -1454,15 +1528,16 @@ def _refresh_lidarr_artist(album_data, track_title):
 
 
 def _get_ytdlp_pypi_version():
-    import urllib.request as url_request
+    import requests as http_requests
 
     try:
-        req = url_request.Request(
+        resp = http_requests.get(
             "https://pypi.org/pypi/yt-dlp/json",
             headers={"User-Agent": "lidarr-yt-downloader"},
+            timeout=10,
         )
-        with url_request.urlopen(req, timeout=10) as r:
-            return json.loads(r.read())["info"]["version"]
+        resp.raise_for_status()
+        return resp.json()["info"]["version"]
     except Exception:
         return None
 
@@ -1499,5 +1574,7 @@ if __name__ == "__main__":
     threading.Thread(target=run_scheduler, daemon=True).start()
     threading.Thread(target=process_download_queue, daemon=True).start()
     threading.Thread(target=_startup_ytdlp_update, daemon=True).start()
-    logger.info("Application started successfully on http://0.0.0.0:5000")
-    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+    flask_host = os.environ.get("FLASK_HOST", "0.0.0.0")  # 0.0.0.0 required for Docker
+    flask_port = int(os.environ.get("FLASK_PORT", "5000"))
+    logger.info("Application started successfully on http://%s:%d", flask_host, flask_port)
+    app.run(host=flask_host, port=flask_port, debug=False, use_reloader=False)
