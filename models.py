@@ -313,6 +313,7 @@ def mark_track_deleted(track_id):
 def add_log(
     log_type, album_id, album_title, artist_name,
     details="", total_file_size=0, track_number=None,
+    track_title="", track_download_id=None,
 ):
     """Create a download log entry. Returns the generated log ID."""
     conn = db.get_db()
@@ -324,11 +325,13 @@ def add_log(
     conn.execute(
         """INSERT INTO download_logs
            (id, type, album_id, album_title, artist_name, timestamp,
-            details, total_file_size)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            details, total_file_size,
+            track_title, track_number, track_download_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             log_id, log_type, album_id, album_title, artist_name,
             time.time(), details, total_file_size,
+            track_title, track_number, track_download_id,
         ),
     )
     conn.commit()
@@ -381,6 +384,62 @@ def get_logs_db_size():
         "SELECT SUM(LENGTH(details)) FROM download_logs"
     ).fetchone()
     return row[0] or 0
+
+
+# --- Candidate Attempts ---
+
+
+def flush_candidate_attempts(track_download_id, attempts):
+    """Bulk insert candidate attempt records for a track download."""
+    if not attempts:
+        return
+    conn = db.get_db()
+    conn.executemany(
+        """INSERT INTO candidate_attempts
+           (track_download_id, youtube_url, youtube_title,
+            match_score, duration_seconds, outcome,
+            acoustid_matched_id, acoustid_matched_title,
+            acoustid_score, expected_recording_id,
+            error_message, timestamp)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        [
+            (
+                track_download_id,
+                a["youtube_url"], a["youtube_title"],
+                a["match_score"], a["duration_seconds"],
+                a["outcome"].value
+                if isinstance(a["outcome"], CandidateOutcome)
+                else a["outcome"],
+                a["acoustid_matched_id"], a["acoustid_matched_title"],
+                a["acoustid_score"], a["expected_recording_id"],
+                a["error_message"], a["timestamp"],
+            )
+            for a in attempts
+        ],
+    )
+    conn.commit()
+
+
+def get_candidate_attempts(track_download_id):
+    """Return candidate attempts for a track download, oldest first."""
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT * FROM candidate_attempts"
+        " WHERE track_download_id = ?"
+        " ORDER BY timestamp ASC",
+        (track_download_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_banned_urls_for_album(album_id):
+    """Return list of {id, youtube_url} dicts for all banned URLs in an album."""
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT id, youtube_url FROM banned_urls WHERE album_id = ?",
+        (album_id,),
+    ).fetchall()
+    return [{"id": row[0], "youtube_url": row[1]} for row in rows]
 
 
 # --- Queue ---

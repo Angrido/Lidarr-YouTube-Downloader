@@ -556,3 +556,132 @@ def test_add_track_download_returns_id():
     )
     assert isinstance(row_id, int)
     assert row_id > 0
+
+
+# --- add_log with track fields ---
+
+
+def test_add_log_with_track_fields():
+    td_id = models.add_track_download(
+        album_id=1, album_title="A", artist_name="A",
+        track_title="T1", track_number=1, success=False,
+        error_message="fail", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    log_id = models.add_log(
+        "track_failure", 1, "A", "A",
+        details="no match", track_number=1,
+        track_title="T1", track_download_id=td_id,
+    )
+    result = models.get_logs(page=1, per_page=50)
+    item = result["items"][0]
+    assert item["id"] == log_id
+    assert item["track_title"] == "T1"
+    assert item["track_number"] == 1
+    assert item["track_download_id"] == td_id
+
+
+# --- Candidate Attempts ---
+
+
+class TestCandidateAttempts:
+
+    def test_flush_candidate_attempts_inserts_rows(self):
+        td_id = models.add_track_download(
+            album_id=1, album_title="A", artist_name="A",
+            track_title="T1", track_number=1, success=True,
+            error_message="", youtube_url="https://yt/final",
+            youtube_title="Final", match_score=0.95,
+            duration_seconds=240, album_path="/dl",
+            lidarr_album_path="/music", cover_url="",
+        )
+        attempts = [
+            {
+                "youtube_url": "https://yt/1",
+                "youtube_title": "Candidate 1",
+                "match_score": 0.8,
+                "duration_seconds": 230,
+                "outcome": CandidateOutcome.MISMATCH,
+                "acoustid_matched_id": "rec-wrong",
+                "acoustid_matched_title": "Wrong Song",
+                "acoustid_score": 0.4,
+                "expected_recording_id": "rec-expected",
+                "error_message": "AcoustID mismatch",
+                "timestamp": 1000.0,
+            },
+            {
+                "youtube_url": "https://yt/2",
+                "youtube_title": "Candidate 2",
+                "match_score": 0.95,
+                "duration_seconds": 240,
+                "outcome": CandidateOutcome.VERIFIED,
+                "acoustid_matched_id": "rec-expected",
+                "acoustid_matched_title": "Correct Song",
+                "acoustid_score": 0.92,
+                "expected_recording_id": "rec-expected",
+                "error_message": "",
+                "timestamp": 2000.0,
+            },
+        ]
+        models.flush_candidate_attempts(td_id, attempts)
+        rows = models.get_candidate_attempts(td_id)
+        assert len(rows) == 2
+        assert rows[0]["youtube_url"] == "https://yt/1"
+        assert rows[0]["outcome"] == "mismatch"
+        assert rows[1]["youtube_url"] == "https://yt/2"
+        assert rows[1]["outcome"] == "verified"
+        assert rows[1]["acoustid_score"] == 0.92
+
+    def test_flush_empty_list_is_noop(self):
+        td_id = models.add_track_download(
+            album_id=1, album_title="A", artist_name="A",
+            track_title="T1", track_number=1, success=True,
+            error_message="", youtube_url="", youtube_title="",
+            match_score=0.0, duration_seconds=0,
+            album_path="", lidarr_album_path="", cover_url="",
+        )
+        models.flush_candidate_attempts(td_id, [])
+        rows = models.get_candidate_attempts(td_id)
+        assert len(rows) == 0
+
+    def test_get_candidate_attempts_ordered_by_timestamp(self):
+        td_id = models.add_track_download(
+            album_id=1, album_title="A", artist_name="A",
+            track_title="T1", track_number=1, success=True,
+            error_message="", youtube_url="", youtube_title="",
+            match_score=0.0, duration_seconds=0,
+            album_path="", lidarr_album_path="", cover_url="",
+        )
+        attempts = [
+            {
+                "youtube_url": "https://yt/later",
+                "youtube_title": "Later",
+                "match_score": 0.9,
+                "duration_seconds": 200,
+                "outcome": CandidateOutcome.VERIFIED,
+                "acoustid_matched_id": "",
+                "acoustid_matched_title": "",
+                "acoustid_score": 0.0,
+                "expected_recording_id": "",
+                "error_message": "",
+                "timestamp": 3000.0,
+            },
+            {
+                "youtube_url": "https://yt/earlier",
+                "youtube_title": "Earlier",
+                "match_score": 0.7,
+                "duration_seconds": 180,
+                "outcome": CandidateOutcome.MISMATCH,
+                "acoustid_matched_id": "",
+                "acoustid_matched_title": "",
+                "acoustid_score": 0.0,
+                "expected_recording_id": "",
+                "error_message": "",
+                "timestamp": 1000.0,
+            },
+        ]
+        models.flush_candidate_attempts(td_id, attempts)
+        rows = models.get_candidate_attempts(td_id)
+        assert rows[0]["youtube_title"] == "Earlier"
+        assert rows[1]["youtube_title"] == "Later"
