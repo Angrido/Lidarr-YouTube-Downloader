@@ -35,7 +35,7 @@ def test_init_db_sets_schema_version(temp_db):
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
     conn.close()
-    assert row[0] == 4
+    assert row[0] == 5
 
 
 def test_init_db_idempotent(temp_db):
@@ -44,8 +44,8 @@ def test_init_db_idempotent(temp_db):
     conn = sqlite3.connect(temp_db)
     rows = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()
     conn.close()
-    # V1 insert + V2 migration + V3 migration + V4 migration = 4 rows
-    assert rows[0] == 4
+    # V1 insert + V2..V5 migrations = 5 rows
+    assert rows[0] == 5
 
 
 def test_get_db_returns_connection(temp_db):
@@ -185,7 +185,7 @@ def test_migrate_v1_to_v2_creates_track_downloads(temp_db):
         "SELECT version FROM schema_version"
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
-    assert row[0] == 4
+    assert row[0] == 5
     conn.close()
 
 
@@ -337,7 +337,7 @@ def test_migrate_v2_to_v3_adds_acoustid_columns(temp_db):
         "SELECT version FROM schema_version"
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
-    assert row[0] == 4
+    assert row[0] == 5
     conn.close()
 
 
@@ -416,4 +416,79 @@ def test_schema_version_is_4(temp_db):
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
     conn.close()
-    assert row[0] == 4
+    assert row[0] == 5
+
+
+# --- V4 to V5 Migration ---
+
+
+def test_v5_migration_creates_candidate_attempts(temp_db):
+    """V5 migration creates candidate_attempts table with all columns."""
+    init_db()
+    conn = sqlite3.connect(temp_db)
+    tables = {
+        row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+    }
+    assert "candidate_attempts" in tables
+
+    cols = [
+        row[1]
+        for row in conn.execute("PRAGMA table_info(candidate_attempts)")
+    ]
+    expected = [
+        "id", "track_download_id", "youtube_url", "youtube_title",
+        "match_score", "duration_seconds", "outcome",
+        "acoustid_matched_id", "acoustid_matched_title",
+        "acoustid_score", "expected_recording_id",
+        "error_message", "timestamp",
+    ]
+    for col in expected:
+        assert col in cols, f"Missing column: {col}"
+
+    indexes = {
+        row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+            " AND tbl_name='candidate_attempts'"
+        ).fetchall()
+    }
+    assert "idx_ca_track_dl_id" in indexes
+    conn.close()
+
+
+def test_v5_migration_adds_download_logs_columns(temp_db):
+    """V5 migration adds track_title, track_number, track_download_id to download_logs."""
+    init_db()
+    conn = sqlite3.connect(temp_db)
+    cols = [
+        row[1]
+        for row in conn.execute("PRAGMA table_info(download_logs)")
+    ]
+    assert "track_title" in cols
+    assert "track_number" in cols
+    assert "track_download_id" in cols
+    conn.close()
+
+
+def test_v5_migration_preserves_existing_logs(temp_db):
+    """Existing download_logs rows get default values for new columns."""
+    init_db()
+    conn = sqlite3.connect(temp_db)
+    conn.execute(
+        "INSERT INTO download_logs"
+        " (id, type, album_id, album_title, artist_name,"
+        "  timestamp, details, total_file_size)"
+        " VALUES ('test1', 'download_success', 1, 'Album', 'Artist',"
+        "  1234567890.0, 'ok', 0)"
+    )
+    conn.commit()
+
+    row = conn.execute(
+        "SELECT track_title, track_number, track_download_id"
+        " FROM download_logs WHERE id = 'test1'"
+    ).fetchone()
+    assert row[0] == ""
+    assert row[1] is None
+    assert row[2] is None
+    conn.close()

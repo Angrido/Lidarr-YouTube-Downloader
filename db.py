@@ -9,7 +9,7 @@ import time
 logger = logging.getLogger(__name__)
 
 DB_PATH = "/config/lidarr-downloader.db"
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _local = threading.local()
 
@@ -275,12 +275,51 @@ def _migrate_v3_to_v4(conn):
     )
 
 
+def _migrate_v4_to_v5(conn):
+    """Add candidate_attempts table and track context to download_logs."""
+    conn.execute("""
+        CREATE TABLE candidate_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            track_download_id INTEGER NOT NULL
+                REFERENCES track_downloads(id),
+            youtube_url TEXT DEFAULT '',
+            youtube_title TEXT DEFAULT '',
+            match_score REAL DEFAULT 0.0,
+            duration_seconds INTEGER DEFAULT 0,
+            outcome TEXT NOT NULL,
+            acoustid_matched_id TEXT DEFAULT '',
+            acoustid_matched_title TEXT DEFAULT '',
+            acoustid_score REAL DEFAULT 0.0,
+            expected_recording_id TEXT DEFAULT '',
+            error_message TEXT DEFAULT '',
+            timestamp REAL NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX idx_ca_track_dl_id"
+        " ON candidate_attempts(track_download_id)"
+    )
+    conn.execute(
+        "ALTER TABLE download_logs"
+        " ADD COLUMN track_title TEXT DEFAULT ''"
+    )
+    conn.execute(
+        "ALTER TABLE download_logs"
+        " ADD COLUMN track_number INTEGER DEFAULT NULL"
+    )
+    conn.execute(
+        "ALTER TABLE download_logs"
+        " ADD COLUMN track_download_id INTEGER DEFAULT NULL"
+    )
+
+
 def _run_migrations(conn, current_version):
     """Run any pending schema migrations sequentially."""
     migrations = {
         2: _migrate_v1_to_v2,
         3: _migrate_v2_to_v3,
         4: _migrate_v3_to_v4,
+        5: _migrate_v4_to_v5,
     }
     for version in sorted(migrations):
         if current_version < version:
