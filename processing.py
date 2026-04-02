@@ -1155,6 +1155,17 @@ def _handle_post_download(
                     " failed to download"
                 ),
             )
+            for ft in failed_tracks:
+                models.add_log(
+                    log_type="track_failure",
+                    album_id=album_id,
+                    album_title=album_title,
+                    artist_name=artist_name,
+                    details=ft["reason"],
+                    track_title=ft["title"],
+                    track_number=ft["track_num"],
+                    track_download_id=ft.get("track_download_id"),
+                )
             download_process["result_success"] = False
             return {"error": "All tracks failed to download"}
 
@@ -1190,6 +1201,17 @@ def _handle_post_download(
             ),
             total_file_size=total_downloaded_size,
         )
+        for ft in failed_tracks:
+            models.add_log(
+                log_type="track_failure",
+                album_id=album_id,
+                album_title=album_title,
+                artist_name=artist_name,
+                details=ft["reason"],
+                track_title=ft["title"],
+                track_number=ft["track_num"],
+                track_download_id=ft.get("track_download_id"),
+            )
     else:
         models.add_log(
             log_type="download_success",

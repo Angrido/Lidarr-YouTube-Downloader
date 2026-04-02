@@ -1341,3 +1341,30 @@ class TestCandidateAttemptCapture:
         assert isinstance(failed[0]["track_download_id"], int)
 
         self._teardown_download_process()
+
+
+def test_handle_post_download_creates_track_failure_logs(monkeypatch):
+    """After a partial download, each failed track gets its own log entry."""
+    import processing
+
+    monkeypatch.setattr(processing, "download_process", {
+        "tracks": [
+            {"status": "done"},
+            {"status": "failed"},
+            {"status": "failed"},
+        ],
+        "stop": False,
+    })
+    monkeypatch.setattr(processing, "send_notifications", lambda *a, **kw: None)
+
+    failed_tracks = [
+        {"title": "Track2", "reason": "AcoustID failed", "track_num": 2, "track_download_id": 10},
+        {"title": "Track3", "reason": "Download failed", "track_num": 3, "track_download_id": 11},
+    ]
+    processing._handle_post_download(
+        failed_tracks, [None, None, None], 1, "Album", "Artist", 5000000,
+    )
+    logs = models.get_logs(log_type="track_failure")
+    assert logs["total"] == 2
+    titles = {item["track_title"] for item in logs["items"]}
+    assert titles == {"Track2", "Track3"}
