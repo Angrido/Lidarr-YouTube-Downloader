@@ -546,15 +546,24 @@ def _accept_track_file(
                 "acoustid_recording_title", "",
             ),
         )
-        if candidate_attempts and track_download_id is not None:
-            models.flush_candidate_attempts(
-                track_download_id, candidate_attempts,
-            )
     except Exception:
         logger.error(
             "Failed to record track download for '%s' (album %d)",
             track_title, album_ctx["album_id"], exc_info=True,
         )
+        return file_size
+
+    if candidate_attempts and track_download_id is not None:
+        try:
+            models.flush_candidate_attempts(
+                track_download_id, candidate_attempts,
+            )
+        except Exception:
+            logger.error(
+                "Failed to flush candidate attempts for '%s'"
+                " (track_download_id %d)",
+                track_title, track_download_id, exc_info=True,
+            )
 
     return file_size
 
@@ -589,23 +598,33 @@ def _record_track_failure(
             lidarr_album_path=album_ctx["lidarr_album_path"],
             cover_url=album_ctx["cover_url"],
         )
-        if candidate_attempts and track_download_id is not None:
-            models.flush_candidate_attempts(
-                track_download_id, candidate_attempts,
-            )
-        with _results_lock:
-            for entry in failed_tracks:
-                if (
-                    entry["track_num"] == track_num
-                    and entry["track_download_id"] is None
-                ):
-                    entry["track_download_id"] = track_download_id
-                    break
     except Exception:
         logger.error(
             "Failed to record track download for '%s' (album %d)",
             track_title, album_ctx["album_id"], exc_info=True,
         )
+        return
+
+    if candidate_attempts and track_download_id is not None:
+        try:
+            models.flush_candidate_attempts(
+                track_download_id, candidate_attempts,
+            )
+        except Exception:
+            logger.error(
+                "Failed to flush candidate attempts for '%s'"
+                " (track_download_id %d)",
+                track_title, track_download_id, exc_info=True,
+            )
+
+    with _results_lock:
+        for entry in failed_tracks:
+            if (
+                entry["track_num"] == track_num
+                and entry["track_download_id"] is None
+            ):
+                entry["track_download_id"] = track_download_id
+                break
 
 
 def _download_tracks(
@@ -1048,16 +1067,24 @@ def _handle_post_download(
                 ),
             )
             for ft in failed_tracks:
-                models.add_log(
-                    log_type="track_failure",
-                    album_id=album_id,
-                    album_title=album_title,
-                    artist_name=artist_name,
-                    details=ft["reason"],
-                    track_title=ft["title"],
-                    track_number=ft["track_num"],
-                    track_download_id=ft.get("track_download_id"),
-                )
+                try:
+                    models.add_log(
+                        log_type="track_failure",
+                        album_id=album_id,
+                        album_title=album_title,
+                        artist_name=artist_name,
+                        details=ft["reason"],
+                        track_title=ft["title"],
+                        track_number=ft["track_num"],
+                        track_download_id=ft.get(
+                            "track_download_id",
+                        ),
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to log track_failure for '%s'",
+                        ft["title"], exc_info=True,
+                    )
             download_process["result_success"] = False
             return {"error": "All tracks failed to download"}
 
@@ -1094,16 +1121,24 @@ def _handle_post_download(
             total_file_size=total_downloaded_size,
         )
         for ft in failed_tracks:
-            models.add_log(
-                log_type="track_failure",
-                album_id=album_id,
-                album_title=album_title,
-                artist_name=artist_name,
-                details=ft["reason"],
-                track_title=ft["title"],
-                track_number=ft["track_num"],
-                track_download_id=ft.get("track_download_id"),
-            )
+            try:
+                models.add_log(
+                    log_type="track_failure",
+                    album_id=album_id,
+                    album_title=album_title,
+                    artist_name=artist_name,
+                    details=ft["reason"],
+                    track_title=ft["title"],
+                    track_number=ft["track_num"],
+                    track_download_id=ft.get(
+                        "track_download_id",
+                    ),
+                )
+            except Exception:
+                logger.warning(
+                    "Failed to log track_failure for '%s'",
+                    ft["title"], exc_info=True,
+                )
     else:
         models.add_log(
             log_type="download_success",
