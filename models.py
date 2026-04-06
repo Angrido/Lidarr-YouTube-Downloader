@@ -234,6 +234,7 @@ def get_history_album_ids_since(since_timestamp):
 def clear_history():
     """Delete all track download records."""
     conn = db.get_db()
+    conn.execute("DELETE FROM candidate_attempts")
     conn.execute("DELETE FROM track_downloads")
     conn.commit()
 

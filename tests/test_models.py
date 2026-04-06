@@ -224,14 +224,23 @@ def test_get_history_album_ids_since():
 
 
 def test_clear_history():
-    models.add_track_download(
+    track_download_id = models.add_track_download(
         album_id=1, album_title="A", artist_name="A",
         track_title="T1", track_number=1, success=True,
         error_message="", youtube_url="", youtube_title="",
         match_score=0.0, duration_seconds=0,
         album_path="", lidarr_album_path="", cover_url="",
     )
+    models.flush_candidate_attempts(track_download_id, [{
+        "youtube_url": "u", "youtube_title": "t",
+        "match_score": 0.0, "duration_seconds": 0,
+        "outcome": "accepted",
+        "acoustid_matched_id": None, "acoustid_matched_title": None,
+        "acoustid_score": None, "expected_recording_id": None,
+        "error_message": None, "timestamp": 0,
+    }])
     models.clear_history()
+    assert models.get_candidate_attempts(track_download_id) == []
     result = models.get_album_history(page=1, per_page=50)
     assert result["total"] == 0
 
