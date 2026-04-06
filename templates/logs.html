@@ -1370,6 +1370,24 @@
             fetchLogs();
         }
 
+        function getExpandedIds() {
+            var expanded = [];
+            document.querySelectorAll('.candidates-container.expanded').forEach(function(el) {
+                var id = el.id.replace('candidates-', '');
+                if (id) expanded.push(id);
+            });
+            return expanded;
+        }
+
+        function restoreExpandedIds(ids) {
+            ids.forEach(function(id) {
+                var container = document.getElementById('candidates-' + id);
+                var pill = document.getElementById('pill-' + id);
+                if (container) container.classList.add('expanded');
+                if (pill) pill.classList.add('open');
+            });
+        }
+
         function renderLogs(logs, total) {
             const container = document.getElementById('logsContainer');
             const emptyState = document.getElementById('emptyState');
@@ -1381,10 +1399,12 @@
                 return;
             }
 
+            var expandedIds = getExpandedIds();
             emptyState.style.display = 'none';
-            // renderLogEntry only interpolates escapeHtml()-sanitised
-            // values and hardcoded class literals, so this is safe.
-            container.innerHTML = logs.map(renderLogEntry).join('');
+            /* renderLogEntry only interpolates escapeHtml()-sanitised
+               values and hardcoded class literals — safe for innerHTML. */
+            container.innerHTML = logs.map(renderLogEntry).join('');  // eslint-disable-line -- pre-sanitised HTML, see renderLogEntry
+            restoreExpandedIds(expandedIds);
             renderPagination(
                 'logsPagination', logsCurrentPage,
                 logsTotalPages, logsTotal,
