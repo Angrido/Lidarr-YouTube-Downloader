@@ -1569,3 +1569,69 @@ class TestNotifyManualDownload:
         kwargs = mock_send.call_args.kwargs
         assert kwargs["photo_url"] is None
         assert "thumbnail" not in kwargs["embed_data"]
+
+    def test_youtube_link_rendered_in_both_channels(self):
+        """youtube_url must appear as a clickable link in Telegram (MD2)
+        with the video title as the label, and in the Discord embed
+        url + a YouTube field."""
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+                youtube_url="https://youtu.be/abc",
+                youtube_title="Song (Official Video)",
+            )
+        kwargs = mock_send.call_args.kwargs
+        # Telegram MD2 body has a clickable link with escaped label.
+        tg = kwargs["telegram_message"]
+        assert kwargs["telegram_parse_mode"] == "MarkdownV2"
+        assert "Song \\(Official Video\\)" in tg
+        assert "](https://youtu.be/abc)" in tg
+        # Discord embed has the url and a field pointing at YouTube.
+        embed = kwargs["embed_data"]
+        assert embed["url"] == "https://youtu.be/abc"
+        yt_fields = [f for f in embed["fields"] if f["name"] == "YouTube"]
+        assert yt_fields
+        assert "https://youtu.be/abc" in yt_fields[0]["value"]
+        assert "Song (Official Video)" in yt_fields[0]["value"]
+
+    def test_youtube_link_falls_back_to_track_title(self):
+        """When youtube_title is empty, the track title is used as the
+        link label."""
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Fallback",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+                youtube_url="https://youtu.be/xyz",
+                youtube_title="",
+            )
+        kwargs = mock_send.call_args.kwargs
+        embed = kwargs["embed_data"]
+        yt_fields = [f for f in embed["fields"] if f["name"] == "YouTube"]
+        assert "Fallback" in yt_fields[0]["value"]
+
+    def test_no_youtube_url_omits_link(self):
+        """Without youtube_url, neither the MD2 body nor the embed get
+        a YouTube link/field."""
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+                youtube_url="",
+            )
+        kwargs = mock_send.call_args.kwargs
+        embed = kwargs["embed_data"]
+        assert "url" not in embed
+        assert not [f for f in embed["fields"] if f["name"] == "YouTube"]
