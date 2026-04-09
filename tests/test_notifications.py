@@ -321,21 +321,6 @@ def test_md2_link_escapes_label_and_url():
     assert "\\)" in link.split("](", 1)[1]
 
 
-def test_build_lidarr_album_link_returns_empty_when_missing():
-    assert notifications.build_lidarr_album_link("", "abc") == ""
-    assert notifications.build_lidarr_album_link("http://l", "") == ""
-
-
-def test_build_lidarr_album_link_strips_trailing_slash():
-    link = notifications.build_lidarr_album_link(
-        "http://lidarr/", "abc-123",
-    )
-    assert "http://lidarr/album/abc-123" in link
-    # MD2 label should be present and escaped (the label has no
-    # specials so it appears verbatim).
-    assert "Open in Lidarr" in link
-
-
 def test_build_musicbrainz_link_uses_release_group():
     link = notifications.build_musicbrainz_link("mbid-xyz")
     assert "musicbrainz.org/release-group/mbid-xyz" in link

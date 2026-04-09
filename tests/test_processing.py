@@ -1824,6 +1824,76 @@ class TestFormatFailedTracks:
         assert "0\\.5" in lines[0]
 
 
+class TestFormatYouTubeLinks:
+    """`_format_youtube_links_*` helpers render YouTube sources."""
+
+    def test_md2_uses_video_title_as_label(self):
+        import processing
+
+        succeeded = [{
+            "title": "Song A",
+            "youtube_url": "https://youtu.be/abc",
+            "youtube_title": "Song A (Official Video)",
+        }]
+        lines = processing._format_youtube_links_md2(succeeded)
+        assert len(lines) == 1
+        # Label is the video title (with specials escaped) and the
+        # href is the raw youtube URL.
+        assert "Song A \\(Official Video\\)" in lines[0]
+        assert "](https://youtu.be/abc)" in lines[0]
+
+    def test_md2_falls_back_to_track_title(self):
+        import processing
+
+        succeeded = [{
+            "title": "Fallback",
+            "youtube_url": "https://youtu.be/xyz",
+            "youtube_title": "",
+        }]
+        lines = processing._format_youtube_links_md2(succeeded)
+        assert "Fallback" in lines[0]
+        assert "](https://youtu.be/xyz)" in lines[0]
+
+    def test_md2_skips_tracks_without_url(self):
+        import processing
+
+        succeeded = [
+            {"title": "Has URL", "youtube_url": "https://y/1",
+             "youtube_title": "t1"},
+            {"title": "No URL", "youtube_url": "",
+             "youtube_title": ""},
+        ]
+        lines = processing._format_youtube_links_md2(succeeded)
+        assert len(lines) == 1
+        assert "Has URL" not in "\n".join(lines) or "https://y/1" in lines[0]
+
+    def test_field_plain_text_has_title_and_url(self):
+        import processing
+
+        succeeded = [{
+            "title": "Song",
+            "youtube_url": "https://youtu.be/abc",
+            "youtube_title": "Official",
+        }]
+        field = processing._format_youtube_links_field(succeeded)
+        assert "Official" in field
+        assert "https://youtu.be/abc" in field
+
+    def test_field_truncates(self):
+        import processing
+
+        succeeded = [
+            {"title": f"T{i}", "youtube_url": f"https://y/{i}",
+             "youtube_title": "x" * 100}
+            for i in range(50)
+        ]
+        field = processing._format_youtube_links_field(
+            succeeded, limit=200,
+        )
+        assert len(field) <= 200
+        assert field.endswith("…")
+
+
 class TestSendAlbumNotification:
     """`_send_album_notification` routes data into both channels."""
 
@@ -1857,16 +1927,19 @@ class TestSendAlbumNotification:
         assert captured["log_type"] == "download_success"
         assert captured["telegram_parse_mode"] == "MarkdownV2"
         assert captured["photo_url"] == "https://i/c.jpg"
-        # MD2 body has escaped specials and the Lidarr/MB links.
+        # MD2 body has escaped specials and only the MusicBrainz link.
         tg = captured["telegram_message"]
         assert "A\\.B\\." in tg
         assert "Album \\(Deluxe\\)" in tg
-        assert "lidarr/album/mbid-1" in tg
+        assert "lidarr" not in tg
+        assert "Open in Lidarr" not in tg
         assert "musicbrainz.org/release-group/mbid-1" in tg
-        # Discord embed carries thumbnail + url + the field.
+        # Discord embed carries thumbnail + MusicBrainz url + the field.
         embed = captured["embed_data"]
         assert embed["thumbnail"] == "https://i/c.jpg"
-        assert embed["url"] == "http://lidarr/album/mbid-1"
+        assert embed["url"] == (
+            "https://musicbrainz.org/release-group/mbid-1"
+        )
         assert embed["fields"][0]["value"] == "5/5"
 
     def test_omits_links_when_no_mbid(self, monkeypatch):

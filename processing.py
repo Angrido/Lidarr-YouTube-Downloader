@@ -29,8 +29,8 @@ from metadata import (
     tag_mp3,
 )
 from notifications import (
-    build_lidarr_album_link,
     build_musicbrainz_link,
+    md2_link,
     md2_escape,
     send_notifications,
 )
@@ -102,9 +102,6 @@ def _send_album_notification(
             any literal MD2 specials.
         disable_notification: If true, deliver Telegram silently.
     """
-    cfg = load_config()
-    lidarr_url = cfg.get("lidarr_url", "")
-
     plain_lines = [
         title,
         f"Album: {album_title}",
@@ -118,15 +115,9 @@ def _send_album_notification(
     if extra_md2_lines:
         md2_lines.extend(extra_md2_lines)
 
-    link_parts = []
-    lidarr_link = build_lidarr_album_link(lidarr_url, album_mbid)
-    if lidarr_link:
-        link_parts.append(lidarr_link)
     mb_link = build_musicbrainz_link(album_mbid)
     if mb_link:
-        link_parts.append(mb_link)
-    if link_parts:
-        md2_lines.append(" \\| ".join(link_parts))
+        md2_lines.append(mb_link)
 
     embed_data = {
         "title": title,
@@ -137,9 +128,9 @@ def _send_album_notification(
         embed_data["thumbnail"] = cover_url
     if fields:
         embed_data["fields"] = fields
-    if lidarr_url and album_mbid:
+    if album_mbid:
         embed_data["url"] = (
-            f"{lidarr_url.rstrip('/')}/album/{album_mbid}"
+            f"https://musicbrainz.org/release-group/{album_mbid}"
         )
 
     send_notifications(
@@ -1095,6 +1086,10 @@ def _download_tracks(
                     "title": track_title,
                     "track_num": track_num,
                     "track_download_id": td_id,
+                    "youtube_url": dl_result.get("youtube_url", ""),
+                    "youtube_title": dl_result.get(
+                        "youtube_title", ""
+                    ),
                 })
             accepted = True
             break
@@ -1186,6 +1181,12 @@ def _download_tracks(
                             "title": track_title,
                             "track_num": track_num,
                             "track_download_id": td_id,
+                            "youtube_url": fb_result.get(
+                                "youtube_url", ""
+                            ),
+                            "youtube_title": fb_result.get(
+                                "youtube_title", ""
+                            ),
                         })
                     return
                 else:
@@ -1293,6 +1294,50 @@ def _format_failed_tracks_md2(failed_tracks):
     return lines
 
 
+def _format_youtube_links_field(succeeded_tracks, *, limit=1024):
+    """Plain-text YouTube links for a Discord embed field.
+
+    Each line shows ``• <youtube title> — <url>``. Tracks without a URL
+    are skipped. Truncates to ``limit`` characters.
+    """
+    lines = []
+    for st in succeeded_tracks:
+        url = st.get("youtube_url", "")
+        if not url:
+            continue
+        label = (
+            st.get("youtube_title")
+            or st.get("title")
+            or url
+        )
+        lines.append(f"• {label} — {url}")
+    text = "\n".join(lines)
+    if len(text) > limit:
+        text = text[: limit - 1] + "…"
+    return text
+
+
+def _format_youtube_links_md2(succeeded_tracks):
+    """MarkdownV2 lines of clickable YouTube links for Telegram.
+
+    Each line renders the YouTube video title as the link label, with
+    the underlying href pointing at the actual YouTube URL. Tracks
+    without a URL are skipped.
+    """
+    lines = []
+    for st in succeeded_tracks:
+        url = st.get("youtube_url", "")
+        if not url:
+            continue
+        label = (
+            st.get("youtube_title")
+            or st.get("title")
+            or url
+        )
+        lines.append(f"• {md2_link(label, url)}")
+    return lines
+
+
 def _verify_summary_lines(verify_stats, verified_total):
     """Build (plain_field_value, md2_lines) describing AcoustID stats.
 
@@ -1346,6 +1391,8 @@ def _handle_post_download(
     verify_field, verify_md2_lines = _verify_summary_lines(
         verify_stats, verified_total,
     )
+    yt_links_field = _format_youtube_links_field(succeeded_tracks)
+    yt_links_md2 = _format_youtube_links_md2(succeeded_tracks)
 
     if failed_tracks:
         failed_field = _format_failed_tracks_field(failed_tracks)
@@ -1437,6 +1484,9 @@ def _handle_post_download(
             )
         partial_extra.append("*Failed tracks:*")
         partial_extra.extend(failed_md2)
+        if yt_links_md2:
+            partial_extra.append("*Downloaded from YouTube:*")
+            partial_extra.extend(yt_links_md2)
         partial_fields = []
         if verify_field:
             partial_fields.append({
@@ -1447,6 +1497,11 @@ def _handle_post_download(
             "name": "Failed Tracks",
             "value": failed_field, "inline": False,
         })
+        if yt_links_field:
+            partial_fields.append({
+                "name": "YouTube Sources",
+                "value": yt_links_field, "inline": False,
+            })
         _send_album_notification(
             log_type="partial_success",
             title="Partial Download",
@@ -1518,6 +1573,14 @@ def _handle_post_download(
             f"*Tracks:* {md2_escape(f'{attempted_count}/{attempted_count}')}",
         ]
         success_extra.extend(verify_md2_lines)
+        if yt_links_md2:
+            success_extra.append("*Downloaded from YouTube:*")
+            success_extra.extend(yt_links_md2)
+        if yt_links_field:
+            success_fields.append({
+                "name": "YouTube Sources",
+                "value": yt_links_field, "inline": False,
+            })
         _send_album_notification(
             log_type="download_success",
             title="Download Successful",

@@ -49,18 +49,6 @@ def md2_link(label, url):
     return f"[{safe_label}]({safe_url})"
 
 
-def build_lidarr_album_link(lidarr_url, album_mbid):
-    """Return a MarkdownV2 link to the album in Lidarr, or empty string.
-
-    Lidarr's web UI routes to ``/album/{foreignAlbumId}``; the foreign
-    album ID is the MusicBrainz release-group MBID exposed by Lidarr.
-    """
-    if not lidarr_url or not album_mbid:
-        return ""
-    base = lidarr_url.rstrip("/")
-    return md2_link("Open in Lidarr", f"{base}/album/{album_mbid}")
-
-
 def build_musicbrainz_link(album_mbid):
     """Return a MarkdownV2 link to the MusicBrainz release group."""
     if not album_mbid:
