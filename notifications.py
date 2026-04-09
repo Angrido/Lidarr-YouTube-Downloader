@@ -134,7 +134,12 @@ def send_telegram(
             }
         if parse_mode:
             payload["parse_mode"] = parse_mode
-        requests.post(url, json=payload, timeout=10)
+        response = requests.post(url, json=payload, timeout=10)
+        if response.status_code != 200:
+            logger.warning(
+                "Telegram API returned %d: %s",
+                response.status_code, response.text[:500],
+            )
     except Exception as e:
         logger.warning(f"Telegram notification failed: {e}")
 
@@ -176,7 +181,12 @@ def send_discord(message, log_type=None, embed_data=None):
             payload["embeds"] = [embed]
         else:
             payload["content"] = message
-        requests.post(webhook_url, json=payload, timeout=10)
+        response = requests.post(webhook_url, json=payload, timeout=10)
+        if response.status_code >= 300:
+            logger.warning(
+                "Discord webhook returned %d: %s",
+                response.status_code, response.text[:500],
+            )
     except Exception as e:
         logger.warning(f"Discord notification failed: {e}")
 

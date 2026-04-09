@@ -94,6 +94,38 @@ def test_send_telegram_exception_logged(
     assert "Telegram notification failed" in caplog.text
 
 
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_telegram_non_200_logged(
+    mock_cfg, mock_post, mock_config, caplog
+):
+    mock_cfg.return_value = mock_config
+    resp = MagicMock()
+    resp.status_code = 400
+    resp.text = '{"ok":false,"description":"bad photo url"}'
+    mock_post.return_value = resp
+    notifications.send_telegram(
+        "msg", log_type="album_error",
+        photo_url="https://bad.example/img.jpg",
+    )
+    assert "Telegram API returned 400" in caplog.text
+    assert "bad photo url" in caplog.text
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_discord_non_2xx_logged(
+    mock_cfg, mock_post, mock_config, caplog
+):
+    mock_cfg.return_value = mock_config
+    resp = MagicMock()
+    resp.status_code = 404
+    resp.text = "webhook gone"
+    mock_post.return_value = resp
+    notifications.send_discord("msg", log_type="album_error")
+    assert "Discord webhook returned 404" in caplog.text
+
+
 # --- send_discord ---
 
 
