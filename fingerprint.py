@@ -79,7 +79,6 @@ def _lookup_acoustid(api_key, duration, fingerprint):
     }
     try:
         _throttle()
-        # Use POST to avoid URL-length issues with long fingerprints.
         r = requests.post(ACOUSTID_API_URL, data=params, timeout=15)
         if not r.ok:
             logger.warning(

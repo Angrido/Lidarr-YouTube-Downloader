@@ -63,8 +63,6 @@ def _truncate_caption(text, limit, *, md2_safe=False):
     if len(text) <= limit:
         return text
     if md2_safe:
-        # Cut at the last newline to avoid truncating inside a MarkdownV2
-        # entity such as [text](url), which Telegram rejects as malformed.
         truncated = text[: limit - 1]
         last_nl = truncated.rfind("\n")
         if last_nl > limit // 2:
