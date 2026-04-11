@@ -491,7 +491,7 @@ def _filter_tracks(tracks, force, album_path):
 
 def _cleanup_temp_files(temp_file):
     """Remove temp download files for all common extensions."""
-    for ext in [".mp3", ".webm", ".m4a", ".part", ""]:
+    for ext in [".mp3", ".opus", ".flac", ".aac", ".ogg", ".webm", ".m4a", ".part", ""]:
         tmp = temp_file + ext
         if os.path.exists(tmp):
             try:

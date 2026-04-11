@@ -1226,7 +1226,7 @@ def _build_ydl_opts(config, temp_file):
 
 
 def _cleanup_temp_files(temp_file):
-    for ext in [".mp3", ".webm", ".m4a", ".part"]:
+    for ext in [".mp3", ".opus", ".flac", ".aac", ".ogg", ".webm", ".m4a", ".part"]:
         tmp = temp_file + ext
         if os.path.exists(tmp):
             try:
