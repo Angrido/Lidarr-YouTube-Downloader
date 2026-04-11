@@ -1,7 +1,9 @@
 FROM python:alpine
 
 RUN apk update && apk upgrade --no-cache && \
-    apk add --no-cache ffmpeg gosu ca-certificates deno chromaprint
+    apk add --no-cache ffmpeg gosu ca-certificates chromaprint curl && \
+    curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh && \
+    apk del curl
 
 WORKDIR /app
 
