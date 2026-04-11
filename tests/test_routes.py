@@ -1404,3 +1404,234 @@ class TestLogsEnrichment:
         data = resp.get_json()
         for item in data["items"]:
             assert "candidates" not in item
+
+
+class TestNotifyManualDownload:
+    """`_notify_manual_download` routes a manual download into
+    `send_notifications` with the right log_type, message body, and
+    embed fields."""
+
+    def test_sends_with_manual_download_log_type(self):
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+            )
+
+        mock_send.assert_called_once()
+        _, kwargs = mock_send.call_args
+        assert kwargs["log_type"] == "manual_download"
+        message = mock_send.call_args.args[0]
+        assert "Manual Download" in message
+        assert "Song" in message
+        assert "Album" in message
+        assert "Artist" in message
+        # No AcoustID data => no score line and no embed field.
+        assert "AcoustID" not in message
+        assert kwargs["embed_data"]["fields"] == []
+
+    def test_includes_acoustid_score_when_present(self):
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={
+                    "acoustid_score": 0.92,
+                    "acoustid_recording_id": "rec-1",
+                },
+            )
+
+        message = mock_send.call_args.args[0]
+        assert "AcoustID: 0.92" in message
+        fields = mock_send.call_args.kwargs["embed_data"]["fields"]
+        assert fields == [{
+            "name": "AcoustID",
+            "value": "0.92",
+            "inline": True,
+        }]
+
+    def test_handles_missing_album_and_artist(self):
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title=None,
+                artist_name=None,
+                fp_data={},
+            )
+
+        message = mock_send.call_args.args[0]
+        assert "Unknown Album" in message
+        assert "Unknown Artist" in message
+
+    def test_zero_score_is_omitted(self):
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={"acoustid_score": 0.0},
+            )
+
+        message = mock_send.call_args.args[0]
+        assert "AcoustID" not in message
+
+    def test_invalid_score_is_tolerated(self):
+        """A malformed fp_data value must not raise."""
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={"acoustid_score": "not-a-number"},
+            )
+
+        mock_send.assert_called_once()
+        message = mock_send.call_args.args[0]
+        assert "AcoustID" not in message
+
+    def test_notification_exception_is_swallowed(self, caplog):
+        """Notification failure must not break the download flow."""
+        import app as app_module
+
+        with patch(
+            "app.send_notifications",
+            side_effect=Exception("boom"),
+        ):
+            # Should not raise.
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+            )
+        assert "Manual download notification failed" in caplog.text
+
+    def test_uses_unique_icon_in_title(self):
+        """Manual download must use the 👤 icon to be visually distinct
+        from automated download notifications (⬇️ ✅ ⚠️ ❌ 📥)."""
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+            )
+        message = mock_send.call_args.args[0]
+        assert "👤" in message
+        embed = mock_send.call_args.kwargs["embed_data"]
+        assert "👤" in embed["title"]
+
+    def test_cover_url_passed_to_telegram_and_discord(self):
+        """When cover_url is supplied it must reach both channels:
+        Telegram via photo_url, Discord via embed thumbnail."""
+        import app as app_module
+
+        cover = "https://example.com/cover.jpg"
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+                cover_url=cover,
+            )
+        kwargs = mock_send.call_args.kwargs
+        assert kwargs["photo_url"] == cover
+        assert kwargs["embed_data"]["thumbnail"] == cover
+
+    def test_no_cover_url_omits_photo_and_thumbnail(self):
+        """Empty cover_url must not set photo_url or thumbnail keys."""
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+                cover_url="",
+            )
+        kwargs = mock_send.call_args.kwargs
+        assert kwargs["photo_url"] is None
+        assert "thumbnail" not in kwargs["embed_data"]
+
+    def test_youtube_link_rendered_in_both_channels(self):
+        """youtube_url must appear as a clickable link in Telegram (MD2)
+        with the video title as the label, and in the Discord embed
+        url + a YouTube field."""
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+                youtube_url="https://youtu.be/abc",
+                youtube_title="Song (Official Video)",
+            )
+        kwargs = mock_send.call_args.kwargs
+        # Telegram MD2 body has a clickable link with escaped label.
+        tg = kwargs["telegram_message"]
+        assert kwargs["telegram_parse_mode"] == "MarkdownV2"
+        assert "Song \\(Official Video\\)" in tg
+        assert "](https://youtu.be/abc)" in tg
+        # Discord embed has the url and a field pointing at YouTube.
+        embed = kwargs["embed_data"]
+        assert embed["url"] == "https://youtu.be/abc"
+        yt_fields = [f for f in embed["fields"] if f["name"] == "YouTube"]
+        assert yt_fields
+        assert "https://youtu.be/abc" in yt_fields[0]["value"]
+        assert "Song (Official Video)" in yt_fields[0]["value"]
+
+    def test_youtube_link_falls_back_to_track_title(self):
+        """When youtube_title is empty, the track title is used as the
+        link label."""
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Fallback",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+                youtube_url="https://youtu.be/xyz",
+                youtube_title="",
+            )
+        kwargs = mock_send.call_args.kwargs
+        embed = kwargs["embed_data"]
+        yt_fields = [f for f in embed["fields"] if f["name"] == "YouTube"]
+        assert "Fallback" in yt_fields[0]["value"]
+
+    def test_no_youtube_url_omits_link(self):
+        """Without youtube_url, neither the MD2 body nor the embed get
+        a YouTube link/field."""
+        import app as app_module
+
+        with patch("app.send_notifications") as mock_send:
+            app_module._notify_manual_download(
+                track_title="Song",
+                album_title="Album",
+                artist_name="Artist",
+                fp_data={},
+                youtube_url="",
+            )
+        kwargs = mock_send.call_args.kwargs
+        embed = kwargs["embed_data"]
+        assert "url" not in embed
+        assert not [f for f in embed["fields"] if f["name"] == "YouTube"]

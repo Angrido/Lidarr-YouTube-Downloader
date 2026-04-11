@@ -33,6 +33,7 @@ from downloader import get_ytdlp_version
 from fingerprint import fingerprint_track
 from lidarr import get_missing_albums, lidarr_request
 from metadata import create_xml_metadata, get_itunes_tracks, tag_mp3
+from notifications import send_notifications
 from processing import (
     download_process,
     get_download_status,
@@ -1619,7 +1620,104 @@ def _record_manual_download(
     except Exception as log_err:
         logger.error("Failed to add log for '%s': %s", track_title, log_err)
 
+    _notify_manual_download(
+        track_title=track_title,
+        album_title=album_title,
+        artist_name=artist_name,
+        fp_data=fp_data,
+        cover_url=cover_url,
+        youtube_url=youtube_url,
+        youtube_title=youtube_title,
+    )
+
     logger.info("Manual download successful: %s", track_title)
+
+
+def _notify_manual_download(
+    *, track_title, album_title, artist_name, fp_data, cover_url="",
+    youtube_url="", youtube_title="",
+):
+    """Send a notification summarizing a successful manual download.
+
+    Manual downloads bypass the automated verify-retry loop. The 👤
+    icon distinguishes them at a glance from automated downloads
+    (⬇️ ✅ ⚠️ ❌ 📥). When ``cover_url`` is supplied, Telegram renders
+    it via ``sendPhoto`` and Discord embeds it as a thumbnail. When
+    ``youtube_url`` is supplied, a clickable link (using the video
+    title as the label) is added to both channels.
+    """
+    from notifications import md2_escape, md2_link
+    title_line = "👤 Manual Download"
+    album_disp = album_title or "Unknown Album"
+    artist_disp = artist_name or "Unknown Artist"
+    score = 0.0
+    if fp_data:
+        try:
+            score = float(fp_data.get("acoustid_score", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+
+    lines = [
+        title_line,
+        f"Track: {track_title}",
+        f"Album: {album_disp}",
+        f"Artist: {artist_disp}",
+    ]
+    md2_lines = [
+        f"*{md2_escape(title_line)}*",
+        f"*Track:* {md2_escape(track_title)}",
+        f"*Album:* {md2_escape(album_disp)}",
+        f"*Artist:* {md2_escape(artist_disp)}",
+    ]
+    fields = []
+    if score > 0:
+        score_str = f"{score:.2f}"
+        lines.append(f"AcoustID: {score_str}")
+        md2_lines.append(f"*AcoustID:* {md2_escape(score_str)}")
+        fields.append({
+            "name": "AcoustID",
+            "value": score_str,
+            "inline": True,
+        })
+    if youtube_url:
+        yt_label = youtube_title or track_title or youtube_url
+        lines.append(f"Source: {yt_label} — {youtube_url}")
+        md2_lines.append(
+            f"*Source:* {md2_link(yt_label, youtube_url)}"
+        )
+        fields.append({
+            "name": "YouTube",
+            "value": f"[{yt_label}]({youtube_url})",
+            "inline": False,
+        })
+    embed = {
+        "title": title_line,
+        "description": (
+            f"{artist_disp} — {album_disp} — {track_title}"
+        ),
+        "color": 0x9B59B6,
+        "fields": fields,
+    }
+    if cover_url:
+        embed["thumbnail"] = cover_url
+    if youtube_url:
+        embed["url"] = youtube_url
+    try:
+        send_notifications(
+            "\n".join(lines),
+            log_type="manual_download",
+            embed_data=embed,
+            telegram_message="\n".join(md2_lines),
+            telegram_parse_mode="MarkdownV2",
+            photo_url=cover_url or None,
+        )
+    except Exception as exc:
+        # Notifications must never break the manual-download flow;
+        # logging here is intentional and the only side effect.
+        logger.warning(
+            "Manual download notification failed for '%s': %s",
+            track_title, exc,
+        )
 
 
 def _resolve_track_info(track_title, track_num, album_data, album_id):

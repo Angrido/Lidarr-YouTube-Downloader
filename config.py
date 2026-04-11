@@ -77,6 +77,7 @@ def load_config():
             "partial_success",
             "import_partial",
             "album_error",
+            "manual_download",
         ],
         "xml_metadata_enabled": (
             os.getenv("XML_METADATA_ENABLED", "true").lower() == "true"
@@ -108,6 +109,7 @@ def load_config():
             "partial_success",
             "import_partial",
             "album_error",
+            "manual_download",
         ],
         "acoustid_enabled": (
             os.getenv("ACOUSTID_ENABLED", "true").lower() == "true"
