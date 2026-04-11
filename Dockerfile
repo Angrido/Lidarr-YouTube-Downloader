@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY . .
 
-RUN mkdir -p /config && chmod +x /app/entrypoint.sh
+RUN mkdir -p /config && sed -i 's/\r//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 EXPOSE 5000
 ENV FLASK_APP=app.py
