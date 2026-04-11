@@ -1,0 +1,20 @@
+services:
+  lidarr-downloader:
+    build: .
+    container_name: lidarr-downloader
+    restart: unless-stopped
+    volumes:
+      - ${HOST_DOWNLOAD_PATH:?err}:${DOWNLOAD_PATH:?err}
+      - ${HOST_MUSIC_PATH:?err}:/music
+      - ${HOST_CONFIG:?err}:/config
+    environment:
+      - PUID=${PUID:?err}
+      - PGID=${PGID:?err}
+      - UMASK=${UMASK:?err}
+      - LIDARR_URL=${LIDARR_URL:?err}
+      - LIDARR_API_KEY=${LIDARR_API_KEY:?err}
+      - DOWNLOAD_PATH=${DOWNLOAD_PATH:?err}
+      - LIDARR_PATH=${LIDARR_PATH:?err}
+      - ACOUSTID_API_KEY=${ACOUSTID_API_KEY:-}
+    ports:
+      - "127.0.0.1:${WEBUI_PORT:?err}:5000"

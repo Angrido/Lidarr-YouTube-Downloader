@@ -1,7 +1,7 @@
 FROM python:alpine
 
 RUN apk update && apk upgrade --no-cache && \
-    apk add --no-cache ffmpeg ca-certificates deno
+    apk add --no-cache ffmpeg gosu ca-certificates deno chromaprint
 
 WORKDIR /app
 
@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY . .
 
-RUN mkdir -p /config
+RUN mkdir -p /config && chmod +x /app/entrypoint.sh
 
 EXPOSE 5000
 ENV FLASK_APP=app.py
@@ -23,6 +23,10 @@ ENV TELEGRAM_CHAT_ID=""
 ENV SCHEDULER_ENABLED="false"
 ENV SCHEDULER_INTERVAL="60"
 ENV SCHEDULER_AUTO_DOWNLOAD="false"
+ENV PUID=0
+ENV PGID=0
+ENV UMASK=002
 ENV DISCORD_ENABLED="false"
+ENV ACOUSTID_ENABLED="true"
 
-CMD ["python", "app.py"]
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -1,5 +1,6 @@
 .claude/
 CLAUDE.md
+CLAUDE.local.md
 requirements-dev.txt
 __pycache__/
 *.py[cod]
@@ -11,6 +12,7 @@ build/
 .eggs/
 *.egg
 .pytest_cache/
+pytest-of-*/
 .mypy_cache/
 .ruff_cache/
 venv/
@@ -40,3 +42,6 @@ cookies.txt
 *.flac
 *.ogg
 *.wav
+tmp/
+.serena/
+.superpowers/

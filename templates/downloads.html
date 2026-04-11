@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Downloads - Lidarr YouTube Downloader</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <style>
         :root {
@@ -270,7 +270,7 @@
 
         .current-download {
             display: flex;
-            gap: 1.25rem;
+            flex-direction: column;
             padding: 1.25rem;
             background: var(--surface);
             border-radius: 14px;
@@ -287,19 +287,44 @@
             pointer-events: none;
         }
 
+        .current-album-details {
+            text-align: center;
+            padding-top: 4px;
+            margin-bottom: 12px;
+        }
+
+        .current-album-details h3 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .current-album-details p {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            margin: 2px 0 0 0;
+        }
+
+        .current-progress-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+
         .current-cover {
-            width: 90px;
-            height: 90px;
-            border-radius: 10px;
+            width: 72px;
+            height: 72px;
+            border-radius: 8px;
             object-fit: cover;
             flex-shrink: 0;
             box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
         }
 
         .current-cover-placeholder {
-            width: 90px;
-            height: 90px;
-            border-radius: 10px;
+            width: 72px;
+            height: 72px;
+            border-radius: 8px;
             flex-shrink: 0;
             display: flex;
             align-items: center;
@@ -313,62 +338,22 @@
             opacity: 0.3;
         }
 
-        .current-body {
+        .progress-bar-area {
             flex: 1;
             min-width: 0;
             display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .current-album-details h3 {
-            font-size: 1.05rem;
-            font-weight: 700;
-            margin: 0;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .current-album-details p {
-            color: var(--text-dim);
-            font-size: 0.85rem;
-            margin: 0;
-        }
-
-        .current-track-label {
-            color: var(--primary);
-            font-size: 0.8rem;
-            font-weight: 500;
-            display: flex;
             align-items: center;
-            gap: 0.4rem;
+            gap: 10px;
         }
 
-        .current-track-label i {
-            font-size: 0.7rem;
-            animation: pulse-icon 1.5s ease infinite;
-        }
-
-        @keyframes pulse-icon {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
-
-        .progress-bar-container {
-            display: flex;
-            flex-direction: column;
-            gap: 0.35rem;
-        }
-
-        .progress-label {
-            display: flex;
-            justify-content: space-between;
+        .progress-track-count {
             font-size: 0.8rem;
             color: var(--text-dim);
+            white-space: nowrap;
         }
 
         .progress-bar {
+            flex: 1;
             height: 6px;
             background: var(--border);
             border-radius: 999px;
@@ -382,16 +367,20 @@
             transition: width 0.3s ease;
         }
 
-        .current-actions {
-            display: flex;
-            justify-content: flex-end;
+        .progress-percent {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            white-space: nowrap;
+            min-width: 32px;
+            text-align: right;
         }
 
         .current-stop-btn {
+            flex-shrink: 0;
             background: transparent;
             border: 1px solid var(--danger);
             color: var(--danger);
-            padding: 0.4rem 0.9rem;
+            padding: 0.5rem 0.9rem;
             border-radius: 8px;
             cursor: pointer;
             font-size: 0.8rem;
@@ -400,6 +389,7 @@
             display: flex;
             align-items: center;
             gap: 0.4rem;
+            white-space: nowrap;
         }
 
         .current-stop-btn:hover {
@@ -409,12 +399,12 @@
 
         .queue-item {
             display: flex;
-            gap: 0.85rem;
+            flex-direction: column;
+            gap: 0;
             padding: 0.85rem;
             background: var(--surface);
             border-radius: 12px;
             margin-bottom: 0.65rem;
-            align-items: center;
             transition: border-color 0.2s ease, opacity 0.2s ease, background 0.2s ease;
             border: 1px solid transparent;
             cursor: default;
@@ -545,8 +535,9 @@
             background: rgba(239, 68, 68, 0.05);
         }
 
-        .history-item.history-manual {
-            border-left-color: #8b5cf6;
+        .history-album-row {
+            cursor: pointer;
+            user-select: none;
         }
 
         .status-icon {
@@ -575,9 +566,41 @@
             color: var(--danger);
         }
 
-        .status-icon.manual {
-            background: rgba(139, 92, 246, 0.2);
-            color: #8b5cf6;
+        .history-expand-icon {
+            color: var(--text-dim);
+            font-size: 0.75rem;
+            transition: transform 0.2s ease;
+            width: 20px;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .history-expand-icon.expanded {
+            transform: rotate(90deg);
+            color: var(--primary);
+        }
+
+        .history-track-badge {
+            padding: 0.15rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .history-track-badge.badge-success {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--primary);
+        }
+
+        .history-track-badge.badge-partial {
+            background: rgba(245, 158, 11, 0.15);
+            color: #f59e0b;
+        }
+
+        .history-track-badge.badge-error {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
         }
 
         .history-info {
@@ -607,17 +630,77 @@
             border-radius: 6px;
         }
 
-        .history-manual-label {
-            display: inline-flex;
+        .track-detail-grid {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-top: none;
+            border-radius: 0 0 12px 12px;
+            padding: 0.5rem;
+            margin-bottom: 0.75rem;
+            margin-top: -0.75rem;
+        }
+
+        .track-detail-header,
+        .track-detail-row {
+            display: grid;
+            grid-template-columns: 40px 1.5fr 2fr 60px 70px 55px 100px 40px;
+            padding: 0.4rem 0.75rem;
             align-items: center;
-            gap: 0.35rem;
-            margin-top: 0.35rem;
-            padding: 0.2rem 0.6rem;
-            background: rgba(139, 92, 246, 0.1);
-            color: #8b5cf6;
+            font-size: 0.8rem;
+        }
+
+        .track-detail-header {
+            color: var(--text-dim);
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .track-detail-row {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .track-detail-row.track-failed {
+            background: rgba(239, 68, 68, 0.05);
+        }
+
+        .track-detail-row a {
+            color: #3b82f6;
+            text-decoration: none;
             font-size: 0.75rem;
-            font-weight: 600;
-            border-radius: 6px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .track-detail-row a:hover {
+            text-decoration: underline;
+        }
+
+        .track-attempts {
+            color: var(--text-dim);
+            font-size: 0.7rem;
+            margin-left: 0.3rem;
+        }
+
+        @media (max-width: 768px) {
+            .track-detail-header,
+            .track-detail-row {
+                grid-template-columns: 30px 1fr 60px 40px;
+            }
+            .track-detail-header > :nth-child(3),
+            .track-detail-header > :nth-child(4),
+            .track-detail-header > :nth-child(5),
+            .track-detail-header > :nth-child(7),
+            .track-detail-header > :nth-child(8),
+            .track-detail-row > :nth-child(3),
+            .track-detail-row > :nth-child(4),
+            .track-detail-row > :nth-child(5),
+            .track-detail-row > :nth-child(7),
+            .track-detail-row > :nth-child(8) {
+                display: none;
+            }
         }
 
         .btn-danger {
@@ -643,31 +726,208 @@
             transform: scale(0.96);
         }
 
-        .btn-load-more {
-            display: block;
-            width: 100%;
-            padding: 1rem;
-            margin-top: 1rem;
-            border: 1px dashed var(--border-glass);
+        .track-detail-row.track-deleted {
+            background: rgba(239,68,68,0.06);
+        }
+        .track-detail-row.track-deleted .track-title-text {
+            text-decoration: line-through;
+            color: var(--text-dim);
+        }
+        .deleted-badge {
+            display: inline-block;
+            font-size: 0.65rem;
+            color: var(--danger);
+            background: rgba(239,68,68,0.15);
+            padding: 1px 6px;
+            border-radius: 4px;
+            margin-left: 6px;
+        }
+        .btn-delete-track {
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            padding: 4px 6px;
+            border-radius: 6px;
+            transition: all 0.15s;
+            font-size: 0.8rem;
+        }
+        .btn-delete-track:hover {
+            color: var(--danger);
+            background: rgba(239,68,68,0.15);
+        }
+        .btn-unban-track {
+            background: none;
+            border: 1px solid #f97316;
+            color: #f97316;
+            cursor: pointer;
+            padding: 2px 8px;
+            border-radius: 4px;
+            transition: all 0.15s;
+            font-size: 0.65rem;
+            font-weight: 500;
+        }
+        .btn-unban-track:hover {
+            background: rgba(249,115,22,0.15);
+        }
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            backdrop-filter: blur(4px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        .modal-overlay.hidden { display: none; }
+        .modal-box {
+            background: var(--surface);
+            border: 1px solid var(--border);
             border-radius: var(--radius);
+            padding: 1.5rem;
+            max-width: 480px;
+            width: 90%;
+            position: relative;
+            box-shadow: var(--shadow);
+        }
+        .modal-title {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .modal-close {
+            position: absolute;
+            top: 0.75rem;
+            right: 0.75rem;
+            background: none;
+            border: none;
+            color: var(--text-dim);
+            cursor: pointer;
+            font-size: 1.1rem;
+            width: 28px;
+            height: 28px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            transition: all 0.15s;
+        }
+        .modal-close:hover {
+            color: var(--text);
+            background: var(--surface-hover);
+        }
+        .modal-title i { color: var(--danger); }
+        .modal-subtitle {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            margin-bottom: 1rem;
+        }
+        .file-path-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            letter-spacing: 0.05em;
+            margin-bottom: 0.3rem;
+            font-weight: 600;
+        }
+        .file-path-box {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0.6rem 0.75rem;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            word-break: break-all;
+            margin-bottom: 0.5rem;
+        }
+        .xml-note {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            font-style: italic;
+            margin-bottom: 1rem;
+        }
+        .ban-checkbox {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.6rem;
+            background: rgba(239,68,68,0.06);
+            border: 1px solid rgba(239,68,68,0.2);
+            border-radius: 8px;
+            padding: 0.75rem;
+            margin: 1rem 0;
+            cursor: pointer;
+        }
+        .ban-checkbox input[type="checkbox"] {
+            margin-top: 2px;
+            accent-color: var(--danger);
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+        }
+        .ban-checkbox-text { font-size: 0.8rem; }
+        .ban-checkbox-text strong { color: var(--danger); }
+        .ban-checkbox-text .ban-detail {
+            color: var(--text-dim);
+            font-size: 0.7rem;
+            margin-top: 2px;
+        }
+        .modal-actions {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            margin-top: 1rem;
+        }
+
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1.25rem;
+            flex-wrap: wrap;
+        }
+
+        .pagination-info {
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            margin-bottom: 0.5rem;
+            text-align: center;
+        }
+
+        .pagination button {
             background: var(--surface-glass);
             backdrop-filter: blur(10px);
-            color: var(--primary);
-            font-weight: 600;
-            font-size: 0.95rem;
+            border: 1px solid var(--border-glass);
+            color: var(--text-dim);
+            padding: 0.5rem 0.85rem;
+            border-radius: 10px;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            min-width: 38px;
         }
 
-        .btn-load-more:hover {
+        .pagination button:hover:not(:disabled) {
             background: rgba(16, 185, 129, 0.1);
             border-color: var(--primary);
-            box-shadow: var(--glow);
-            transform: translateY(-2px);
+            color: var(--primary);
         }
 
-        .btn-load-more:active {
-            transform: scale(0.98);
+        .pagination button.active {
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            color: white;
+            border-color: transparent;
+        }
+
+        .pagination button:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
         }
 
         .btn-clear-history {
@@ -767,24 +1027,132 @@
                 padding: 1rem;
             }
 
-            .current-download {
-                flex-direction: column;
-                align-items: center;
-                text-align: center;
+            .current-progress-row {
+                gap: 10px;
             }
 
             .current-cover, .current-cover-placeholder {
-                width: 70px;
-                height: 70px;
+                width: 56px;
+                height: 56px;
             }
+        }
 
-            .current-track-label {
-                justify-content: center;
-            }
+        .current-track-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-top: 12px;
+            width: 100%;
+        }
+        .current-track-row {
+            display: grid;
+            grid-template-columns: 40px 1fr 1.2fr 80px 60px;
+            gap: 12px;
+            align-items: center;
+            padding: 6px 8px;
+            border-radius: 6px;
+            font-size: 0.85rem;
+        }
+        .current-track-row.active {
+            background: rgba(16, 185, 129, 0.15);
+        }
+        .current-track-row.done { opacity: 0.7; }
+        .current-track-row.pending { opacity: 0.5; }
+        .current-track-row.skipped { opacity: 0.6; }
+        .current-track-row.failed { background: rgba(239, 68, 68, 0.1); }
+        .current-track-num {
+            text-align: center;
+            color: var(--text-dim);
+            font-weight: 500;
+        }
+        .current-track-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+        .current-track-title {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .current-track-progress {
+            height: 3px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .current-track-progress-fill {
+            height: 100%;
+            background: var(--primary);
+            transition: width 0.3s;
+        }
+        .current-track-yt {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-size: 0.8rem;
+            text-align: center;
+        }
+        .current-track-yt a { color: var(--primary); text-decoration: none; }
+        .current-track-status { font-size: 0.8rem; text-align: center; }
+        .status-done { color: #22c55e; }
+        .status-failed { color: #ef4444; }
+        .status-skipped { color: #f59e0b; }
+        .status-searching { color: #3b82f6; }
+        .status-tagging { color: #a855f7; }
+        .status-fingerprinting { color: #c084fc; }
+        .status-verifying { color: #c084fc; }
+        .status-downloading { color: var(--primary); }
+        .current-track-skip-btn {
+            background: transparent;
+            border: 1px solid var(--border-glass);
+            color: var(--text);
+            border-radius: 4px;
+            padding: 2px 8px;
+            cursor: pointer;
+            font-size: 0.75rem;
+        }
+        .current-track-skip-btn:hover {
+            border-color: #f59e0b;
+            color: #f59e0b;
+        }
 
-            .current-actions {
-                justify-content: center;
-            }
+        .queue-item-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+        }
+        .queue-expand-icon {
+            transition: transform 0.2s;
+            color: var(--text-dim);
+            font-size: 0.8rem;
+        }
+        .queue-expand-icon.expanded { transform: rotate(90deg); }
+        .queue-track-count {
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 2px 8px;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+        .queue-track-list {
+            padding: 8px 0 8px 52px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .queue-track-list-item {
+            display: flex;
+            gap: 8px;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+        .queue-track-list-item .num { min-width: 24px; text-align: right; }
+        .queue-track-list-item.has-file {
+            text-decoration: line-through;
+            opacity: 0.5;
         }
     </style>
 </head>
@@ -842,11 +1210,7 @@
                 </button>
             </div>
             <div id="downloadHistory"></div>
-            <div id="historyLoadMore" style="display:none;">
-                <button class="btn-load-more" onclick="loadMoreHistory()">
-                    <i class="fa-solid fa-chevron-down"></i> Load More (<span id="historyRemaining">0</span> remaining)
-                </button>
-            </div>
+            <div id="historyPagination"></div>
         </div>
     </div>
 
@@ -857,6 +1221,9 @@
 
     <script>
         let eventSource = null;
+        let currentQueue = [];
+        let isDragging = false;
+        let dragSourceId = null;
 
         function escapeHtml(str) {
             if (!str) return '';
@@ -915,95 +1282,207 @@
         let lastWasActive = false;
 
         function updateCurrentFromSSE(data) {
-            const container = document.getElementById('currentDownload');
+            var container = document.getElementById('currentDownload');
 
             if (!data.active) {
                 if (lastWasActive) {
                     updateHistory();
                     lastWasActive = false;
                 }
-                container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-cloud-arrow-down"></i><p>No active download</p></div>';
+                var empty = document.createElement('div');
+                empty.className = 'empty-state';
+                var icon = document.createElement('i');
+                icon.className = 'fa-solid fa-cloud-arrow-down';
+                var p = document.createElement('p');
+                p.textContent = 'No active download';
+                empty.appendChild(icon);
+                empty.appendChild(p);
+                container.replaceChildren(empty);
                 return;
             }
             lastWasActive = true;
 
-            const percent = (data.progress && data.progress.overall_percent) || 0;
-            const placeholderSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>`;
-            const safeCover = sanitizeUrl(data.cover_url);
-            const coverHtml = safeCover
-                ? `<img class="current-cover" src="${safeCover}" alt="">`
-                : `<div class="current-cover-placeholder">${placeholderSvg}</div>`;
-            container.innerHTML = `
-                <div class="current-download">
-                    ${coverHtml}
-                    <div class="current-body">
-                        <div class="current-album-details">
-                            <h3>${escapeHtml(data.album_title || 'Unknown Album')}</h3>
-                            <p>${escapeHtml(data.artist_name || 'Unknown Artist')}</p>
-                        </div>
-                        <div class="current-track-label">
-                            <i class="fa-solid fa-compact-disc fa-spin"></i>
-                            ${escapeHtml(data.current_track_title || 'Preparing...')}
-                        </div>
-                        <div class="progress-bar-container">
-                            <div class="progress-label">
-                                <span>Track ${(data.progress && data.progress.current) || 0}/${(data.progress && data.progress.total) || 0}</span>
-                                <span>${percent}%</span>
-                            </div>
-                            <div class="progress-bar">
-                                <div class="progress-fill" style="width: ${percent}%"></div>
-                            </div>
-                        </div>
-                        <div class="current-actions">
-                            <button class="current-stop-btn" onclick="stopDownload()">
-                                <i class="fa-solid fa-stop"></i> Stop
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
+            var tracks = data.tracks || [];
+            var doneCount = tracks.filter(function(t) {
+                return t.status === 'done' || t.status === 'failed' || t.status === 'skipped';
+            }).length;
+            var overallPercent = tracks.length > 0
+                ? Math.round((doneCount / tracks.length) * 100) : 0;
 
-        let currentQueue = [];
-        let isDragging = false;
-        let dragSourceId = null;
+            var wrapper = document.createElement('div');
+            wrapper.className = 'current-download';
 
-        const placeholderSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>`;
+            var details = document.createElement('div');
+            details.className = 'current-album-details';
+            var h3 = document.createElement('h3');
+            h3.textContent = data.album_title || 'Unknown Album';
+            var pArtist = document.createElement('p');
+            pArtist.textContent = data.artist_name || 'Unknown Artist';
+            details.appendChild(h3);
+            details.appendChild(pArtist);
+            wrapper.appendChild(details);
 
-        function renderQueue(queue) {
-            const container = document.getElementById('downloadQueue');
-            if (queue.length === 0) {
-                container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-list-check"></i><p>Queue is empty</p></div>';
-                return;
+            var progRow = document.createElement('div');
+            progRow.className = 'current-progress-row';
+
+            var safeCover = sanitizeUrl(data.cover_url);
+            if (safeCover) {
+                var img = document.createElement('img');
+                img.className = 'current-cover';
+                img.src = safeCover;
+                img.alt = '';
+                progRow.appendChild(img);
+            } else {
+                var ph = document.createElement('div');
+                ph.className = 'current-cover-placeholder';
+                var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('viewBox', '0 0 24 24');
+                svg.setAttribute('fill', 'white');
+                var svgPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                svgPath.setAttribute('d', 'M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z');
+                svg.appendChild(svgPath);
+                ph.appendChild(svg);
+                progRow.appendChild(ph);
             }
-            container.innerHTML = queue.map((item, index) => {
-                const safeQCover = sanitizeUrl(item.cover_url);
-                const queueCover = safeQCover
-                    ? `<img class="queue-album-cover" src="${safeQCover}" alt="">`
-                    : `<div class="queue-cover-placeholder">${placeholderSvg}</div>`;
-                return `
-                <div class="queue-item" draggable="true"
-                     ondragstart="onQueueDragStart(event, ${item.id})"
-                     ondragover="onQueueDragOver(event)"
-                     ondrop="onQueueDrop(event, ${item.id})"
-                     ondragend="onQueueDragEnd(event)">
-                    <div class="drag-handle"><i class="fa-solid fa-grip-vertical"></i></div>
-                    <div class="queue-position">${index + 1}</div>
-                    ${queueCover}
-                    <div class="queue-album-info">
-                        <div class="queue-album-title">${escapeHtml(item.title)}</div>
-                        <div class="queue-album-artist">${escapeHtml(item.artist)}</div>
-                    </div>
-                    <div class="queue-actions">
-                        <button onclick="removeFromQueue(${item.id})">Remove</button>
-                    </div>
-                </div>`;
-            }).join('');
+
+            var progArea = document.createElement('div');
+            progArea.className = 'progress-bar-area';
+            var trackCount = document.createElement('span');
+            trackCount.className = 'progress-track-count';
+            trackCount.textContent = 'Track ' + doneCount + '/' + tracks.length;
+            var progBar = document.createElement('div');
+            progBar.className = 'progress-bar';
+            var progFill = document.createElement('div');
+            progFill.className = 'progress-fill';
+            progFill.style.width = overallPercent + '%';
+            progBar.appendChild(progFill);
+            var percentEl = document.createElement('span');
+            percentEl.className = 'progress-percent';
+            percentEl.textContent = overallPercent + '%';
+            progArea.appendChild(trackCount);
+            progArea.appendChild(progBar);
+            progArea.appendChild(percentEl);
+            progRow.appendChild(progArea);
+
+            var stopBtn = document.createElement('button');
+            stopBtn.className = 'current-stop-btn';
+            stopBtn.onclick = stopDownload;
+            var stopIcon = document.createElement('i');
+            stopIcon.className = 'fa-solid fa-stop';
+            stopBtn.appendChild(stopIcon);
+            stopBtn.appendChild(document.createTextNode(' Stop All'));
+            progRow.appendChild(stopBtn);
+
+            wrapper.appendChild(progRow);
+
+            var grid = document.createElement('div');
+            grid.className = 'current-track-grid';
+
+            tracks.forEach(function(track, i) {
+                var row = document.createElement('div');
+                row.className = 'current-track-row';
+                var isActive = (track.status === 'downloading' || track.status === 'searching' || track.status === 'tagging' || track.status === 'fingerprinting' || track.status === 'verifying');
+                if (isActive) {
+                    row.classList.add('active');
+                } else {
+                    row.classList.add(track.status);
+                }
+
+                var numEl = document.createElement('div');
+                numEl.className = 'current-track-num';
+                numEl.textContent = track.track_number;
+                row.appendChild(numEl);
+
+                var info = document.createElement('div');
+                info.className = 'current-track-info';
+                var titleEl = document.createElement('div');
+                titleEl.className = 'current-track-title';
+                titleEl.textContent = track.track_title;
+                info.appendChild(titleEl);
+                if (track.status === 'downloading' && track.progress_percent) {
+                    var progTrack = document.createElement('div');
+                    progTrack.className = 'current-track-progress';
+                    var progTrackFill = document.createElement('div');
+                    progTrackFill.className = 'current-track-progress-fill';
+                    progTrackFill.style.width = track.progress_percent;
+                    progTrack.appendChild(progTrackFill);
+                    info.appendChild(progTrack);
+                }
+                row.appendChild(info);
+
+                var ytEl = document.createElement('div');
+                ytEl.className = 'current-track-yt';
+                if (track.youtube_url && track.youtube_title) {
+                    var safeYt = sanitizeUrl(track.youtube_url);
+                    if (safeYt) {
+                        var a = document.createElement('a');
+                        a.href = safeYt;
+                        a.target = '_blank';
+                        a.rel = 'noopener';
+                        a.textContent = track.youtube_title;
+                        ytEl.appendChild(a);
+                    } else {
+                        ytEl.textContent = track.youtube_title;
+                    }
+                } else if (track.status === 'downloading') {
+                    ytEl.textContent = track.progress_speed || '';
+                }
+                row.appendChild(ytEl);
+
+                var statusEl = document.createElement('div');
+                statusEl.className = 'current-track-status';
+                var statusSpan = document.createElement('span');
+                if (track.status === 'done') {
+                    statusSpan.className = 'status-done';
+                    statusSpan.textContent = '\u2713 Done';
+                } else if (track.status === 'failed') {
+                    statusSpan.className = 'status-failed';
+                    statusSpan.textContent = '\u2717 Failed';
+                    statusSpan.title = track.error_message || '';
+                } else if (track.status === 'skipped') {
+                    statusSpan.className = 'status-skipped';
+                    statusSpan.textContent = '\u21b7 Skipped';
+                } else if (track.status === 'searching') {
+                    statusSpan.className = 'status-searching';
+                    statusSpan.textContent = 'Searching...';
+                } else if (track.status === 'tagging') {
+                    statusSpan.className = 'status-tagging';
+                    statusSpan.textContent = 'Tagging...';
+                } else if (track.status === 'fingerprinting') {
+                    statusSpan.className = 'status-fingerprinting';
+                    statusSpan.textContent = 'Fingerprinting...';
+                } else if (track.status === 'verifying') {
+                    statusSpan.className = 'status-verifying';
+                    statusSpan.textContent = 'Verifying...';
+                } else if (track.status === 'downloading') {
+                    statusSpan.className = 'status-downloading';
+                    statusSpan.textContent = track.progress_percent || 'Downloading';
+                } else {
+                    statusSpan.textContent = 'Pending';
+                }
+                statusEl.appendChild(statusSpan);
+                row.appendChild(statusEl);
+
+                var skipCell = document.createElement('div');
+                if (track.status === 'pending' || track.status === 'searching' || track.status === 'downloading' || track.status === 'verifying') {
+                    var skipBtn = document.createElement('button');
+                    skipBtn.className = 'current-track-skip-btn';
+                    skipBtn.textContent = 'Skip';
+                    skipBtn.onclick = (function(idx) { return function() { skipTrack(idx); }; })(i);
+                    skipCell.appendChild(skipBtn);
+                }
+                row.appendChild(skipCell);
+
+                grid.appendChild(row);
+            });
+
+            wrapper.appendChild(grid);
+            container.replaceChildren(wrapper);
         }
 
         function updateQueueFromSSE(queue, statusData) {
-            const totalInQueue = queue.length + (statusData.active ? 1 : 0);
-            const badge = document.getElementById('queueBadge');
+            var totalInQueue = queue.length + (statusData.active ? 1 : 0);
+            var badge = document.getElementById('queueBadge');
             if (totalInQueue > 0) {
                 badge.textContent = totalInQueue;
                 badge.classList.add('active');
@@ -1016,6 +1495,142 @@
             }
         }
 
+        function renderQueue(queue) {
+            const container = document.getElementById('downloadQueue');
+            if (queue.length === 0) {
+                var empty = document.createElement('div');
+                empty.className = 'empty-state';
+                var emptyIcon = document.createElement('i');
+                emptyIcon.className = 'fa-solid fa-list-check';
+                var emptyP = document.createElement('p');
+                emptyP.textContent = 'Queue is empty';
+                empty.appendChild(emptyIcon);
+                empty.appendChild(emptyP);
+                container.replaceChildren(empty);
+                return;
+            }
+
+            if (queue.length > 0 && !expandedQueueIds.has(queue[0].id)) {
+                expandedQueueIds.add(queue[0].id);
+                if (!queueTrackCache[queue[0].id]) {
+                    fetchQueueTracks(queue[0].id);
+                }
+            }
+
+            var frag = document.createDocumentFragment();
+
+            queue.forEach(function(item, index) {
+                var qItem = document.createElement('div');
+                qItem.className = 'queue-item';
+                qItem.draggable = true;
+                qItem.addEventListener('dragstart', function(e) { onQueueDragStart(e, item.id); });
+                qItem.addEventListener('dragover', onQueueDragOver);
+                qItem.addEventListener('drop', function(e) { onQueueDrop(e, item.id); });
+                qItem.addEventListener('dragend', onQueueDragEnd);
+
+                var header = document.createElement('div');
+                header.className = 'queue-item-header';
+                header.onclick = function() { toggleQueueTracks(item.id); };
+
+                var dragHandle = document.createElement('div');
+                dragHandle.className = 'drag-handle';
+                var gripIcon = document.createElement('i');
+                gripIcon.className = 'fa-solid fa-grip-vertical';
+                dragHandle.appendChild(gripIcon);
+                dragHandle.addEventListener('click', function(e) { e.stopPropagation(); });
+                header.appendChild(dragHandle);
+
+                var pos = document.createElement('div');
+                pos.className = 'queue-position';
+                pos.textContent = index + 1;
+                header.appendChild(pos);
+
+                var safeCover = sanitizeUrl(item.cover_url);
+                if (safeCover) {
+                    var img = document.createElement('img');
+                    img.className = 'queue-album-cover';
+                    img.src = safeCover;
+                    img.alt = '';
+                    header.appendChild(img);
+                } else {
+                    var qph = document.createElement('div');
+                    qph.className = 'queue-cover-placeholder';
+                    var qsvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    qsvg.setAttribute('viewBox', '0 0 24 24');
+                    qsvg.setAttribute('fill', 'white');
+                    var qpath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    qpath.setAttribute('d', 'M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z');
+                    qsvg.appendChild(qpath);
+                    qph.appendChild(qsvg);
+                    header.appendChild(qph);
+                }
+
+                var info = document.createElement('div');
+                info.className = 'queue-album-info';
+                var titleEl = document.createElement('div');
+                titleEl.className = 'queue-album-title';
+                titleEl.textContent = item.title;
+                var artistEl = document.createElement('div');
+                artistEl.className = 'queue-album-artist';
+                artistEl.textContent = item.artist;
+                info.appendChild(titleEl);
+                info.appendChild(artistEl);
+                header.appendChild(info);
+
+                if (item.track_count) {
+                    var countBadge = document.createElement('span');
+                    countBadge.className = 'queue-track-count';
+                    countBadge.textContent = item.track_count + ' tracks';
+                    header.appendChild(countBadge);
+                }
+
+                var actionsDiv = document.createElement('div');
+                actionsDiv.className = 'queue-actions';
+                var removeBtn = document.createElement('button');
+                removeBtn.textContent = 'Remove';
+                removeBtn.onclick = function(e) {
+                    e.stopPropagation();
+                    removeFromQueue(item.id);
+                };
+                actionsDiv.appendChild(removeBtn);
+                header.appendChild(actionsDiv);
+
+                qItem.appendChild(header);
+
+                if (expandedQueueIds.has(item.id)) {
+                    var trackList = document.createElement('div');
+                    trackList.className = 'queue-track-list';
+                    var cachedTracks = queueTrackCache[item.id];
+                    if (cachedTracks && cachedTracks.length > 0) {
+                        cachedTracks.forEach(function(t) {
+                            var tRow = document.createElement('div');
+                            tRow.className = 'queue-track-list-item';
+                            if (t.has_file) tRow.classList.add('has-file');
+                            var numSpan = document.createElement('span');
+                            numSpan.className = 'num';
+                            numSpan.textContent = t.track_number;
+                            var titleSpan = document.createElement('span');
+                            titleSpan.textContent = t.title;
+                            tRow.appendChild(numSpan);
+                            tRow.appendChild(titleSpan);
+                            trackList.appendChild(tRow);
+                        });
+                    } else {
+                        var loading = document.createElement('div');
+                        loading.style.fontSize = '0.8rem';
+                        loading.style.opacity = '0.5';
+                        loading.textContent = 'Loading tracks...';
+                        trackList.appendChild(loading);
+                    }
+                    qItem.appendChild(trackList);
+                }
+
+                frag.appendChild(qItem);
+            });
+
+            container.replaceChildren(frag);
+        }
+
         function onQueueDragStart(e, albumId) {
             isDragging = true;
             dragSourceId = albumId;
@@ -1026,114 +1641,494 @@
         function onQueueDragOver(e) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
-            document.querySelectorAll('.queue-item').forEach(el => el.classList.remove('drag-over'));
+            document.querySelectorAll('.queue-item').forEach(function(el) { el.classList.remove('drag-over'); });
             e.currentTarget.classList.add('drag-over');
         }
 
         function onQueueDrop(e, targetId) {
             e.preventDefault();
-            document.querySelectorAll('.queue-item').forEach(el => {
+            document.querySelectorAll('.queue-item').forEach(function(el) {
                 el.classList.remove('drag-over', 'dragging');
             });
             isDragging = false;
             if (dragSourceId === targetId) return;
-            const srcIdx = currentQueue.findIndex(q => q.id === dragSourceId);
-            const tgtIdx = currentQueue.findIndex(q => q.id === targetId);
+            var srcIdx = currentQueue.findIndex(function(q) { return q.id === dragSourceId; });
+            var tgtIdx = currentQueue.findIndex(function(q) { return q.id === targetId; });
             if (srcIdx === -1 || tgtIdx === -1) return;
-            const newQueue = [...currentQueue];
-            const [moved] = newQueue.splice(srcIdx, 1);
+            var newQueue = currentQueue.slice();
+            var moved = newQueue.splice(srcIdx, 1)[0];
             newQueue.splice(tgtIdx, 0, moved);
             currentQueue = newQueue;
             renderQueue(newQueue);
             fetch('/api/download/queue/reorder', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ queue: newQueue.map(q => q.id) })
+                body: JSON.stringify({ queue: newQueue.map(function(q) { return q.id; }) })
             });
         }
 
         function onQueueDragEnd(e) {
             isDragging = false;
-            document.querySelectorAll('.queue-item').forEach(el => {
+            document.querySelectorAll('.queue-item').forEach(function(el) {
                 el.classList.remove('dragging', 'drag-over');
             });
         }
 
-        const HISTORY_PER_PAGE = 25;
-        let allHistory = [];
-        let historyDisplayed = 0;
+        const HISTORY_PER_PAGE = 50;
+        let historyCurrentPage = 1;
+        let historyTotalPages = 1;
+        let historyTotal = 0;
+
+        function getAlbumStatus(item) {
+            if (item.fail_count === 0) return 'success';
+            if (item.success_count === 0) return 'error';
+            return 'partial';
+        }
 
         function renderHistoryItem(item) {
-            let statusClass, iconClass, label;
-            if (item.manual) {
-                statusClass = 'manual';
-                iconClass = 'fa-solid fa-hand-pointer';
-                const trackInfo = item.track_title ? `: ${escapeHtml(item.track_title)}` : '';
-                label = `<div class="history-manual-label"><i class="fa-solid fa-hand-pointer"></i> Manual Download${trackInfo}</div>`;
-            } else if (!item.success) {
-                statusClass = 'error';
-                iconClass = 'fa-solid fa-xmark';
-                label = '<div class="history-error-label"><i class="fa-solid fa-circle-exclamation"></i> Download Failed</div>';
-            } else if (item.partial) {
-                statusClass = 'partial';
-                iconClass = 'fa-solid fa-triangle-exclamation';
-                label = '<div class="history-error-label" style="color:#f59e0b"><i class="fa-solid fa-triangle-exclamation"></i> Partial Success</div>';
-            } else {
-                statusClass = 'success';
-                iconClass = 'fa-solid fa-check';
-                label = '';
-            }
-            return `
-                <div class="history-item history-${statusClass}">
-                    <div class="status-icon ${statusClass}">
-                        <i class="${iconClass}"></i>
-                    </div>
-                    <div class="history-info">
-                        <div class="history-title">${escapeHtml(item.album_title || 'Unknown')}</div>
-                        <div class="history-meta">${escapeHtml(item.artist_name || 'Unknown Artist')} • ${new Date(item.timestamp * 1000).toLocaleString()}</div>
-                        ${label}
-                    </div>
-                </div>
-            `;
+            const status = getAlbumStatus(item);
+            const iconMap = {
+                success: 'fa-solid fa-check',
+                partial: 'fa-solid fa-triangle-exclamation',
+                error: 'fa-solid fa-xmark',
+            };
+            const badgeClass = 'badge-' + status;
+            const albumId = item.album_id;
+
+            const wrapper = document.createElement('div');
+
+            const row = document.createElement('div');
+            row.className = 'history-item history-' + status + ' history-album-row';
+            row.addEventListener('click', function() { toggleTracks(row, albumId); });
+
+            const expandIcon = document.createElement('span');
+            expandIcon.className = 'history-expand-icon';
+            expandIcon.id = 'expand-icon-' + albumId;
+            const chevron = document.createElement('i');
+            chevron.className = 'fa-solid fa-chevron-right';
+            expandIcon.appendChild(chevron);
+            row.appendChild(expandIcon);
+
+            const statusIcon = document.createElement('div');
+            statusIcon.className = 'status-icon ' + status;
+            const icon = document.createElement('i');
+            icon.className = iconMap[status];
+            statusIcon.appendChild(icon);
+            row.appendChild(statusIcon);
+
+            const info = document.createElement('div');
+            info.className = 'history-info';
+            const title = document.createElement('div');
+            title.className = 'history-title';
+            title.textContent = item.album_title || 'Unknown';
+            info.appendChild(title);
+            const meta = document.createElement('div');
+            meta.className = 'history-meta';
+            meta.textContent = (item.artist_name || 'Unknown Artist') + ' \u2022 ' + new Date(item.latest_timestamp * 1000).toLocaleString();
+            info.appendChild(meta);
+            row.appendChild(info);
+
+            const badge = document.createElement('span');
+            badge.className = 'history-track-badge ' + badgeClass;
+            badge.textContent = item.success_count + '/' + item.total_count + ' tracks';
+            row.appendChild(badge);
+
+            wrapper.appendChild(row);
+
+            const grid = document.createElement('div');
+            grid.className = 'track-detail-grid';
+            grid.id = 'tracks-' + albumId;
+            grid.style.display = 'none';
+            wrapper.appendChild(grid);
+
+            return wrapper;
         }
 
-        function updateHistoryLoadMore() {
-            const loadMoreDiv = document.getElementById('historyLoadMore');
-            const remaining = allHistory.length - historyDisplayed;
-            if (remaining > 0) {
-                document.getElementById('historyRemaining').textContent = remaining;
-                loadMoreDiv.style.display = 'block';
-            } else {
-                loadMoreDiv.style.display = 'none';
+        async function renderTrackGrid(grid, albumId) {
+            grid.textContent = '';
+            var loading = document.createElement('div');
+            loading.style.cssText = 'padding:1rem;color:var(--text-dim);text-align:center;';
+            loading.textContent = 'Loading...';
+            grid.appendChild(loading);
+
+            try {
+                var [resp, bannedResp] = await Promise.all([
+                    fetch('/api/download/history/' + albumId + '/tracks'),
+                    fetch('/api/banned-urls?per_page=200'),
+                ]);
+                if (!resp.ok) {
+                    throw new Error('Server returned ' + resp.status);
+                }
+                var tracks = await resp.json();
+                var bannedData = bannedResp.ok ? await bannedResp.json() : {items: []};
+                var bannedByKey = {};
+                bannedData.items.forEach(function(b) {
+                    if (String(b.album_id) === String(albumId)) {
+                        var key = b.track_title + '||' + b.youtube_url;
+                        bannedByKey[key] = b.id;
+                    }
+                });
+                if (tracks.length === 0) {
+                    grid.textContent = '';
+                    var empty = document.createElement('div');
+                    empty.style.cssText = 'padding:1rem;color:var(--text-dim);text-align:center;';
+                    empty.textContent = 'No track data';
+                    grid.appendChild(empty);
+                    return;
+                }
+
+                var byTrack = {};
+                for (var i = 0; i < tracks.length; i++) {
+                    var key = tracks[i].track_title;
+                    if (!byTrack[key]) byTrack[key] = [];
+                    byTrack[key].push(tracks[i]);
+                }
+
+                var sorted = Object.values(byTrack).map(function(attempts) {
+                    attempts.sort(function(a, b) { return b.timestamp - a.timestamp; });
+                    return { latest: attempts[0], attempts: attempts.length };
+                });
+                sorted.sort(function(a, b) { return a.latest.track_number - b.latest.track_number; });
+
+                var fragment = document.createDocumentFragment();
+
+                var header = document.createElement('div');
+                header.className = 'track-detail-header';
+                ['#', 'Track', 'YouTube Source', 'Score', 'AcoustID', 'Dur.', 'Downloaded', ''].forEach(function(text) {
+                    var cell = document.createElement('div');
+                    cell.textContent = text;
+                    header.appendChild(cell);
+                });
+                fragment.appendChild(header);
+
+                sorted.forEach(function(item) {
+                    var t = item.latest;
+                    var attemptCount = item.attempts;
+                    var isFailed = !t.success;
+                    var detailRow = document.createElement('div');
+                    detailRow.className = isFailed ? 'track-detail-row track-failed' : 'track-detail-row';
+
+                    var numCell = document.createElement('div');
+                    numCell.style.color = 'var(--text-dim)';
+                    numCell.textContent = String(t.track_number).padStart(2, '0');
+                    detailRow.appendChild(numCell);
+
+                    var titleCell = document.createElement('div');
+                    if (t.deleted) {
+                        detailRow.classList.add('track-deleted');
+                        var titleSpan = document.createElement('span');
+                        titleSpan.className = 'track-title-text';
+                        titleSpan.textContent = t.track_title;
+                        titleCell.appendChild(titleSpan);
+                        var delBadge = document.createElement('span');
+                        delBadge.className = 'deleted-badge';
+                        delBadge.textContent = 'deleted';
+                        titleCell.appendChild(delBadge);
+                    } else {
+                        titleCell.style.color = isFailed ? 'var(--danger)' : 'var(--text)';
+                        titleCell.textContent = t.track_title;
+                        if (attemptCount > 1) {
+                            var attemptBadge = document.createElement('span');
+                            attemptBadge.className = 'track-attempts';
+                            attemptBadge.title = attemptCount + ' download attempts';
+                            attemptBadge.textContent = '(' + attemptCount + ' attempts)';
+                            titleCell.appendChild(attemptBadge);
+                        }
+                    }
+                    detailRow.appendChild(titleCell);
+
+                    var ytCell = document.createElement('div');
+                    if (isFailed) {
+                        ytCell.style.cssText = 'color:var(--danger);font-size:0.75rem;';
+                        ytCell.textContent = t.error_message || 'Failed';
+                    } else if (t.youtube_url) {
+                        var safeUrl = sanitizeUrl(t.youtube_url);
+                        if (safeUrl) {
+                            var link = document.createElement('a');
+                            link.href = safeUrl;
+                            link.target = '_blank';
+                            link.rel = 'noopener';
+                            link.title = t.youtube_title || t.youtube_url;
+                            link.textContent = t.youtube_title || t.youtube_url;
+                            if (t.deleted) {
+                                link.style.opacity = '0.5';
+                            }
+                            ytCell.appendChild(link);
+                        } else {
+                            ytCell.style.color = 'var(--text-dim)';
+                            ytCell.textContent = t.youtube_title || '\u2014';
+                        }
+                    } else {
+                        ytCell.style.color = 'var(--text-dim)';
+                        ytCell.textContent = '\u2014';
+                    }
+                    detailRow.appendChild(ytCell);
+
+                    var scoreCell = document.createElement('div');
+                    if (isFailed) {
+                        scoreCell.style.color = 'var(--text-dim)';
+                        scoreCell.textContent = '\u2014';
+                    } else {
+                        scoreCell.style.color = '#6ee7b7';
+                        scoreCell.textContent = t.match_score ? t.match_score.toFixed(2) : '\u2014';
+                    }
+                    detailRow.appendChild(scoreCell);
+
+                    var acoustidCell = document.createElement('div');
+                    if (isFailed || !t.acoustid_score) {
+                        acoustidCell.style.color = 'var(--text-dim)';
+                        acoustidCell.textContent = '\u2014';
+                    } else {
+                        acoustidCell.style.color = t.acoustid_score >= 0.85 ? '#6ee7b7' : '#fbbf24';
+                        acoustidCell.textContent = t.acoustid_score.toFixed(2);
+                        if (t.acoustid_recording_title) {
+                            acoustidCell.title = t.acoustid_recording_title + ' (' + t.acoustid_recording_id + ')';
+                        }
+                    }
+                    detailRow.appendChild(acoustidCell);
+
+                    var durCell = document.createElement('div');
+                    durCell.style.color = 'var(--text-dim)';
+                    if (isFailed || !t.duration_seconds) {
+                        durCell.textContent = '\u2014';
+                    } else {
+                        durCell.textContent = Math.floor(t.duration_seconds / 60) + ':' + String(t.duration_seconds % 60).padStart(2, '0');
+                    }
+                    detailRow.appendChild(durCell);
+
+                    var timeCell = document.createElement('div');
+                    timeCell.style.cssText = 'color:var(--text-dim);font-size:0.75rem;';
+                    timeCell.textContent = new Date(t.timestamp * 1000).toLocaleString([], {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+                    detailRow.appendChild(timeCell);
+
+                    var actionsCell = document.createElement('div');
+                    if (t.success && !t.deleted) {
+                        var delBtn = document.createElement('button');
+                        delBtn.className = 'btn-delete-track';
+                        delBtn.title = 'Delete track file';
+                        var delIcon = document.createElement('i');
+                        delIcon.className = 'fas fa-trash';
+                        delBtn.appendChild(delIcon);
+                        delBtn.onclick = (function(trackData) {
+                            return function(e) {
+                                e.stopPropagation();
+                                openDeleteModal({
+                                    id: trackData.id,
+                                    trackTitle: trackData.track_title,
+                                    trackNumber: trackData.track_number,
+                                    albumPath: trackData.album_path,
+                                    youtubeUrl: trackData.youtube_url,
+                                    youtubeTitle: trackData.youtube_title,
+                                    artistName: trackData.artist_name,
+                                    albumId: albumId,
+                                });
+                            };
+                        })(t);
+                        actionsCell.appendChild(delBtn);
+                    } else if (t.deleted && t.youtube_url) {
+                        var banKey = t.track_title + '||' + t.youtube_url;
+                        var banId = bannedByKey[banKey];
+                        if (banId) {
+                            var unbanBtn = document.createElement('button');
+                            unbanBtn.className = 'btn-unban-track';
+                            unbanBtn.title = 'Unban this URL';
+                            unbanBtn.textContent = 'Unban';
+                            unbanBtn.onclick = (function(bid, aid, gridEl) {
+                                return function(e) {
+                                    e.stopPropagation();
+                                    fetch('/api/banned-urls/' + bid, {method: 'DELETE'})
+                                        .then(function(r) {
+                                            if (r.ok) renderTrackGrid(gridEl, aid);
+                                            else alert('Failed to unban URL');
+                                        })
+                                        .catch(function() { alert('Failed to unban URL'); });
+                                };
+                            })(banId, albumId, grid);
+                            actionsCell.appendChild(unbanBtn);
+                        }
+                    }
+                    detailRow.appendChild(actionsCell);
+
+                    fragment.appendChild(detailRow);
+                });
+
+                grid.textContent = '';
+                grid.appendChild(fragment);
+            } catch (e) {
+                console.error('Failed to load tracks for album ' + albumId, e);
+                grid.textContent = '';
+                var errDiv = document.createElement('div');
+                errDiv.style.cssText = 'padding:1rem;color:var(--danger);text-align:center;';
+                errDiv.textContent = 'Failed to load tracks: ' + e.message;
+                grid.appendChild(errDiv);
             }
         }
 
-        function loadMoreHistory() {
-            const container = document.getElementById('downloadHistory');
-            const nextBatch = allHistory.slice(historyDisplayed, historyDisplayed + HISTORY_PER_PAGE);
-            container.insertAdjacentHTML('beforeend', nextBatch.map(renderHistoryItem).join(''));
-            historyDisplayed += nextBatch.length;
-            updateHistoryLoadMore();
+        async function toggleTracks(row, albumId) {
+            var grid = document.getElementById('tracks-' + albumId);
+            var icon = document.getElementById('expand-icon-' + albumId);
+
+            if (grid.style.display !== 'none') {
+                grid.style.display = 'none';
+                icon.classList.remove('expanded');
+                expandedAlbumIds.delete(albumId);
+                return;
+            }
+
+            icon.classList.add('expanded');
+            grid.style.display = 'block';
+            expandedAlbumIds.add(albumId);
+            await renderTrackGrid(grid, albumId);
+        }
+
+        function buildPageNumbers(current, total) {
+            if (total <= 7) {
+                return Array.from({length: total}, function(_, i) { return i + 1; });
+            }
+            const pages = [1];
+            if (current > 3) pages.push('...');
+            const lo = Math.max(2, current - 1);
+            const hi = Math.min(total - 1, current + 1);
+            for (let i = lo; i <= hi; i++) pages.push(i);
+            if (current < total - 2) pages.push('...');
+            pages.push(total);
+            return pages;
+        }
+
+        function renderPagination(containerId, currentPage, totalPages, total, perPage, goToPageFn) {
+            const wrapper = document.getElementById(containerId);
+            wrapper.textContent = '';
+            if (totalPages <= 1) return;
+
+            const start = (currentPage - 1) * perPage + 1;
+            const end = Math.min(currentPage * perPage, total);
+
+            const info = document.createElement('div');
+            info.className = 'pagination-info';
+            info.textContent = 'Showing ' + start + '\u2013' + end + ' of ' + total;
+            wrapper.appendChild(info);
+
+            const nav = document.createElement('div');
+            nav.className = 'pagination';
+
+            const makeFaIcon = function(cls) {
+                const i = document.createElement('i');
+                i.className = cls;
+                return i;
+            };
+
+            const prevBtn = document.createElement('button');
+            prevBtn.disabled = currentPage <= 1;
+            prevBtn.appendChild(makeFaIcon('fa-solid fa-chevron-left'));
+            prevBtn.addEventListener('click', function() { window[goToPageFn](currentPage - 1); });
+            nav.appendChild(prevBtn);
+
+            buildPageNumbers(currentPage, totalPages).forEach(function(p) {
+                if (p === '...') {
+                    const ellipsis = document.createElement('span');
+                    ellipsis.style.cssText = 'color:var(--text-dim);padding:0 0.25rem;';
+                    ellipsis.textContent = '\u2026';
+                    nav.appendChild(ellipsis);
+                } else {
+                    const btn = document.createElement('button');
+                    btn.textContent = p;
+                    if (p === currentPage) btn.className = 'active';
+                    btn.addEventListener('click', function() { window[goToPageFn](p); });
+                    nav.appendChild(btn);
+                }
+            });
+
+            const nextBtn = document.createElement('button');
+            nextBtn.disabled = currentPage >= totalPages;
+            nextBtn.appendChild(makeFaIcon('fa-solid fa-chevron-right'));
+            nextBtn.addEventListener('click', function() { window[goToPageFn](currentPage + 1); });
+            nav.appendChild(nextBtn);
+
+            wrapper.appendChild(nav);
+        }
+
+        function goToHistoryPage(page) {
+            if (page < 1 || page > historyTotalPages) return;
+            historyCurrentPage = page;
+            updateHistory();
+        }
+
+        var expandedAlbumIds = new Set();
+        var expandedQueueIds = new Set();
+        var queueTrackCache = {};
+
+        function toggleQueueTracks(albumId) {
+            if (expandedQueueIds.has(albumId)) {
+                expandedQueueIds.delete(albumId);
+            } else {
+                expandedQueueIds.add(albumId);
+                if (!queueTrackCache[albumId]) {
+                    fetchQueueTracks(albumId);
+                }
+            }
+        }
+
+        function fetchQueueTracks(albumId) {
+            fetch('/api/download/queue/' + albumId + '/tracks')
+                .then(function(r) { return r.json(); })
+                .then(function(tracks) {
+                    queueTrackCache[albumId] = tracks;
+                })
+                .catch(function() {
+                    queueTrackCache[albumId] = [];
+                });
         }
 
         async function updateHistory() {
-            const res = await fetch('/api/download/history');
-            const history = await res.json();
+            const url = '/api/download/history?page=' + historyCurrentPage + '&per_page=' + HISTORY_PER_PAGE;
+            const res = await fetch(url);
+            const data = await res.json();
             const container = document.getElementById('downloadHistory');
             const clearBtn = document.getElementById('clearHistoryBtn');
 
-            if (history.length === 0) {
-                container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-history"></i><p>No download history</p></div>';
-                document.getElementById('historyLoadMore').style.display = 'none';
+            historyTotal = data.total;
+            historyTotalPages = data.pages;
+            historyCurrentPage = data.page;
+
+            if (data.total === 0) {
+                expandedAlbumIds.clear();
+                container.textContent = '';
+                var empty = document.createElement('div');
+                empty.className = 'empty-state';
+                var emptyIcon = document.createElement('i');
+                emptyIcon.className = 'fa-solid fa-history';
+                empty.appendChild(emptyIcon);
+                var emptyText = document.createElement('p');
+                emptyText.textContent = 'No download history';
+                empty.appendChild(emptyText);
+                container.appendChild(empty);
+                document.getElementById('historyPagination').textContent = '';
                 clearBtn.style.display = 'none';
                 return;
             }
 
             clearBtn.style.display = 'flex';
-            allHistory = history.reverse();
-            historyDisplayed = Math.min(HISTORY_PER_PAGE, allHistory.length);
-            container.innerHTML = allHistory.slice(0, historyDisplayed).map(renderHistoryItem).join('');
-            updateHistoryLoadMore();
+            container.textContent = '';
+            data.items.forEach(function(item) {
+                container.appendChild(renderHistoryItem(item));
+            });
+            renderPagination(
+                'historyPagination', historyCurrentPage,
+                historyTotalPages, historyTotal,
+                HISTORY_PER_PAGE, 'goToHistoryPage'
+            );
+
+            expandedAlbumIds.forEach(function(albumId) {
+                var grid = document.getElementById('tracks-' + albumId);
+                var icon = document.getElementById('expand-icon-' + albumId);
+                if (grid && icon) {
+                    icon.classList.add('expanded');
+                    grid.style.display = 'block';
+                    renderTrackGrid(grid, albumId);
+                } else {
+                    expandedAlbumIds.delete(albumId);
+                }
+            });
         }
 
         async function clearAllHistory() {
@@ -1161,9 +2156,83 @@
             }
         }
 
+        function skipTrack(trackIndex) {
+            fetch('/api/download/skip-track', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({track_index: trackIndex}),
+            }).catch(function() {});
+        }
+
+        var _deleteModalData = null;
+
+        function openDeleteModal(data) {
+            _deleteModalData = data;
+            var num = String(data.trackNumber).padStart(2, '0');
+            var filename = num + ' - ' + data.trackTitle + '.mp3';
+            var path = data.albumPath ? data.albumPath + '/' + filename : filename;
+            document.getElementById('deleteModalPath').textContent = path;
+            var urlText = data.youtubeUrl || 'unknown';
+            document.getElementById('banUrlDetail').textContent =
+                'The URL ' + urlText + ' will be skipped when searching for "' +
+                data.trackTitle + '" in future downloads.';
+            document.getElementById('banUrlCheckbox').checked = true;
+            document.getElementById('deleteTrackModal').classList.remove('hidden');
+            document.getElementById('confirmDeleteBtn').onclick = confirmDeleteTrack;
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('deleteTrackModal').classList.add('hidden');
+            _deleteModalData = null;
+        }
+
+        async function confirmDeleteTrack() {
+            if (!_deleteModalData) return;
+            var data = _deleteModalData;
+            var banUrl = document.getElementById('banUrlCheckbox').checked;
+            closeDeleteModal();
+            try {
+                var resp = await fetch('/api/download/track/' + data.id, {
+                    method: 'DELETE',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ban_url: banUrl}),
+                });
+                if (resp.ok) {
+                    var grid = document.getElementById('tracks-' + data.albumId);
+                    if (grid) await renderTrackGrid(grid, data.albumId);
+                } else {
+                    alert('Failed to delete track');
+                }
+            } catch (e) {
+                console.error('Delete track error:', e);
+                alert('Failed to delete track');
+            }
+        }
+
         setInterval(updateHistory, 10000);
 
     </script>
+
+<div class="modal-overlay hidden" id="deleteTrackModal" onclick="if(event.target===this)closeDeleteModal()">
+    <div class="modal-box">
+        <button class="modal-close" onclick="closeDeleteModal()" title="Close"><i class="fas fa-times"></i></button>
+        <div class="modal-title"><i class="fas fa-trash-alt"></i> Delete Track</div>
+        <div class="modal-subtitle">This will permanently remove the downloaded file from disk.</div>
+        <div class="file-path-label">File location</div>
+        <div class="file-path-box" id="deleteModalPath"></div>
+        <div class="xml-note">The XML sidecar file will also be removed if present.</div>
+        <label class="ban-checkbox">
+            <input type="checkbox" id="banUrlCheckbox" checked>
+            <div class="ban-checkbox-text">
+                <strong>Ban this URL from future downloads</strong>
+                <div class="ban-detail" id="banUrlDetail"></div>
+            </div>
+        </label>
+        <div class="modal-actions">
+            <button class="btn btn-danger" id="confirmDeleteBtn" style="width:100%"><i class="fas fa-trash"></i> Delete Track</button>
+        </div>
+    </div>
+</div>
 </body>
 
 </html>

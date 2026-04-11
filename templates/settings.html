@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Settings - Lidarr YouTube Downloader</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <style>
         :root {
@@ -639,6 +639,20 @@
             </div>
             <div class="input-group">
                 <label>
+                    AcoustID Fingerprinting
+                    <div class="label-description">Fingerprint downloaded tracks and look up MusicBrainz recording IDs via AcoustID</div>
+                </label>
+                <button class="toggle-btn" id="acoustidBtn" onclick="toggleAcoustid()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    AcoustID API Key
+                    <div class="label-description">Get a free key at <a href="https://acoustid.org/new-application" target="_blank" rel="noopener">acoustid.org</a></div>
+                </label>
+                <input type="text" id="acoustidApiKey" placeholder="Enter AcoustID API key">
+	    </div>
+	    <div class="input-group">
+		<label>
                     Concurrent Track Downloads
                     <div class="label-description">Number of tracks downloaded simultaneously per album. Higher values speed up downloads but increase the risk of being rate-limited or banned by YouTube. Recommended: 2.</div>
                 </label>
@@ -744,6 +758,14 @@
                         Recommended: 5-15 seconds.</div>
                 </label>
                 <input type="number" id="durationTolerance" value="10" min="1" max="60">
+            </div>
+            <div class="input-group">
+                <label>
+                    Minimum Match Score
+                    <div class="label-description">Minimum YouTube match score (0.0–1.0) required to accept a
+                        track when AcoustID verification is unavailable. Recommended: 0.8.</div>
+                </label>
+                <input type="number" id="minMatchScore" value="0.8" step="0.05" min="0" max="1">
             </div>
         </div>
 
@@ -1013,6 +1035,7 @@
             });
 
             document.getElementById('durationTolerance').value = conf.duration_tolerance || 10;
+            document.getElementById('minMatchScore').value = conf.min_match_score != null ? conf.min_match_score : 0.8;
             document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
             document.getElementById('audioFormatSelect').value = conf.audio_format || 'mp3';
 
@@ -1030,6 +1053,8 @@
             updateSchedulerBtn(conf.scheduler_enabled);
             updateAutoDlBtn(conf.scheduler_auto_download);
             updateXmlMetadataBtn(conf.xml_metadata_enabled !== false);
+            updateAcoustidBtn(conf.acoustid_enabled !== false);
+            document.getElementById('acoustidApiKey').value = conf.acoustid_api_key || '';
         }
 
         function updateSchedulerBtn(enabled) {
@@ -1072,6 +1097,20 @@
             });
             const data = await res.json();
             updateXmlMetadataBtn(data.enabled);
+        }
+
+        function updateAcoustidBtn(enabled) {
+            const btn = document.getElementById('acoustidBtn');
+            btn.innerText = enabled ? '✓ AcoustID ON' : 'AcoustID OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        async function toggleAcoustid() {
+            const res = await fetch('/api/acoustid/toggle', {
+                method: 'POST'
+            });
+            const data = await res.json();
+            updateAcoustidBtn(data.enabled);
         }
 
         async function loadYtdlpVersion() {
@@ -1239,8 +1278,10 @@
                     lidarr_path: document.getElementById('lidarrPath').value,
                     forbidden_words: forbiddenWords,
                     duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10,
+                    min_match_score: parseFloat(document.getElementById('minMatchScore').value) || 0.8,
                     concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
-                audio_format: document.getElementById('audioFormatSelect').value || 'mp3'
+                    audio_format: document.getElementById('audioFormatSelect').value || 'mp3',
+                    acoustid_api_key: document.getElementById('acoustidApiKey').value
                 })
             });
             showToast('success', 'Configuration Saved!', 'Changes to Download Path and Lidarr Path require an application restart.');
