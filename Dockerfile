@@ -1,9 +1,11 @@
-FROM python:alpine
+FROM python:3-slim
 
-RUN apk update && apk upgrade --no-cache && \
-    apk add --no-cache ffmpeg gosu ca-certificates chromaprint curl && \
+RUN apt-get update && apt-get upgrade -y && \
+    apt-get install -y --no-install-recommends \
+        ffmpeg gosu ca-certificates libchromaprint-tools curl unzip && \
     curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh && \
-    apk del curl
+    apt-get purge -y curl unzip && apt-get autoremove -y && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
