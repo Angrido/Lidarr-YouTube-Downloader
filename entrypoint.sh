@@ -13,12 +13,12 @@ if [ "$PUID" != "0" ] && [ "$PGID" != "0" ]; then
 
     # Create group if it doesn't exist
     if ! getent group appgroup > /dev/null 2>&1; then
-        addgroup -g "$PGID" appgroup
+        addgroup --gid "$PGID" appgroup
     fi
 
     # Create user if it doesn't exist
     if ! getent passwd appuser > /dev/null 2>&1; then
-        adduser -u "$PUID" -G appgroup -s /bin/sh -D appuser
+        adduser --uid "$PUID" --ingroup appgroup --shell /bin/sh --disabled-password --gecos "" appuser
     fi
 
     # Ensure /config is owned by the app user
