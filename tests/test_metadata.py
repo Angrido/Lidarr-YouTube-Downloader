@@ -237,6 +237,100 @@ class TestTagMp3:
         assert result is False
 
 
+class TestTagM4a:
+    @patch("metadata.get_monitored_release")
+    @patch("metadata.MP4")
+    def test_tags_m4a_file(self, mock_mp4_cls, mock_release):
+        store = {}
+        mock_audio = MagicMock()
+        mock_audio.__setitem__ = lambda self, k, v: store.update({k: v})
+        mock_audio.__getitem__ = lambda self, k: store[k]
+        mock_mp4_cls.return_value = mock_audio
+        mock_release.return_value = {
+            "foreignReleaseId": "rel-123",
+            "country": "US",
+        }
+
+        track_info = {
+            "title": "Test Song",
+            "trackNumber": "3",
+            "foreignRecordingId": "rec-456",
+        }
+        album_info = {
+            "title": "Test Album",
+            "artist": {
+                "artistName": "Test Artist",
+                "foreignArtistId": "art-789",
+            },
+            "releaseDate": "2024-01-15",
+            "trackCount": 10,
+            "foreignAlbumId": "alb-012",
+            "releases": [{"monitored": True}],
+        }
+
+        result = metadata.tag_m4a("/fake/path.m4a", track_info, album_info, None)
+        assert result is True
+        mock_audio.save.assert_called_once()
+        assert store["\xa9nam"] == ["Test Song"]
+        assert store["\xa9ART"] == ["Test Artist"]
+        assert store["aART"] == ["Test Artist"]
+        assert store["\xa9alb"] == ["Test Album"]
+        assert store["\xa9day"] == ["2024"]
+        assert store["trkn"] == [(3, 10)]
+
+    @patch("metadata.get_monitored_release")
+    @patch("metadata.MP4")
+    def test_tags_m4a_with_cover(self, mock_mp4_cls, mock_release):
+        store = {}
+        mock_audio = MagicMock()
+        mock_audio.__setitem__ = lambda self, k, v: store.update({k: v})
+        mock_mp4_cls.return_value = mock_audio
+        mock_release.return_value = None
+
+        track_info = {"title": "Song", "trackNumber": "1"}
+        album_info = {
+            "title": "Album",
+            "artist": {"artistName": "Artist"},
+            "releaseDate": "2023-01-01",
+            "trackCount": 5,
+        }
+
+        result = metadata.tag_m4a("/fake/path.m4a", track_info, album_info, b"cover")
+        assert result is True
+        assert len(store["covr"]) == 1
+
+    @patch("metadata.MP4")
+    def test_returns_false_on_exception(self, mock_mp4_cls):
+        mock_mp4_cls.side_effect = Exception("bad file")
+        result = metadata.tag_m4a(
+            "/fake/bad.m4a",
+            {"title": "X", "trackNumber": "1"},
+            {"title": "A", "artist": {"artistName": "B"}, "releaseDate": "2024", "trackCount": 1},
+            None,
+        )
+        assert result is False
+
+
+class TestTagAudioFileDispatch:
+    @patch("metadata.tag_opus")
+    def test_dispatches_opus(self, mock_opus):
+        mock_opus.return_value = True
+        metadata.tag_audio_file("/path/file.opus", {}, {}, None)
+        mock_opus.assert_called_once()
+
+    @patch("metadata.tag_m4a")
+    def test_dispatches_m4a(self, mock_m4a):
+        mock_m4a.return_value = True
+        metadata.tag_audio_file("/path/file.m4a", {}, {}, None)
+        mock_m4a.assert_called_once()
+
+    @patch("metadata.tag_mp3")
+    def test_dispatches_mp3(self, mock_mp3):
+        mock_mp3.return_value = True
+        metadata.tag_audio_file("/path/file.mp3", {}, {}, None)
+        mock_mp3.assert_called_once()
+
+
 def _create_minimal_mp3(path):
     """Create a minimal valid MP3 file for testing."""
     from mutagen.mp3 import MP3

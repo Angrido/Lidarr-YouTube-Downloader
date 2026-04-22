@@ -24,6 +24,7 @@ from mutagen.id3 import (
     UFID,
 )
 from mutagen.mp3 import MP3
+from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
 from mutagen.oggopus import OggOpus
 
 from lidarr import get_monitored_release
@@ -162,10 +163,67 @@ def tag_opus(file_path, track_info, album_info, cover_data):
         return False
 
 
+def tag_m4a(file_path, track_info, album_info, cover_data):
+    try:
+        audio = MP4(file_path)
+
+        audio["\xa9nam"] = [track_info["title"]]
+        audio["\xa9ART"] = [album_info["artist"]["artistName"]]
+        audio["aART"] = [album_info["artist"]["artistName"]]
+        audio["\xa9alb"] = [album_info["title"]]
+        audio["\xa9day"] = [str(album_info.get("releaseDate", "")[:4])]
+
+        try:
+            t_num = int(track_info["trackNumber"])
+            total = album_info.get("trackCount", 0)
+            audio["trkn"] = [(t_num, total)]
+        except (ValueError, KeyError):
+            pass
+
+        release = get_monitored_release(album_info)
+        if release:
+            country = release.get("country")
+            if isinstance(country, list):
+                country = country[0] if country else None
+            mb_fields = [
+                (track_info.get("foreignRecordingId"),
+                 "MusicBrainz Release Track Id"),
+                (release.get("foreignReleaseId"), "MusicBrainz Album Id"),
+                (album_info["artist"].get("foreignArtistId"),
+                 "MusicBrainz Artist Id"),
+                (album_info.get("foreignAlbumId"),
+                 "MusicBrainz Album Release Group Id"),
+                (country, "MusicBrainz Release Country"),
+            ]
+            for value, desc in mb_fields:
+                if value:
+                    key = f"----:com.apple.iTunes:{desc}"
+                    audio[key] = [MP4FreeForm(str(value).encode())]
+
+        if track_info.get("foreignRecordingId"):
+            key = "----:com.apple.iTunes:MusicBrainz Release Track Id"
+            audio[key] = [
+                MP4FreeForm(track_info["foreignRecordingId"].encode())
+            ]
+
+        if cover_data:
+            audio["covr"] = [
+                MP4Cover(cover_data, imageformat=MP4Cover.FORMAT_JPEG)
+            ]
+
+        audio.save()
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to tag M4A {file_path}: {e}")
+        return False
+
+
 def tag_audio_file(file_path, track_info, album_info, cover_data):
     ext = os.path.splitext(file_path)[1].lower()
     if ext == ".opus":
         return tag_opus(file_path, track_info, album_info, cover_data)
+    if ext == ".m4a":
+        return tag_m4a(file_path, track_info, album_info, cover_data)
     return tag_mp3(file_path, track_info, album_info, cover_data)
 
 
