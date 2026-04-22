@@ -357,10 +357,16 @@ def process_album_download(album_id, force=False):
             "cover_url": download_process.get("cover_url", ""),
             "lidarr_album_path": lidarr_album_path,
         }
+        def _parse_track_num(raw, fallback):
+            try:
+                return int(raw)
+            except (ValueError, TypeError):
+                return fallback
+
         download_process["tracks"] = [
             {
                 "track_title": t["title"],
-                "track_number": int(t.get("trackNumber", i + 1)),
+                "track_number": _parse_track_num(t.get("trackNumber"), i + 1),
                 "status": "pending",
                 "youtube_url": "",
                 "youtube_title": "",
