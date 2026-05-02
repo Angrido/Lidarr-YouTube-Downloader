@@ -40,7 +40,7 @@ class TestDownloadTracks:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
         "acoustid_enabled": False,
@@ -242,7 +242,7 @@ class TestTrackStateTransitions:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
         "acoustid_enabled": False,
@@ -444,7 +444,7 @@ class TestVerifyRetryLoop:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -528,7 +528,7 @@ class TestVerifyRetryLoop:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -589,7 +589,7 @@ class TestVerifyRetryLoop:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -661,7 +661,7 @@ class TestVerifyRetryLoop:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
         "acoustid_enabled": True,
@@ -715,7 +715,7 @@ class TestVerifyRetryLoop:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -767,7 +767,7 @@ class TestVerifyRetryLoop:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -825,7 +825,7 @@ class TestVerifyRetryLoop:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -892,7 +892,7 @@ class TestVerifyRetryLoop:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -944,7 +944,7 @@ class TestVerifyRetryLoop:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -995,7 +995,7 @@ class TestVerifyRetryLoop:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -1052,7 +1052,7 @@ class TestVerifyRetryLoop:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -1100,7 +1100,7 @@ class TestVerifyRetryLoop:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -1195,7 +1195,7 @@ class TestVerifyRetryIntegration:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -1305,7 +1305,7 @@ class TestCandidateAttemptCapture:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
         "acoustid_enabled": False,
@@ -1348,7 +1348,7 @@ class TestCandidateAttemptCapture:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -1421,7 +1421,7 @@ class TestCandidateAttemptCapture:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -1520,7 +1520,7 @@ class TestCandidateAttemptCapture:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,
@@ -1577,7 +1577,7 @@ class TestCandidateAttemptCapture:
 
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
-    @patch("processing.tag_mp3")
+    @patch("processing.tag_audio_file")
     @patch("processing.verify_fingerprint")
     @patch("processing.load_config", return_value={
         "xml_metadata_enabled": False,

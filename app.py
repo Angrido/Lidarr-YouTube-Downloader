@@ -901,6 +901,9 @@ def api_youtube_stream():
             for k in list(_audio_stream_cache):
                 if now - _audio_stream_cache[k]["ts"] > 600:
                     del _audio_stream_cache[k]
+            if len(_audio_stream_cache) > 200:
+                oldest = min(_audio_stream_cache, key=lambda k: _audio_stream_cache[k]["ts"])
+                del _audio_stream_cache[oldest]
         except Exception as e:
             logger.warning("Stream extraction failed: %s", e)
             return str(e)[:200], 500

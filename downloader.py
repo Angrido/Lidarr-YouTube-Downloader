@@ -329,6 +329,7 @@ def download_youtube_candidate(
     clients_to_try.append(None)
 
     last_err = None
+    any_403 = False
     for pc in clients_to_try:
         if skip_check and skip_check():
             return {"skipped": True}
@@ -360,6 +361,7 @@ def download_youtube_candidate(
             last_err = e
             msg = str(e)
             if "403" in msg:
+                any_403 = True
                 logger.debug(
                     f"   403 with player_client={pc or 'default'};"
                     " ensure cookies are provided"
@@ -378,7 +380,7 @@ def download_youtube_candidate(
         )
 
     last_error_msg = str(last_err)[:120] if last_err else "Unknown error"
-    if last_err and "403" in str(last_err):
+    if any_403:
         return {
             "success": False,
             "error_message": (
