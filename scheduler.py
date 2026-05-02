@@ -13,14 +13,16 @@ import models
 from config import load_config
 from lidarr import get_missing_albums
 from notifications import send_notifications
-from processing import download_process
+from processing import download_process, queue_lock
 
 logger = logging.getLogger(__name__)
 
 
 def scheduled_check():
     """Check Lidarr for new missing albums and optionally queue them."""
-    if download_process["active"]:
+    with queue_lock:
+        is_active = download_process["active"]
+    if is_active:
         return
     config = load_config()
     albums = get_missing_albums()
