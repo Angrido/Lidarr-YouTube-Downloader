@@ -297,15 +297,33 @@ def process_album_download(album_id, force=False):
         else:
             album_folder_name = f"{sanitized_album} [{album_type}]"
         album_path = os.path.join(artist_path, album_folder_name)
-        os.makedirs(album_path, exist_ok=True)
+        try:
+            os.makedirs(album_path, exist_ok=True)
+        except PermissionError as exc:
+            puid = os.getenv("PUID", "?")
+            logger.error(
+                "Permission denied creating %s: %s. "
+                "Ensure DOWNLOAD_PATH (%s) is owned by uid=%s "
+                "(set PUID/PGID correctly and check host directory ownership).",
+                album_path, exc, DOWNLOAD_DIR, puid,
+            )
+            return {
+                "error": (
+                    f"Permission denied: cannot create {album_path}. "
+                    f"Check that DOWNLOAD_PATH is writable by PUID={puid}."
+                )
+            }
 
         # Fetch cover art before sending the download_started
         # notification so the artwork can render in Telegram (sendPhoto)
         # and Discord (embed thumbnail).
         cover_data = get_itunes_artwork(artist_name, album_title)
         if cover_data:
-            with open(os.path.join(album_path, "cover.jpg"), "wb") as f:
-                f.write(cover_data)
+            try:
+                with open(os.path.join(album_path, "cover.jpg"), "wb") as f:
+                    f.write(cover_data)
+            except OSError as exc:
+                logger.warning("Failed to write cover.jpg: %s", exc)
         cover_url = download_process.get("cover_url", "")
 
         models.add_log(
@@ -1261,7 +1279,6 @@ def _download_tracks(
         }
         for future in as_completed(futures):
             if download_process["stop"]:
-                executor.shutdown(wait=False, cancel_futures=True)
                 logger.warning("Download stopped by user")
                 break
             try:

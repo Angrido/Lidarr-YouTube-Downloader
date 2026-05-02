@@ -345,7 +345,7 @@ def get_logs(page=1, per_page=50, log_type=None):
     if log_type:
         query = (
             "SELECT * FROM download_logs"
-            " WHERE type = ? ORDER BY timestamp DESC"
+            " WHERE type = ? ORDER BY timestamp DESC, id DESC"
             " LIMIT ? OFFSET ?"
         )
         count_query = (
@@ -354,7 +354,7 @@ def get_logs(page=1, per_page=50, log_type=None):
         params = (log_type,)
     else:
         query = (
-            "SELECT * FROM download_logs ORDER BY timestamp DESC"
+            "SELECT * FROM download_logs ORDER BY timestamp DESC, id DESC"
             " LIMIT ? OFFSET ?"
         )
         count_query = "SELECT COUNT(*) FROM download_logs"
@@ -450,21 +450,16 @@ def get_banned_urls_for_album(album_id):
 def enqueue_album(album_id):
     """Add an album to the download queue. Returns False if duplicate."""
     conn = db.get_db()
-    existing = conn.execute(
-        "SELECT id FROM download_queue WHERE album_id = ?", (album_id,)
-    ).fetchone()
-    if existing:
-        return False
     max_pos = conn.execute(
         "SELECT COALESCE(MAX(position), 0) FROM download_queue"
     ).fetchone()[0]
-    conn.execute(
-        "INSERT INTO download_queue (album_id, position, status)"
+    cursor = conn.execute(
+        "INSERT OR IGNORE INTO download_queue (album_id, position, status)"
         " VALUES (?, ?, ?)",
         (album_id, max_pos + 1, QUEUE_STATUS_QUEUED),
     )
     conn.commit()
-    return True
+    return cursor.rowcount > 0
 
 
 def dequeue_album(album_id):
