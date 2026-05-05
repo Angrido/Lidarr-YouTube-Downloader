@@ -1,0 +1,61 @@
+--- tests/test_routes.py
++++ tests/test_routes.py
+@@ -881,13 +881,14 @@
+         mock_fp, client, tmp_path, monkeypatch,
+     ):
+         monkeypatch.setattr("app.load_config", lambda: {"download_path": str(tmp_path / "downloads"), "lidarr_path": "", "acoustid_enabled": True, "acoustid_api_key": "test-key"})
+-        dl_path = str(tmp_path / "downloads")
++
+
+         monkeypatch.setattr("app.load_config", lambda: {
+             "acoustid_enabled": True,
+             "acoustid_api_key": "test-key",
+             "xml_metadata_enabled": False,
+             "yt_force_ipv4": False,
+             "yt_player_client": "",
++            "download_path": str(tmp_path / "downloads"),
+         })
+         mock_album.return_value = {
+@@ -954,14 +955,14 @@
+
+     @patch("app._get_album_cached")
+     def test_no_download_path_returns_400(self, mock_album, client, monkeypatch):
+         monkeypatch.setattr("app.load_config", lambda: {"download_path": "", "lidarr_path": ""})
+-
++
+         mock_album.return_value = {
+             "title": "Album",
+             "releaseDate": "2024-01-01",
+             "albumType": "Album",
+             "artist": {"artistName": "Artist", "id": 1, "foreignArtistId": "x"},
+             "images": [],
+         }
+         resp = client.post(
+             "/api/album/1/track/manual-download",
+@@ -993,12 +994,11 @@
+         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
+     ):
+         monkeypatch.setattr("app.load_config", lambda: {"download_path": str(tmp_path / "downloads"), "lidarr_path": ""})
+-        dl_path = str(tmp_path / "downloads")
+
+         mock_album.return_value = {
+             "title": "Album",
+             "releaseDate": "2024-01-01",
+             "albumType": "Album",
+             "artist": {"artistName": "Artist", "id": 1, "foreignArtistId": "x"},
+             "images": [],
+         }
+@@ -1035,12 +1035,11 @@
+         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
+     ):
+         monkeypatch.setattr("app.load_config", lambda: {"download_path": str(tmp_path / "downloads"), "lidarr_path": ""})
+-        dl_path = str(tmp_path / "downloads")
+-
++
+         mock_album.return_value = {
+             "title": "Album",
+             "releaseDate": "2024-01-01",
+             "albumType": "Album",
+             "artist": {"artistName": "Artist", "id": 1, "foreignArtistId": "x"},
+             "images": [],
+         }

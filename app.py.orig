@@ -57,6 +57,8 @@ app = Flask(__name__)
 
 VERSION = "1.6.5"
 
+DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
+
 rate_limit_store = {}
 album_cache = {}
 ALBUM_CACHE_TTL = 300
@@ -1083,7 +1085,6 @@ def _validate_youtube_url(youtube_url):
 
 def _validate_target_path(target_path, config):
     lidarr_path = config.get("lidarr_path", "")
-    DOWNLOAD_DIR = config.get("download_path", "")
     allowed_bases = [os.path.realpath(DOWNLOAD_DIR)] if DOWNLOAD_DIR else []
     if lidarr_path:
         allowed_bases.append(os.path.realpath(lidarr_path))
@@ -1166,8 +1167,8 @@ def api_manual_track_download(album_id):
 
     if lidarr_path:
         target_path = os.path.join(lidarr_path, sanitized_artist, album_folder)
-    elif config.get("download_path", ""):
-        target_path = os.path.join(config.get("download_path", ""), sanitized_artist, album_folder)
+    elif DOWNLOAD_DIR:
+        target_path = os.path.join(DOWNLOAD_DIR, sanitized_artist, album_folder)
     else:
         return jsonify(
             {"success": False, "message": "No download path configured"}

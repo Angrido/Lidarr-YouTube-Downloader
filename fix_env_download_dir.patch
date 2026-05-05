@@ -1,0 +1,62 @@
+--- app.py
++++ app.py
+@@ -57,8 +57,6 @@
+
+ logger = logging.getLogger(__name__)
+
+-DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
+-
+ # Track application startup time (approximate, since Flask handles requests later)
+ STARTUP_TIME = time.time()
+
+@@ -1084,6 +1082,7 @@
+     Check if target path contains traversal elements or escapes allowed bases.
+     """
+     config = load_config()
++    DOWNLOAD_DIR = config.get("download_path", "")
+     lidarr_path = config.get("lidarr_path")
+     allowed_bases = [os.path.realpath(DOWNLOAD_DIR)] if DOWNLOAD_DIR else []
+     if lidarr_path:
+@@ -1167,6 +1166,7 @@
+         "lidarr_api_key",
+     ]
+     if not any(k in payload for k in needed_fields):
++        DOWNLOAD_DIR = config.get("download_path", "")
+         if lidarr_path:
+             target_path = os.path.join(lidarr_path, sanitized_artist, album_folder)
+         elif DOWNLOAD_DIR:
+@@ -1812,6 +1812,7 @@
+     models.reset_downloading_to_queued()
+     logger.info("Starting Lidarr YouTube Downloader...")
+     logger.info("Version: %s", VERSION)
++    DOWNLOAD_DIR = load_config().get("download_path", "")
+     logger.info(
+         "Download directory: %s",
+         DOWNLOAD_DIR if DOWNLOAD_DIR else "Not set (check DOWNLOAD_PATH env)",
+--- processing.py
++++ processing.py
+@@ -38,8 +38,6 @@
+
+ logger = logging.getLogger(__name__)
+
+-DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
+-
+ download_process = {
+     "active": False,
+     "stop": False,
+@@ -288,6 +286,8 @@
+
+         sanitized_artist = sanitize_filename(artist_name)
+         sanitized_album = sanitize_filename(album_title)
++
++        DOWNLOAD_DIR = config.get("download_path", "")
+
+         artist_path = os.path.join(DOWNLOAD_DIR, sanitized_artist)
+         if release_year:
+@@ -1654,6 +1654,7 @@
+     """
+     lidarr_album_path = ""
+     if lidarr_path:
++        DOWNLOAD_DIR = load_config().get("download_path", "")
+         abs_lidarr = os.path.abspath(lidarr_path)
+         abs_download = os.path.abspath(DOWNLOAD_DIR)

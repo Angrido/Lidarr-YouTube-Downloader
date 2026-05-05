@@ -1,0 +1,48 @@
+--- tests/test_routes.py
++++ tests/test_routes.py
+@@ -881,6 +881,7 @@
+         mock_fp, client, tmp_path, monkeypatch,
+     ):
+         dl_path = str(tmp_path / "downloads")
++        monkeypatch.setenv("DOWNLOAD_PATH", dl_path)
+         monkeypatch.setattr("app.load_config", lambda: {
+             "acoustid_enabled": True,
+             "acoustid_api_key": "test-key",
+             "xml_metadata_enabled": False,
+             "yt_force_ipv4": False,
+             "yt_player_client": "",
++            "download_path": dl_path,
+         })
+@@ -954,6 +955,9 @@
+
+     @patch("app._get_album_cached")
+     def test_no_download_path_returns_400(self, mock_album, client, monkeypatch):
++        monkeypatch.setenv("DOWNLOAD_PATH", "")
++        monkeypatch.setattr("app.load_config", lambda: {
++            "download_path": "",
++        })
+
+         mock_album.return_value = {
+             "title": "Album",
+@@ -993,6 +997,10 @@
+         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
+     ):
+         dl_path = str(tmp_path / "downloads")
++        monkeypatch.setenv("DOWNLOAD_PATH", dl_path)
++        monkeypatch.setattr("app.load_config", lambda: {
++            "download_path": dl_path,
++        })
+
+         mock_album.return_value = {
+             "title": "Album",
+@@ -1035,6 +1043,10 @@
+         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
+     ):
+         dl_path = str(tmp_path / "downloads")
++        monkeypatch.setenv("DOWNLOAD_PATH", dl_path)
++        monkeypatch.setattr("app.load_config", lambda: {
++            "download_path": dl_path,
++        })
+
+         mock_album.return_value = {
+             "title": "Album",

@@ -1,0 +1,42 @@
+--- tests/test_routes.py
++++ tests/test_routes.py
+@@ -881,8 +881,8 @@
+         mock_fp, client, tmp_path, monkeypatch,
+     ):
+         dl_path = str(tmp_path / "downloads")
+-        monkeypatch.setattr("app.DOWNLOAD_DIR", dl_path)
+         monkeypatch.setattr("app.load_config", lambda: {
++            "download_path": dl_path,
+             "lidarr_api_key": "test_key",
+             "lidarr_path": "",
+         })
+@@ -954,8 +954,8 @@
+
+     @patch("app._get_album_cached")
+     def test_no_download_path_returns_400(self, mock_album, client, monkeypatch):
+-        monkeypatch.setattr("app.DOWNLOAD_DIR", "")
+         monkeypatch.setattr("app.load_config", lambda: {
++            "download_path": "",
+             "lidarr_api_key": "test_key",
+             "lidarr_path": "",
+         })
+@@ -993,8 +993,8 @@
+         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
+     ):
+         dl_path = str(tmp_path / "downloads")
+-        monkeypatch.setattr("app.DOWNLOAD_DIR", dl_path)
+         monkeypatch.setattr("app.load_config", lambda: {
++            "download_path": dl_path,
+             "lidarr_api_key": "test_key",
+             "lidarr_path": "",
+         })
+@@ -1035,8 +1035,8 @@
+         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
+     ):
+         dl_path = str(tmp_path / "downloads")
+-        monkeypatch.setattr("app.DOWNLOAD_DIR", dl_path)
+         monkeypatch.setattr("app.load_config", lambda: {
++            "download_path": dl_path,
+             "lidarr_api_key": "test_key",
+             "lidarr_path": "",
+         })

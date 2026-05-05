@@ -1,0 +1,9 @@
+--- processing.py
++++ processing.py
+@@ -286,6 +286,7 @@
+
+         sanitized_artist = sanitize_filename(artist_name)
+         sanitized_album = sanitize_filename(album_title)
++        config = load_config()
+
+         DOWNLOAD_DIR = config.get("download_path", "")

@@ -38,6 +38,8 @@ from utils import sanitize_filename, set_permissions
 
 logger = logging.getLogger(__name__)
 
+DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
+
 download_process = {
     "active": False,
     "stop": False,
@@ -286,9 +288,6 @@ def process_album_download(album_id, force=False):
 
         sanitized_artist = sanitize_filename(artist_name)
         sanitized_album = sanitize_filename(album_title)
-        config = load_config()
-
-        DOWNLOAD_DIR = config.get("download_path", "")
 
         artist_path = os.path.join(DOWNLOAD_DIR, sanitized_artist)
         if release_year:
@@ -1654,7 +1653,6 @@ def _copy_to_lidarr(
     """
     lidarr_album_path = ""
     if lidarr_path:
-        DOWNLOAD_DIR = load_config().get("download_path", "")
         abs_lidarr = os.path.abspath(lidarr_path)
         abs_download = os.path.abspath(DOWNLOAD_DIR)
 
