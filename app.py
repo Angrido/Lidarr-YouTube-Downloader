@@ -649,19 +649,19 @@ def _enrich_track_logs(items):
         album_id = item.get("album_id")
         if album_id is None:
             banned_lookup = {}
-        elif album_id not in banned_cache:
-            try:
-                banned = models.get_banned_urls_for_album(album_id)
-                banned_cache[album_id] = {
-                    b["youtube_url"]: b["id"] for b in banned
-                }
-            except Exception:
-                logger.warning(
-                    "Failed to fetch banned URLs for album %s",
-                    album_id, exc_info=True,
-                )
-                banned_cache[album_id] = {}
-        if album_id is not None:
+        else:
+            if album_id not in banned_cache:
+                try:
+                    banned = models.get_banned_urls_for_album(album_id)
+                    banned_cache[album_id] = {
+                        b["youtube_url"]: b["id"] for b in banned
+                    }
+                except Exception:
+                    logger.warning(
+                        "Failed to fetch banned URLs for album %s",
+                        album_id, exc_info=True,
+                    )
+                    banned_cache[album_id] = {}
             banned_lookup = banned_cache[album_id]
         for c in candidates:
             url = c.get("youtube_url", "")

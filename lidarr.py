@@ -37,6 +37,8 @@ def lidarr_request(endpoint, method="GET", data=None, params=None):
             r = requests.post(
                 url, headers=headers, json=data, timeout=30
             )
+        else:
+            raise ValueError(f"Unsupported method: {method}")
         r.raise_for_status()
         return r.json()
     except requests.exceptions.ConnectionError as e:
