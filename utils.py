@@ -63,13 +63,6 @@ def get_umask():
 
 
 def makedirs_within(base_dir, target_path):
-    """Create target_path by stepping through each component inside base_dir.
-
-    Uses os.mkdir one level at a time instead of os.makedirs, which
-    on some filesystems (e.g. Synology NAS btrfs volumes) tries to
-    stat/create ancestor directories above base_dir and raises
-    PermissionError even when base_dir itself is fully accessible.
-    """
     try:
         rel = os.path.relpath(target_path, base_dir)
     except ValueError:
@@ -87,14 +80,6 @@ def makedirs_within(base_dir, target_path):
 
 
 def makedirs_safe(target_path, known_bases):
-    """Create target_path using makedirs_within with the first matching base.
-
-    Falls back to os.makedirs when target_path is not under any known base.
-
-    Args:
-        target_path: Directory to create.
-        known_bases: Iterable of known-accessible base directories.
-    """
     real_target = os.path.realpath(target_path)
     for base in known_bases:
         if not base:
