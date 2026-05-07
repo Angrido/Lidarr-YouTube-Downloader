@@ -62,6 +62,35 @@ def get_umask():
         return 0o002
 
 
+def makedirs_within(base_dir, target_path):
+    try:
+        rel = os.path.relpath(target_path, base_dir)
+    except ValueError:
+        os.makedirs(target_path, exist_ok=True)
+        return
+    current = base_dir
+    for part in rel.split(os.sep):
+        if part in ("", ".", ".."):
+            continue
+        current = os.path.join(current, part)
+        try:
+            os.mkdir(current)
+        except FileExistsError:
+            pass
+
+
+def makedirs_safe(target_path, known_bases):
+    real_target = os.path.realpath(target_path)
+    for base in known_bases:
+        if not base:
+            continue
+        real_base = os.path.realpath(base)
+        if real_target.startswith(real_base + os.sep) or real_target == real_base:
+            makedirs_within(base, target_path)
+            return
+    os.makedirs(target_path, exist_ok=True)
+
+
 def set_permissions(path):
     """Set permissions based on UMASK environment variable.
 
