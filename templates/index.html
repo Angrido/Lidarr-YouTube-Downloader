@@ -2771,6 +2771,7 @@
       let queuedAlbumIds = new Set();
       let wasDownloadActive = false;
       let failedTracksData = [];
+      let failedTracksAlbumId = null;
 
       function escapeHtml(str) {
         if (!str) return "";
@@ -3782,6 +3783,7 @@
 
       function showFailedTracksOverlay(data, openModal = true) {
         failedTracksData = data.failed_tracks;
+        failedTracksAlbumId = data.album_id || null;
         document.getElementById("failedAlbumTitle").textContent =
           data.album_title || "Unknown Album";
         document.getElementById("failedArtistName").textContent =
@@ -3984,6 +3986,7 @@
               youtube_url: url,
               track_title: track.title,
               track_num: track.track_num,
+              album_id: failedTracksAlbumId,
             }),
           });
           const data = await res.json();

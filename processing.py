@@ -34,7 +34,7 @@ from notifications import (
     md2_escape,
     send_notifications,
 )
-from utils import sanitize_filename, set_permissions
+from utils import sanitize_filename, set_permissions, makedirs_safe
 
 logger = logging.getLogger(__name__)
 
@@ -298,7 +298,7 @@ def process_album_download(album_id, force=False):
             album_folder_name = f"{sanitized_album} [{album_type}]"
         album_path = os.path.join(artist_path, album_folder_name)
         try:
-            os.makedirs(album_path, exist_ok=True)
+            makedirs_safe(album_path, [DOWNLOAD_DIR])
         except PermissionError as exc:
             puid = os.getenv("PUID", "?")
             logger.error(

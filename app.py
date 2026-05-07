@@ -43,7 +43,7 @@ from processing import (
     stop_download,
 )
 from scheduler import run_scheduler, setup_scheduler
-from utils import check_rate_limit, format_bytes, sanitize_filename, set_permissions
+from utils import check_rate_limit, format_bytes, sanitize_filename, set_permissions, makedirs_safe
 
 logging.basicConfig(
     level=logging.INFO, format="%(message)s", handlers=[logging.StreamHandler()]
@@ -961,6 +961,7 @@ def api_download_manual():
     youtube_url = data.get("youtube_url", "").strip()
     track_title = data.get("track_title", "").strip()
     track_num = data.get("track_num", 0)
+    album_id_from_request = data.get("album_id")
 
     if not youtube_url or not track_title:
         return jsonify({"success": False, "message": "Missing required fields"}), 400
@@ -969,7 +970,7 @@ def api_download_manual():
     if youtube_url is None:
         return jsonify({"success": False, "message": "Invalid YouTube URL"}), 400
 
-    album_id_ctx = models.get_latest_download_album_id()
+    album_id_ctx = album_id_from_request or models.get_latest_download_album_id()
     if not album_id_ctx:
         return jsonify(
             {
@@ -1003,7 +1004,7 @@ def api_download_manual():
     if not _validate_target_path(target_path, config):
         return jsonify({"success": False, "message": "Invalid target path"}), 400
 
-    os.makedirs(target_path, exist_ok=True)
+    makedirs_safe(target_path, [DOWNLOAD_DIR, config.get("lidarr_path", "")])
 
     return _execute_manual_download(
         youtube_url,
@@ -1287,7 +1288,7 @@ def _execute_manual_dl_with_progress(
         ]
 
     try:
-        os.makedirs(target_path, exist_ok=True)
+        makedirs_safe(target_path, [DOWNLOAD_DIR, config.get("lidarr_path", "")])
         _do_manual_dl(
             youtube_url=youtube_url,
             track_title=track_title,

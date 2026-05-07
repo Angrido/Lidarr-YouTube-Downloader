@@ -62,6 +62,50 @@ def get_umask():
         return 0o002
 
 
+def makedirs_within(base_dir, target_path):
+    """Create target_path by stepping through each component inside base_dir.
+
+    Uses os.mkdir one level at a time instead of os.makedirs, which
+    on some filesystems (e.g. Synology NAS btrfs volumes) tries to
+    stat/create ancestor directories above base_dir and raises
+    PermissionError even when base_dir itself is fully accessible.
+    """
+    try:
+        rel = os.path.relpath(target_path, base_dir)
+    except ValueError:
+        os.makedirs(target_path, exist_ok=True)
+        return
+    current = base_dir
+    for part in rel.split(os.sep):
+        if part in ("", ".", ".."):
+            continue
+        current = os.path.join(current, part)
+        try:
+            os.mkdir(current)
+        except FileExistsError:
+            pass
+
+
+def makedirs_safe(target_path, known_bases):
+    """Create target_path using makedirs_within with the first matching base.
+
+    Falls back to os.makedirs when target_path is not under any known base.
+
+    Args:
+        target_path: Directory to create.
+        known_bases: Iterable of known-accessible base directories.
+    """
+    real_target = os.path.realpath(target_path)
+    for base in known_bases:
+        if not base:
+            continue
+        real_base = os.path.realpath(base)
+        if real_target.startswith(real_base + os.sep) or real_target == real_base:
+            makedirs_within(base, target_path)
+            return
+    os.makedirs(target_path, exist_ok=True)
+
+
 def set_permissions(path):
     """Set permissions based on UMASK environment variable.
 
