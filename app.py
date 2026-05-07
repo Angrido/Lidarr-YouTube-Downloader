@@ -377,8 +377,42 @@ def api_download_stream():
                                     ),
                                 }
                             )
+                    status = dict(download_process)
+                    tracks = status.get("tracks", [])
+                    total = len(tracks)
+                    done_count = sum(
+                        1 for t in tracks
+                        if t.get("status") in ("done", "failed", "skipped")
+                    )
+                    downloading = [
+                        t for t in tracks if t.get("status") == "downloading"
+                    ]
+                    active_track = downloading[0] if downloading else None
+                    if active_track is None:
+                        idx = status.get("current_track_index", -1)
+                        if 0 <= idx < total:
+                            active_track = tracks[idx]
+                    status["current_track_title"] = (
+                        active_track.get("track_title", "") if active_track else ""
+                    )
+                    overall_percent = (
+                        round(done_count / total * 100) if total > 0 else 0
+                    )
+                    status["progress"] = {
+                        "current": done_count + (1 if active_track else 0),
+                        "total": total,
+                        "overall_percent": overall_percent,
+                        "percent": (
+                            active_track.get("progress_percent", "")
+                            if active_track else ""
+                        ),
+                        "speed": (
+                            active_track.get("progress_speed", "")
+                            if active_track else ""
+                        ),
+                    }
                 data = {
-                    "status": dict(download_process),
+                    "status": status,
                     "queue": queue_data,
                 }
                 yield f"data: {json.dumps(data)}\n\n"
