@@ -1034,9 +1034,6 @@ def api_download_manual():
     config = load_config()
     lidarr_path = config.get("lidarr_path", "")
 
-    # Recompute the correct album folder from current album metadata.
-    # The lidarr_album_path stored in the DB is often "" because it is
-    # recorded before _copy_to_lidarr() runs, so we can't rely on it.
     artist_name_meta = album_data.get("artist", {}).get("artistName", "")
     album_title_meta = album_data.get("title", "")
     release_year_meta = str(album_data.get("releaseDate", ""))[:4]
@@ -1052,7 +1049,6 @@ def api_download_manual():
     elif DOWNLOAD_DIR:
         target_path = os.path.join(DOWNLOAD_DIR, san_artist, album_folder_meta)
     else:
-        # Last resort: fall back to whatever the DB has
         lidarr_album_path_val = failed_ctx.get("lidarr_album_path", "")
         dl_album_path = failed_ctx.get("album_path", "")
         target_path = (
@@ -1171,8 +1167,6 @@ def _execute_manual_download(
     config,
     lidarr_path="",
 ):
-    # lidarr_album_path: set to target_path when a lidarr_path is configured
-    # so that the DB record points at the correct music-library location.
     lidarr_album_path_rec = target_path if lidarr_path else ""
     return _execute_manual_dl(
         youtube_url=youtube_url,
