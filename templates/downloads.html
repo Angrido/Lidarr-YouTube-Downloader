@@ -1154,6 +1154,25 @@
             text-decoration: line-through;
             opacity: 0.5;
         }
+
+        .btn-retry-failed {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.3rem 0.7rem;
+            border: 1px solid #f59e0b;
+            color: #f59e0b;
+            border-radius: 8px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-decoration: none;
+            white-space: nowrap;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+        .btn-retry-failed:hover {
+            background: rgba(245, 158, 11, 0.15);
+        }
     </style>
 </head>
 
@@ -1732,6 +1751,19 @@
             badge.className = 'history-track-badge ' + badgeClass;
             badge.textContent = item.success_count + '/' + item.total_count + ' tracks';
             row.appendChild(badge);
+
+            if (status === 'partial' || status === 'error') {
+                const retryBtn = document.createElement('a');
+                retryBtn.href = '/?retry=' + albumId;
+                retryBtn.className = 'btn-retry-failed';
+                retryBtn.title = 'Search and manually download failed tracks';
+                retryBtn.addEventListener('click', function(e) { e.stopPropagation(); });
+                const retryIcon = document.createElement('i');
+                retryIcon.className = 'fa-solid fa-magnifying-glass';
+                retryBtn.appendChild(retryIcon);
+                retryBtn.appendChild(document.createTextNode(' Retry'));
+                row.appendChild(retryBtn);
+            }
 
             wrapper.appendChild(row);
 

@@ -2804,11 +2804,16 @@
 
         (async () => {
           try {
-            const res = await fetch("/api/download/failed");
+            const params = new URLSearchParams(window.location.search);
+            const retryParam = params.get("retry");
+            const retryAlbumId = retryParam && retryParam !== "1" ? retryParam : null;
+            const url = retryAlbumId
+              ? "/api/download/failed?album_id=" + encodeURIComponent(retryAlbumId)
+              : "/api/download/failed";
+            const res = await fetch(url);
             const data = await res.json();
             if (data.failed_tracks && data.failed_tracks.length > 0) {
-              const openOverlay =
-                new URLSearchParams(window.location.search).get("retry") === "1";
+              const openOverlay = !!retryParam;
               showFailedTracksOverlay(data, openOverlay);
               if (openOverlay)
                 history.replaceState(null, "", window.location.pathname);
