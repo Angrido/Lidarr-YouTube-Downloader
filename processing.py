@@ -291,11 +291,9 @@ def process_album_download(album_id, force=False):
 
         artist_path = os.path.join(DOWNLOAD_DIR, sanitized_artist)
         if release_year:
-            album_folder_name = (
-                f"{sanitized_album} ({release_year}) [{album_type}]"
-            )
+            album_folder_name = f"{sanitized_album} ({release_year})"
         else:
-            album_folder_name = f"{sanitized_album} [{album_type}]"
+            album_folder_name = sanitized_album
         album_path = os.path.join(artist_path, album_folder_name)
         try:
             makedirs_safe(album_path, [DOWNLOAD_DIR])

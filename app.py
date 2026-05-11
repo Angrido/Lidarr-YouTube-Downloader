@@ -55,7 +55,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.6.6"
+VERSION = "1.6.7"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -574,18 +574,24 @@ def api_delete_track(track_id):
     sanitized_track = sanitize_filename(track_data["track_title"])
     track_num = track_data["track_number"] or 0
     album_path = track_data["album_path"]
-    mp3_name = f"{track_num:02d} - {sanitized_track}.mp3"
     xml_name = f"{track_num:02d} - {sanitized_track}.xml"
-    mp3_path = os.path.join(album_path, mp3_name)
     xml_path = os.path.join(album_path, xml_name)
 
-    try:
-        os.remove(mp3_path)
-        file_deleted = True
-    except FileNotFoundError:
-        logger.warning("Track file not found for deletion: %s", mp3_path)
-    except OSError:
-        logger.error("Failed to delete track file: %s", mp3_path, exc_info=True)
+    cfg_ext = load_config().get("audio_format", "mp3")
+    audio_exts = [cfg_ext] + [e for e in ["mp3", "opus", "flac", "aac", "ogg", "m4a"] if e != cfg_ext]
+    for ext in audio_exts:
+        candidate = os.path.join(album_path, f"{track_num:02d} - {sanitized_track}.{ext}")
+        try:
+            os.remove(candidate)
+            file_deleted = True
+            break
+        except FileNotFoundError:
+            continue
+        except OSError:
+            logger.error("Failed to delete track file: %s", candidate, exc_info=True)
+            break
+    if not file_deleted:
+        logger.warning("Track file not found for deletion: %s/%02d - %s.*", album_path, track_num, sanitized_track)
     try:
         os.remove(xml_path)
     except OSError:
@@ -726,7 +732,9 @@ def api_dismiss_log(log_id):
 
 @app.route("/api/download/failed")
 def api_download_failed():
-    album_id = models.get_latest_download_album_id()
+    album_id = request.args.get("album_id", type=int)
+    if album_id is None:
+        album_id = models.get_latest_download_album_id()
     if album_id is None:
         return jsonify(
             {
@@ -1023,22 +1031,39 @@ def api_download_manual():
         ), 500
 
     failed_ctx = models.get_failed_tracks_for_retry(album_id_ctx)
-    dl_album_path = failed_ctx.get("album_path", "")
-    lidarr_album_path_val = failed_ctx.get("lidarr_album_path", "")
-    target_path = (
-        lidarr_album_path_val
-        if lidarr_album_path_val and os.path.isdir(lidarr_album_path_val)
-        else dl_album_path
-    )
+    config = load_config()
+    lidarr_path = config.get("lidarr_path", "")
+
+    artist_name_meta = album_data.get("artist", {}).get("artistName", "")
+    album_title_meta = album_data.get("title", "")
+    release_year_meta = str(album_data.get("releaseDate", ""))[:4]
+    san_artist = sanitize_filename(artist_name_meta)
+    san_album = sanitize_filename(album_title_meta)
+    if release_year_meta:
+        album_folder_meta = f"{san_album} ({release_year_meta})"
+    else:
+        album_folder_meta = san_album
+
+    if lidarr_path:
+        target_path = os.path.join(lidarr_path, san_artist, album_folder_meta)
+    elif DOWNLOAD_DIR:
+        target_path = os.path.join(DOWNLOAD_DIR, san_artist, album_folder_meta)
+    else:
+        lidarr_album_path_val = failed_ctx.get("lidarr_album_path", "")
+        dl_album_path = failed_ctx.get("album_path", "")
+        target_path = (
+            lidarr_album_path_val
+            if lidarr_album_path_val and os.path.isdir(lidarr_album_path_val)
+            else dl_album_path
+        )
 
     if not target_path:
         return jsonify({"success": False, "message": "No album path available"}), 400
 
-    config = load_config()
     if not _validate_target_path(target_path, config):
         return jsonify({"success": False, "message": "Invalid target path"}), 400
 
-    makedirs_safe(target_path, [DOWNLOAD_DIR, config.get("lidarr_path", "")])
+    makedirs_safe(target_path, [DOWNLOAD_DIR, lidarr_path])
 
     return _execute_manual_download(
         youtube_url,
@@ -1049,6 +1074,7 @@ def api_download_manual():
         album_id_ctx,
         failed_ctx,
         config,
+        lidarr_path=lidarr_path,
     )
 
 
@@ -1139,7 +1165,9 @@ def _execute_manual_download(
     album_id_ctx,
     failed_ctx,
     config,
+    lidarr_path="",
 ):
+    lidarr_album_path_rec = target_path if lidarr_path else ""
     return _execute_manual_dl(
         youtube_url=youtube_url,
         track_title=track_title,
@@ -1147,11 +1175,14 @@ def _execute_manual_download(
         target_path=target_path,
         album_data=album_data,
         album_id=album_id_ctx,
-        album_title=failed_ctx.get("album_title", ""),
-        artist_name=failed_ctx.get("artist_name", ""),
+        album_title=failed_ctx.get("album_title", "") or album_data.get("title", ""),
+        artist_name=(
+            failed_ctx.get("artist_name", "")
+            or album_data.get("artist", {}).get("artistName", "")
+        ),
         config=config,
-        album_path=failed_ctx.get("album_path", ""),
-        lidarr_album_path=failed_ctx.get("lidarr_album_path", ""),
+        album_path=target_path,
+        lidarr_album_path=lidarr_album_path_rec,
         cover_url=failed_ctx.get("cover_url", ""),
     )
 
@@ -1193,9 +1224,9 @@ def api_manual_track_download(album_id):
     sanitized_artist = sanitize_filename(artist_name)
     sanitized_album = sanitize_filename(album_title)
     if release_year:
-        album_folder = f"{sanitized_album} ({release_year}) [{album_type}]"
+        album_folder = f"{sanitized_album} ({release_year})"
     else:
-        album_folder = f"{sanitized_album} [{album_type}]"
+        album_folder = sanitized_album
 
     config = load_config()
     lidarr_path = config.get("lidarr_path", "")
@@ -1238,17 +1269,18 @@ def api_manual_track_download(album_id):
 
 
 def _build_ydl_opts(config, temp_file):
+    audio_format = config.get("audio_format", "mp3")
+    pp = {
+        "key": "FFmpegExtractAudio",
+        "preferredcodec": audio_format,
+    }
+    if audio_format == "mp3":
+        pp["preferredquality"] = "320"
     opts = {
         "quiet": True,
         "no_warnings": True,
         "format": "bestaudio/best",
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "320",
-            }
-        ],
+        "postprocessors": [pp],
         "outtmpl": temp_file,
         "noplaylist": True,
     }
@@ -1367,12 +1399,13 @@ def _do_manual_dl(
 
     track_state = download_process["tracks"][0]
 
-    sanitized_track = werkzeug_secure_filename(sanitize_filename(track_title))
+    sanitized_track = sanitize_filename(track_title)
     if not sanitized_track:
         sanitized_track = "untitled"
     temp_file = os.path.join(target_path, f"temp_manual_{uuid.uuid4().hex[:8]}")
+    audio_ext = config.get("audio_format", "mp3")
     final_file = os.path.join(
-        target_path, f"{int(track_num):02d} - {sanitized_track}.mp3"
+        target_path, f"{int(track_num):02d} - {sanitized_track}.{audio_ext}"
     )
 
     real_final = os.path.realpath(final_file)
@@ -1409,7 +1442,7 @@ def _do_manual_dl(
         track_state["error_message"] = str(e)[:200]
         return
 
-    actual_file = temp_file + ".mp3"
+    actual_file = temp_file + f".{audio_ext}"
     if not os.path.exists(actual_file):
         _cleanup_temp_files(temp_file)
         track_state["status"] = "failed"
@@ -1495,12 +1528,13 @@ def _execute_manual_dl(
 ):
     import yt_dlp
 
-    sanitized_track = werkzeug_secure_filename(sanitize_filename(track_title))
+    sanitized_track = sanitize_filename(track_title)
     if not sanitized_track:
         sanitized_track = "untitled"
+    audio_ext = config.get("audio_format", "mp3")
     temp_file = os.path.join(target_path, f"temp_manual_{uuid.uuid4().hex[:8]}")
     final_file = os.path.join(
-        target_path, f"{int(track_num):02d} - {sanitized_track}.mp3"
+        target_path, f"{int(track_num):02d} - {sanitized_track}.{audio_ext}"
     )
 
     real_final = os.path.realpath(final_file)
@@ -1527,7 +1561,7 @@ def _execute_manual_dl(
         _cleanup_temp_files(temp_file)
         return jsonify({"success": False, "message": str(e)[:200]}), 500
 
-    actual_file = temp_file + ".mp3"
+    actual_file = temp_file + f".{audio_ext}"
     if not os.path.exists(actual_file):
         _cleanup_temp_files(temp_file)
         return jsonify(
