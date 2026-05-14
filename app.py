@@ -32,9 +32,10 @@ from config import ALLOWED_CONFIG_KEYS, load_config, save_config
 from downloader import get_ytdlp_version
 from fingerprint import fingerprint_track
 from lidarr import get_missing_albums, lidarr_request
-from metadata import create_xml_metadata, get_itunes_tracks, tag_mp3
+from metadata import create_xml_metadata, get_itunes_tracks, tag_mp3, tag_audio_file
 from notifications import send_notifications
 from processing import (
+    TrackSkippedException,
     download_process,
     get_download_status,
     process_album_download,
@@ -55,7 +56,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.6.7"
+VERSION = "1.7.0"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -1837,6 +1838,412 @@ def _refresh_lidarr_artist(album_data, track_title):
             "Lidarr RefreshArtist failed after manual download of '%s': %s",
             track_title,
             result["error"],
+        )
+
+
+@app.route("/youtube")
+def youtube_import():
+    return render_template("youtube.html")
+
+
+@app.route("/api/youtube/playlist/info", methods=["POST"])
+def api_youtube_playlist_info():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"playlist_info:{client_ip}", rate_limit_store, window=5, max_requests=3
+    ):
+        return jsonify({"error": "Too many requests"}), 429
+
+    url = (request.json or {}).get("url", "").strip()
+    if not url:
+        return jsonify({"error": "Missing URL"}), 400
+
+    if not _validate_youtube_url_for_playlist(url):
+        return jsonify({"error": "Invalid YouTube URL"}), 400
+
+    import yt_dlp
+
+    config = load_config()
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "logger": _YtdlpSilentLogger(),
+        "extract_flat": True,
+        "noplaylist": False,
+    }
+    cookies_path = (config.get("yt_cookies_file") or "").strip()
+    if cookies_path and os.path.exists(cookies_path):
+        ydl_opts["cookiefile"] = cookies_path
+    if config.get("yt_force_ipv4", True):
+        ydl_opts["source_address"] = "0.0.0.0"
+    pc = config.get("yt_player_client", "android")
+    if pc:
+        ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+        if not info:
+            return jsonify({"error": "Could not extract info from URL"}), 404
+
+        entries = []
+        if "entries" in info:
+            for i, entry in enumerate((info.get("entries") or [])):
+                if not entry:
+                    continue
+                vid_url = entry.get("webpage_url") or entry.get("url", "")
+                if not vid_url and entry.get("id"):
+                    vid_url = f"https://www.youtube.com/watch?v={entry['id']}"
+                entries.append({
+                    "index": i,
+                    "title": entry.get("title", f"Track {i + 1}"),
+                    "url": vid_url,
+                    "duration": entry.get("duration", 0),
+                    "thumbnail": entry.get("thumbnail", ""),
+                    "channel": (
+                        entry.get("channel", "") or entry.get("uploader", "")
+                    ),
+                })
+            result_type = "playlist"
+            playlist_title = info.get("title", "YouTube Playlist")
+            channel = info.get("channel", "") or info.get("uploader", "")
+        else:
+            entries.append({
+                "index": 0,
+                "title": info.get("title", ""),
+                "url": url,
+                "duration": info.get("duration", 0),
+                "thumbnail": info.get("thumbnail", ""),
+                "channel": info.get("channel", "") or info.get("uploader", ""),
+            })
+            result_type = "video"
+            playlist_title = info.get("title", "")
+            channel = info.get("channel", "") or info.get("uploader", "")
+
+        return jsonify({
+            "type": result_type,
+            "title": playlist_title,
+            "channel": channel,
+            "entries": entries,
+        })
+    except Exception as e:
+        logger.warning("Playlist info extraction failed: %s", e)
+        return jsonify({"error": str(e)[:300]}), 500
+
+
+def _validate_youtube_url_for_playlist(url):
+    if not url.startswith("http"):
+        if re.match(r"^[a-zA-Z0-9_-]{11}$", url):
+            return True
+        if re.match(r"^PL[a-zA-Z0-9_-]+$", url):
+            return True
+        return False
+    parsed = urllib.parse.urlparse(url)
+    allowed_hosts = {
+        "youtube.com",
+        "www.youtube.com",
+        "m.youtube.com",
+        "youtu.be",
+        "www.youtu.be",
+        "music.youtube.com",
+    }
+    return parsed.hostname in allowed_hosts
+
+
+@app.route("/api/youtube/playlist/download", methods=["POST"])
+def api_youtube_playlist_download():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"playlist_dl:{client_ip}", rate_limit_store, window=10, max_requests=2
+    ):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
+
+    with queue_lock:
+        if download_process.get("active"):
+            return jsonify(
+                {"success": False, "message": "A download is already in progress"}
+            ), 409
+
+    data = request.json or {}
+    artist_name = data.get("artist_name", "").strip()
+    album_title = data.get("album_title", "").strip()
+    entries = data.get("entries", [])
+
+    if not artist_name or not album_title:
+        return jsonify(
+            {"success": False, "message": "artist_name and album_title are required"}
+        ), 400
+
+    if not entries:
+        return jsonify({"success": False, "message": "No entries to download"}), 400
+
+    validated_entries = []
+    for entry in entries:
+        v_url = _validate_youtube_url(entry.get("url", ""))
+        if not v_url:
+            return jsonify(
+                {"success": False, "message": "Invalid YouTube URL in entries"}
+            ), 400
+        validated_entries.append({**entry, "url": v_url})
+
+    config = load_config()
+    lidarr_path = config.get("lidarr_path", "")
+    base = lidarr_path if lidarr_path else DOWNLOAD_DIR
+    if not base:
+        return jsonify(
+            {"success": False, "message": "No download path configured"}
+        ), 400
+
+    san_artist = sanitize_filename(artist_name)
+    san_album = sanitize_filename(album_title)
+    target_path = os.path.join(base, san_artist, san_album)
+
+    if not _validate_target_path(target_path, config):
+        return jsonify({"success": False, "message": "Invalid target path"}), 400
+
+    threading.Thread(
+        target=_execute_playlist_download,
+        args=(artist_name, album_title, validated_entries, target_path, config),
+        daemon=True,
+    ).start()
+    return jsonify(
+        {"success": True, "message": f"Downloading {len(validated_entries)} track(s)"}
+    )
+
+
+def _execute_playlist_download(
+    artist_name, album_title, entries, target_path, config
+):
+    import yt_dlp
+
+    for _ in range(300):
+        if not download_process["active"]:
+            break
+        time.sleep(1)
+    else:
+        logger.warning(
+            "Playlist download timed out waiting for active download: %s",
+            album_title,
+        )
+        return
+
+    with queue_lock:
+        download_process["active"] = True
+        download_process["stop"] = False
+        download_process["album_id"] = 0
+        download_process["album_title"] = album_title
+        download_process["artist_name"] = artist_name
+        download_process["cover_url"] = ""
+        download_process["current_track_index"] = 0
+        download_process["tracks"] = [
+            {
+                "track_title": entry.get("title", f"Track {i + 1}"),
+                "track_number": i + 1,
+                "status": "pending",
+                "youtube_url": entry.get("url", ""),
+                "youtube_title": "",
+                "progress_percent": "",
+                "progress_speed": "",
+                "error_message": "",
+                "skip": False,
+            }
+            for i, entry in enumerate(entries)
+        ]
+
+    album_data = {
+        "title": album_title,
+        "artist": {
+            "artistName": artist_name,
+            "id": 0,
+            "foreignArtistId": "",
+        },
+        "releaseDate": "",
+        "trackCount": len(entries),
+        "foreignAlbumId": "",
+        "releases": [],
+        "images": [],
+    }
+
+    total_size = 0
+    try:
+        makedirs_safe(target_path, [DOWNLOAD_DIR, config.get("lidarr_path", "")])
+
+        for i, entry in enumerate(entries):
+            if download_process.get("stop"):
+                break
+
+            track_state = download_process["tracks"][i]
+            if track_state.get("skip"):
+                track_state["status"] = "skipped"
+                continue
+
+            download_process["current_track_index"] = i
+            track_title = entry.get("title", f"Track {i + 1}")
+            track_num = i + 1
+            youtube_url = entry.get("url", "")
+
+            track_state["status"] = "downloading"
+
+            def _progress_hook(d, state=track_state):
+                if d["status"] == "downloading":
+                    state["progress_percent"] = d.get("_percent_str", "0%").strip()
+                    state["progress_speed"] = d.get("_speed_str", "N/A").strip()
+                    if state.get("skip"):
+                        raise TrackSkippedException()
+
+            temp_file = os.path.join(
+                target_path, f"temp_playlist_{uuid.uuid4().hex[:8]}"
+            )
+            ydl_opts = _build_ydl_opts(config, temp_file)
+            ydl_opts["progress_hooks"] = [_progress_hook]
+
+            youtube_title = ""
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(youtube_url, download=False)
+                    if info:
+                        youtube_title = info.get("title", "")
+                        track_state["youtube_title"] = youtube_title
+                    ydl.download([youtube_url])
+            except TrackSkippedException:
+                _cleanup_temp_files(temp_file)
+                track_state["status"] = "skipped"
+                continue
+            except Exception as e:
+                logger.error(
+                    "yt-dlp download failed for playlist track '%s': %s",
+                    track_title, e,
+                )
+                _cleanup_temp_files(temp_file)
+                track_state["status"] = "failed"
+                track_state["error_message"] = str(e)[:200]
+                _record_playlist_track(
+                    album_title=album_title, artist_name=artist_name,
+                    track_title=track_title, track_num=track_num,
+                    youtube_url=youtube_url, youtube_title=youtube_title,
+                    target_path=target_path, success=False,
+                    error_message=str(e)[:200], file_size=0,
+                )
+                continue
+
+            audio_ext = config.get("audio_format", "mp3")
+            actual_file = temp_file + f".{audio_ext}"
+            if not os.path.exists(actual_file):
+                _cleanup_temp_files(temp_file)
+                track_state["status"] = "failed"
+                track_state["error_message"] = "Download failed — file not created"
+                continue
+
+            track_state["status"] = "tagging"
+            sanitized_track = sanitize_filename(track_title) or f"track_{track_num:02d}"
+            final_file = os.path.join(
+                target_path, f"{track_num:02d} - {sanitized_track}.{audio_ext}"
+            )
+
+            real_final = os.path.realpath(final_file)
+            real_target = os.path.realpath(target_path)
+            if not (
+                real_final.startswith(real_target + os.sep)
+                or real_final == real_target
+            ):
+                logger.error(
+                    "Path containment violation: '%s' escapes '%s'",
+                    real_final, real_target,
+                )
+                _cleanup_temp_files(temp_file)
+                track_state["status"] = "failed"
+                track_state["error_message"] = "Invalid track filename"
+                continue
+
+            track_info = {
+                "title": track_title,
+                "trackNumber": track_num,
+                "foreignRecordingId": "",
+            }
+
+            try:
+                tag_audio_file(actual_file, track_info, album_data, None)
+                file_size = os.path.getsize(actual_file)
+                shutil.move(actual_file, final_file)
+                set_permissions(final_file)
+                total_size += file_size
+            except Exception as e:
+                logger.error(
+                    "Post-download processing failed for '%s': %s",
+                    track_title, e, exc_info=True,
+                )
+                _cleanup_temp_files(temp_file)
+                track_state["status"] = "failed"
+                track_state["error_message"] = str(e)[:200]
+                continue
+
+            track_state["status"] = "done"
+            track_state["youtube_url"] = youtube_url
+            track_state["youtube_title"] = youtube_title
+
+            _record_playlist_track(
+                album_title=album_title, artist_name=artist_name,
+                track_title=track_title, track_num=track_num,
+                youtube_url=youtube_url, youtube_title=youtube_title,
+                target_path=target_path, success=True,
+                error_message="", file_size=file_size,
+            )
+
+        set_permissions(target_path)
+
+        success_count = sum(
+            1 for t in download_process["tracks"] if t.get("status") == "done"
+        )
+        models.add_log(
+            log_type="manual_download",
+            album_id=0,
+            album_title=album_title,
+            artist_name=artist_name,
+            details=(
+                f"YouTube import: {success_count}/{len(entries)} tracks downloaded"
+            ),
+            total_file_size=total_size,
+        )
+
+    except Exception as e:
+        logger.error("Playlist download error: %s", e, exc_info=True)
+    finally:
+        with queue_lock:
+            download_process["active"] = False
+            download_process["tracks"] = []
+            download_process["current_track_index"] = -1
+            download_process["album_id"] = None
+            download_process["album_title"] = ""
+            download_process["artist_name"] = ""
+            download_process["cover_url"] = ""
+
+
+def _record_playlist_track(
+    *, album_title, artist_name, track_title, track_num,
+    youtube_url, youtube_title, target_path,
+    success, error_message, file_size,
+):
+    try:
+        models.add_track_download(
+            album_id=0,
+            album_title=album_title,
+            artist_name=artist_name,
+            track_title=track_title,
+            track_number=track_num,
+            success=success,
+            error_message=error_message,
+            youtube_url=youtube_url,
+            youtube_title=youtube_title or track_title,
+            match_score=1.0,
+            duration_seconds=0,
+            album_path=target_path,
+            lidarr_album_path="",
+            cover_url="",
+        )
+    except Exception as db_err:
+        logger.error(
+            "Failed to record playlist track '%s': %s", track_title, db_err,
         )
 
 
