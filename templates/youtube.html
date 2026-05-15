@@ -343,6 +343,20 @@
             object-fit: cover;
             flex-shrink: 0;
             background: var(--surface-hover);
+            display: block;
+        }
+
+        .playlist-thumb-placeholder {
+            width: 64px;
+            height: 64px;
+            border-radius: 8px;
+            flex-shrink: 0;
+            background: var(--surface-hover);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-dim);
+            font-size: 1.4rem;
         }
 
         .playlist-meta { flex: 1; min-width: 0; }
@@ -768,7 +782,7 @@
         </div>
 
         <div id="playlistInfoBar" class="playlist-info-bar hidden">
-            <img id="playlistThumb" class="playlist-thumb" src="" alt="">
+            <div id="playlistThumbWrap"></div>
             <div class="playlist-meta">
                 <div class="playlist-meta-title" id="playlistTitle"></div>
                 <div class="playlist-meta-sub" id="playlistChannel"></div>
@@ -1014,10 +1028,13 @@
             const infoBar = document.getElementById('playlistInfoBar');
             if (data.title) {
                 infoBar.classList.remove('hidden');
-                const thumbEl = document.getElementById('playlistThumb');
+                const wrap = document.getElementById('playlistThumbWrap');
                 const safeT = thumbUrl(fetchedThumbnail);
-                if (safeT) { thumbEl.src = safeT; thumbEl.style.display = ''; }
-                else thumbEl.style.display = 'none';
+                if (safeT) {
+                    wrap.innerHTML = `<img class="playlist-thumb" src="${safeT}" alt="" onerror="this.outerHTML='<div class=\\'playlist-thumb-placeholder\\'><i class=\\'fab fa-youtube\\'></i></div>'">`;
+                } else {
+                    wrap.innerHTML = `<div class="playlist-thumb-placeholder"><i class="fab fa-youtube"></i></div>`;
+                }
                 document.getElementById('playlistTitle').textContent = data.title;
                 document.getElementById('playlistChannel').textContent = data.channel ? 'by ' + data.channel : '';
                 const badge = document.getElementById('playlistBadge');

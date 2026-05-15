@@ -1917,6 +1917,13 @@ def api_youtube_playlist_info():
             playlist_title = info.get("title", "YouTube Playlist")
             channel = info.get("channel", "") or info.get("uploader", "")
             playlist_thumb = _best_playlist_thumbnail(info, entries)
+            logger.info(
+                "Playlist thumbnail selected: %s (yt3=%s, info.thumbnail=%s, thumbnails count=%d)",
+                playlist_thumb[:120] if playlist_thumb else "(none)",
+                "yt3.googleusercontent.com" in (playlist_thumb or ""),
+                "yt3.googleusercontent.com" in (info.get("thumbnail") or ""),
+                len(info.get("thumbnails") or []),
+            )
         else:
             single_entry = {
                 "index": 0,
@@ -2153,7 +2160,19 @@ def _execute_playlist_download(
         if thumbnail_url and _is_safe_stream_url(thumbnail_url):
             try:
                 import requests as req_lib
-                resp = req_lib.get(thumbnail_url, timeout=15, stream=True)
+                resp = req_lib.get(
+                    thumbnail_url,
+                    timeout=15,
+                    stream=True,
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/120.0.0.0 Safari/537.36"
+                        ),
+                        "Referer": "https://music.youtube.com/",
+                    },
+                )
                 if resp.status_code == 200:
                     cover_path = os.path.join(target_path, "cover.jpg")
                     with open(cover_path, "wb") as cf:
@@ -2161,8 +2180,20 @@ def _execute_playlist_download(
                             cf.write(chunk)
                     set_permissions(cover_path)
                     logger.info("Cover art saved: %s", cover_path)
+                else:
+                    logger.warning(
+                        "Cover art fetch returned HTTP %d for %s",
+                        resp.status_code, thumbnail_url[:120],
+                    )
             except Exception as cover_err:
                 logger.warning("Failed to download cover art: %s", cover_err)
+        elif thumbnail_url:
+            logger.warning(
+                "Cover art URL rejected by safety check: %s",
+                thumbnail_url[:120],
+            )
+        else:
+            logger.info("No cover art URL provided for this import")
 
         logger.info(
             "YouTube import started: %s / %s (%d tracks)",
@@ -2469,8 +2500,25 @@ def api_thumbnail_proxy():
     if not _is_safe_stream_url(url):
         return "Invalid thumbnail URL", 400
     try:
-        resp = http_requests.get(url, timeout=10, stream=True)
+        resp = http_requests.get(
+            url,
+            timeout=10,
+            stream=True,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Referer": "https://music.youtube.com/",
+                "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+            },
+        )
         if resp.status_code != 200:
+            logger.debug(
+                "Thumbnail proxy upstream %d for %s",
+                resp.status_code, url[:120],
+            )
             return "Failed to fetch thumbnail", 502
         content_type = resp.headers.get("Content-Type", "image/jpeg")
         return Response(
