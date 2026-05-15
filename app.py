@@ -2066,6 +2066,7 @@ def _execute_playlist_download(
     }
 
     total_size = 0
+    success_count = 0
     try:
         makedirs_safe(target_path, [DOWNLOAD_DIR, config.get("lidarr_path", "")])
 
@@ -2133,6 +2134,13 @@ def _execute_playlist_download(
                 _cleanup_temp_files(temp_file)
                 track_state["status"] = "failed"
                 track_state["error_message"] = "Download failed — file not created"
+                _record_playlist_track(
+                    album_title=album_title, artist_name=artist_name,
+                    track_title=track_title, track_num=track_num,
+                    youtube_url=youtube_url, youtube_title=youtube_title,
+                    target_path=target_path, success=False,
+                    error_message="Download failed — file not created", file_size=0,
+                )
                 continue
 
             track_state["status"] = "tagging"
@@ -2176,11 +2184,19 @@ def _execute_playlist_download(
                 _cleanup_temp_files(temp_file)
                 track_state["status"] = "failed"
                 track_state["error_message"] = str(e)[:200]
+                _record_playlist_track(
+                    album_title=album_title, artist_name=artist_name,
+                    track_title=track_title, track_num=track_num,
+                    youtube_url=youtube_url, youtube_title=youtube_title,
+                    target_path=target_path, success=False,
+                    error_message=str(e)[:200], file_size=0,
+                )
                 continue
 
             track_state["status"] = "done"
             track_state["youtube_url"] = youtube_url
             track_state["youtube_title"] = youtube_title
+            success_count += 1
 
             _record_playlist_track(
                 album_title=album_title, artist_name=artist_name,
@@ -2192,23 +2208,22 @@ def _execute_playlist_download(
 
         set_permissions(target_path)
 
-        success_count = sum(
-            1 for t in download_process["tracks"] if t.get("status") == "done"
-        )
-        models.add_log(
-            log_type="manual_download",
-            album_id=0,
-            album_title=album_title,
-            artist_name=artist_name,
-            details=(
-                f"YouTube import: {success_count}/{len(entries)} tracks downloaded"
-            ),
-            total_file_size=total_size,
-        )
-
     except Exception as e:
         logger.error("Playlist download error: %s", e, exc_info=True)
     finally:
+        try:
+            models.add_log(
+                log_type="manual_download",
+                album_id=0,
+                album_title=album_title,
+                artist_name=artist_name,
+                details=(
+                    f"YouTube import: {success_count}/{len(entries)} tracks downloaded"
+                ),
+                total_file_size=total_size,
+            )
+        except Exception as log_err:
+            logger.error("Failed to add playlist summary log: %s", log_err)
         with queue_lock:
             download_process["active"] = False
             download_process["tracks"] = []
@@ -2224,8 +2239,9 @@ def _record_playlist_track(
     youtube_url, youtube_title, target_path,
     success, error_message, file_size,
 ):
+    track_download_id = None
     try:
-        models.add_track_download(
+        track_download_id = models.add_track_download(
             album_id=0,
             album_title=album_title,
             artist_name=artist_name,
@@ -2244,6 +2260,34 @@ def _record_playlist_track(
     except Exception as db_err:
         logger.error(
             "Failed to record playlist track '%s': %s", track_title, db_err,
+        )
+    try:
+        if success:
+            models.add_log(
+                log_type="track_download",
+                album_id=0,
+                album_title=album_title,
+                artist_name=artist_name,
+                details="Track downloaded successfully",
+                track_title=track_title,
+                track_number=track_num,
+                track_download_id=track_download_id,
+                total_file_size=file_size,
+            )
+        else:
+            models.add_log(
+                log_type="track_failure",
+                album_id=0,
+                album_title=album_title,
+                artist_name=artist_name,
+                details=error_message or "Unknown error",
+                track_title=track_title,
+                track_number=track_num,
+                track_download_id=track_download_id,
+            )
+    except Exception as log_err:
+        logger.error(
+            "Failed to add log for playlist track '%s': %s", track_title, log_err,
         )
 
 
