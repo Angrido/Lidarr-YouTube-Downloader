@@ -39,22 +39,49 @@ def get_ytdlp_version():
         return "unknown"
 
 
+_NOISE_PATTERN = re.compile(
+    r"\s*[\(\[\|]\s*(?:"
+    r"clip\s*officiel?|paroles?|lyrics?\s*(?:vid[eé]o)?|official\s*(?:music\s*)?(?:video|audio|clip)?"
+    r"|audio\s*officiel?|vid[eé]o\s*officielle?|hd|4k|vevo|remastered|visualizer"
+    r"|feat\.?|ft\.?\s*\w[\w\s]*"
+    r")\s*[\)\]\|]",
+    re.IGNORECASE,
+)
+_FEAT_PATTERN = re.compile(r"\s+(?:feat\.?|ft\.?)\s+[\w\s&,]+", re.IGNORECASE)
+
+
+def _normalize_yt_title(title):
+    t = _NOISE_PATTERN.sub("", title)
+    t = _FEAT_PATTERN.sub("", t)
+    return re.sub(r"\s+", " ", t).strip().lower()
+
+
 def _title_similarity(yt_title, track_title, artist_name):
-    """Score how well a YouTube title matches the expected track.
-
-    Combines SequenceMatcher ratio with bonuses for containing
-    the track title and artist name.
-
-    Returns:
-        Float between 0.0 and 1.0.
-    """
     yt_lower = yt_title.lower()
-    expected_lower = f"{artist_name} {track_title}".lower()
-    score = SequenceMatcher(None, yt_lower, expected_lower).ratio()
-    if track_title.lower() in yt_lower:
+    track_lower = track_title.lower()
+    artist_lower = artist_name.lower()
+
+    has_track = track_lower in yt_lower
+    has_artist = artist_lower in yt_lower
+
+    if has_track and has_artist:
+        return 1.0
+
+    yt_norm = _normalize_yt_title(yt_title)
+    track_norm = _normalize_yt_title(track_title)
+    artist_norm = _normalize_yt_title(artist_name)
+
+    if track_norm in yt_norm and artist_norm in yt_norm:
+        return 1.0
+
+    expected_lower = f"{artist_lower} {track_lower}"
+    score = SequenceMatcher(None, yt_norm, f"{artist_norm} {track_norm}").ratio()
+    if has_track:
         score += 0.3
-    if artist_name.lower() in yt_lower:
+    if has_artist:
         score += 0.2
+    elif artist_norm in yt_norm:
+        score += 0.15
     return min(score, 1.0)
 
 
@@ -134,7 +161,7 @@ def _build_common_opts(player_client=None):
     return opts
 
 
-MAX_CANDIDATES = 10
+MAX_CANDIDATES = 15
 
 
 def search_youtube_candidates(
@@ -171,7 +198,7 @@ def search_youtube_candidates(
         "karaoke", "slowed", "reverb", "nightcore", "sped up",
         "instrumental", "acapella", "tribute",
     ])
-    duration_tolerance = config.get("duration_tolerance", 10)
+    duration_tolerance = config.get("duration_tolerance", 15)
 
     expected_duration_sec = None
     if expected_duration_ms:
@@ -281,8 +308,8 @@ def search_youtube_candidates(
                             0.1, math.log10(max(view_count, 1)) / 100
                         )
                     total_score = (
-                        (duration_score * 0.35)
-                        + (title_score * 0.40)
+                        (duration_score * 0.25)
+                        + (title_score * 0.50)
                         + official_bonus
                         + view_score
                     )

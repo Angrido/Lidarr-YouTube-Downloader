@@ -1946,17 +1946,21 @@ def api_youtube_playlist_info():
 
 def _best_playlist_thumbnail(info, entries):
     thumbnails = info.get("thumbnails") or []
-    preferred_domains = ("yt3.googleusercontent.com", "yt3.ggpht.com")
-    channel_thumbs = [
-        t for t in thumbnails
-        if any(d in (t.get("url") or "") for d in preferred_domains)
-    ]
-    if channel_thumbs:
-        best = max(
-            channel_thumbs,
-            key=lambda t: (t.get("width") or 0) * (t.get("height") or 0),
-        )
-        return best.get("url") or ""
+
+    def _is_square(t):
+        w, h = t.get("width") or 0, t.get("height") or 0
+        return w > 0 and h > 0 and abs(w - h) <= max(w, h) * 0.15
+
+    square = [t for t in thumbnails if _is_square(t) and t.get("url")]
+    if square:
+        best = max(square, key=lambda t: (t.get("width") or 0))
+        return best["url"]
+
+    with_url = [t for t in thumbnails if t.get("url")]
+    if with_url:
+        best = max(with_url, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
+        return best["url"]
+
     plain_url = info.get("thumbnail", "")
     if plain_url:
         return plain_url
@@ -2001,6 +2005,7 @@ def api_youtube_playlist_download():
     album_title = data.get("album_title", "").strip()
     entries = data.get("entries", [])
     thumbnail_url = data.get("thumbnail_url", "").strip()
+    source_url = data.get("source_url", "").strip()
 
     if not artist_name or not album_title:
         return jsonify(
@@ -2036,7 +2041,7 @@ def api_youtube_playlist_download():
 
     threading.Thread(
         target=_execute_playlist_download,
-        args=(artist_name, album_title, validated_entries, target_path, config, thumbnail_url),
+        args=(artist_name, album_title, validated_entries, target_path, config, thumbnail_url, source_url),
         daemon=True,
     ).start()
     return jsonify(
@@ -2045,7 +2050,7 @@ def api_youtube_playlist_download():
 
 
 def _execute_playlist_download(
-    artist_name, album_title, entries, target_path, config, thumbnail_url=""
+    artist_name, album_title, entries, target_path, config, thumbnail_url="", source_url=""
 ):
     import yt_dlp
 
@@ -2180,7 +2185,7 @@ def _execute_playlist_download(
                     youtube_url=youtube_url, youtube_title=youtube_title,
                     target_path=target_path, success=False,
                     error_message=str(e)[:200], file_size=0,
-                    cover_url=thumbnail_url,
+                    cover_url=thumbnail_url, source_url=source_url,
                 )
                 continue
 
@@ -2247,7 +2252,7 @@ def _execute_playlist_download(
                     youtube_url=youtube_url, youtube_title=youtube_title,
                     target_path=target_path, success=False,
                     error_message=str(e)[:200], file_size=0,
-                    cover_url=thumbnail_url,
+                    cover_url=thumbnail_url, source_url=source_url,
                 )
                 continue
 
@@ -2266,7 +2271,7 @@ def _execute_playlist_download(
                 youtube_url=youtube_url, youtube_title=youtube_title,
                 target_path=target_path, success=True,
                 error_message="", file_size=file_size,
-                cover_url=thumbnail_url,
+                cover_url=thumbnail_url, source_url=source_url,
             )
 
         set_permissions(target_path)
@@ -2356,7 +2361,7 @@ def _execute_playlist_download(
 def _record_playlist_track(
     *, album_title, artist_name, track_title, track_num,
     youtube_url, youtube_title, target_path,
-    success, error_message, file_size, cover_url="",
+    success, error_message, file_size, cover_url="", source_url="",
 ):
     track_download_id = None
     try:
@@ -2373,7 +2378,7 @@ def _record_playlist_track(
             match_score=1.0,
             duration_seconds=0,
             album_path=target_path,
-            lidarr_album_path="",
+            lidarr_album_path=source_url,
             cover_url=cover_url,
         )
     except Exception as db_err:
@@ -2417,6 +2422,7 @@ def api_youtube_recent():
         """
         SELECT album_title, artist_name,
                MAX(cover_url) as cover_url,
+               MAX(lidarr_album_path) as source_url,
                MAX(youtube_url) as youtube_url,
                COUNT(*) as track_count,
                SUM(CASE WHEN success=1 THEN 1 ELSE 0 END) as success_count,

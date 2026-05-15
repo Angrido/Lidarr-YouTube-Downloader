@@ -839,6 +839,7 @@
 <script>
     let fetchedEntries = [];
     let fetchedThumbnail = '';
+    let fetchedSourceUrl = '';
     let sseSource = null;
 
     function escapeHtml(str) {
@@ -970,6 +971,7 @@
     async function fetchInfo() {
         const url = document.getElementById('urlInput').value.trim();
         if (!url) { showAlert('Please enter a YouTube URL.', 'error'); return; }
+        fetchedSourceUrl = url;
 
         document.getElementById('alertBox').classList.add('hidden');
         const btn = document.getElementById('fetchBtn');
@@ -1068,6 +1070,7 @@
                     album_title: album,
                     entries: selected,
                     thumbnail_url: fetchedThumbnail,
+                    source_url: fetchedSourceUrl,
                 }),
             });
             const data = await resp.json();
@@ -1207,7 +1210,7 @@
             if (!items.length) { section.classList.add('hidden'); return; }
             grid.innerHTML = '';
             items.forEach(item => {
-                const link = item.youtube_url ? sanitizeUrl(item.youtube_url) : '';
+                const link = sanitizeUrl(item.source_url || item.youtube_url || '');
                 const card = document.createElement('a');
                 card.className = 'recent-card';
                 if (link) { card.href = link; card.target = '_blank'; card.rel = 'noopener noreferrer'; }
@@ -1232,7 +1235,37 @@
         if (e.key === 'Enter') fetchInfo();
     });
 
+    async function checkResumeProgress() {
+        try {
+            const resp = await fetch('/api/download/status');
+            if (!resp.ok) return;
+            const st = await resp.json();
+            if (!st.active || st.album_id !== 0) return;
+            const tracks = st.tracks || [];
+            if (!tracks.length) return;
+
+            initProgressPanel(tracks.map(t => ({ title: t.track_title || '' })));
+
+            tracks.forEach((t, i) => {
+                const iconEl = document.getElementById('tpi-' + i);
+                const extraEl = document.getElementById('tpe-' + i);
+                if (!iconEl) return;
+                const s = t.status || 'pending';
+                iconEl.className = 'tp-icon ' + s;
+                iconEl.innerHTML = STATUS_ICONS[s] || STATUS_ICONS.pending;
+                if (s === 'downloading' && extraEl) {
+                    extraEl.textContent = [t.progress_percent, t.progress_speed].filter(Boolean).join(' · ');
+                }
+            });
+
+            document.getElementById('progressSection').classList.remove('hidden');
+            document.getElementById('downloadBtn').disabled = true;
+            startSSE();
+        } catch (_) {}
+    }
+
     loadRecentImports();
+    checkResumeProgress();
 </script>
 </body>
 </html>
