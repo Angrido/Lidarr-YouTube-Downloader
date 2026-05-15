@@ -1156,8 +1156,16 @@
                     document.getElementById('downloadBtn').innerHTML =
                         '<i class="fas fa-download"></i> Download Selected';
                     sseSource.close();
-                    showAlert('Download complete! ' + done + '/' + total + ' tracks.', 'success');
+                    showAlert('Download complete! ' + done + '/' + total + ' tracks. Returning to import page…', 'success');
                     loadRecentImports();
+                    setTimeout(() => {
+                        document.getElementById('progressSection').classList.add('hidden');
+                        document.getElementById('resultSection').classList.add('hidden');
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                        setTimeout(() => {
+                            document.getElementById('recentSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 400);
+                    }, 4000);
                     return;
                 } else if (!st.active) {
                     return;

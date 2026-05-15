@@ -1916,10 +1916,7 @@ def api_youtube_playlist_info():
             result_type = "playlist"
             playlist_title = info.get("title", "YouTube Playlist")
             channel = info.get("channel", "") or info.get("uploader", "")
-            playlist_thumb = (
-                info.get("thumbnail", "")
-                or (entries[0]["thumbnail"] if entries else "")
-            )
+            playlist_thumb = _best_playlist_thumbnail(info, entries)
         else:
             single_entry = {
                 "index": 0,
@@ -1933,7 +1930,7 @@ def api_youtube_playlist_info():
             result_type = "video"
             playlist_title = info.get("title", "")
             channel = info.get("channel", "") or info.get("uploader", "")
-            playlist_thumb = single_entry["thumbnail"]
+            playlist_thumb = _best_playlist_thumbnail(info, entries)
 
         return jsonify({
             "type": result_type,
@@ -1945,6 +1942,25 @@ def api_youtube_playlist_info():
     except Exception as e:
         logger.warning("Playlist info extraction failed: %s", e)
         return jsonify({"error": str(e)[:300]}), 500
+
+
+def _best_playlist_thumbnail(info, entries):
+    thumbnails = info.get("thumbnails") or []
+    preferred_domains = ("yt3.googleusercontent.com", "yt3.ggpht.com")
+    channel_thumbs = [
+        t for t in thumbnails
+        if any(d in (t.get("url") or "") for d in preferred_domains)
+    ]
+    if channel_thumbs:
+        best = max(
+            channel_thumbs,
+            key=lambda t: (t.get("width") or 0) * (t.get("height") or 0),
+        )
+        return best.get("url") or ""
+    plain_url = info.get("thumbnail", "")
+    if plain_url:
+        return plain_url
+    return entries[0]["thumbnail"] if entries else ""
 
 
 def _validate_youtube_url_for_playlist(url):
@@ -2086,7 +2102,7 @@ def _execute_playlist_download(
     try:
         makedirs_safe(target_path, [DOWNLOAD_DIR, config.get("lidarr_path", "")])
 
-        if thumbnail_url:
+        if thumbnail_url and _is_safe_stream_url(thumbnail_url):
             try:
                 import requests as req_lib
                 resp = req_lib.get(thumbnail_url, timeout=15, stream=True)
@@ -2275,6 +2291,59 @@ def _execute_playlist_download(
             )
         except Exception as log_err:
             logger.error("Failed to add playlist summary log: %s", log_err)
+        try:
+            failed_count = len(entries) - success_count
+            if success_count == len(entries):
+                notif_log_type = "download_success"
+                notif_title = "YouTube Import Complete"
+                notif_color = 0x10B981
+            elif success_count > 0:
+                notif_log_type = "partial_success"
+                notif_title = "YouTube Import Partial"
+                notif_color = 0xF59E0B
+            else:
+                notif_log_type = "album_error"
+                notif_title = "YouTube Import Failed"
+                notif_color = 0xEF4444
+            from notifications import md2_escape as _md2e
+            plain = (
+                f"{notif_title}\n"
+                f"Album: {album_title}\n"
+                f"Artist: {artist_name}\n"
+                f"Downloaded: {success_count}/{len(entries)} tracks"
+            )
+            md2 = (
+                f"*{_md2e(notif_title)}*\n"
+                f"*Album:* {_md2e(album_title)}\n"
+                f"*Artist:* {_md2e(artist_name)}\n"
+                f"Downloaded: {success_count}/{len(entries)} tracks"
+            )
+            embed = {
+                "title": notif_title,
+                "color": notif_color,
+                "fields": [
+                    {"name": "Album", "value": album_title, "inline": True},
+                    {"name": "Artist", "value": artist_name, "inline": True},
+                    {
+                        "name": "Tracks",
+                        "value": f"{success_count}/{len(entries)} downloaded"
+                        + (f", {failed_count} failed" if failed_count else ""),
+                        "inline": True,
+                    },
+                ],
+            }
+            if thumbnail_url:
+                embed["thumbnail"] = {"url": thumbnail_url}
+            send_notifications(
+                plain,
+                log_type=notif_log_type,
+                embed_data=embed,
+                telegram_message=md2,
+                telegram_parse_mode="MarkdownV2",
+                photo_url=thumbnail_url or None,
+            )
+        except Exception as notif_err:
+            logger.error("Failed to send YouTube import notification: %s", notif_err)
         with queue_lock:
             download_process["active"] = False
             download_process["current_track_index"] = -1

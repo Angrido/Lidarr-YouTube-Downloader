@@ -27,7 +27,7 @@ ALLOWED_CONFIG_KEYS = {
     "min_match_score", "audio_format",
 }
 
-MIN_MATCH_SCORE_DEFAULT = 0.8
+MIN_MATCH_SCORE_DEFAULT = 0.7
 
 
 def _parse_min_match_score(value):
