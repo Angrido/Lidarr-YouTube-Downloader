@@ -1944,26 +1944,67 @@ def api_youtube_playlist_info():
         return jsonify({"error": str(e)[:300]}), 500
 
 
+def _resize_yt3_url(url, size=512):
+    """Resize a yt3.googleusercontent.com thumbnail URL to the given square size."""
+    resized = re.sub(r'(=w)\d+(-h)\d+', f'=w{size}-h{size}', url)
+    if resized == url and "=" not in url.rsplit("/", 1)[-1]:
+        resized = url + f"=w{size}-h{size}-l90-rj"
+    return resized
+
+
+def _yt3_thumb_size(t):
+    w, h = t.get("width") or 0, t.get("height") or 0
+    if w > 0 and h > 0:
+        return w * h
+    m = re.search(r"=w(\d+)-h(\d+)", t.get("url", ""))
+    return int(m.group(1)) * int(m.group(2)) if m else 0
+
+
 def _best_playlist_thumbnail(info, entries):
+    """Return the best thumbnail URL for a playlist/album.
+
+    Prefers yt3.googleusercontent.com URLs (YouTube Music album art, always
+    square). Falls back to the largest square thumbnail, then largest overall,
+    then the first entry thumbnail.
+    """
+    # 1. plain info["thumbnail"] from yt3 (most reliable source for YT Music)
+    plain_url = info.get("thumbnail", "")
+    if plain_url and "yt3.googleusercontent.com" in plain_url:
+        return _resize_yt3_url(plain_url)
+
     thumbnails = info.get("thumbnails") or []
 
+    # 2. any yt3 thumbnail in the thumbnails list
+    yt3_thumbs = [
+        t for t in thumbnails
+        if "yt3.googleusercontent.com" in (t.get("url") or "")
+    ]
+    if yt3_thumbs:
+        best = max(yt3_thumbs, key=_yt3_thumb_size)
+        return _resize_yt3_url(best["url"])
+
+    # 3. any other square thumbnail (e.g. channel art)
     def _is_square(t):
         w, h = t.get("width") or 0, t.get("height") or 0
         return w > 0 and h > 0 and abs(w - h) <= max(w, h) * 0.15
 
     square = [t for t in thumbnails if _is_square(t) and t.get("url")]
     if square:
-        best = max(square, key=lambda t: (t.get("width") or 0))
-        return best["url"]
+        return max(square, key=lambda t: (t.get("width") or 0))["url"]
 
+    # 4. largest thumbnail regardless of shape
     with_url = [t for t in thumbnails if t.get("url")]
     if with_url:
-        best = max(with_url, key=lambda t: (t.get("width") or 0) * (t.get("height") or 0))
-        return best["url"]
+        return max(
+            with_url,
+            key=lambda t: (t.get("width") or 0) * (t.get("height") or 0),
+        )["url"]
 
-    plain_url = info.get("thumbnail", "")
+    # 5. plain thumbnail (non-yt3)
     if plain_url:
         return plain_url
+
+    # 6. first entry thumbnail as last resort
     return entries[0]["thumbnail"] if entries else ""
 
 
@@ -2415,6 +2456,34 @@ def _record_playlist_track(
         logger.error(
             "Failed to add log for playlist track '%s': %s", track_title, log_err,
         )
+
+
+@app.route("/api/thumbnail")
+def api_thumbnail_proxy():
+    """Proxy a thumbnail image through the server to avoid CORS/hotlink issues."""
+    import requests as http_requests
+
+    url = request.args.get("url", "").strip()
+    if not url:
+        return "Missing url", 400
+    if not _is_safe_stream_url(url):
+        return "Invalid thumbnail URL", 400
+    try:
+        resp = http_requests.get(url, timeout=10, stream=True)
+        if resp.status_code != 200:
+            return "Failed to fetch thumbnail", 502
+        content_type = resp.headers.get("Content-Type", "image/jpeg")
+        return Response(
+            resp.content,
+            status=200,
+            headers={
+                "Content-Type": content_type,
+                "Cache-Control": "public, max-age=86400",
+            },
+        )
+    except Exception as e:
+        logger.debug("Thumbnail proxy failed: %s", e)
+        return "Thumbnail unavailable", 502
 
 
 @app.route("/api/youtube/recent")

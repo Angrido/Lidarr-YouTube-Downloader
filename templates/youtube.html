@@ -337,8 +337,8 @@
         }
 
         .playlist-thumb {
-            width: 80px;
-            height: 56px;
+            width: 64px;
+            height: 64px;
             border-radius: 8px;
             object-fit: cover;
             flex-shrink: 0;
@@ -576,7 +576,7 @@
 
         .recent-card-thumb {
             width: 100%;
-            aspect-ratio: 16/9;
+            aspect-ratio: 1/1;
             object-fit: cover;
             background: var(--surface-hover);
             display: block;
@@ -584,7 +584,7 @@
 
         .recent-card-thumb-placeholder {
             width: 100%;
-            aspect-ratio: 16/9;
+            aspect-ratio: 1/1;
             background: var(--surface-hover);
             display: flex;
             align-items: center;
@@ -862,6 +862,17 @@
         return '';
     }
 
+    function thumbUrl(url) {
+        if (!url) return '';
+        const safe = sanitizeUrl(url);
+        if (!safe) return '';
+        // Route yt3 images through the server proxy to avoid hotlink/CORS issues
+        if (safe.includes('yt3.googleusercontent.com')) {
+            return '/api/thumbnail?url=' + encodeURIComponent(safe);
+        }
+        return safe;
+    }
+
     function formatDur(sec) {
         if (!sec) return '';
         const m = Math.floor(sec / 60);
@@ -937,9 +948,9 @@
             item.className = 'track-item selected';
 
             let thumbHtml;
-            if (entry.thumbnail) {
-                const safeThumb = sanitizeUrl(entry.thumbnail) || escapeHtml(entry.thumbnail);
-                thumbHtml = `<img class="track-thumb" src="${safeThumb}" alt="" loading="lazy" onerror="this.style.display='none'">`;
+            const tUrl = thumbUrl(entry.thumbnail);
+            if (tUrl) {
+                thumbHtml = `<img class="track-thumb" src="${tUrl}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'track-thumb-placeholder\\'><i class=\\'fas fa-music\\'></i></div>'">`;
             } else {
                 thumbHtml = `<div class="track-thumb-placeholder"><i class="fas fa-music"></i></div>`;
             }
@@ -1004,7 +1015,7 @@
             if (data.title) {
                 infoBar.classList.remove('hidden');
                 const thumbEl = document.getElementById('playlistThumb');
-                const safeT = sanitizeUrl(fetchedThumbnail);
+                const safeT = thumbUrl(fetchedThumbnail);
                 if (safeT) { thumbEl.src = safeT; thumbEl.style.display = ''; }
                 else thumbEl.style.display = 'none';
                 document.getElementById('playlistTitle').textContent = data.title;
@@ -1239,9 +1250,9 @@
                 const card = document.createElement('a');
                 card.className = 'recent-card';
                 if (link) { card.href = link; card.target = '_blank'; card.rel = 'noopener noreferrer'; }
-                const safeThumb = item.cover_url ? sanitizeUrl(item.cover_url) : '';
+                const safeThumb = item.cover_url ? thumbUrl(item.cover_url) : '';
                 const thumbHtml = safeThumb
-                    ? `<img class="recent-card-thumb" src="${safeThumb}" alt="" loading="lazy" onerror="this.parentNode.innerHTML='<div class=\\'recent-card-thumb-placeholder\\'><i class=\\'fab fa-youtube\\'></i></div>'">`
+                    ? `<img class="recent-card-thumb" src="${safeThumb}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'recent-card-thumb-placeholder\\'><i class=\\'fab fa-youtube\\'></i></div>'">`
                     : `<div class="recent-card-thumb-placeholder"><i class="fab fa-youtube"></i></div>`;
                 card.innerHTML = `
                     ${thumbHtml}
