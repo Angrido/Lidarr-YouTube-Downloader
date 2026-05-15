@@ -1887,6 +1887,14 @@ def api_youtube_playlist_info():
         if not info:
             return jsonify({"error": "Could not extract info from URL"}), 404
 
+        def _thumb_from_entry(entry):
+            thumb = entry.get("thumbnail", "")
+            if not thumb:
+                vid_id = entry.get("id", "")
+                if vid_id:
+                    thumb = f"https://i.ytimg.com/vi/{vid_id}/mqdefault.jpg"
+            return thumb
+
         entries = []
         if "entries" in info:
             for i, entry in enumerate((info.get("entries") or [])):
@@ -1900,7 +1908,7 @@ def api_youtube_playlist_info():
                     "title": entry.get("title", f"Track {i + 1}"),
                     "url": vid_url,
                     "duration": entry.get("duration", 0),
-                    "thumbnail": entry.get("thumbnail", ""),
+                    "thumbnail": _thumb_from_entry(entry),
                     "channel": (
                         entry.get("channel", "") or entry.get("uploader", "")
                     ),
@@ -1908,23 +1916,30 @@ def api_youtube_playlist_info():
             result_type = "playlist"
             playlist_title = info.get("title", "YouTube Playlist")
             channel = info.get("channel", "") or info.get("uploader", "")
+            playlist_thumb = (
+                info.get("thumbnail", "")
+                or (entries[0]["thumbnail"] if entries else "")
+            )
         else:
-            entries.append({
+            single_entry = {
                 "index": 0,
                 "title": info.get("title", ""),
                 "url": url,
                 "duration": info.get("duration", 0),
-                "thumbnail": info.get("thumbnail", ""),
+                "thumbnail": _thumb_from_entry(info),
                 "channel": info.get("channel", "") or info.get("uploader", ""),
-            })
+            }
+            entries.append(single_entry)
             result_type = "video"
             playlist_title = info.get("title", "")
             channel = info.get("channel", "") or info.get("uploader", "")
+            playlist_thumb = single_entry["thumbnail"]
 
         return jsonify({
             "type": result_type,
             "title": playlist_title,
             "channel": channel,
+            "thumbnail": playlist_thumb,
             "entries": entries,
         })
     except Exception as e:
@@ -1969,6 +1984,7 @@ def api_youtube_playlist_download():
     artist_name = data.get("artist_name", "").strip()
     album_title = data.get("album_title", "").strip()
     entries = data.get("entries", [])
+    thumbnail_url = data.get("thumbnail_url", "").strip()
 
     if not artist_name or not album_title:
         return jsonify(
@@ -2004,7 +2020,7 @@ def api_youtube_playlist_download():
 
     threading.Thread(
         target=_execute_playlist_download,
-        args=(artist_name, album_title, validated_entries, target_path, config),
+        args=(artist_name, album_title, validated_entries, target_path, config, thumbnail_url),
         daemon=True,
     ).start()
     return jsonify(
@@ -2013,7 +2029,7 @@ def api_youtube_playlist_download():
 
 
 def _execute_playlist_download(
-    artist_name, album_title, entries, target_path, config
+    artist_name, album_title, entries, target_path, config, thumbnail_url=""
 ):
     import yt_dlp
 
@@ -2070,6 +2086,25 @@ def _execute_playlist_download(
     try:
         makedirs_safe(target_path, [DOWNLOAD_DIR, config.get("lidarr_path", "")])
 
+        if thumbnail_url:
+            try:
+                import requests as req_lib
+                resp = req_lib.get(thumbnail_url, timeout=15, stream=True)
+                if resp.status_code == 200:
+                    cover_path = os.path.join(target_path, "cover.jpg")
+                    with open(cover_path, "wb") as cf:
+                        for chunk in resp.iter_content(8192):
+                            cf.write(chunk)
+                    set_permissions(cover_path)
+                    logger.info("Cover art saved: %s", cover_path)
+            except Exception as cover_err:
+                logger.warning("Failed to download cover art: %s", cover_err)
+
+        logger.info(
+            "YouTube import started: %s / %s (%d tracks)",
+            artist_name, album_title, len(entries),
+        )
+
         for i, entry in enumerate(entries):
             if download_process.get("stop"):
                 break
@@ -2084,6 +2119,10 @@ def _execute_playlist_download(
             track_num = i + 1
             youtube_url = entry.get("url", "")
 
+            logger.info(
+                "YouTube import [%d/%d] downloading: %s",
+                i + 1, len(entries), track_title,
+            )
             track_state["status"] = "downloading"
 
             def _progress_hook(d, state=track_state):
@@ -2125,6 +2164,7 @@ def _execute_playlist_download(
                     youtube_url=youtube_url, youtube_title=youtube_title,
                     target_path=target_path, success=False,
                     error_message=str(e)[:200], file_size=0,
+                    cover_url=thumbnail_url,
                 )
                 continue
 
@@ -2140,6 +2180,7 @@ def _execute_playlist_download(
                     youtube_url=youtube_url, youtube_title=youtube_title,
                     target_path=target_path, success=False,
                     error_message="Download failed — file not created", file_size=0,
+                    cover_url=thumbnail_url,
                 )
                 continue
 
@@ -2190,6 +2231,7 @@ def _execute_playlist_download(
                     youtube_url=youtube_url, youtube_title=youtube_title,
                     target_path=target_path, success=False,
                     error_message=str(e)[:200], file_size=0,
+                    cover_url=thumbnail_url,
                 )
                 continue
 
@@ -2197,6 +2239,10 @@ def _execute_playlist_download(
             track_state["youtube_url"] = youtube_url
             track_state["youtube_title"] = youtube_title
             success_count += 1
+            logger.info(
+                "YouTube import [%d/%d] done: %s",
+                i + 1, len(entries), track_title,
+            )
 
             _record_playlist_track(
                 album_title=album_title, artist_name=artist_name,
@@ -2204,6 +2250,7 @@ def _execute_playlist_download(
                 youtube_url=youtube_url, youtube_title=youtube_title,
                 target_path=target_path, success=True,
                 error_message="", file_size=file_size,
+                cover_url=thumbnail_url,
             )
 
         set_permissions(target_path)
@@ -2211,6 +2258,10 @@ def _execute_playlist_download(
     except Exception as e:
         logger.error("Playlist download error: %s", e, exc_info=True)
     finally:
+        logger.info(
+            "YouTube import finished: %s / %s — %d/%d tracks OK",
+            artist_name, album_title, success_count, len(entries),
+        )
         try:
             models.add_log(
                 log_type="manual_download",
@@ -2226,7 +2277,6 @@ def _execute_playlist_download(
             logger.error("Failed to add playlist summary log: %s", log_err)
         with queue_lock:
             download_process["active"] = False
-            download_process["tracks"] = []
             download_process["current_track_index"] = -1
             download_process["album_id"] = None
             download_process["album_title"] = ""
@@ -2237,7 +2287,7 @@ def _execute_playlist_download(
 def _record_playlist_track(
     *, album_title, artist_name, track_title, track_num,
     youtube_url, youtube_title, target_path,
-    success, error_message, file_size,
+    success, error_message, file_size, cover_url="",
 ):
     track_download_id = None
     try:
@@ -2255,7 +2305,7 @@ def _record_playlist_track(
             duration_seconds=0,
             album_path=target_path,
             lidarr_album_path="",
-            cover_url="",
+            cover_url=cover_url,
         )
     except Exception as db_err:
         logger.error(
@@ -2289,6 +2339,27 @@ def _record_playlist_track(
         logger.error(
             "Failed to add log for playlist track '%s': %s", track_title, log_err,
         )
+
+
+@app.route("/api/youtube/recent")
+def api_youtube_recent():
+    conn = db.get_db()
+    rows = conn.execute(
+        """
+        SELECT album_title, artist_name,
+               MAX(cover_url) as cover_url,
+               MAX(youtube_url) as youtube_url,
+               COUNT(*) as track_count,
+               SUM(CASE WHEN success=1 THEN 1 ELSE 0 END) as success_count,
+               MAX(timestamp) as latest_timestamp
+        FROM track_downloads
+        WHERE album_id = 0
+        GROUP BY album_title, artist_name
+        ORDER BY latest_timestamp DESC
+        LIMIT 6
+        """
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
 
 
 def _get_ytdlp_pypi_version():

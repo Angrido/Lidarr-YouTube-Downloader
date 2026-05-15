@@ -549,6 +549,76 @@
             gap: 0.5rem;
         }
 
+        .recent-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 0.75rem;
+            margin-top: 0.5rem;
+        }
+
+        .recent-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            cursor: pointer;
+            text-decoration: none;
+            color: var(--text);
+            transition: all 0.2s;
+            display: block;
+        }
+
+        .recent-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+            box-shadow: var(--glow);
+        }
+
+        .recent-card-thumb {
+            width: 100%;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            background: var(--surface-hover);
+            display: block;
+        }
+
+        .recent-card-thumb-placeholder {
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: var(--surface-hover);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-dim);
+            font-size: 1.5rem;
+        }
+
+        .recent-card-body {
+            padding: 0.5rem 0.6rem;
+        }
+
+        .recent-card-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .recent-card-sub {
+            font-size: 0.72rem;
+            color: var(--text-dim);
+            margin-top: 0.15rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .prog-section-icon {
+            color: var(--primary);
+            flex-shrink: 0;
+        }
+
         .track-prog-list {
             display: flex;
             flex-direction: column;
@@ -683,6 +753,14 @@
         </div>
     </div>
 
+    <div id="recentSection" class="section hidden">
+        <div class="section-title">
+            <i class="fas fa-clock-rotate-left"></i>
+            Recent Imports
+        </div>
+        <div class="recent-grid" id="recentGrid"></div>
+    </div>
+
     <div id="resultSection" class="section hidden">
         <div class="section-title">
             <i class="fas fa-music"></i>
@@ -736,8 +814,8 @@
 
     <div id="progressSection" class="section hidden">
         <div class="section-title">
-            <i class="fas fa-circle-notch spin-anim" id="progSectionIcon"></i>
-            Download Progress
+            <i class="fas fa-circle-notch spin-anim prog-section-icon" id="progSectionIcon" style="-webkit-text-fill-color: var(--primary); background: none;"></i>
+            <span>Download Progress</span>
         </div>
         <div class="progress-header-row">
             <div class="progress-label" id="progLabel">Downloading...</div>
@@ -760,6 +838,7 @@
 
 <script>
     let fetchedEntries = [];
+    let fetchedThumbnail = '';
     let sseSource = null;
 
     function escapeHtml(str) {
@@ -912,20 +991,16 @@
             }
 
             fetchedEntries = data.entries || [];
+            fetchedThumbnail = data.thumbnail || '';
             const entries = fetchedEntries;
 
             const infoBar = document.getElementById('playlistInfoBar');
             if (data.title) {
                 infoBar.classList.remove('hidden');
-                const firstThumb = entries.find(e => e.thumbnail);
                 const thumbEl = document.getElementById('playlistThumb');
-                if (firstThumb) {
-                    const safeT = sanitizeUrl(firstThumb.thumbnail);
-                    if (safeT) { thumbEl.src = safeT; thumbEl.style.display = ''; }
-                    else thumbEl.style.display = 'none';
-                } else {
-                    thumbEl.style.display = 'none';
-                }
+                const safeT = sanitizeUrl(fetchedThumbnail);
+                if (safeT) { thumbEl.src = safeT; thumbEl.style.display = ''; }
+                else thumbEl.style.display = 'none';
                 document.getElementById('playlistTitle').textContent = data.title;
                 document.getElementById('playlistChannel').textContent = data.channel ? 'by ' + data.channel : '';
                 const badge = document.getElementById('playlistBadge');
@@ -988,7 +1063,12 @@
             const resp = await fetch('/api/youtube/playlist/download', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ artist_name: artist, album_title: album, entries: selected }),
+                body: JSON.stringify({
+                    artist_name: artist,
+                    album_title: album,
+                    entries: selected,
+                    thumbnail_url: fetchedThumbnail,
+                }),
             });
             const data = await resp.json();
 
@@ -1028,7 +1108,9 @@
         });
         document.getElementById('progBar').style.width = '0%';
         document.getElementById('progLabel').textContent = 'Downloading...';
-        document.getElementById('progSectionIcon').className = 'fas fa-circle-notch spin-anim';
+        const sicon = document.getElementById('progSectionIcon');
+        sicon.className = 'fas fa-circle-notch spin-anim prog-section-icon';
+        sicon.style.cssText = '-webkit-text-fill-color: var(--primary); background: none;';
     }
 
     const STATUS_ICONS = {
@@ -1062,19 +1144,27 @@
                 const done = tracks.filter(t => ['done','failed','skipped'].includes(t.status)).length;
                 const total = tracks.length;
 
-                if (!st.active) {
+                if (!st.active && total > 0) {
+                    document.getElementById('progBar').style.width = '100%';
                     document.getElementById('progLabel').textContent =
                         'Complete — ' + done + '/' + total + ' tracks';
-                    document.getElementById('progSectionIcon').className = 'fas fa-check';
+                    document.getElementById('progSectionIcon').className =
+                        'fas fa-check prog-section-icon';
+                    document.getElementById('progSectionIcon').style.cssText =
+                        '-webkit-text-fill-color: var(--primary); background: none;';
                     document.getElementById('downloadBtn').disabled = false;
                     document.getElementById('downloadBtn').innerHTML =
                         '<i class="fas fa-download"></i> Download Selected';
                     sseSource.close();
                     showAlert('Download complete! ' + done + '/' + total + ' tracks.', 'success');
-                } else {
-                    document.getElementById('progLabel').textContent =
-                        'Downloading — ' + done + '/' + total + ' tracks';
+                    loadRecentImports();
+                    return;
+                } else if (!st.active) {
+                    return;
                 }
+
+                document.getElementById('progLabel').textContent =
+                    'Downloading — ' + done + '/' + total + ' tracks';
 
                 tracks.forEach((t, i) => {
                     const iconEl = document.getElementById('tpi-' + i);
@@ -1099,9 +1189,42 @@
         await fetch('/api/download/stop', { method: 'POST' });
     }
 
+    async function loadRecentImports() {
+        try {
+            const resp = await fetch('/api/youtube/recent');
+            if (!resp.ok) return;
+            const items = await resp.json();
+            const section = document.getElementById('recentSection');
+            const grid = document.getElementById('recentGrid');
+            if (!items.length) { section.classList.add('hidden'); return; }
+            grid.innerHTML = '';
+            items.forEach(item => {
+                const link = item.youtube_url ? sanitizeUrl(item.youtube_url) : '';
+                const card = document.createElement('a');
+                card.className = 'recent-card';
+                if (link) { card.href = link; card.target = '_blank'; card.rel = 'noopener noreferrer'; }
+                const safeThumb = item.cover_url ? sanitizeUrl(item.cover_url) : '';
+                const thumbHtml = safeThumb
+                    ? `<img class="recent-card-thumb" src="${safeThumb}" alt="" loading="lazy" onerror="this.parentNode.innerHTML='<div class=\\'recent-card-thumb-placeholder\\'><i class=\\'fab fa-youtube\\'></i></div>'">`
+                    : `<div class="recent-card-thumb-placeholder"><i class="fab fa-youtube"></i></div>`;
+                card.innerHTML = `
+                    ${thumbHtml}
+                    <div class="recent-card-body">
+                        <div class="recent-card-title" title="${escapeHtml(item.album_title)}">${escapeHtml(item.album_title)}</div>
+                        <div class="recent-card-sub">${escapeHtml(item.artist_name)} · ${item.success_count || 0} tracks</div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+            section.classList.remove('hidden');
+        } catch (_) {}
+    }
+
     document.getElementById('urlInput').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') fetchInfo();
     });
+
+    loadRecentImports();
 </script>
 </body>
 </html>
