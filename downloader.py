@@ -50,15 +50,23 @@ _NOISE_PATTERN = re.compile(
 _FEAT_PATTERN = re.compile(r"\s+(?:feat\.?|ft\.?)\s+[\w\s&,]+", re.IGNORECASE)
 
 
+_DASH_PATTERN = re.compile(r"[–—‐‑‒―]")
+
+
+def _normalize_dashes(text):
+    return _DASH_PATTERN.sub("-", text)
+
+
 def _normalize_yt_title(title):
-    t = _NOISE_PATTERN.sub("", title)
+    t = _normalize_dashes(title)
+    t = _NOISE_PATTERN.sub("", t)
     t = _FEAT_PATTERN.sub("", t)
     return re.sub(r"\s+", " ", t).strip().lower()
 
 
 def _title_similarity(yt_title, track_title, artist_name):
-    yt_lower = yt_title.lower()
-    track_lower = track_title.lower()
+    yt_lower = _normalize_dashes(yt_title).lower()
+    track_lower = _normalize_dashes(track_title).lower()
     artist_lower = artist_name.lower()
 
     has_track = track_lower in yt_lower
@@ -74,7 +82,6 @@ def _title_similarity(yt_title, track_title, artist_name):
     if track_norm in yt_norm and artist_norm in yt_norm:
         return 1.0
 
-    expected_lower = f"{artist_lower} {track_lower}"
     score = SequenceMatcher(None, yt_norm, f"{artist_norm} {track_norm}").ratio()
     if has_track:
         score += 0.3
@@ -316,11 +323,13 @@ def search_youtube_candidates(
                         view_score = min(
                             0.1, math.log10(max(view_count, 1)) / 100
                         )
+                    certainty_bonus = 0.15 if title_score >= 1.0 else 0.0
                     total_score = (
                         (duration_score * 0.25)
                         + (title_score * 0.50)
                         + official_bonus
                         + view_score
+                        + certainty_bonus
                     )
 
                     if url and url not in seen_urls:
@@ -338,6 +347,7 @@ def search_youtube_candidates(
                             f" (dur={duration_score:.2f}"
                             f" title={title_score:.2f}"
                             f" official={official_bonus:.2f}"
+                            f" certainty={certainty_bonus:.2f}"
                             f" views={view_score:.3f})"
                         )
         except Exception as e:
