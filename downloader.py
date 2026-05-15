@@ -218,23 +218,32 @@ def search_youtube_candidates(
     if not base_artist:
         base_artist = artist_part
 
+    added = {query}
     search_queries = [query]
-    alt_q = f"{base_artist} {base_track}"
-    if alt_q != query and alt_q not in search_queries:
-        search_queries.append(alt_q)
-    alt_q2 = f"{base_track} {base_artist}"
-    if alt_q2 not in search_queries:
-        search_queries.append(alt_q2)
-    alt_q3 = f"{base_track} audio"
-    if alt_q3 not in search_queries:
-        search_queries.append(alt_q3)
 
+    for candidate_q in [
+        f"{base_artist} - {base_track}",
+        f"{base_artist} {base_track}",
+        f"{base_artist} {base_track} audio officiel",
+        f"{base_track} {base_artist}",
+        f"{base_track} audio",
+    ]:
+        if candidate_q not in added:
+            added.add(candidate_q)
+            search_queries.append(candidate_q)
+
+    seen_urls = set()
     candidates = []
+    GOOD_SCORE = 0.80
+
     for qi, sq in enumerate(search_queries):
         if skip_check and skip_check():
             return []
-        if candidates:
+
+        has_good = any(c["score"] >= GOOD_SCORE for c in candidates)
+        if has_good:
             break
+
         if qi > 0:
             logger.info(
                 f"   Fallback search ({qi+1}/{len(search_queries)}):"
@@ -314,7 +323,8 @@ def search_youtube_candidates(
                         + view_score
                     )
 
-                    if url:
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
                         candidates.append({
                             "url": url,
                             "title": entry.get("title", ""),
