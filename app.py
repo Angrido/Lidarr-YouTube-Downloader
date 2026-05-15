@@ -2007,9 +2007,9 @@ def api_youtube_playlist_download():
     thumbnail_url = data.get("thumbnail_url", "").strip()
     source_url = data.get("source_url", "").strip()
 
-    if not artist_name or not album_title:
+    if not artist_name and not album_title:
         return jsonify(
-            {"success": False, "message": "artist_name and album_title are required"}
+            {"success": False, "message": "At least one of artist_name or album_title is required"}
         ), 400
 
     if not entries:
@@ -2032,9 +2032,8 @@ def api_youtube_playlist_download():
             {"success": False, "message": "No download path configured"}
         ), 400
 
-    san_artist = sanitize_filename(artist_name)
-    san_album = sanitize_filename(album_title)
-    target_path = os.path.join(base, san_artist, san_album)
+    path_parts = [p for p in [sanitize_filename(artist_name), sanitize_filename(album_title)] if p]
+    target_path = os.path.join(base, *path_parts)
 
     if not _validate_target_path(target_path, config):
         return jsonify({"success": False, "message": "Invalid target path"}), 400
@@ -2088,10 +2087,13 @@ def _execute_playlist_download(
             for i, entry in enumerate(entries)
         ]
 
+    display_album = album_title or artist_name
+    display_artist = artist_name or album_title
+
     album_data = {
-        "title": album_title,
+        "title": display_album,
         "artist": {
-            "artistName": artist_name,
+            "artistName": display_artist,
             "id": 0,
             "foreignArtistId": "",
         },
@@ -2180,7 +2182,7 @@ def _execute_playlist_download(
                 track_state["status"] = "failed"
                 track_state["error_message"] = str(e)[:200]
                 _record_playlist_track(
-                    album_title=album_title, artist_name=artist_name,
+                    album_title=display_album, artist_name=display_artist,
                     track_title=track_title, track_num=track_num,
                     youtube_url=youtube_url, youtube_title=youtube_title,
                     target_path=target_path, success=False,
@@ -2196,7 +2198,7 @@ def _execute_playlist_download(
                 track_state["status"] = "failed"
                 track_state["error_message"] = "Download failed — file not created"
                 _record_playlist_track(
-                    album_title=album_title, artist_name=artist_name,
+                    album_title=display_album, artist_name=display_artist,
                     track_title=track_title, track_num=track_num,
                     youtube_url=youtube_url, youtube_title=youtube_title,
                     target_path=target_path, success=False,
@@ -2247,7 +2249,7 @@ def _execute_playlist_download(
                 track_state["status"] = "failed"
                 track_state["error_message"] = str(e)[:200]
                 _record_playlist_track(
-                    album_title=album_title, artist_name=artist_name,
+                    album_title=display_album, artist_name=display_artist,
                     track_title=track_title, track_num=track_num,
                     youtube_url=youtube_url, youtube_title=youtube_title,
                     target_path=target_path, success=False,
@@ -2281,14 +2283,14 @@ def _execute_playlist_download(
     finally:
         logger.info(
             "YouTube import finished: %s / %s — %d/%d tracks OK",
-            artist_name, album_title, success_count, len(entries),
+            display_artist, display_album, success_count, len(entries),
         )
         try:
             models.add_log(
                 log_type="manual_download",
                 album_id=0,
-                album_title=album_title,
-                artist_name=artist_name,
+                album_title=display_album,
+                artist_name=display_artist,
                 details=(
                     f"YouTube import: {success_count}/{len(entries)} tracks downloaded"
                 ),
@@ -2313,22 +2315,22 @@ def _execute_playlist_download(
             from notifications import md2_escape as _md2e
             plain = (
                 f"{notif_title}\n"
-                f"Album: {album_title}\n"
-                f"Artist: {artist_name}\n"
+                f"Album: {display_album}\n"
+                f"Artist: {display_artist}\n"
                 f"Downloaded: {success_count}/{len(entries)} tracks"
             )
             md2 = (
                 f"*{_md2e(notif_title)}*\n"
-                f"*Album:* {_md2e(album_title)}\n"
-                f"*Artist:* {_md2e(artist_name)}\n"
+                f"*Album:* {_md2e(display_album)}\n"
+                f"*Artist:* {_md2e(display_artist)}\n"
                 f"Downloaded: {success_count}/{len(entries)} tracks"
             )
             embed = {
                 "title": notif_title,
                 "color": notif_color,
                 "fields": [
-                    {"name": "Album", "value": album_title, "inline": True},
-                    {"name": "Artist", "value": artist_name, "inline": True},
+                    {"name": "Album", "value": display_album, "inline": True},
+                    {"name": "Artist", "value": display_artist, "inline": True},
                     {
                         "name": "Tracks",
                         "value": f"{success_count}/{len(entries)} downloaded"

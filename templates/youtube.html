@@ -778,14 +778,18 @@
 
         <div class="fields-row">
             <div class="field-group">
-                <label class="field-label" id="artistLabel" for="artistInput">Artist Name</label>
-                <input type="text" id="artistInput" class="field-input" placeholder="e.g. Daft Punk">
+                <label class="field-label" id="artistLabel" for="artistInput">Artist Name <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
+                <input type="text" id="artistInput" class="field-input" placeholder="e.g. Daft Punk" oninput="updatePathHint()">
             </div>
             <div class="field-group">
-                <label class="field-label" for="albumInput">Album / Collection Title</label>
-                <input type="text" id="albumInput" class="field-input" placeholder="e.g. Random Access Memories">
+                <label class="field-label" for="albumInput">Album / Collection Title <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
+                <input type="text" id="albumInput" class="field-input" placeholder="e.g. Random Access Memories" oninput="updatePathHint()">
             </div>
         </div>
+        <p id="pathStructureHint" style="font-size:0.8rem;color:var(--text-dim);margin-bottom:0.75rem;display:flex;align-items:center;gap:0.4rem;">
+            <i class="fas fa-folder-tree"></i>
+            <span id="pathStructureText">Fill at least one field to set the folder structure.</span>
+        </p>
 
         <div class="tracks-header">
             <div class="tracks-label">
@@ -802,9 +806,9 @@
         <div class="track-list" id="trackList"></div>
 
         <div class="download-footer">
-            <div class="path-hint">
+            <div class="path-hint" id="downloadPathHint">
                 <i class="fas fa-folder-open"></i>
-                Saved to Artist / Album folder in configured download path
+                <span id="downloadPathHintText">Saved to configured download path</span>
             </div>
             <button class="btn btn-primary" id="downloadBtn" onclick="startDownload()" disabled>
                 <i class="fas fa-download"></i> Download Selected
@@ -1034,6 +1038,7 @@
 
             buildTrackList(entries);
             document.getElementById('resultSection').classList.remove('hidden');
+            updatePathHint();
 
         } catch (e) {
             showAlert('Network error: ' + e.message, 'error');
@@ -1043,11 +1048,31 @@
         }
     }
 
+    function updatePathHint() {
+        const artist = document.getElementById('artistInput').value.trim();
+        const album = document.getElementById('albumInput').value.trim();
+        let structure, hintText;
+        if (artist && album) {
+            structure = `download_path / ${artist} / ${album} /`;
+            hintText = structure;
+        } else if (artist) {
+            structure = `download_path / ${artist} /`;
+            hintText = structure;
+        } else if (album) {
+            structure = `download_path / ${album} /`;
+            hintText = structure;
+        } else {
+            hintText = 'Fill at least one field to set the folder structure.';
+        }
+        document.getElementById('pathStructureText').textContent = hintText;
+        document.getElementById('downloadPathHintText').textContent =
+            (artist || album) ? `Saved to: ${structure}` : 'Saved to configured download path';
+    }
+
     async function startDownload() {
         const artist = document.getElementById('artistInput').value.trim();
         const album = document.getElementById('albumInput').value.trim();
-        if (!artist) { showAlert('Please fill in the artist / playlist name.', 'error'); return; }
-        if (!album) { showAlert('Please fill in the album / collection title.', 'error'); return; }
+        if (!artist && !album) { showAlert('Fill in at least Artist Name or Album Title.', 'error'); return; }
 
         const cbs = document.querySelectorAll('.track-cb');
         const selected = Array.from(cbs)
