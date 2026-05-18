@@ -623,13 +623,6 @@
                 </label>
                 <input type="number" id="interval" value="60" min="1" max="1440">
             </div>
-            <div class="input-group">
-                <label>
-                    Max Albums per Cycle
-                    <div class="label-description">Maximum number of albums to queue per scheduler run. Set to 0 for unlimited.</div>
-                </label>
-                <input type="number" id="schedulerMaxAlbums" value="0" min="0" style="max-width:120px;">
-            </div>
         </div>
 
         <div class="settings-section">
@@ -671,6 +664,13 @@
                     <option value="4">4</option>
                     <option value="5">5 (risky)</option>
                 </select>
+            </div>
+            <div class="input-group">
+                <label>
+                    Max Albums per Cycle
+                    <div class="label-description">Maximum number of albums to queue per scheduler run. Set to 0 for unlimited.</div>
+                </label>
+                <input type="number" id="schedulerMaxAlbums" value="0" min="0" style="max-width:120px;">
             </div>
             <div class="input-group">
                 <label for="audioFormatSelect">
