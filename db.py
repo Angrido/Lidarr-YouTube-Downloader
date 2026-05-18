@@ -9,7 +9,7 @@ import time
 logger = logging.getLogger(__name__)
 
 DB_PATH = "/config/lidarr-downloader.db"
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _local = threading.local()
 
@@ -156,6 +156,50 @@ def init_db():
         ).fetchone()
         current_version = current[0] if current else 0
         _run_migrations(conn, current_version)
+    _ensure_current_tables(conn)
+
+
+def _ensure_current_tables(conn):
+    """Idempotently ensure tables for the current schema exist.
+
+    Safety net for databases that were marked as migrated to the current
+    version but are missing tables (e.g. after a partial migration on a
+    different Python/SQLite stack).
+    """
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS missing_albums_cache (
+            album_id INTEGER PRIMARY KEY,
+            foreign_album_id TEXT DEFAULT '',
+            title TEXT NOT NULL DEFAULT '',
+            artist_id INTEGER DEFAULT 0,
+            artist_name TEXT DEFAULT '',
+            release_date TEXT DEFAULT '',
+            track_count INTEGER DEFAULT 0,
+            missing_track_count INTEGER DEFAULT 0,
+            cover_url TEXT DEFAULT '',
+            raw_json TEXT NOT NULL DEFAULT '{}',
+            synced_at REAL NOT NULL DEFAULT 0,
+            sync_run_id INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_missing_release_date
+            ON missing_albums_cache(release_date DESC);
+        CREATE INDEX IF NOT EXISTS idx_missing_sync_run
+            ON missing_albums_cache(sync_run_id);
+        CREATE TABLE IF NOT EXISTS sync_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            status TEXT NOT NULL DEFAULT 'idle',
+            last_full_sync_at REAL DEFAULT 0,
+            last_attempt_at REAL DEFAULT 0,
+            last_error TEXT DEFAULT '',
+            current_page INTEGER DEFAULT 0,
+            total_pages INTEGER DEFAULT 0,
+            total_records INTEGER DEFAULT 0,
+            synced_records INTEGER DEFAULT 0,
+            current_run_id INTEGER DEFAULT 0
+        );
+        INSERT OR IGNORE INTO sync_state (id, status) VALUES (1, 'idle');
+    """)
+    conn.commit()
 
 
 def _migrate_v1_to_v2(conn):
@@ -313,6 +357,51 @@ def _migrate_v4_to_v5(conn):
     )
 
 
+def _migrate_v5_to_v6(conn):
+    """Add missing_albums_cache and sync_state tables."""
+    conn.execute("""
+        CREATE TABLE missing_albums_cache (
+            album_id INTEGER PRIMARY KEY,
+            foreign_album_id TEXT DEFAULT '',
+            title TEXT NOT NULL DEFAULT '',
+            artist_id INTEGER DEFAULT 0,
+            artist_name TEXT DEFAULT '',
+            release_date TEXT DEFAULT '',
+            track_count INTEGER DEFAULT 0,
+            missing_track_count INTEGER DEFAULT 0,
+            cover_url TEXT DEFAULT '',
+            raw_json TEXT NOT NULL DEFAULT '{}',
+            synced_at REAL NOT NULL,
+            sync_run_id INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX idx_missing_release_date"
+        " ON missing_albums_cache(release_date DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX idx_missing_sync_run"
+        " ON missing_albums_cache(sync_run_id)"
+    )
+    conn.execute("""
+        CREATE TABLE sync_state (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            status TEXT NOT NULL DEFAULT 'idle',
+            last_full_sync_at REAL DEFAULT 0,
+            last_attempt_at REAL DEFAULT 0,
+            last_error TEXT DEFAULT '',
+            current_page INTEGER DEFAULT 0,
+            total_pages INTEGER DEFAULT 0,
+            total_records INTEGER DEFAULT 0,
+            synced_records INTEGER DEFAULT 0,
+            current_run_id INTEGER DEFAULT 0
+        )
+    """)
+    conn.execute(
+        "INSERT INTO sync_state (id, status) VALUES (1, 'idle')"
+    )
+
+
 def _run_migrations(conn, current_version):
     """Run any pending schema migrations sequentially."""
     migrations = {
@@ -320,6 +409,7 @@ def _run_migrations(conn, current_version):
         3: _migrate_v2_to_v3,
         4: _migrate_v3_to_v4,
         5: _migrate_v4_to_v5,
+        6: _migrate_v5_to_v6,
     }
     for version in sorted(migrations):
         if current_version < version:

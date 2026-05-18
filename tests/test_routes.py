@@ -875,7 +875,7 @@ class TestManualTrackDownload:
     @patch("app.lidarr_request")
     @patch("app._get_album_cached")
     @patch("app.set_permissions")
-    @patch("app.tag_mp3")
+    @patch("app.tag_audio_file")
     def test_successful_download(
         self, mock_tag, mock_perms, mock_album, mock_lidarr,
         mock_fp, client, tmp_path, monkeypatch,
@@ -988,7 +988,7 @@ class TestManualTrackDownload:
 
     @patch("app._get_album_cached")
     @patch("app.set_permissions")
-    @patch("app.tag_mp3")
+    @patch("app.tag_audio_file")
     def test_ytdlp_exception_sets_failed_status(
         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
     ):
@@ -1030,7 +1030,7 @@ class TestManualTrackDownload:
 
     @patch("app._get_album_cached")
     @patch("app.set_permissions")
-    @patch("app.tag_mp3")
+    @patch("app.tag_audio_file")
     def test_file_not_created_sets_failed_status(
         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
     ):

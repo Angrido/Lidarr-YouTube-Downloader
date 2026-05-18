@@ -35,7 +35,7 @@ def test_init_db_sets_schema_version(temp_db):
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
     conn.close()
-    assert row[0] == 5
+    assert row[0] == 6
 
 
 def test_init_db_idempotent(temp_db):
@@ -44,8 +44,8 @@ def test_init_db_idempotent(temp_db):
     conn = sqlite3.connect(temp_db)
     rows = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()
     conn.close()
-    # V1 insert + V2..V5 migrations = 5 rows
-    assert rows[0] == 5
+    # V1 insert + V2..V6 migrations = 6 rows
+    assert rows[0] == 6
 
 
 def test_get_db_returns_connection(temp_db):
@@ -185,7 +185,7 @@ def test_migrate_v1_to_v2_creates_track_downloads(temp_db):
         "SELECT version FROM schema_version"
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
-    assert row[0] == 5
+    assert row[0] == 6
     conn.close()
 
 
@@ -337,7 +337,7 @@ def test_migrate_v2_to_v3_adds_acoustid_columns(temp_db):
         "SELECT version FROM schema_version"
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
-    assert row[0] == 5
+    assert row[0] == 6
     conn.close()
 
 
@@ -416,7 +416,7 @@ def test_schema_version_is_4(temp_db):
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
     conn.close()
-    assert row[0] == 5
+    assert row[0] == 6
 
 
 # --- V4 to V5 Migration ---
