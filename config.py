@@ -18,7 +18,7 @@ ALLOWED_CONFIG_KEYS = {
     "scheduler_interval", "telegram_bot_token", "telegram_chat_id",
     "telegram_enabled", "telegram_log_types", "download_path",
     "lidarr_path", "forbidden_words", "duration_tolerance",
-    "scheduler_enabled", "scheduler_auto_download",
+    "scheduler_enabled", "scheduler_auto_download", "scheduler_max_albums",
     "xml_metadata_enabled", "concurrent_tracks", "yt_cookies_file", "yt_force_ipv4",
     "yt_player_client", "yt_retries", "yt_fragment_retries",
     "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
@@ -68,6 +68,7 @@ def load_config():
             os.getenv("SCHEDULER_AUTO_DOWNLOAD", "true").lower() == "true"
         ),
         "scheduler_interval": int(os.getenv("SCHEDULER_INTERVAL", "60")),
+        "scheduler_max_albums": int(os.getenv("SCHEDULER_MAX_ALBUMS", "0")),
         "telegram_enabled": (
             os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"
         ),

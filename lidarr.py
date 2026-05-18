@@ -5,6 +5,7 @@ fetching missing albums, and resolving release IDs.
 """
 
 import logging
+import time
 
 import requests
 
@@ -48,6 +49,29 @@ def lidarr_request(endpoint, method="GET", data=None, params=None):
     except Exception as e:
         logger.error("Unexpected error calling Lidarr %s: %s", endpoint, e)
         return {"error": str(e)}
+
+
+def lidarr_request_with_retry(
+    endpoint, *, method="POST", data=None, max_attempts=4, base_delay=5
+):
+    result = {"error": "no attempts made"}
+    for attempt in range(max_attempts):
+        result = lidarr_request(endpoint, method=method, data=data)
+        if "error" not in result:
+            return result
+        if attempt < max_attempts - 1:
+            delay = base_delay * (2 ** attempt)
+            logger.warning(
+                "Lidarr command %s failed (attempt %d/%d): %s. Retrying in %ds...",
+                endpoint, attempt + 1, max_attempts, result["error"], delay,
+            )
+            time.sleep(delay)
+        else:
+            logger.error(
+                "Lidarr command %s failed after %d attempts: %s",
+                endpoint, max_attempts, result["error"],
+            )
+    return result
 
 
 def get_missing_albums():
