@@ -1960,55 +1960,79 @@ def api_youtube_playlist_info():
 
 
 def _fetch_ytmusic_album_art(playlist_id):
-    """Fetch the square album art (yt3.googleusercontent.com) from YouTube Music.
+    """Fetch the square album art from YouTube Music for an OLAK5uy_ playlist.
 
     yt-dlp does not extract the square album cover for OLAK5uy_* playlists
     (it returns rectangular i.ytimg.com thumbnails). The YouTube Music page
     embeds the real album art URL in its initial data. We scrape it with a
     regex against the page HTML.
 
-    Returns the largest yt3 thumbnail URL, or "" if not found.
+    Returns the largest yt3/lh3 thumbnail URL, or "" if not found.
     """
     if not playlist_id:
         return ""
     if not (playlist_id.startswith("OLAK5uy_") or playlist_id.startswith("RDCLAK5uy_")):
+        logger.info(
+            "Skipping YT Music album art fetch (not an OLAK5uy_ playlist): %s",
+            playlist_id,
+        )
         return ""
     import requests as http_requests
-    url = f"https://music.youtube.com/playlist?list={playlist_id}"
+    url = f"https://music.youtube.com/playlist?list={playlist_id}&hl=en"
+    logger.info("Fetching YT Music page: %s", url)
     try:
         resp = http_requests.get(
             url,
-            timeout=10,
+            timeout=15,
             headers={
                 "User-Agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/120.0.0.0 Safari/537.36"
                 ),
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.9",
-                "Cookie": "SOCS=CAI",  # consent cookie to skip EU consent wall
+                "Cookie": "SOCS=CAI; PREF=hl=en",
             },
+            allow_redirects=True,
+        )
+        logger.info(
+            "YT Music page returned HTTP %d, body length=%d",
+            resp.status_code, len(resp.text or ""),
         )
         if resp.status_code != 200:
-            logger.debug(
-                "YT Music page fetch returned HTTP %d for %s",
-                resp.status_code, playlist_id,
-            )
             return ""
+        # Album art URLs appear as yt3.googleusercontent.com or lh3.googleusercontent.com
         matches = re.findall(
-            r'"url":"(https://yt3\.googleusercontent\.com/[^"]+?=w(\d+)-h(\d+)[^"]*)"',
+            r'"url":"(https://(?:yt3|lh3)\.googleusercontent\.com/[^"]+?=w(\d+)-h(\d+)[^"]*)"',
             resp.text,
         )
+        logger.info(
+            "Found %d googleusercontent thumbnails in YT Music page",
+            len(matches),
+        )
         if not matches:
-            logger.debug(
-                "No yt3 album art found in YT Music page for %s",
-                playlist_id,
+            # Probe whether the page has anything from googleusercontent at all
+            probe = re.findall(
+                r'https://(?:yt3|lh3)\.googleusercontent\.com/[^\s"\'<>]+',
+                resp.text,
             )
+            if probe:
+                logger.info(
+                    "Sample googleusercontent URLs (no size match): %s",
+                    probe[0][:200],
+                )
+            else:
+                logger.info("No googleusercontent URLs at all in YT Music page")
             return ""
         best = max(matches, key=lambda m: int(m[1]) * int(m[2]))
+        logger.info(
+            "Selected best YT Music album art (%sx%s): %s",
+            best[1], best[2], best[0][:160],
+        )
         return best[0]
     except Exception as e:
-        logger.debug("YT Music album art fetch failed: %s", e)
+        logger.warning("YT Music album art fetch failed: %s", e)
         return ""
 
 
@@ -2458,6 +2482,23 @@ def _execute_playlist_download(
                 f"*Artist:* {_md2e(display_artist)}\n"
                 f"Downloaded: {success_count}/{len(entries)} tracks"
             )
+            verified_thumb = ""
+            if thumbnail_url:
+                try:
+                    import requests as req_check
+                    head = req_check.head(
+                        thumbnail_url, timeout=5, allow_redirects=True,
+                        headers={"Referer": "https://music.youtube.com/"},
+                    )
+                    if head.status_code == 200:
+                        verified_thumb = thumbnail_url
+                    else:
+                        logger.info(
+                            "Skipping notification thumbnail (HTTP %d): %s",
+                            head.status_code, thumbnail_url[:120],
+                        )
+                except Exception as head_err:
+                    logger.debug("Thumbnail HEAD check failed: %s", head_err)
             embed = {
                 "title": notif_title,
                 "color": notif_color,
@@ -2472,15 +2513,15 @@ def _execute_playlist_download(
                     },
                 ],
             }
-            if thumbnail_url:
-                embed["thumbnail"] = {"url": thumbnail_url}
+            if verified_thumb:
+                embed["thumbnail"] = {"url": verified_thumb}
             send_notifications(
                 plain,
                 log_type=notif_log_type,
                 embed_data=embed,
                 telegram_message=md2,
                 telegram_parse_mode="MarkdownV2",
-                photo_url=thumbnail_url or None,
+                photo_url=verified_thumb or None,
             )
         except Exception as notif_err:
             logger.error("Failed to send YouTube import notification: %s", notif_err)
