@@ -3320,15 +3320,18 @@
             album.artist.artistName.toLowerCase().includes(term),
         );
         if (filtered.length === 0) return;
-        if (!confirm(`Add ${filtered.length} albums to download queue?`))
-          return;
+
+        const chosen = await showDownloadAllModal(filtered.length);
+        if (chosen === null) return;
+
+        const toQueue = chosen === 0 ? filtered : filtered.slice(0, chosen);
 
         btn.classList.add("btn-adding");
-        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Adding ${filtered.length}...`;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Adding ${toQueue.length}...`;
 
         let added = 0;
         try {
-          const albumIds = filtered.map((a) => a.id);
+          const albumIds = toQueue.map((a) => a.id);
           const res = await fetch("/api/download/queue/bulk", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -3347,6 +3350,69 @@
             '<i class="fa-solid fa-download"></i> Download All Missing';
           btn.style.pointerEvents = "";
         }, 3000);
+      }
+
+      function showDownloadAllModal(total) {
+        return new Promise((resolve) => {
+          const existing = document.querySelector(".dl-all-modal-overlay");
+          if (existing) existing.remove();
+
+          const overlay = document.createElement("div");
+          overlay.className = "manual-dl-modal-overlay dl-all-modal-overlay";
+          overlay.addEventListener("click", (e) => {
+            if (e.target === overlay) { overlay.remove(); resolve(null); }
+          });
+
+          const modal = document.createElement("div");
+          modal.className = "manual-dl-modal";
+
+          const title = document.createElement("div");
+          title.className = "manual-dl-modal-title";
+          title.textContent = "Download Missing Albums";
+
+          const subtitle = document.createElement("div");
+          subtitle.className = "manual-dl-modal-subtitle";
+          subtitle.textContent = `${total} album${total !== 1 ? "s" : ""} available. Enter a limit or leave 0 to queue all.`;
+
+          const input = document.createElement("input");
+          input.type = "number";
+          input.min = "0";
+          input.max = String(total);
+          input.value = "0";
+          input.placeholder = `0 = all (max ${total})`;
+
+          const actions = document.createElement("div");
+          actions.className = "manual-dl-modal-actions";
+
+          const confirmBtn = document.createElement("button");
+          confirmBtn.className = "modal-dl-btn";
+          confirmBtn.textContent = "Add to Queue";
+
+          const cancelBtn = document.createElement("button");
+          cancelBtn.className = "modal-cancel-btn";
+          cancelBtn.textContent = "Cancel";
+
+          function submit() {
+            const val = parseInt(input.value, 10);
+            const limit = isNaN(val) || val < 0 ? 0 : val;
+            overlay.remove();
+            resolve(limit);
+          }
+
+          cancelBtn.addEventListener("click", () => { overlay.remove(); resolve(null); });
+          confirmBtn.addEventListener("click", submit);
+          input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") submit();
+            if (e.key === "Escape") { overlay.remove(); resolve(null); }
+          });
+
+          actions.append(confirmBtn, cancelBtn);
+          modal.append(title, subtitle, input, actions);
+          overlay.appendChild(modal);
+          document.body.appendChild(overlay);
+          input.focus();
+          input.select();
+        });
       }
 
       const albumTracksCache = {};
