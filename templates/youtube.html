@@ -970,8 +970,11 @@
             const item = document.createElement('div');
             item.className = 'track-item selected';
 
+            // Prefer the album cover for all tracks when available,
+            // fall back to the individual video thumbnail
+            const coverUrl = fetchedThumbnail || entry.thumbnail;
+            const tUrl = thumbUrl(coverUrl);
             let thumbHtml;
-            const tUrl = thumbUrl(entry.thumbnail);
             if (tUrl) {
                 thumbHtml = `<img class="track-thumb" src="${tUrl}" alt="" loading="lazy" onerror="swapToPlaceholder(this, 'track-thumb-placeholder', 'fas fa-music')">`;
             } else {
