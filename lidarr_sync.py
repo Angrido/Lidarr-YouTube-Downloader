@@ -9,6 +9,7 @@ import logging
 import threading
 import time
 
+import db
 import models
 from config import load_config
 from lidarr import lidarr_request
@@ -46,6 +47,7 @@ def _fetch_page(page):
 
 
 def _run_sync():
+    db.init_db()
     run_id = models.bump_sync_run_id()
     models.update_sync_state(
         status="running",
@@ -139,6 +141,10 @@ def trigger_sync():
 
 def sync_loop():
     """Periodically trigger a sync when the cache becomes stale."""
+    try:
+        db.init_db()
+    except Exception as e:
+        logger.warning("Sync loop init_db failed: %s", e)
     while True:
         try:
             config = load_config()
