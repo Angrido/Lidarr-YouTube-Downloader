@@ -14,7 +14,7 @@ import time
 import uuid
 
 import models
-from config import load_config
+from config import load_config, MIN_MATCH_SCORE_DEFAULT
 from models import CandidateOutcome
 from downloader import (
     download_youtube_candidate,
@@ -865,9 +865,9 @@ def _download_tracks(
         # load_config() already validates and clamps min_match_score; this
         # just guards against tests/callers that bypass it.
         try:
-            min_match_score = float(cfg_loop.get("min_match_score", 0.8))
+            min_match_score = float(cfg_loop.get("min_match_score", MIN_MATCH_SCORE_DEFAULT))
         except (TypeError, ValueError):
-            min_match_score = 0.8
+            min_match_score = MIN_MATCH_SCORE_DEFAULT
         will_verify = bool(
             cfg_loop.get("acoustid_enabled", True)
             and cfg_loop.get("acoustid_api_key", "")

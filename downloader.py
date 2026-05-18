@@ -39,22 +39,56 @@ def get_ytdlp_version():
         return "unknown"
 
 
+_NOISE_PATTERN = re.compile(
+    r"\s*[\(\[\|]\s*(?:"
+    r"clip\s*officiel?|paroles?|lyrics?\s*(?:vid[eé]o)?|official\s*(?:music\s*)?(?:video|audio|clip)?"
+    r"|audio\s*officiel?|vid[eé]o\s*officielle?|hd|4k|vevo|remastered|visualizer"
+    r"|feat\.?|ft\.?\s*\w[\w\s]*"
+    r")\s*[\)\]\|]",
+    re.IGNORECASE,
+)
+_FEAT_PATTERN = re.compile(r"\s+(?:feat\.?|ft\.?)\s+[\w\s&,]+", re.IGNORECASE)
+
+
+_DASH_PATTERN = re.compile(r"[–—‐‑‒―]")
+
+
+def _normalize_dashes(text):
+    return _DASH_PATTERN.sub("-", text)
+
+
+def _normalize_yt_title(title):
+    t = _normalize_dashes(title)
+    t = _NOISE_PATTERN.sub("", t)
+    t = _FEAT_PATTERN.sub("", t)
+    return re.sub(r"\s+", " ", t).strip().lower()
+
+
 def _title_similarity(yt_title, track_title, artist_name):
-    """Score how well a YouTube title matches the expected track.
+    yt_lower = _normalize_dashes(yt_title).lower()
+    track_lower = _normalize_dashes(track_title).lower()
+    artist_lower = artist_name.lower()
 
-    Combines SequenceMatcher ratio with bonuses for containing
-    the track title and artist name.
+    has_track = track_lower in yt_lower
+    has_artist = artist_lower in yt_lower
 
-    Returns:
-        Float between 0.0 and 1.0.
-    """
-    yt_lower = yt_title.lower()
-    expected_lower = f"{artist_name} {track_title}".lower()
-    score = SequenceMatcher(None, yt_lower, expected_lower).ratio()
-    if track_title.lower() in yt_lower:
+    if has_track and has_artist:
+        return 1.0
+
+    yt_norm = _normalize_yt_title(yt_title)
+    track_norm = _normalize_yt_title(track_title)
+    artist_norm = _normalize_yt_title(artist_name)
+
+    if track_norm in yt_norm and artist_norm in yt_norm:
+        return 1.0
+
+    score = SequenceMatcher(None, yt_norm, f"{artist_norm} {track_norm}").ratio()
+    if has_track:
         score += 0.3
-    if artist_name.lower() in yt_lower:
+    if has_artist:
         score += 0.2
+    elif artist_norm in yt_norm:
+        score += 0.15
     return min(score, 1.0)
 
 
@@ -134,7 +168,7 @@ def _build_common_opts(player_client=None):
     return opts
 
 
-MAX_CANDIDATES = 10
+MAX_CANDIDATES = 15
 
 
 def search_youtube_candidates(
@@ -171,7 +205,7 @@ def search_youtube_candidates(
         "karaoke", "slowed", "reverb", "nightcore", "sped up",
         "instrumental", "acapella", "tribute",
     ])
-    duration_tolerance = config.get("duration_tolerance", 10)
+    duration_tolerance = config.get("duration_tolerance", 15)
 
     expected_duration_sec = None
     if expected_duration_ms:
@@ -191,23 +225,32 @@ def search_youtube_candidates(
     if not base_artist:
         base_artist = artist_part
 
+    added = {query}
     search_queries = [query]
-    alt_q = f"{base_artist} {base_track}"
-    if alt_q != query and alt_q not in search_queries:
-        search_queries.append(alt_q)
-    alt_q2 = f"{base_track} {base_artist}"
-    if alt_q2 not in search_queries:
-        search_queries.append(alt_q2)
-    alt_q3 = f"{base_track} audio"
-    if alt_q3 not in search_queries:
-        search_queries.append(alt_q3)
 
+    for candidate_q in [
+        f"{base_artist} - {base_track}",
+        f"{base_artist} {base_track}",
+        f"{base_artist} {base_track} audio officiel",
+        f"{base_track} {base_artist}",
+        f"{base_track} audio",
+    ]:
+        if candidate_q not in added:
+            added.add(candidate_q)
+            search_queries.append(candidate_q)
+
+    seen_urls = set()
     candidates = []
+    GOOD_SCORE = 0.80
+
     for qi, sq in enumerate(search_queries):
         if skip_check and skip_check():
             return []
-        if candidates:
+
+        has_good = any(c["score"] >= GOOD_SCORE for c in candidates)
+        if has_good:
             break
+
         if qi > 0:
             logger.info(
                 f"   Fallback search ({qi+1}/{len(search_queries)}):"
@@ -280,14 +323,17 @@ def search_youtube_candidates(
                         view_score = min(
                             0.1, math.log10(max(view_count, 1)) / 100
                         )
+                    certainty_bonus = 0.15 if title_score >= 1.0 else 0.0
                     total_score = (
-                        (duration_score * 0.35)
-                        + (title_score * 0.40)
+                        (duration_score * 0.25)
+                        + (title_score * 0.50)
                         + official_bonus
                         + view_score
+                        + certainty_bonus
                     )
 
-                    if url:
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
                         candidates.append({
                             "url": url,
                             "title": entry.get("title", ""),
@@ -301,6 +347,7 @@ def search_youtube_candidates(
                             f" (dur={duration_score:.2f}"
                             f" title={title_score:.2f}"
                             f" official={official_bonus:.2f}"
+                            f" certainty={certainty_bonus:.2f}"
                             f" views={view_score:.3f})"
                         )
         except Exception as e:

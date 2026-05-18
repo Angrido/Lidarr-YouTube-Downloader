@@ -1,0 +1,1336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Import - Lidarr YouTube Downloader</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <style>
+        :root {
+            --bg: #09090b;
+            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.05) 0%, transparent 50%);
+            --surface: #18181b;
+            --surface-glass: rgba(24, 24, 27, 0.7);
+            --surface-hover: #27272a;
+            --text: #fafafa;
+            --text-dim: #a1a1aa;
+            --primary: #10b981;
+            --primary-hover: #059669;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --border: #27272a;
+            --border-glass: rgba(255, 255, 255, 0.1);
+            --radius: 16px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
+            --glow: 0 0 20px rgba(16, 185, 129, 0.3);
+        }
+
+        body.light {
+            --bg: #f4f4f5;
+            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.03) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.03) 0%, transparent 50%);
+            --surface: #ffffff;
+            --surface-glass: rgba(255, 255, 255, 0.7);
+            --surface-hover: #f4f4f5;
+            --text: #18181b;
+            --text-dim: #71717a;
+            --border: #e4e4e7;
+            --border-glass: rgba(0, 0, 0, 0.1);
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            --glow: 0 0 20px rgba(16, 185, 129, 0.2);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            background-image: var(--bg-pattern);
+            background-attachment: fixed;
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        header {
+            background: var(--surface-glass);
+            backdrop-filter: blur(30px) saturate(200%);
+            -webkit-backdrop-filter: blur(30px) saturate(200%);
+            border-bottom: 1px solid var(--border-glass);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            padding: 0;
+        }
+
+        .nav-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 64px;
+        }
+
+        .logo {
+            font-weight: 800;
+            font-size: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            background: linear-gradient(135deg, var(--primary), #06d6a0, #0891b2);
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: gradient-shift 4s ease infinite;
+            letter-spacing: -0.02em;
+        }
+
+        .logo-icon {
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .logo-icon svg { width: 16px; height: 16px; }
+
+        @keyframes gradient-shift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 0.25rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--text-dim);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.9rem;
+            padding: 0.5rem 0.9rem;
+            border-radius: 10px;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .nav-links a:hover { color: var(--text); background: var(--surface-hover); }
+
+        .nav-links a.active {
+            color: var(--primary);
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: 2px;
+            left: 50%;
+            transform: translateX(-50%) scaleX(0);
+            width: 60%;
+            height: 2px;
+            background: linear-gradient(90deg, var(--primary), #06d6a0);
+            border-radius: 1px;
+            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .nav-links a:hover::after, .nav-links a.active::after {
+            transform: translateX(-50%) scaleX(1);
+        }
+
+        .nav-badge {
+            background: linear-gradient(135deg, #ef4444, #f87171);
+            color: white;
+            font-size: 0.65rem;
+            font-weight: 700;
+            min-width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 0 5px;
+            line-height: 1;
+        }
+
+        .nav-badge.active { display: inline-flex; }
+
+        .controls { display: flex; gap: 0.75rem; align-items: center; }
+
+        .theme-toggle {
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-glass);
+            color: var(--text);
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .theme-toggle:hover {
+            background: var(--surface-hover);
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+            transform: scale(1.08);
+        }
+
+        .theme-toggle:active { transform: scale(0.92); }
+        .theme-toggle i { transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
+
+        .theme-toggle.spin i {
+            animation: themeSwitch 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes themeSwitch {
+            0% { transform: rotate(0deg) scale(1); opacity: 1; }
+            50% { transform: rotate(180deg) scale(0); opacity: 0; }
+            100% { transform: rotate(360deg) scale(1); opacity: 1; }
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 2rem;
+            width: 100%;
+            flex: 1;
+        }
+
+        .section {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            padding: 1.5rem;
+            border-radius: var(--radius);
+            border: 1px solid var(--border-glass);
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow);
+        }
+
+        .section-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .url-row {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        .url-input {
+            flex: 1;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 0.75rem 1rem;
+            color: var(--text);
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .url-input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+        }
+
+        .url-input::placeholder { color: var(--text-dim); }
+
+        .btn {
+            padding: 0.75rem 1.25rem;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            white-space: nowrap;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+            color: white;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45); }
+        .btn-primary:active { transform: scale(0.97); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+        }
+
+        .btn-danger:hover { background: #dc2626; }
+
+        .btn-ghost {
+            background: var(--surface);
+            color: var(--text-dim);
+            border: 1px solid var(--border);
+        }
+
+        .btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
+
+        .btn-sm {
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+            border-radius: 8px;
+        }
+
+        .alert {
+            padding: 0.9rem 1.1rem;
+            border-radius: 10px;
+            font-size: 0.9rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+        }
+
+        .alert-error { background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); }
+        .alert-success { background: rgba(16, 185, 129, 0.1); color: var(--primary); border: 1px solid rgba(16, 185, 129, 0.2); }
+        .alert-info { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.2); }
+        .hidden { display: none !important; }
+
+        .playlist-info-bar {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: var(--surface);
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            margin-bottom: 1.25rem;
+        }
+
+        .playlist-thumb {
+            width: 64px;
+            height: 64px;
+            border-radius: 8px;
+            object-fit: cover;
+            flex-shrink: 0;
+            background: var(--surface-hover);
+            display: block;
+        }
+
+        .playlist-thumb-placeholder {
+            width: 64px;
+            height: 64px;
+            border-radius: 8px;
+            flex-shrink: 0;
+            background: var(--surface-hover);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-dim);
+            font-size: 1.4rem;
+        }
+
+        .playlist-meta { flex: 1; min-width: 0; }
+        .playlist-meta-title { font-weight: 700; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .playlist-meta-sub { color: var(--text-dim); font-size: 0.85rem; margin-top: 0.2rem; }
+
+        .playlist-badge {
+            padding: 0.25rem 0.7rem;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            flex-shrink: 0;
+            text-transform: uppercase;
+        }
+
+        .playlist-badge.playlist { background: rgba(255,0,0,0.12); color: #ff4444; }
+        .playlist-badge.video { background: rgba(59,130,246,0.12); color: #60a5fa; }
+
+        .fields-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .field-group { display: flex; flex-direction: column; gap: 0.4rem; }
+
+        .field-label {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+
+        .field-input {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 0.7rem 0.9rem;
+            color: var(--text);
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .field-input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+        }
+
+        .tracks-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+
+        .tracks-label {
+            font-size: 0.9rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-dim);
+        }
+
+        .tracks-label .count { color: var(--primary); }
+
+        .tracks-actions { display: flex; gap: 0.4rem; }
+
+        .track-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+            max-height: 440px;
+            overflow-y: auto;
+            padding-right: 2px;
+        }
+
+        .track-list::-webkit-scrollbar { width: 4px; }
+        .track-list::-webkit-scrollbar-track { background: transparent; }
+        .track-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .track-item {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            padding: 0.55rem 0.75rem;
+            border-radius: 10px;
+            border: 1px solid transparent;
+            transition: all 0.15s;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .track-item:hover { background: var(--surface-hover); border-color: var(--border); }
+
+        .track-item.selected {
+            background: rgba(16, 185, 129, 0.05);
+            border-color: rgba(16, 185, 129, 0.18);
+        }
+
+        .track-cb {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--primary);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .track-num {
+            color: var(--text-dim);
+            font-size: 0.78rem;
+            font-weight: 600;
+            min-width: 1.4rem;
+            text-align: right;
+            flex-shrink: 0;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .track-thumb {
+            width: 40px;
+            height: 40px;
+            border-radius: 5px;
+            object-fit: cover;
+            flex-shrink: 0;
+            background: var(--surface-hover);
+            display: block;
+        }
+
+        .track-thumb-placeholder {
+            width: 40px;
+            height: 40px;
+            border-radius: 5px;
+            background: var(--surface-hover);
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-dim);
+            font-size: 0.75rem;
+        }
+
+        .track-info { flex: 1; min-width: 0; }
+        .track-title-text { font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+        .track-channel-text { color: var(--text-dim); font-size: 0.76rem; margin-top: 0.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        .track-dur {
+            color: var(--text-dim);
+            font-size: 0.78rem;
+            flex-shrink: 0;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .download-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 1.25rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-glass);
+            gap: 1rem;
+        }
+
+        .path-hint {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .progress-bar-wrap {
+            background: var(--surface);
+            border-radius: 999px;
+            height: 6px;
+            overflow: hidden;
+            margin-bottom: 1rem;
+            border: 1px solid var(--border);
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), #06d6a0);
+            border-radius: 999px;
+            transition: width 0.5s ease;
+            width: 0%;
+        }
+
+        .progress-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .progress-label {
+            font-weight: 600;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .recent-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 0.75rem;
+            margin-top: 0.5rem;
+        }
+
+        .recent-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            cursor: pointer;
+            text-decoration: none;
+            color: var(--text);
+            transition: all 0.2s;
+            display: block;
+        }
+
+        .recent-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+            box-shadow: var(--glow);
+        }
+
+        .recent-card-thumb {
+            width: 100%;
+            aspect-ratio: 1/1;
+            object-fit: cover;
+            background: var(--surface-hover);
+            display: block;
+        }
+
+        .recent-card-thumb-placeholder {
+            width: 100%;
+            aspect-ratio: 1/1;
+            background: var(--surface-hover);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-dim);
+            font-size: 1.5rem;
+        }
+
+        .recent-card-body {
+            padding: 0.5rem 0.6rem;
+        }
+
+        .recent-card-title {
+            font-size: 0.8rem;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .recent-card-sub {
+            font-size: 0.72rem;
+            color: var(--text-dim);
+            margin-top: 0.15rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .prog-section-icon {
+            color: var(--primary);
+            flex-shrink: 0;
+        }
+
+        .track-prog-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+            max-height: 320px;
+            overflow-y: auto;
+        }
+
+        .track-prog-list::-webkit-scrollbar { width: 4px; }
+        .track-prog-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+        .tp-row {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.45rem 0.65rem;
+            border-radius: 8px;
+            font-size: 0.84rem;
+            background: var(--surface);
+        }
+
+        .tp-icon {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.68rem;
+            flex-shrink: 0;
+        }
+
+        .tp-icon.pending { background: var(--border); color: var(--text-dim); }
+        .tp-icon.searching, .tp-icon.downloading { background: rgba(59,130,246,0.15); color: #60a5fa; }
+        .tp-icon.tagging, .tp-icon.verifying, .tp-icon.fingerprinting { background: rgba(245,158,11,0.15); color: var(--warning); }
+        .tp-icon.done { background: rgba(16,185,129,0.15); color: var(--primary); }
+        .tp-icon.failed { background: rgba(239,68,68,0.15); color: var(--danger); }
+        .tp-icon.skipped { background: var(--border); color: var(--text-dim); }
+
+        @keyframes spin-it { to { transform: rotate(360deg); } }
+        .spin-anim { animation: spin-it 1s linear infinite; }
+
+        .tp-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tp-extra { color: var(--text-dim); font-size: 0.76rem; white-space: nowrap; }
+
+        footer {
+            text-align: center;
+            padding: 1.5rem 2rem;
+            color: var(--text-dim);
+            font-size: 0.9rem;
+            border-top: 1px solid var(--border-glass);
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px);
+            margin-top: auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .footer-github {
+            color: var(--text-dim);
+            font-size: 1.2rem;
+            transition: color 0.2s;
+        }
+
+        .footer-github:hover { color: var(--text); }
+
+        @media (max-width: 768px) {
+            .nav-container { padding: 0 1rem; }
+            .container { padding: 1rem; }
+            .fields-row { grid-template-columns: 1fr; }
+            .url-row { flex-direction: column; }
+            .download-footer { flex-direction: column; align-items: flex-start; }
+        }
+
+        @media (max-width: 600px) {
+            .nav-links a span { display: none; }
+        }
+    </style>
+</head>
+<body>
+<header>
+    <div class="nav-container">
+        <a href="/" style="text-decoration: none;">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 32 32" fill="white"><rect x="4" y="18" width="4" height="8" rx="1"/><rect x="10" y="12" width="4" height="14" rx="1"/><rect x="18" y="6" width="4" height="20" rx="1"/><rect x="24" y="14" width="4" height="12" rx="1"/></svg>
+                </div>
+                LYD
+            </div>
+        </a>
+        <div class="nav-links">
+            <a href="/"><i class="fas fa-home"></i> <span>Home</span></a>
+            <a href="/downloads"><i class="fas fa-download"></i> <span>Downloads</span> <span class="nav-badge" id="queueBadge">0</span></a>
+            <a href="/logs"><i class="fas fa-list"></i> <span>Logs</span></a>
+            <a href="/youtube" class="active"><i class="fab fa-youtube"></i> <span>YouTube</span></a>
+            <a href="/settings"><i class="fas fa-cog"></i> <span>Settings</span></a>
+        </div>
+        <div class="controls">
+            <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
+                <i class="fa-solid fa-moon" id="themeIcon"></i>
+            </button>
+        </div>
+    </div>
+</header>
+
+<div class="container">
+
+    <div id="alertBox" class="alert hidden"></div>
+
+    <div class="section">
+        <div class="section-title">
+            <i class="fab fa-youtube"></i>
+            YouTube Import
+        </div>
+        <p style="color:var(--text-dim);font-size:0.9rem;margin-bottom:1.25rem;">
+            Download a YouTube video or playlist directly, without needing an artist defined in Lidarr.
+        </p>
+        <div class="url-row">
+            <input
+                type="text"
+                id="urlInput"
+                class="url-input"
+                placeholder="https://www.youtube.com/watch?v=... or playlist URL"
+                autocomplete="off"
+                spellcheck="false"
+            >
+            <button class="btn btn-primary" id="fetchBtn" onclick="fetchInfo()">
+                <i class="fas fa-search"></i> Fetch
+            </button>
+        </div>
+    </div>
+
+    <div id="recentSection" class="section hidden">
+        <div class="section-title">
+            <i class="fas fa-clock-rotate-left"></i>
+            Recent Imports
+        </div>
+        <div class="recent-grid" id="recentGrid"></div>
+    </div>
+
+    <div id="resultSection" class="section hidden">
+        <div class="section-title">
+            <i class="fas fa-music"></i>
+            Tracks Found
+        </div>
+
+        <div id="playlistInfoBar" class="playlist-info-bar hidden">
+            <div id="playlistThumbWrap"></div>
+            <div class="playlist-meta">
+                <div class="playlist-meta-title" id="playlistTitle"></div>
+                <div class="playlist-meta-sub" id="playlistChannel"></div>
+            </div>
+            <span class="playlist-badge" id="playlistBadge">Playlist</span>
+        </div>
+
+        <div class="fields-row">
+            <div class="field-group">
+                <label class="field-label" id="artistLabel" for="artistInput">Artist Name <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
+                <input type="text" id="artistInput" class="field-input" placeholder="e.g. Daft Punk" oninput="updatePathHint()">
+            </div>
+            <div class="field-group">
+                <label class="field-label" for="albumInput">Album / Collection Title <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
+                <input type="text" id="albumInput" class="field-input" placeholder="e.g. Random Access Memories" oninput="updatePathHint()">
+            </div>
+        </div>
+        <p id="pathStructureHint" style="font-size:0.8rem;color:var(--text-dim);margin-bottom:0.75rem;display:flex;align-items:center;gap:0.4rem;">
+            <i class="fas fa-folder-tree"></i>
+            <span id="pathStructureText">Fill at least one field to set the folder structure.</span>
+        </p>
+
+        <div class="tracks-header">
+            <div class="tracks-label">
+                <i class="fas fa-list-music"></i>
+                <span id="tracksCountLabel">0 tracks</span>
+                &nbsp;<span class="count" id="selectedCount"></span>
+            </div>
+            <div class="tracks-actions">
+                <button class="btn btn-ghost btn-sm" onclick="selectAll()">Select all</button>
+                <button class="btn btn-ghost btn-sm" onclick="selectNone()">None</button>
+            </div>
+        </div>
+
+        <div class="track-list" id="trackList"></div>
+
+        <div class="download-footer">
+            <div class="path-hint" id="downloadPathHint">
+                <i class="fas fa-folder-open"></i>
+                <span id="downloadPathHintText">Saved to configured download path</span>
+            </div>
+            <button class="btn btn-primary" id="downloadBtn" onclick="startDownload()" disabled>
+                <i class="fas fa-download"></i> Download Selected
+            </button>
+        </div>
+    </div>
+
+    <div id="progressSection" class="section hidden">
+        <div class="section-title">
+            <i class="fas fa-circle-notch spin-anim prog-section-icon" id="progSectionIcon" style="-webkit-text-fill-color: var(--primary); background: none;"></i>
+            <span>Download Progress</span>
+        </div>
+        <div class="progress-header-row">
+            <div class="progress-label" id="progLabel">Downloading...</div>
+            <button class="btn btn-danger btn-sm" onclick="stopDownload()">
+                <i class="fas fa-stop"></i> Stop
+            </button>
+        </div>
+        <div class="progress-bar-wrap">
+            <div class="progress-bar-fill" id="progBar"></div>
+        </div>
+        <div class="track-prog-list" id="trackProgList"></div>
+    </div>
+
+</div>
+
+<footer>
+    <div>Made with love ❤️ • {{ APP_VERSION }}</div>
+    <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
+</footer>
+
+<script>
+    let fetchedEntries = [];
+    let fetchedThumbnail = '';
+    let fetchedSourceUrl = '';
+    let sseSource = null;
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        const d = document.createElement('div');
+        d.appendChild(document.createTextNode(str));
+        return d.innerHTML;
+    }
+
+    function sanitizeUrl(url) {
+        if (!url) return '';
+        try {
+            const u = new URL(url);
+            if (u.protocol === 'https:' || u.protocol === 'http:') return u.href;
+        } catch (_) {}
+        return '';
+    }
+
+    function thumbUrl(url) {
+        if (!url) return '';
+        const safe = sanitizeUrl(url);
+        if (!safe) return '';
+        // Route yt3 images through the server proxy to avoid hotlink/CORS issues
+        if (safe.includes('yt3.googleusercontent.com')) {
+            return '/api/thumbnail?url=' + encodeURIComponent(safe);
+        }
+        return safe;
+    }
+
+    function swapToPlaceholder(imgEl, placeholderClass, iconClass) {
+        const div = document.createElement('div');
+        div.className = placeholderClass;
+        const i = document.createElement('i');
+        i.className = iconClass;
+        div.appendChild(i);
+        imgEl.replaceWith(div);
+    }
+
+    function formatDur(sec) {
+        if (!sec) return '';
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        return m + ':' + String(s).padStart(2, '0');
+    }
+
+    function toggleTheme() {
+        const toggle = document.getElementById('themeToggle');
+        toggle.classList.add('spin');
+        setTimeout(() => {
+            document.body.classList.toggle('light');
+            const isLight = document.body.classList.contains('light');
+            localStorage.setItem('theme', isLight ? 'light' : 'dark');
+            document.getElementById('themeIcon').className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+        }, 250);
+        setTimeout(() => toggle.classList.remove('spin'), 500);
+    }
+
+    (function initTheme() {
+        if (localStorage.getItem('theme') === 'light') {
+            document.body.classList.add('light');
+            document.getElementById('themeIcon').className = 'fa-solid fa-sun';
+        }
+    })();
+
+    function showAlert(msg, type) {
+        const box = document.getElementById('alertBox');
+        const icons = { error: 'fa-circle-xmark', success: 'fa-circle-check', info: 'fa-circle-info' };
+        box.className = 'alert alert-' + type;
+        box.innerHTML = '<i class="fas ' + (icons[type] || icons.info) + '"></i> ' + escapeHtml(msg);
+        if (type !== 'error') setTimeout(() => box.classList.add('hidden'), 6000);
+    }
+
+    function cleanArtistName(channel) {
+        if (!channel) return '';
+        return channel
+            .replace(/\s*-\s*Topic$/i, '')
+            .replace(/VEVO$/i, '')
+            .replace(/\s*Official$/i, '')
+            .trim();
+    }
+
+    function updateSelectCount() {
+        const all = document.querySelectorAll('.track-cb');
+        const checked = Array.from(all).filter(c => c.checked).length;
+        document.getElementById('selectedCount').textContent =
+            checked === all.length ? '' : `(${checked} selected)`;
+        document.getElementById('downloadBtn').disabled = checked === 0;
+    }
+
+    function selectAll() {
+        document.querySelectorAll('.track-cb').forEach(c => {
+            c.checked = true;
+            c.closest('.track-item').classList.add('selected');
+        });
+        updateSelectCount();
+    }
+
+    function selectNone() {
+        document.querySelectorAll('.track-cb').forEach(c => {
+            c.checked = false;
+            c.closest('.track-item').classList.remove('selected');
+        });
+        updateSelectCount();
+    }
+
+    function buildTrackList(entries) {
+        const list = document.getElementById('trackList');
+        list.innerHTML = '';
+        entries.forEach((entry, i) => {
+            const item = document.createElement('div');
+            item.className = 'track-item selected';
+
+            // Use each track's own thumbnail so different tracks show their
+            // own artwork; object-fit: cover crops rectangular thumbs to the
+            // square box.
+            const tUrl = thumbUrl(entry.thumbnail);
+            let thumbHtml;
+            if (tUrl) {
+                thumbHtml = `<img class="track-thumb" src="${tUrl}" alt="" loading="lazy" onerror="swapToPlaceholder(this, 'track-thumb-placeholder', 'fas fa-music')">`;
+            } else {
+                thumbHtml = `<div class="track-thumb-placeholder"><i class="fas fa-music"></i></div>`;
+            }
+
+            item.innerHTML = `
+                <input type="checkbox" class="track-cb" checked data-index="${i}">
+                <span class="track-num">${i + 1}</span>
+                ${thumbHtml}
+                <div class="track-info">
+                    <div class="track-title-text" title="${escapeHtml(entry.title)}">${escapeHtml(entry.title)}</div>
+                    ${entry.channel ? `<div class="track-channel-text">${escapeHtml(entry.channel)}</div>` : ''}
+                </div>
+                ${entry.duration ? `<span class="track-dur">${formatDur(entry.duration)}</span>` : ''}
+            `;
+
+            const cb = item.querySelector('.track-cb');
+            cb.addEventListener('change', function() {
+                item.classList.toggle('selected', this.checked);
+                updateSelectCount();
+            });
+            item.addEventListener('click', function(e) {
+                if (e.target === cb) return;
+                cb.checked = !cb.checked;
+                item.classList.toggle('selected', cb.checked);
+                updateSelectCount();
+            });
+
+            list.appendChild(item);
+        });
+        updateSelectCount();
+    }
+
+    async function fetchInfo() {
+        const url = document.getElementById('urlInput').value.trim();
+        if (!url) { showAlert('Please enter a YouTube URL.', 'error'); return; }
+        fetchedSourceUrl = url;
+
+        document.getElementById('alertBox').classList.add('hidden');
+        const btn = document.getElementById('fetchBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-circle-notch spin-anim"></i> Fetching...';
+        document.getElementById('resultSection').classList.add('hidden');
+
+        try {
+            const resp = await fetch('/api/youtube/playlist/info', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url }),
+            });
+            const data = await resp.json();
+
+            if (!resp.ok || data.error) {
+                showAlert(data.error || 'Failed to fetch info.', 'error');
+                return;
+            }
+
+            fetchedEntries = data.entries || [];
+            fetchedThumbnail = data.thumbnail || '';
+            const entries = fetchedEntries;
+
+            const infoBar = document.getElementById('playlistInfoBar');
+            if (data.title) {
+                infoBar.classList.remove('hidden');
+                const wrap = document.getElementById('playlistThumbWrap');
+                const safeT = thumbUrl(fetchedThumbnail);
+                if (safeT) {
+                    wrap.innerHTML = `<img class="playlist-thumb" src="${safeT}" alt="" onerror="swapToPlaceholder(this, 'playlist-thumb-placeholder', 'fab fa-youtube')">`;
+                } else {
+                    wrap.innerHTML = `<div class="playlist-thumb-placeholder"><i class="fab fa-youtube"></i></div>`;
+                }
+                document.getElementById('playlistTitle').textContent = data.title;
+                document.getElementById('playlistChannel').textContent = data.channel ? 'by ' + data.channel : '';
+                const badge = document.getElementById('playlistBadge');
+                badge.className = 'playlist-badge ' + (data.type === 'playlist' ? 'playlist' : 'video');
+                badge.textContent = data.type === 'playlist' ? 'Playlist' : 'Video';
+            } else {
+                infoBar.classList.add('hidden');
+            }
+
+            const channels = new Set(entries.map(e => e.channel || '').filter(Boolean));
+            const isMixed = channels.size > 1;
+            const artistLabel = document.getElementById('artistLabel');
+            const artistInput = document.getElementById('artistInput');
+            const albumInput = document.getElementById('albumInput');
+
+            if (isMixed) {
+                artistLabel.textContent = 'Playlist Name';
+                if (!artistInput.value) artistInput.value = data.title || '';
+                if (!albumInput.value) albumInput.value = data.title || '';
+            } else {
+                artistLabel.textContent = 'Artist Name';
+                const rawChannel = data.channel || (channels.size === 1 ? [...channels][0] : '');
+                if (!artistInput.value) artistInput.value = cleanArtistName(rawChannel);
+                if (!albumInput.value) albumInput.value = data.title || '';
+            }
+
+            document.getElementById('tracksCountLabel').textContent =
+                entries.length + ' track' + (entries.length !== 1 ? 's' : '');
+
+            buildTrackList(entries);
+            document.getElementById('resultSection').classList.remove('hidden');
+            updatePathHint();
+
+        } catch (e) {
+            showAlert('Network error: ' + e.message, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-search"></i> Fetch';
+        }
+    }
+
+    function updatePathHint() {
+        const artist = document.getElementById('artistInput').value.trim();
+        const album = document.getElementById('albumInput').value.trim();
+        let structure, hintText;
+        if (artist && album) {
+            structure = `download_path / ${artist} / ${album} /`;
+            hintText = structure;
+        } else if (artist) {
+            structure = `download_path / ${artist} /`;
+            hintText = structure;
+        } else if (album) {
+            structure = `download_path / ${album} /`;
+            hintText = structure;
+        } else {
+            hintText = 'Fill at least one field to set the folder structure.';
+        }
+        document.getElementById('pathStructureText').textContent = hintText;
+        document.getElementById('downloadPathHintText').textContent =
+            (artist || album) ? `Saved to: ${structure}` : 'Saved to configured download path';
+    }
+
+    async function startDownload() {
+        const artist = document.getElementById('artistInput').value.trim();
+        const album = document.getElementById('albumInput').value.trim();
+        if (!artist && !album) { showAlert('Fill in at least Artist Name or Album Title.', 'error'); return; }
+
+        const cbs = document.querySelectorAll('.track-cb');
+        const selected = Array.from(cbs)
+            .map((cb, i) => cb.checked ? fetchedEntries[i] : null)
+            .filter(Boolean);
+
+        if (!selected.length) { showAlert('Select at least one track.', 'error'); return; }
+
+        document.getElementById('alertBox').classList.add('hidden');
+        const btn = document.getElementById('downloadBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-circle-notch spin-anim"></i> Starting...';
+
+        try {
+            const resp = await fetch('/api/youtube/playlist/download', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    artist_name: artist,
+                    album_title: album,
+                    entries: selected,
+                    thumbnail_url: fetchedThumbnail,
+                    source_url: fetchedSourceUrl,
+                }),
+            });
+            const data = await resp.json();
+
+            if (!resp.ok || !data.success) {
+                showAlert(data.message || 'Failed to start download.', 'error');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-download"></i> Download Selected';
+                return;
+            }
+
+            initProgressPanel(selected);
+            document.getElementById('progressSection').classList.remove('hidden');
+            document.getElementById('progressSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            startSSE();
+            showAlert(data.message, 'success');
+
+        } catch (e) {
+            showAlert('Network error: ' + e.message, 'error');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-download"></i> Download Selected';
+        }
+    }
+
+    function initProgressPanel(entries) {
+        const list = document.getElementById('trackProgList');
+        list.innerHTML = '';
+        entries.forEach((entry, i) => {
+            const row = document.createElement('div');
+            row.className = 'tp-row';
+            row.id = 'tp-' + i;
+            row.innerHTML = `
+                <div class="tp-icon pending" id="tpi-${i}"><i class="fas fa-clock"></i></div>
+                <span class="tp-title" title="${escapeHtml(entry.title || '')}">${escapeHtml(entry.title || ('Track ' + (i + 1)))}</span>
+                <span class="tp-extra" id="tpe-${i}"></span>
+            `;
+            list.appendChild(row);
+        });
+        document.getElementById('progBar').style.width = '0%';
+        document.getElementById('progLabel').textContent = 'Downloading...';
+        const sicon = document.getElementById('progSectionIcon');
+        sicon.className = 'fas fa-circle-notch spin-anim prog-section-icon';
+        sicon.style.cssText = '-webkit-text-fill-color: var(--primary); background: none;';
+    }
+
+    const STATUS_ICONS = {
+        pending: '<i class="fas fa-clock"></i>',
+        searching: '<i class="fas fa-magnifying-glass"></i>',
+        downloading: '<i class="fas fa-circle-notch spin-anim"></i>',
+        tagging: '<i class="fas fa-tag"></i>',
+        verifying: '<i class="fas fa-fingerprint"></i>',
+        fingerprinting: '<i class="fas fa-fingerprint"></i>',
+        done: '<i class="fas fa-check"></i>',
+        failed: '<i class="fas fa-xmark"></i>',
+        skipped: '<i class="fas fa-forward"></i>',
+    };
+
+    function startSSE() {
+        if (sseSource) sseSource.close();
+        sseSource = new EventSource('/api/download/stream');
+
+        sseSource.onmessage = function(ev) {
+            try {
+                const payload = JSON.parse(ev.data);
+                const st = payload.status || {};
+                const tracks = st.tracks || [];
+
+                if (!st.active && !tracks.length) return;
+
+                const prog = st.progress || {};
+                const pct = prog.overall_percent || 0;
+                document.getElementById('progBar').style.width = pct + '%';
+
+                const done = tracks.filter(t => ['done','failed','skipped'].includes(t.status)).length;
+                const total = tracks.length;
+
+                if (!st.active && total > 0) {
+                    document.getElementById('progBar').style.width = '100%';
+                    document.getElementById('progLabel').textContent =
+                        'Complete — ' + done + '/' + total + ' tracks';
+                    document.getElementById('progSectionIcon').className =
+                        'fas fa-check prog-section-icon';
+                    document.getElementById('progSectionIcon').style.cssText =
+                        '-webkit-text-fill-color: var(--primary); background: none;';
+                    document.getElementById('downloadBtn').disabled = false;
+                    document.getElementById('downloadBtn').innerHTML =
+                        '<i class="fas fa-download"></i> Download Selected';
+                    sseSource.close();
+                    showAlert('Download complete! ' + done + '/' + total + ' tracks. Returning to import page…', 'success');
+                    loadRecentImports();
+                    setTimeout(() => {
+                        document.getElementById('progressSection').classList.add('hidden');
+                        document.getElementById('resultSection').classList.add('hidden');
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                        setTimeout(() => {
+                            document.getElementById('recentSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 400);
+                    }, 4000);
+                    return;
+                } else if (!st.active) {
+                    return;
+                }
+
+                document.getElementById('progLabel').textContent =
+                    'Downloading — ' + done + '/' + total + ' tracks';
+
+                tracks.forEach((t, i) => {
+                    const iconEl = document.getElementById('tpi-' + i);
+                    const extraEl = document.getElementById('tpe-' + i);
+                    if (!iconEl) return;
+                    const s = t.status || 'pending';
+                    iconEl.className = 'tp-icon ' + s;
+                    iconEl.innerHTML = STATUS_ICONS[s] || STATUS_ICONS.pending;
+                    if (s === 'downloading') {
+                        extraEl.textContent = [t.progress_percent, t.progress_speed].filter(Boolean).join(' · ');
+                    } else {
+                        extraEl.textContent = '';
+                    }
+                });
+            } catch (_) {}
+        };
+
+        sseSource.onerror = function() { sseSource.close(); };
+    }
+
+    async function stopDownload() {
+        await fetch('/api/download/stop', { method: 'POST' });
+    }
+
+    async function loadRecentImports() {
+        try {
+            const resp = await fetch('/api/youtube/recent');
+            if (!resp.ok) return;
+            const items = await resp.json();
+            const section = document.getElementById('recentSection');
+            const grid = document.getElementById('recentGrid');
+            if (!items.length) { section.classList.add('hidden'); return; }
+            grid.innerHTML = '';
+            items.forEach(item => {
+                const link = sanitizeUrl(item.source_url || item.youtube_url || '');
+                const card = document.createElement('a');
+                card.className = 'recent-card';
+                if (link) { card.href = link; card.target = '_blank'; card.rel = 'noopener noreferrer'; }
+                const safeThumb = item.cover_url ? thumbUrl(item.cover_url) : '';
+                const thumbHtml = safeThumb
+                    ? `<img class="recent-card-thumb" src="${safeThumb}" alt="" loading="lazy" onerror="swapToPlaceholder(this, 'recent-card-thumb-placeholder', 'fab fa-youtube')">`
+                    : `<div class="recent-card-thumb-placeholder"><i class="fab fa-youtube"></i></div>`;
+                card.innerHTML = `
+                    ${thumbHtml}
+                    <div class="recent-card-body">
+                        <div class="recent-card-title" title="${escapeHtml(item.album_title)}">${escapeHtml(item.album_title)}</div>
+                        <div class="recent-card-sub">${escapeHtml(item.artist_name)} · ${item.success_count || 0} tracks</div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+            section.classList.remove('hidden');
+        } catch (_) {}
+    }
+
+    document.getElementById('urlInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') fetchInfo();
+    });
+
+    async function checkResumeProgress() {
+        try {
+            const resp = await fetch('/api/download/status');
+            if (!resp.ok) return;
+            const st = await resp.json();
+            if (!st.active || st.album_id !== 0) return;
+            const tracks = st.tracks || [];
+            if (!tracks.length) return;
+
+            initProgressPanel(tracks.map(t => ({ title: t.track_title || '' })));
+
+            tracks.forEach((t, i) => {
+                const iconEl = document.getElementById('tpi-' + i);
+                const extraEl = document.getElementById('tpe-' + i);
+                if (!iconEl) return;
+                const s = t.status || 'pending';
+                iconEl.className = 'tp-icon ' + s;
+                iconEl.innerHTML = STATUS_ICONS[s] || STATUS_ICONS.pending;
+                if (s === 'downloading' && extraEl) {
+                    extraEl.textContent = [t.progress_percent, t.progress_speed].filter(Boolean).join(' · ');
+                }
+            });
+
+            document.getElementById('progressSection').classList.remove('hidden');
+            document.getElementById('downloadBtn').disabled = true;
+            startSSE();
+        } catch (_) {}
+    }
+
+    loadRecentImports();
+    checkResumeProgress();
+</script>
+</body>
+</html>
