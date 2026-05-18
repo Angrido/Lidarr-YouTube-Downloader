@@ -887,6 +887,15 @@
         return safe;
     }
 
+    function swapToPlaceholder(imgEl, placeholderClass, iconClass) {
+        const div = document.createElement('div');
+        div.className = placeholderClass;
+        const i = document.createElement('i');
+        i.className = iconClass;
+        div.appendChild(i);
+        imgEl.replaceWith(div);
+    }
+
     function formatDur(sec) {
         if (!sec) return '';
         const m = Math.floor(sec / 60);
@@ -964,7 +973,7 @@
             let thumbHtml;
             const tUrl = thumbUrl(entry.thumbnail);
             if (tUrl) {
-                thumbHtml = `<img class="track-thumb" src="${tUrl}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'track-thumb-placeholder\\'><i class=\\'fas fa-music\\'></i></div>'">`;
+                thumbHtml = `<img class="track-thumb" src="${tUrl}" alt="" loading="lazy" onerror="swapToPlaceholder(this, 'track-thumb-placeholder', 'fas fa-music')">`;
             } else {
                 thumbHtml = `<div class="track-thumb-placeholder"><i class="fas fa-music"></i></div>`;
             }
@@ -1031,7 +1040,7 @@
                 const wrap = document.getElementById('playlistThumbWrap');
                 const safeT = thumbUrl(fetchedThumbnail);
                 if (safeT) {
-                    wrap.innerHTML = `<img class="playlist-thumb" src="${safeT}" alt="" onerror="this.outerHTML='<div class=\\'playlist-thumb-placeholder\\'><i class=\\'fab fa-youtube\\'></i></div>'">`;
+                    wrap.innerHTML = `<img class="playlist-thumb" src="${safeT}" alt="" onerror="swapToPlaceholder(this, 'playlist-thumb-placeholder', 'fab fa-youtube')">`;
                 } else {
                     wrap.innerHTML = `<div class="playlist-thumb-placeholder"><i class="fab fa-youtube"></i></div>`;
                 }
@@ -1269,7 +1278,7 @@
                 if (link) { card.href = link; card.target = '_blank'; card.rel = 'noopener noreferrer'; }
                 const safeThumb = item.cover_url ? thumbUrl(item.cover_url) : '';
                 const thumbHtml = safeThumb
-                    ? `<img class="recent-card-thumb" src="${safeThumb}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'recent-card-thumb-placeholder\\'><i class=\\'fab fa-youtube\\'></i></div>'">`
+                    ? `<img class="recent-card-thumb" src="${safeThumb}" alt="" loading="lazy" onerror="swapToPlaceholder(this, 'recent-card-thumb-placeholder', 'fab fa-youtube')">`
                     : `<div class="recent-card-thumb-placeholder"><i class="fab fa-youtube"></i></div>`;
                 card.innerHTML = `
                     ${thumbHtml}

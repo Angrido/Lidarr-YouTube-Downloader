@@ -1917,6 +1917,14 @@ def api_youtube_playlist_info():
             playlist_title = info.get("title", "YouTube Playlist")
             channel = info.get("channel", "") or info.get("uploader", "")
             playlist_thumb = _best_playlist_thumbnail(info, entries)
+            if "yt3.googleusercontent.com" not in (playlist_thumb or ""):
+                ytm_thumb = _fetch_ytmusic_album_art(info.get("id", ""))
+                if ytm_thumb:
+                    logger.info(
+                        "Replaced yt-dlp thumbnail with YT Music album art: %s",
+                        ytm_thumb[:120],
+                    )
+                    playlist_thumb = _resize_yt3_url(ytm_thumb)
             logger.info(
                 "Playlist thumbnail selected: %s (yt3=%s, info.thumbnail=%s, thumbnails count=%d)",
                 playlist_thumb[:120] if playlist_thumb else "(none)",
@@ -1949,6 +1957,59 @@ def api_youtube_playlist_info():
     except Exception as e:
         logger.warning("Playlist info extraction failed: %s", e)
         return jsonify({"error": str(e)[:300]}), 500
+
+
+def _fetch_ytmusic_album_art(playlist_id):
+    """Fetch the square album art (yt3.googleusercontent.com) from YouTube Music.
+
+    yt-dlp does not extract the square album cover for OLAK5uy_* playlists
+    (it returns rectangular i.ytimg.com thumbnails). The YouTube Music page
+    embeds the real album art URL in its initial data. We scrape it with a
+    regex against the page HTML.
+
+    Returns the largest yt3 thumbnail URL, or "" if not found.
+    """
+    if not playlist_id:
+        return ""
+    if not (playlist_id.startswith("OLAK5uy_") or playlist_id.startswith("RDCLAK5uy_")):
+        return ""
+    import requests as http_requests
+    url = f"https://music.youtube.com/playlist?list={playlist_id}"
+    try:
+        resp = http_requests.get(
+            url,
+            timeout=10,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                ),
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cookie": "SOCS=CAI",  # consent cookie to skip EU consent wall
+            },
+        )
+        if resp.status_code != 200:
+            logger.debug(
+                "YT Music page fetch returned HTTP %d for %s",
+                resp.status_code, playlist_id,
+            )
+            return ""
+        matches = re.findall(
+            r'"url":"(https://yt3\.googleusercontent\.com/[^"]+?=w(\d+)-h(\d+)[^"]*)"',
+            resp.text,
+        )
+        if not matches:
+            logger.debug(
+                "No yt3 album art found in YT Music page for %s",
+                playlist_id,
+            )
+            return ""
+        best = max(matches, key=lambda m: int(m[1]) * int(m[2]))
+        return best[0]
+    except Exception as e:
+        logger.debug("YT Music album art fetch failed: %s", e)
+        return ""
 
 
 def _resize_yt3_url(url, size=512):
