@@ -1946,6 +1946,19 @@ def api_youtube_playlist_info():
             playlist_title = info.get("title", "")
             channel = info.get("channel", "") or info.get("uploader", "")
             playlist_thumb = _best_playlist_thumbnail(info, entries)
+            if "yt3.googleusercontent.com" not in (playlist_thumb or ""):
+                ytm_thumb = _fetch_ytmusic_video_art(info.get("id", ""))
+                if ytm_thumb:
+                    logger.info(
+                        "Replaced yt-dlp thumbnail with YT Music track art: %s",
+                        ytm_thumb[:120],
+                    )
+                    playlist_thumb = _resize_yt3_url(ytm_thumb)
+            logger.info(
+                "Video thumbnail selected: %s (yt3=%s)",
+                playlist_thumb[:120] if playlist_thumb else "(none)",
+                "yt3.googleusercontent.com" in (playlist_thumb or ""),
+            )
 
         return jsonify({
             "type": result_type,
@@ -1959,30 +1972,18 @@ def api_youtube_playlist_info():
         return jsonify({"error": str(e)[:300]}), 500
 
 
-def _fetch_ytmusic_album_art(playlist_id):
-    """Fetch the square album art from YouTube Music for an OLAK5uy_ playlist.
+def _scrape_ytmusic_art(ytmusic_url, label=""):
+    """Fetch a YouTube Music page and extract the largest yt3/lh3 album art URL.
 
-    yt-dlp does not extract the square album cover for OLAK5uy_* playlists
-    (it returns rectangular i.ytimg.com thumbnails). The YouTube Music page
-    embeds the real album art URL in its initial data. We scrape it with a
-    regex against the page HTML.
-
-    Returns the largest yt3/lh3 thumbnail URL, or "" if not found.
+    yt-dlp does not extract the square album cover from YouTube Music; this
+    function scrapes the page HTML, which embeds the real cover URL in the
+    initial data. Returns the largest yt3/lh3 thumbnail URL, or "".
     """
-    if not playlist_id:
-        return ""
-    if not (playlist_id.startswith("OLAK5uy_") or playlist_id.startswith("RDCLAK5uy_")):
-        logger.info(
-            "Skipping YT Music album art fetch (not an OLAK5uy_ playlist): %s",
-            playlist_id,
-        )
-        return ""
     import requests as http_requests
-    url = f"https://music.youtube.com/playlist?list={playlist_id}&hl=en"
-    logger.info("Fetching YT Music page: %s", url)
+    logger.info("Fetching YT Music page (%s): %s", label or "art", ytmusic_url)
     try:
         resp = http_requests.get(
-            url,
+            ytmusic_url,
             timeout=15,
             headers={
                 "User-Agent": (
@@ -2002,8 +2003,6 @@ def _fetch_ytmusic_album_art(playlist_id):
         )
         if resp.status_code != 200:
             return ""
-        # Album art URLs appear as yt3.googleusercontent.com or lh3.googleusercontent.com
-        # They may not be preceded by "url": in all page structures, so match the URL directly
         matches = re.findall(
             r'(https://(?:yt3|lh3)\.googleusercontent\.com/[^"\s<>\\]*=w(\d+)-h(\d+)[^"\s<>\\]*)',
             resp.text,
@@ -2013,7 +2012,6 @@ def _fetch_ytmusic_album_art(playlist_id):
             len(matches),
         )
         if not matches:
-            # Probe whether the page has anything from googleusercontent at all
             probe = re.findall(
                 r'https://(?:yt3|lh3)\.googleusercontent\.com/[^\s"\'<>]+',
                 resp.text,
@@ -2023,18 +2021,47 @@ def _fetch_ytmusic_album_art(playlist_id):
                     "Sample googleusercontent URLs (no size match): %s",
                     probe[0][:200],
                 )
-            else:
-                logger.info("No googleusercontent URLs at all in YT Music page")
             return ""
         best = max(matches, key=lambda m: int(m[1]) * int(m[2]))
         logger.info(
-            "Selected best YT Music album art (%sx%s): %s",
+            "Selected best YT Music art (%sx%s): %s",
             best[1], best[2], best[0][:160],
         )
         return best[0]
     except Exception as e:
-        logger.warning("YT Music album art fetch failed: %s", e)
+        logger.warning("YT Music art fetch failed: %s", e)
         return ""
+
+
+def _fetch_ytmusic_album_art(playlist_id):
+    """Scrape the square album art for an OLAK5uy_* playlist."""
+    if not playlist_id:
+        return ""
+    if not (playlist_id.startswith("OLAK5uy_") or playlist_id.startswith("RDCLAK5uy_")):
+        logger.info(
+            "Skipping YT Music album art fetch (not an OLAK5uy_ playlist): %s",
+            playlist_id,
+        )
+        return ""
+    return _scrape_ytmusic_art(
+        f"https://music.youtube.com/playlist?list={playlist_id}&hl=en",
+        label="album",
+    )
+
+
+def _fetch_ytmusic_video_art(video_id):
+    """Scrape the square album art for a single video/track from its YT Music page.
+
+    Works for tracks that have an associated album on YouTube Music. For
+    non-music videos the page may not contain a square cover, in which case
+    "" is returned and the caller should keep its existing thumbnail.
+    """
+    if not video_id or not re.match(r"^[a-zA-Z0-9_-]{11}$", video_id):
+        return ""
+    return _scrape_ytmusic_art(
+        f"https://music.youtube.com/watch?v={video_id}&hl=en",
+        label="video",
+    )
 
 
 def _resize_yt3_url(url, size=512):
