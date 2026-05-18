@@ -623,6 +623,13 @@
                 </label>
                 <input type="number" id="interval" value="60" min="1" max="1440">
             </div>
+            <div class="input-group">
+                <label>
+                    Max Albums per Cycle
+                    <div class="label-description">Maximum number of albums to queue per scheduler run. Set to 0 for unlimited.</div>
+                </label>
+                <input type="number" id="schedulerMaxAlbums" value="0" min="0" style="max-width:120px;">
+            </div>
         </div>
 
         <div class="settings-section">
@@ -1002,6 +1009,7 @@
             const res = await fetch('/api/config');
             const conf = await res.json();
             document.getElementById('interval').value = conf.scheduler_interval || 60;
+            document.getElementById('schedulerMaxAlbums').value = conf.scheduler_max_albums != null ? conf.scheduler_max_albums : 0;
             document.getElementById('botToken').value = conf.telegram_bot_token || '';
             document.getElementById('chatId').value = conf.telegram_chat_id || '';
 
@@ -1268,6 +1276,7 @@
                 },
                 body: JSON.stringify({
                     scheduler_interval: document.getElementById('interval').value,
+                    scheduler_max_albums: parseInt(document.getElementById('schedulerMaxAlbums').value) || 0,
                     telegram_bot_token: document.getElementById('botToken').value,
                     telegram_chat_id: document.getElementById('chatId').value,
                     telegram_enabled: !!document.getElementById('botToken').value,

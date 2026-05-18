@@ -51,6 +51,10 @@ def scheduled_check():
     if not new_albums:
         return
 
+    max_albums = int(config.get("scheduler_max_albums", 0))
+    if max_albums > 0:
+        new_albums = new_albums[:max_albums]
+
     if config.get("scheduler_auto_download", True):
         logger.info(
             f"Scheduler: Found {len(new_albums)} new missing albums,"

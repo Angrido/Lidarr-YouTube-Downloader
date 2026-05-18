@@ -21,7 +21,7 @@ from downloader import (
     search_youtube_candidates,
 )
 from fingerprint import fingerprint_track, verify_fingerprint
-from lidarr import get_valid_release_id, lidarr_request
+from lidarr import get_valid_release_id, lidarr_request, lidarr_request_with_retry
 from metadata import (
     create_xml_metadata,
     tag_audio_file,
@@ -354,9 +354,8 @@ def process_album_download(album_id, force=False):
         )
 
         if len(tracks_to_download) == 0:
-            lidarr_request(
+            lidarr_request_with_retry(
                 "command",
-                method="POST",
                 data={"name": "RefreshArtist", "artistId": artist_id},
             )
             return {"success": True, "message": "Skipped"}
@@ -432,9 +431,8 @@ def process_album_download(album_id, force=False):
             cover_url=download_process.get("cover_url", ""),
         )
 
-        lidarr_request(
+        lidarr_request_with_retry(
             "command",
-            method="POST",
             data={"name": "RefreshArtist", "artistId": artist_id},
         )
 
