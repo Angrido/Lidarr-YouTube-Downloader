@@ -2003,8 +2003,9 @@ def _fetch_ytmusic_album_art(playlist_id):
         if resp.status_code != 200:
             return ""
         # Album art URLs appear as yt3.googleusercontent.com or lh3.googleusercontent.com
+        # They may not be preceded by "url": in all page structures, so match the URL directly
         matches = re.findall(
-            r'"url":"(https://(?:yt3|lh3)\.googleusercontent\.com/[^"]+?=w(\d+)-h(\d+)[^"]*)"',
+            r'(https://(?:yt3|lh3)\.googleusercontent\.com/[^"\s<>\\]*=w(\d+)-h(\d+)[^"\s<>\\]*)',
             resp.text,
         )
         logger.info(
