@@ -51,46 +51,21 @@ def lidarr_request(endpoint, method="GET", data=None, params=None):
 
 
 def get_missing_albums():
-    """Fetch all missing albums from Lidarr with pagination.
+    """Return missing albums from the local SQLite cache.
+
+    The cache is populated by the background worker in `lidarr_sync.py`,
+    so this call is instant and works on libraries of any size.
 
     Returns:
         List of album dicts, each augmented with a missingTrackCount field.
-        Returns an empty list on error.
+        Returns an empty list on error or when the cache has not been
+        populated yet.
     """
     try:
-        page = 1
-        page_size = 500
-        all_records = []
-        while True:
-            wanted = lidarr_request(
-                f"wanted/missing?page={page}&pageSize={page_size}"
-                f"&sortKey=releaseDate&sortDirection=descending"
-                f"&includeArtist=true"
-            )
-            if not isinstance(wanted, dict) or "records" not in wanted:
-                if isinstance(wanted, dict) and "error" in wanted:
-                    logger.warning(
-                        "Lidarr returned error fetching missing albums"
-                        " (page %d): %s", page, wanted["error"],
-                    )
-                break
-            records = wanted.get("records", [])
-            total_records = wanted.get("totalRecords", 0)
-            for album in records:
-                stats = album.get("statistics", {})
-                total = stats.get("trackCount", 0)
-                files = stats.get("trackFileCount", 0)
-                album["missingTrackCount"] = total - files
-            all_records.extend(records)
-            if (
-                len(all_records) >= total_records
-                or len(records) < page_size
-            ):
-                break
-            page += 1
-        return all_records
+        import models
+        return models.get_cached_missing_albums()
     except Exception as e:
-        logger.warning(f"Failed to get missing albums: {e}")
+        logger.warning(f"Failed to read cached missing albums: {e}")
         return []
 
 

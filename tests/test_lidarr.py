@@ -101,72 +101,30 @@ def test_lidarr_request_http_error(mock_get, mock_cfg):
     assert "error" in result
 
 
-# --- get_missing_albums ---
+# --- get_missing_albums (cache-backed) ---
 
 
-@patch("lidarr.lidarr_request")
-def test_get_missing_albums_single_page(mock_req):
-    mock_req.return_value = {
-        "records": [
-            {
-                "id": 1,
-                "title": "Album One",
-                "statistics": {"trackCount": 10, "trackFileCount": 3},
-            }
-        ],
-        "totalRecords": 1,
-    }
+@patch("models.get_cached_missing_albums")
+def test_get_missing_albums_reads_from_cache(mock_cached):
+    mock_cached.return_value = [
+        {"id": 1, "title": "Album One", "missingTrackCount": 7}
+    ]
     result = lidarr.get_missing_albums()
     assert len(result) == 1
     assert result[0]["missingTrackCount"] == 7
+    mock_cached.assert_called_once()
 
 
-@patch("lidarr.lidarr_request")
-def test_get_missing_albums_pagination(mock_req):
-    """Verify pagination stops when all records are fetched."""
-    page1 = {
-        "records": [
-            {"id": i, "statistics": {"trackCount": 5, "trackFileCount": 0}}
-            for i in range(500)
-        ],
-        "totalRecords": 501,
-    }
-    page2 = {
-        "records": [
-            {"id": 500, "statistics": {"trackCount": 3, "trackFileCount": 1}}
-        ],
-        "totalRecords": 501,
-    }
-    mock_req.side_effect = [page1, page2]
-    result = lidarr.get_missing_albums()
-    assert len(result) == 501
-    assert result[500]["missingTrackCount"] == 2
-    assert mock_req.call_count == 2
+@patch("models.get_cached_missing_albums")
+def test_get_missing_albums_empty_cache(mock_cached):
+    mock_cached.return_value = []
+    assert lidarr.get_missing_albums() == []
 
 
-@patch("lidarr.lidarr_request")
-def test_get_missing_albums_error_returns_empty(mock_req):
-    mock_req.return_value = {"error": "connection failed"}
-    result = lidarr.get_missing_albums()
-    assert result == []
-
-
-@patch("lidarr.lidarr_request")
-def test_get_missing_albums_exception_returns_empty(mock_req):
-    mock_req.side_effect = Exception("unexpected")
-    result = lidarr.get_missing_albums()
-    assert result == []
-
-
-@patch("lidarr.lidarr_request")
-def test_get_missing_albums_no_statistics(mock_req):
-    mock_req.return_value = {
-        "records": [{"id": 1}],
-        "totalRecords": 1,
-    }
-    result = lidarr.get_missing_albums()
-    assert len(result) == 1
-    assert result[0]["missingTrackCount"] == 0
+@patch("models.get_cached_missing_albums")
+def test_get_missing_albums_exception_returns_empty(mock_cached):
+    mock_cached.side_effect = Exception("db error")
+    assert lidarr.get_missing_albums() == []
 
 
 # --- get_valid_release_id ---

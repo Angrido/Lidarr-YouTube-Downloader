@@ -44,6 +44,7 @@ from processing import (
     stop_download,
 )
 from scheduler import run_scheduler, setup_scheduler
+import lidarr_sync
 from utils import check_rate_limit, format_bytes, sanitize_filename, set_permissions, makedirs_safe
 
 logging.basicConfig(
@@ -56,7 +57,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -193,6 +194,19 @@ def api_test_connection():
 @app.route("/api/missing-albums")
 def api_missing_albums():
     return jsonify(get_missing_albums())
+
+
+@app.route("/api/sync/status")
+def api_sync_status():
+    state = models.get_sync_state()
+    state["cached_count"] = models.count_cached_missing_albums()
+    return jsonify(state)
+
+
+@app.route("/api/sync/refresh", methods=["POST"])
+def api_sync_refresh():
+    started = lidarr_sync.trigger_sync()
+    return jsonify({"started": started})
 
 
 @app.route("/api/album/<int:album_id>")
@@ -1458,7 +1472,7 @@ def _do_manual_dl(
             album_data,
             album_id,
         )
-        tag_mp3(actual_file, track_info, album_data, None)
+        tag_audio_file(actual_file, track_info, album_data, None)
 
         if config.get("xml_metadata_enabled", True):
             create_xml_metadata(
@@ -1579,7 +1593,7 @@ def _execute_manual_dl(
             album_data,
             album_id,
         )
-        tag_mp3(actual_file, track_info, album_data, None)
+        tag_audio_file(actual_file, track_info, album_data, None)
 
         if config.get("xml_metadata_enabled", True):
             create_xml_metadata(
@@ -2734,6 +2748,8 @@ if __name__ == "__main__":
     threading.Thread(target=run_scheduler, daemon=True).start()
     threading.Thread(target=process_download_queue, daemon=True).start()
     threading.Thread(target=_startup_ytdlp_update, daemon=True).start()
+    threading.Thread(target=lidarr_sync.sync_loop, daemon=True).start()
+    lidarr_sync.trigger_sync()
     flask_host = os.environ.get("FLASK_HOST", "0.0.0.0")
     flask_port = int(os.environ.get("FLASK_PORT", "5000"))
     logger.info(

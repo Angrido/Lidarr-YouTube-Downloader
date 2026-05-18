@@ -4,6 +4,7 @@ This is the ONLY module that writes SQL. All other modules call these
 functions to read/write track downloads, logs, and the download queue.
 """
 
+import json
 import logging
 import math
 import time
@@ -562,3 +563,156 @@ def _reorder_queue(conn):
             (i, row[0]),
         )
     conn.commit()
+
+
+_SYNC_STATE_FIELDS = {
+    "status",
+    "last_full_sync_at",
+    "last_attempt_at",
+    "last_error",
+    "current_page",
+    "total_pages",
+    "total_records",
+    "synced_records",
+    "current_run_id",
+}
+
+
+def get_sync_state():
+    """Return the current Lidarr sync state row as a dict."""
+    conn = db.get_db()
+    row = conn.execute(
+        "SELECT * FROM sync_state WHERE id = 1"
+    ).fetchone()
+    if row is None:
+        conn.execute(
+            "INSERT INTO sync_state (id, status) VALUES (1, 'idle')"
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM sync_state WHERE id = 1"
+        ).fetchone()
+    return dict(row) if row else {}
+
+
+def update_sync_state(**fields):
+    """Update one or more columns on the sync_state singleton row."""
+    cols = [k for k in fields if k in _SYNC_STATE_FIELDS]
+    if not cols:
+        return
+    set_clause = ", ".join(f"{c} = ?" for c in cols)
+    values = [fields[c] for c in cols]
+    conn = db.get_db()
+    conn.execute(
+        f"UPDATE sync_state SET {set_clause} WHERE id = 1",
+        values,
+    )
+    conn.commit()
+
+
+def bump_sync_run_id():
+    """Increment current_run_id and return the new value."""
+    conn = db.get_db()
+    get_sync_state()
+    conn.execute(
+        "UPDATE sync_state"
+        " SET current_run_id = COALESCE(current_run_id, 0) + 1"
+        " WHERE id = 1"
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT current_run_id FROM sync_state WHERE id = 1"
+    ).fetchone()
+    return row["current_run_id"] if row else 1
+
+
+def upsert_missing_album(album, run_id):
+    """Insert or update a single album in the missing_albums_cache."""
+    album_id = album.get("id")
+    if not album_id:
+        return
+    stats = album.get("statistics") or {}
+    total = stats.get("trackCount", 0) or 0
+    files = stats.get("trackFileCount", 0) or 0
+    missing = max(0, total - files)
+    artist = album.get("artist") or {}
+    cover_url = ""
+    for img in album.get("images") or []:
+        if img.get("coverType") == "cover":
+            cover_url = img.get("remoteUrl") or img.get("url") or ""
+            break
+    conn = db.get_db()
+    conn.execute(
+        """
+        INSERT INTO missing_albums_cache (
+            album_id, foreign_album_id, title, artist_id, artist_name,
+            release_date, track_count, missing_track_count, cover_url,
+            raw_json, synced_at, sync_run_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(album_id) DO UPDATE SET
+            foreign_album_id = excluded.foreign_album_id,
+            title = excluded.title,
+            artist_id = excluded.artist_id,
+            artist_name = excluded.artist_name,
+            release_date = excluded.release_date,
+            track_count = excluded.track_count,
+            missing_track_count = excluded.missing_track_count,
+            cover_url = excluded.cover_url,
+            raw_json = excluded.raw_json,
+            synced_at = excluded.synced_at,
+            sync_run_id = excluded.sync_run_id
+        """,
+        (
+            int(album_id),
+            album.get("foreignAlbumId", "") or "",
+            album.get("title", "") or "",
+            int(artist.get("id", 0) or 0),
+            artist.get("artistName", "") or "",
+            album.get("releaseDate", "") or "",
+            int(total),
+            int(missing),
+            cover_url,
+            json.dumps(album),
+            time.time(),
+            int(run_id),
+        ),
+    )
+    conn.commit()
+
+
+def prune_missing_albums(run_id):
+    """Delete cached albums not seen in the given sync run. Returns count."""
+    conn = db.get_db()
+    cur = conn.execute(
+        "DELETE FROM missing_albums_cache WHERE sync_run_id != ?",
+        (int(run_id),),
+    )
+    conn.commit()
+    return cur.rowcount
+
+
+def get_cached_missing_albums():
+    """Return all cached missing albums, sorted by release date desc."""
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT raw_json, missing_track_count FROM missing_albums_cache"
+        " ORDER BY release_date DESC, album_id DESC"
+    ).fetchall()
+    out = []
+    for row in rows:
+        try:
+            album = json.loads(row["raw_json"])
+        except (ValueError, TypeError):
+            continue
+        album["missingTrackCount"] = row["missing_track_count"]
+        out.append(album)
+    return out
+
+
+def count_cached_missing_albums():
+    """Return the number of albums currently in the cache."""
+    conn = db.get_db()
+    row = conn.execute(
+        "SELECT COUNT(*) FROM missing_albums_cache"
+    ).fetchone()
+    return row[0] if row else 0
