@@ -97,13 +97,14 @@ docker run -p 5005:5000 \
 
 ### Database
 
-State is stored in SQLite at `/config/lidarr-downloader.db`. Tables: `schema_version`, `track_downloads`, `download_logs`, `download_queue`.
+State is stored in SQLite at `/config/lidarr-downloader.db`. Tables: `schema_version`, `track_downloads`, `download_logs`, `download_queue`, `banned_urls`, `candidate_attempts`, `missing_albums_cache`, `sync_state`.
 
-Current schema version: **5**. Migrations:
+Current schema version: **6**. Migrations:
 - V1→V2: Replaced `download_history` + `failed_tracks` with `track_downloads` (per-track download records with YouTube URL, match score, duration, album/track metadata).
 - V2→V3: Added AcoustID fingerprint columns to `track_downloads` (`acoustid_fingerprint_id`, `acoustid_score`, `acoustid_recording_id`, `acoustid_recording_title`).
 - V3→V4: Added `banned_urls` table for tracking banned YouTube URLs per album/track.
 - V4→V5: Added `candidate_attempts` table for per-candidate verification data. Added `track_title`, `track_number`, `track_download_id` columns to `download_logs`.
+- V5→V6: Added `missing_albums_cache` and `sync_state` tables for paginated background sync of Lidarr's missing-albums list.
 
 Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
@@ -160,7 +161,7 @@ Standalone scripts not part of the main app:
 
 ## Version Updates
 
-The version string is defined in `app.py`: `VERSION = "1.5.5"`. The README badge also references it and must be updated manually.
+The version string is defined in `app.py`: `VERSION = "1.7.3"`. The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 
