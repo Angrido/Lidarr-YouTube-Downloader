@@ -63,6 +63,7 @@ def get_umask():
 
 
 def makedirs_within(base_dir, target_path):
+    os.makedirs(base_dir, exist_ok=True)
     try:
         rel = os.path.relpath(target_path, base_dir)
     except ValueError:
