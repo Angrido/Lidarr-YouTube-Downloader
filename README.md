@@ -7,9 +7,11 @@
 ![Docker](https://img.shields.io/badge/docker-ready-blue.svg?style=for-the-badge&logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)
 
-**Bridge the gap between Lidarr and YouTube**
+**Automatically download missing music from YouTube directly into your Lidarr library**
 
-Automatically download missing albums with perfect metadata tagging
+Fill gaps in your self-hosted music collection — searches YouTube, downloads the best match, applies full MusicBrainz metadata, and triggers a Lidarr import. All from a clean web UI.
+
+[Quick Start](#-quick-start) · [Configuration](#️-configuration) · [Screenshots](#-screenshots) · [Disclaimer](#️-disclaimer)
 
 </div>
 
@@ -17,19 +19,22 @@ Automatically download missing albums with perfect metadata tagging
 
 ## ✨ Features
 
-- 🔍 **Auto-finds** high-quality audio on YouTube (up to 320kbps)
-- 🏷️ **Smart tagging** with MusicBrainz + iTunes metadata
-- 📦 **Direct import** to your Lidarr library
-- 🌓 **Modern UI** with dark/light mode
-- 🎚️ **Configurable filters** - customize forbidden words
-- 🔔 **Telegram and Discord notifications**
-- 🐳 **Docker ready** - deploy in seconds
+- 🔍 **Smart YouTube search** — scores candidates by title, duration, and channel to find the best audio match (up to 320 kbps)
+- 🏷️ **Automatic metadata tagging** — enriches MP3 files with MusicBrainz + iTunes ID3 tags (artist, album, track number, artwork)
+- 📦 **One-click Lidarr import** — triggers `DownloadedAlbumsScan` via the Lidarr API after every download
+- 🌓 **Dark/light web UI** — monitor downloads, browse logs, and manage settings from the browser
+- 🎚️ **Configurable filters** — custom forbidden-word lists to skip low-quality or live recordings
+- 🔔 **Telegram & Discord notifications** — get alerted on success, partial success, or error events
+- 🔄 **Download queue** — parallel track downloads with per-track progress, speed, and skip support
+- 🎵 **AcoustID fingerprinting** (optional) — verify audio identity with chromaprint/fpcalc
+- ⏱️ **Built-in scheduler** — automatically poll Lidarr for missing albums at a configurable interval
+- 🐳 **Docker-first** — single container, works on any NAS, home server, or VPS
 
 ---
 
 ## 🚀 Quick Start
 
-### Docker Compose
+### Docker Compose (recommended)
 
 ```yaml
 services:
@@ -53,7 +58,7 @@ services:
     restart: unless-stopped
 ```
 
-**Access**: `http://localhost:5005`
+**Access the web UI at** `http://localhost:5005`
 
 ---
 
@@ -63,29 +68,32 @@ services:
 
 | Variable         | Example                    | Description                      |
 | ---------------- | -------------------------- | -------------------------------- |
-| `LIDARR_URL`     | `http://192.168.1.10:8686` | Lidarr address (use IP)          |
+| `LIDARR_URL`     | `http://192.168.1.10:8686` | Lidarr base URL (use LAN IP)     |
 | `LIDARR_API_KEY` | `abc123...`                | From Lidarr → Settings → General |
-| `DOWNLOAD_PATH`  | `/DATA/Downloads`          | Download folder                  |
+| `DOWNLOAD_PATH`  | `/DATA/Downloads`          | Folder where tracks are saved    |
 
 ### Optional Settings
 
-| Variable             | Default | Description                                                  |
-| -------------------- | ------- | ------------------------------------------------------------ |
-| `LIDARR_PATH`        | -       | Final library path (optional)                                |
-| `AUDIO_FORMAT`       | `mp3`   | Output format: `mp3`, `m4a`, `opus`                          |
-| `SCHEDULER_ENABLED`  | `false` | Auto-check missing albums                                    |
-| `SCHEDULER_INTERVAL` | `60`    | Check interval (minutes)                                     |
+| Variable             | Default | Description                                       |
+| -------------------- | ------- | ------------------------------------------------- |
+| `LIDARR_PATH`        | —       | Final library path (if different from download)   |
+| `AUDIO_FORMAT`       | `mp3`   | Output format: `mp3`, `m4a`, `opus`               |
+| `SCHEDULER_ENABLED`  | `false` | Automatically check for missing albums on a timer |
+| `SCHEDULER_INTERVAL` | `60`    | Polling interval in minutes                       |
+| `YT_COOKIES_FILE`    | —       | Path to Netscape-format YouTube cookies file      |
+| `ACOUSTID_ENABLED`   | `false` | Enable AcoustID audio fingerprint verification    |
+| `ACOUSTID_API_KEY`   | —       | AcoustID API key (required when enabled)          |
 
-> 💡 **All settings configurable via Web UI!**
+> 💡 All settings can also be changed at runtime from the **Settings** page in the web UI.
 
 ### YouTube Cookies (Recommended)
 
-YouTube may block downloads with a "Sign in to confirm you're not a bot" error. To fix this:
+YouTube may block downloads with a "Sign in to confirm you're not a bot" error. To bypass this:
 
-1. Install a browser extension like "Get cookies.txt LOCALLY"
-2. Open an **incognito/private** window and log into a **throwaway** Google account on youtube.com
-3. Export cookies in **Netscape** format and save as `cookies.txt`
-4. Mount the file and set `YT_COOKIES_FILE`:
+1. Install a browser extension such as **Get cookies.txt LOCALLY**
+2. Open a private/incognito window and log into a **throwaway** Google account on youtube.com
+3. Export cookies in **Netscape** format and save the file as `cookies.txt`
+4. Mount the file and point the app to it:
 
 ```yaml
 volumes:
@@ -94,37 +102,65 @@ environment:
   - YT_COOKIES_FILE=/cookies/cookies.txt
 ```
 
-> ⚠️ **Do not use your main Google account** — it may get flagged. Cookies expire periodically and will need re-exporting.
+> ⚠️ **Do not use your main Google account.** Cookies expire periodically and will need re-exporting.
+
+---
 
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/3feaa81a-0f2a-4bb4-8130-f721388118b6" width="45%">
-  <img src="https://github.com/user-attachments/assets/279647b8-8dca-4273-aaaf-d7dfce12b268" width="45%">
+  <img src="https://github.com/user-attachments/assets/3feaa81a-0f2a-4bb4-8130-f721388118b6" width="45%" alt="Lidarr YouTube Downloader – missing albums dashboard">
+  <img src="https://github.com/user-attachments/assets/279647b8-8dca-4273-aaaf-d7dfce12b268" width="45%" alt="Lidarr YouTube Downloader – download queue and progress">
 </p>
 
 ---
 
 ## 🔄 Upgrading from JSON to SQLite
 
-If upgrading from a version that used JSON files (`download_history.json`, `download_logs.json`, `last_failed_result.json`), run the migration tool:
+If you are upgrading from an older version that stored state in JSON files (`download_history.json`, `download_logs.json`, `last_failed_result.json`), migrate your data with:
 
 ```bash
-# Inside the container:
+# Inside the running container:
 python3 tools/migrate_json_to_db.py --config-dir /config
 
-# Or from the host if config is mounted:
+# Or from the host (if /config is mounted locally):
 python3 tools/migrate_json_to_db.py --config-dir ./config
 ```
 
-This imports data into the SQLite database and renames the originals to `*.json.migrated`.
+The script imports all historical data into the SQLite database and renames the original JSON files to `*.json.migrated`.
+
+---
+
+## 🛠️ Local Development
+
+```bash
+git clone https://github.com/Angrido/Lidarr-YouTube-Downloader.git
+cd Lidarr-YouTube-Downloader
+pip install -r requirements.txt
+
+export LIDARR_URL=http://your-lidarr:8686
+export LIDARR_API_KEY=your_key
+export DOWNLOAD_PATH=/tmp/downloads
+export LIDARR_PATH=/tmp/downloads
+export PUID=1000
+export PGID=1000
+export UMASK=002
+
+python app.py   # runs on http://localhost:5000
+```
+
+Run the test suite:
+
+```bash
+source .venv/bin/activate && python -m pytest tests/ -v
+```
 
 ---
 
 ## ⚠️ Disclaimer
 
-This tool is for **educational purposes** and managing your personal library.  
-Users are responsible for complying with copyright laws and YouTube's ToS.
+This tool is intended for **personal and educational use** to manage your own music library.  
+Users are solely responsible for complying with applicable copyright laws and YouTube's Terms of Service.
 
 ---
 
@@ -132,7 +168,7 @@ Users are responsible for complying with copyright laws and YouTube's ToS.
  <picture>
    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/image?repos=Angrido/Lidarr-YouTube-Downloader&type=date&theme=dark&legend=top-left" />
    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/image?repos=Angrido/Lidarr-YouTube-Downloader&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/image?repos=Angrido/Lidarr-YouTube-Downloader&type=date&legend=top-left" />
+   <img alt="Star History Chart for Lidarr YouTube Downloader" src="https://api.star-history.com/image?repos=Angrido/Lidarr-YouTube-Downloader&type=date&legend=top-left" />
  </picture>
 </a>
 
