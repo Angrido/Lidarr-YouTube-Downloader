@@ -168,7 +168,7 @@ def _build_common_opts(player_client=None):
     return opts
 
 
-MAX_CANDIDATES = 15
+MAX_CANDIDATES = 10
 
 
 def search_youtube_candidates(
