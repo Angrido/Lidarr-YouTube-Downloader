@@ -57,7 +57,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.7.3"
+VERSION = "1.7.4"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 

@@ -626,11 +626,11 @@ def bump_sync_run_id():
     return row["current_run_id"] if row else 1
 
 
-def upsert_missing_album(album, run_id):
-    """Insert or update a single album in the missing_albums_cache."""
+def _album_upsert_params(album, run_id):
+    """Build the parameter tuple for a missing_albums_cache upsert."""
     album_id = album.get("id")
     if not album_id:
-        return
+        return None
     stats = album.get("statistics") or {}
     total = stats.get("trackCount", 0) or 0
     files = stats.get("trackFileCount", 0) or 0
@@ -641,43 +641,65 @@ def upsert_missing_album(album, run_id):
         if img.get("coverType") == "cover":
             cover_url = img.get("remoteUrl") or img.get("url") or ""
             break
-    conn = db.get_db()
-    conn.execute(
-        """
-        INSERT INTO missing_albums_cache (
-            album_id, foreign_album_id, title, artist_id, artist_name,
-            release_date, track_count, missing_track_count, cover_url,
-            raw_json, synced_at, sync_run_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(album_id) DO UPDATE SET
-            foreign_album_id = excluded.foreign_album_id,
-            title = excluded.title,
-            artist_id = excluded.artist_id,
-            artist_name = excluded.artist_name,
-            release_date = excluded.release_date,
-            track_count = excluded.track_count,
-            missing_track_count = excluded.missing_track_count,
-            cover_url = excluded.cover_url,
-            raw_json = excluded.raw_json,
-            synced_at = excluded.synced_at,
-            sync_run_id = excluded.sync_run_id
-        """,
-        (
-            int(album_id),
-            album.get("foreignAlbumId", "") or "",
-            album.get("title", "") or "",
-            int(artist.get("id", 0) or 0),
-            artist.get("artistName", "") or "",
-            album.get("releaseDate", "") or "",
-            int(total),
-            int(missing),
-            cover_url,
-            json.dumps(album),
-            time.time(),
-            int(run_id),
-        ),
+    return (
+        int(album_id),
+        album.get("foreignAlbumId", "") or "",
+        album.get("title", "") or "",
+        int(artist.get("id", 0) or 0),
+        artist.get("artistName", "") or "",
+        album.get("releaseDate", "") or "",
+        int(total),
+        int(missing),
+        cover_url,
+        json.dumps(album),
+        time.time(),
+        int(run_id),
     )
+
+
+_ALBUM_UPSERT_SQL = """
+    INSERT INTO missing_albums_cache (
+        album_id, foreign_album_id, title, artist_id, artist_name,
+        release_date, track_count, missing_track_count, cover_url,
+        raw_json, synced_at, sync_run_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(album_id) DO UPDATE SET
+        foreign_album_id = excluded.foreign_album_id,
+        title = excluded.title,
+        artist_id = excluded.artist_id,
+        artist_name = excluded.artist_name,
+        release_date = excluded.release_date,
+        track_count = excluded.track_count,
+        missing_track_count = excluded.missing_track_count,
+        cover_url = excluded.cover_url,
+        raw_json = excluded.raw_json,
+        synced_at = excluded.synced_at,
+        sync_run_id = excluded.sync_run_id
+"""
+
+
+def upsert_missing_album(album, run_id):
+    """Insert or update a single album in the missing_albums_cache."""
+    params = _album_upsert_params(album, run_id)
+    if params is None:
+        return
+    conn = db.get_db()
+    conn.execute(_ALBUM_UPSERT_SQL, params)
     conn.commit()
+
+
+def upsert_missing_albums_batch(albums, run_id):
+    """Upsert many albums in a single transaction to reduce lock contention."""
+    rows = [
+        params for params in (
+            _album_upsert_params(a, run_id) for a in albums
+        ) if params is not None
+    ]
+    if not rows:
+        return
+    conn = db.get_db()
+    with conn:
+        conn.executemany(_ALBUM_UPSERT_SQL, rows)
 
 
 def prune_missing_albums(run_id):

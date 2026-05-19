@@ -80,14 +80,13 @@ def _run_sync():
             total_pages = max(
                 1, (total_records + PAGE_SIZE - 1) // PAGE_SIZE
             )
-        for album in records:
-            try:
-                models.upsert_missing_album(album, run_id)
-            except Exception as e:
-                logger.warning(
-                    "Failed to upsert album %s: %s",
-                    album.get("id"), e,
-                )
+        try:
+            models.upsert_missing_albums_batch(records, run_id)
+        except Exception as e:
+            logger.warning(
+                "Failed to upsert page %d (%d albums): %s",
+                page, len(records), e,
+            )
         synced += len(records)
         models.update_sync_state(
             current_page=page,

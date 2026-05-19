@@ -17,9 +17,10 @@ _local = threading.local()
 def get_db():
     """Return a thread-local SQLite connection, creating one if needed."""
     if not hasattr(_local, "connection") or _local.connection is None:
-        _local.connection = sqlite3.connect(DB_PATH)
+        _local.connection = sqlite3.connect(DB_PATH, timeout=30.0)
         _local.connection.row_factory = sqlite3.Row
         _local.connection.execute("PRAGMA journal_mode=WAL")
+        _local.connection.execute("PRAGMA busy_timeout=30000")
         _local.connection.execute("PRAGMA foreign_keys=ON")
     return _local.connection
 
