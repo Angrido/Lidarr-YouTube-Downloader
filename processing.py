@@ -414,7 +414,7 @@ def process_album_download(album_id, force=False):
 
         config = load_config()
         lidarr_path = config.get("lidarr_path", "")
-        import_path, lidarr_album_path = _copy_to_lidarr(
+        import_path, lidarr_album_path, copy_succeeded = _copy_to_lidarr(
             lidarr_path, album_path, sanitized_artist,
             album_folder_name,
         )
@@ -436,7 +436,7 @@ def process_album_download(album_id, force=False):
             data={"name": "RefreshArtist", "artistId": artist_id},
         )
 
-        if lidarr_path and os.path.exists(artist_path):
+        if lidarr_path and copy_succeeded and os.path.exists(artist_path):
             try:
                 logger.info(
                     f"Cleaning up download folder: {artist_path}"
@@ -1675,11 +1675,11 @@ def _copy_to_lidarr(
                 src = os.path.join(album_path, item)
                 dst = os.path.join(lidarr_album_path, item)
                 if os.path.isfile(src):
-                    shutil.copy2(src, dst)
+                    shutil.copyfile(src, dst)
                     logger.info(f"  Copied: {item}")
             set_permissions(lidarr_artist_path)
             logger.info("Files copied to Lidarr folder successfully")
-            return lidarr_album_path, lidarr_album_path
+            return lidarr_album_path, lidarr_album_path, True
         except Exception as e:
             logger.error(
                 "Error copying files to Lidarr folder: %s",
@@ -1689,8 +1689,8 @@ def _copy_to_lidarr(
                 f"Copy to Lidarr failed: {e}",
                 log_type="album_error",
             )
-            return album_path, lidarr_album_path
-    return album_path, lidarr_album_path
+            return album_path, lidarr_album_path, False
+    return album_path, lidarr_album_path, False
 
 
 def _log_import_result(

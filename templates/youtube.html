@@ -1329,6 +1329,27 @@
         } catch (_) {}
     }
 
+    async function updateQueueBadge() {
+        try {
+            const [queueRes, statusRes] = await Promise.all([
+                fetch('/api/download/queue'),
+                fetch('/api/download/status')
+            ]);
+            const queue = await queueRes.json();
+            const status = await statusRes.json();
+            const total = queue.length + (status.active ? 1 : 0);
+            const badge = document.getElementById('queueBadge');
+            if (total > 0) {
+                badge.textContent = total;
+                badge.classList.add('active');
+            } else {
+                badge.classList.remove('active');
+            }
+        } catch (e) {}
+    }
+    updateQueueBadge();
+    setInterval(updateQueueBadge, 5000);
+
     loadRecentImports();
     checkResumeProgress();
 </script>
