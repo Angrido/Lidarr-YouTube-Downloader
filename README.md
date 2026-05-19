@@ -20,7 +20,7 @@ A free, open-source bridge between **[Lidarr](https://lidarr.audio/)** and **You
 - 🔍 **Smart YouTube matching** — searches up to 15 candidates per track and scores them by title similarity, duration window, official-channel boost, and forbidden-word filtering (remix, live, cover, karaoke…)
 - 🎯 **AcoustID fingerprinting** — optional chromaprint verification rejects mismatched audio before import
 - 🏷️ **Full metadata tagging** — MP3 / M4A / Opus with MusicBrainz IDs, iTunes 3000×3000 cover art, year, track numbers, and optional XML sidecars for Lidarr re-import
-- 📦 **Native Lidarr integration** — calls `/import/album` and refreshes the artist; background paginated sync of `wanted/missing` for instant UI
+- 📦 **Native Lidarr integration** — copies tagged files into your Lidarr library path and triggers `RefreshArtist`; background paginated sync of `wanted/missing` for instant UI
 - ⚡ **Parallel downloads** — configurable concurrent tracks (1–5) with mid-download skip, per-track progress, speed, and ETA
 - 🚫 **Banned URLs & candidate retries** — per-track YouTube blacklist; tries up to 15 candidates before giving up
 - 📥 **Manual YouTube URL & playlist import** — paste any YouTube or YouTube Music URL (single track or full playlist) with album-art preview
@@ -41,7 +41,7 @@ A free, open-source bridge between **[Lidarr](https://lidarr.audio/)** and **You
 3. **Score** — Candidates are ranked by title similarity (50%), duration match (25%), official-channel bonus (15%), and view-count weight, with forbidden-word filtering.
 4. **Verify** — If AcoustID is enabled, the downloaded file is fingerprinted with `fpcalc` and matched against the expected MusicBrainz recording ID before acceptance.
 5. **Tag** — Mutagen writes ID3 tags (title, artist, album, track #, year, MusicBrainz IDs) and embeds an iTunes 3000×3000 cover.
-6. **Import** — The file is moved to your Lidarr music path; `/import/album` is called and the artist is refreshed automatically.
+6. **Import** — Files are copied into your Lidarr music path, then a `RefreshArtist` command is sent so Lidarr scans and picks up the new tracks.
 
 ---
 
