@@ -57,7 +57,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.7.4"
+VERSION = "1.7.5"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -796,6 +796,26 @@ def api_acoustid_toggle():
     config["acoustid_enabled"] = not config.get("acoustid_enabled", True)
     save_config(config)
     return jsonify({"enabled": config["acoustid_enabled"]})
+
+
+@app.route("/api/lidarr_rename/toggle", methods=["POST"])
+def api_lidarr_rename_toggle():
+    config = load_config()
+    config["lidarr_rename_after_import"] = not config.get(
+        "lidarr_rename_after_import", False
+    )
+    save_config(config)
+    return jsonify({"enabled": config["lidarr_rename_after_import"]})
+
+
+@app.route("/api/cover_art/toggle", methods=["POST"])
+def api_cover_art_toggle():
+    config = load_config()
+    config["save_cover_art_file"] = not config.get(
+        "save_cover_art_file", True
+    )
+    save_config(config)
+    return jsonify({"enabled": config["save_cover_art_file"]})
 
 
 @app.route("/api/youtube/search", methods=["POST"])

@@ -153,6 +153,9 @@ def _build_common_opts(player_client=None):
         "sleep_interval": int(cfg.get("yt_sleep_interval", 1)),
         "max_sleep_interval": int(cfg.get("yt_max_sleep_interval", 5)),
         "noplaylist": True,
+        # Prefer the highest available audio bitrate, then sample rate.
+        # Without this yt-dlp may pick a 128k stream when a 256k one exists.
+        "format_sort": ["abr", "asr"],
     }
     cookies_path = (cfg.get("yt_cookies_file") or "").strip()
     if cookies_path and os.path.exists(cookies_path):
@@ -200,11 +203,15 @@ def search_youtube_candidates(
         "extract_flat": True,
     }
 
-    forbidden_words = config.get("forbidden_words", [
+    forbidden_words = list(config.get("forbidden_words", [
         "remix", "cover", "mashup", "bootleg", "live", "dj mix",
         "karaoke", "slowed", "reverb", "nightcore", "sped up",
-        "instrumental", "acapella", "tribute",
-    ])
+        "instrumental", "acapella", "tribute", "8d audio",
+    ]))
+    for extra in config.get("forbidden_words_custom", []) or []:
+        word = (extra or "").strip().lower()
+        if word and word not in forbidden_words:
+            forbidden_words.append(word)
     duration_tolerance = config.get("duration_tolerance", 15)
 
     expected_duration_sec = None
@@ -363,9 +370,25 @@ def download_youtube_candidate(
     if skip_check and skip_check():
         return {"skipped": True}
 
-    audio_format = load_config().get("audio_format", "mp3")
-
     config = load_config()
+    audio_format = config.get("audio_format", "mp3")
+    audio_quality = str(config.get("audio_quality", "320"))
+
+    # Format-specific selector: prefer the native codec to avoid
+    # lossy-to-lossy transcoding (e.g. Opus->AAC), which is the main
+    # cause of "tin can" audio. FFmpegExtractAudio stream-copies when
+    # the source codec already matches preferredcodec.
+    if audio_format == "m4a":
+        format_selector = (
+            "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio/best"
+        )
+    elif audio_format == "opus":
+        format_selector = (
+            "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best"
+        )
+    else:  # mp3 always requires transcoding
+        format_selector = "bestaudio/best"
+
     first_client = config.get("yt_player_client", "android")
     clients_to_try = []
     if first_client:
@@ -382,12 +405,12 @@ def download_youtube_candidate(
             return {"skipped": True}
         ydl_opts_download = {
             **_build_common_opts(player_client=pc),
-            "format": "bestaudio/best",
+            "format": format_selector,
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
                     "preferredcodec": audio_format,
-                    **({"preferredquality": "320"} if audio_format == "mp3" else {}),
+                    "preferredquality": audio_quality,
                 }
             ],
             "outtmpl": output_path,

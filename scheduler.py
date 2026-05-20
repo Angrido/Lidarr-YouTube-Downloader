@@ -32,9 +32,26 @@ def scheduled_check():
 
     interval_minutes = int(config.get("scheduler_interval", 60))
     lookback_seconds = interval_minutes * 60 * 2
+    now = time.time()
     recent_history_ids = models.get_history_album_ids_since(
-        time.time() - lookback_seconds
+        now - lookback_seconds
     )
+
+    # Skip albums that were already attempted recently (success OR
+    # failure) so the scheduler doesn't keep retrying the same failing
+    # album every cycle before working through the rest of the library.
+    try:
+        retry_after_hours = float(
+            config.get("scheduler_retry_after_hours", 24)
+        )
+    except (TypeError, ValueError):
+        retry_after_hours = 24.0
+    attempted_ids = set()
+    if retry_after_hours > 0:
+        attempted_ids = models.get_attempted_album_ids_since(
+            now - retry_after_hours * 3600
+        )
+
     current_download_id = download_process.get("album_id")
 
     queued_ids = {row["album_id"] for row in models.get_queue()}
@@ -44,6 +61,7 @@ def scheduled_check():
         for album in albums
         if album["id"] not in queued_ids
         and album["id"] not in recent_history_ids
+        and album["id"] not in attempted_ids
         and album["id"] != current_download_id
         and album.get("missingTrackCount", 0) > 0
     ]

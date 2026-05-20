@@ -390,6 +390,130 @@
             font-weight: 600;
         }
 
+        .custom-fw-row {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 0.5rem;
+            align-items: stretch;
+        }
+
+        .custom-fw-input {
+            flex: 1 1 auto;
+            min-width: 0;
+            padding: 0.7rem 1rem;
+            font-size: 0.95rem;
+        }
+
+        .custom-fw-add {
+            flex: 0 0 auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0 1.1rem;
+            border-radius: 10px;
+            border: 1px solid rgba(16, 185, 129, 0.4);
+            background: rgba(16, 185, 129, 0.12);
+            color: var(--primary);
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: 600;
+            transition: background 0.2s ease, transform 0.15s ease, border-color 0.2s ease;
+        }
+
+        .custom-fw-add:hover {
+            background: rgba(16, 185, 129, 0.22);
+            border-color: var(--primary);
+        }
+
+        .custom-fw-add:active {
+            transform: scale(0.96);
+        }
+
+        .custom-fw-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+            min-height: 0.25rem;
+        }
+
+        .custom-fw-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.35rem 0.35rem 0.35rem 0.85rem;
+            background: var(--bg);
+            border: 1px solid var(--border-glass, var(--border, rgba(255,255,255,0.1)));
+            border-radius: 999px;
+            font-size: 0.9rem;
+            color: var(--text);
+        }
+
+        .custom-fw-chip button {
+            background: none;
+            border: none;
+            color: var(--text-muted, #888);
+            cursor: pointer;
+            font-size: 1rem;
+            line-height: 1;
+            padding: 0 0.45rem;
+            border-radius: 999px;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+
+        .custom-fw-chip button:hover {
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+        }
+
+        .floating-save {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            z-index: 1000;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            padding: 0.85rem 1.5rem;
+            border-radius: 999px;
+            border: none;
+            color: white;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            background: linear-gradient(135deg, #10b981, #06d6a0, #0891b2);
+            background-size: 200% 200%;
+            box-shadow: 0 10px 30px rgba(16, 185, 129, 0.45);
+            animation: gradient-shift 3s ease infinite;
+            transform: translateY(140%);
+            opacity: 0;
+            pointer-events: none;
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease, box-shadow 0.25s ease;
+        }
+
+        .floating-save.visible {
+            transform: translateY(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .floating-save:hover {
+            box-shadow: 0 14px 36px rgba(16, 185, 129, 0.6);
+        }
+
+        .floating-save:active {
+            transform: scale(0.96);
+        }
+
+        @media (max-width: 600px) {
+            .floating-save {
+                right: 1rem;
+                left: 1rem;
+                bottom: 1rem;
+                justify-content: center;
+            }
+        }
+
         .toggle-btn.active {
             background: linear-gradient(135deg, #10b981, #06d6a0, #0891b2);
             background-size: 200% 200%;
@@ -630,6 +754,13 @@
                 </label>
                 <input type="number" id="schedulerMaxAlbums" value="0" min="0" style="max-width:120px;">
             </div>
+            <div class="input-group">
+                <label>
+                    Retry After (Hours)
+                    <div class="label-description">Skip auto-downloading an album that was already attempted (success or failure) within this many hours, so the scheduler works through the rest of the library before retrying the same one. Set to 0 to disable.</div>
+                </label>
+                <input type="number" id="schedulerRetryAfterHours" value="24" min="0" step="1" style="max-width:120px;">
+            </div>
         </div>
 
         <div class="settings-section">
@@ -644,6 +775,20 @@
                         integration)</div>
                 </label>
                 <button class="toggle-btn" id="xmlMetadataBtn" onclick="toggleXmlMetadata()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    Save cover.jpg in Album Folder
+                    <div class="label-description">Write the album artwork as cover.jpg next to the audio files. Disable to save disk space if you don't want artwork stored on disk. (Cover is still embedded in ID3 tags and used for notifications regardless.)</div>
+                </label>
+                <button class="toggle-btn" id="coverArtBtn" onclick="toggleCoverArt()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    Trigger Lidarr Rename After Import
+                    <div class="label-description">After files are imported into Lidarr, send a RenameFiles command so Lidarr applies its configured naming convention (also fires Lidarr's "on rename" connections).</div>
+                </label>
+                <button class="toggle-btn" id="lidarrRenameBtn" onclick="toggleLidarrRename()">Loading...</button>
             </div>
             <div class="input-group">
                 <label>
@@ -675,12 +820,24 @@
             <div class="input-group">
                 <label for="audioFormatSelect">
                     Audio Format
-                    <div class="label-description">MP3 re-encodes to 320kbps. M4A and Opus preserve the original YouTube stream without transcoding (no generational loss).</div>
+                    <div class="label-description">M4A and Opus prefer the native YouTube stream and stream-copy without re-encoding (no quality loss). MP3 always transcodes.</div>
                 </label>
-                <select id="audioFormatSelect" onchange="saveAudioFormat(this.value)" style="max-width:220px;">
-                    <option value="mp3">MP3 (320kbps)</option>
-                    <option value="m4a">M4A / AAC (original, no transcode)</option>
-                    <option value="opus">Opus (original, no transcode)</option>
+                <select id="audioFormatSelect" onchange="saveAudioFormat(this.value)" style="max-width:260px;">
+                    <option value="mp3">MP3 (transcoded)</option>
+                    <option value="m4a">M4A / AAC (prefer native, no transcode)</option>
+                    <option value="opus">Opus (prefer native, no transcode)</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label for="audioQualitySelect">
+                    Audio Quality (kbps)
+                    <div class="label-description">Target bitrate when transcoding (MP3 always, M4A/Opus only if the native codec isn't available). Stream-copied audio keeps the YouTube source bitrate regardless of this setting.</div>
+                </label>
+                <select id="audioQualitySelect" style="max-width:160px;">
+                    <option value="128">128</option>
+                    <option value="192">192</option>
+                    <option value="256">256</option>
+                    <option value="320">320</option>
                 </select>
             </div>
         </div>
@@ -757,7 +914,24 @@
                         <input type="checkbox" id="fw_reaction" value="reaction" style="width: auto; cursor: pointer;">
                         <span>😲 Reaction</span>
                     </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="fw_8daudio" value="8d audio" style="width: auto; cursor: pointer;">
+                        <span>🎧 8D Audio</span>
+                    </label>
                 </div>
+            </div>
+            <div class="input-group">
+                <label>
+                    Custom Forbidden Words
+                    <div class="label-description">Add your own words to filter out (e.g. "slowed and reverb"). Matched against the YouTube title using the same rules as the built-in list.</div>
+                </label>
+                <div class="custom-fw-row">
+                    <input type="text" id="customForbiddenInput" class="custom-fw-input" placeholder="Type a word and press Enter" onkeydown="if(event.key==='Enter'){event.preventDefault();addCustomForbiddenWord();}">
+                    <button type="button" class="custom-fw-add" onclick="addCustomForbiddenWord()" title="Add forbidden word">
+                        <i class="fa-solid fa-plus"></i><span>Add</span>
+                    </button>
+                </div>
+                <div id="customForbiddenList" class="custom-fw-list"></div>
             </div>
             <div class="input-group">
                 <label>
@@ -955,6 +1129,11 @@
         </div>
     </div>
 
+    <button id="floatingSaveBtn" type="button" class="floating-save" onclick="saveConfig()" aria-label="Save settings">
+        <i class="fa-solid fa-floppy-disk"></i>
+        <span>Save Settings</span>
+    </button>
+
     <footer>
         <div>Made with love ❤️ • {{ APP_VERSION }}</div>
         <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
@@ -991,6 +1170,7 @@
             }
             loadConfig();
             loadYtdlpVersion();
+            installDirtyListeners();
         });
 
         function toggleTheme() {
@@ -1006,6 +1186,7 @@
         }
 
         async function loadConfig() {
+            _suppressDirty = true;
             const res = await fetch('/api/config');
             const conf = await res.json();
             document.getElementById('interval').value = conf.scheduler_interval || 60;
@@ -1033,8 +1214,8 @@
             document.getElementById('downloadPath').value = conf.download_path || '';
             document.getElementById('lidarrPath').value = conf.lidarr_path || '';
 
-            const forbiddenWords = conf.forbidden_words || ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute", "reaction"];
-            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute', 'fw_reaction'];
+            const forbiddenWords = conf.forbidden_words || ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute", "reaction", "8d audio"];
+            const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute', 'fw_reaction', 'fw_8daudio'];
 
             forbiddenWordIds.forEach(id => {
                 const checkbox = document.getElementById(id);
@@ -1043,10 +1224,13 @@
                 }
             });
 
+            renderCustomForbiddenWords(conf.forbidden_words_custom || []);
+
             document.getElementById('durationTolerance').value = conf.duration_tolerance || 10;
             document.getElementById('minMatchScore').value = conf.min_match_score != null ? conf.min_match_score : 0.8;
             document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
             document.getElementById('audioFormatSelect').value = conf.audio_format || 'mp3';
+            document.getElementById('audioQualitySelect').value = String(conf.audio_quality || '320');
 
             document.getElementById('discordWebhook').value = conf.discord_webhook_url || '';
             const discordLogTypes = conf.discord_log_types || [];
@@ -1064,6 +1248,16 @@
             updateXmlMetadataBtn(conf.xml_metadata_enabled !== false);
             updateAcoustidBtn(conf.acoustid_enabled !== false);
             document.getElementById('acoustidApiKey').value = conf.acoustid_api_key || '';
+            updateLidarrRenameBtn(conf.lidarr_rename_after_import === true);
+            updateCoverArtBtn(conf.save_cover_art_file !== false);
+            document.getElementById('schedulerRetryAfterHours').value = (
+                conf.scheduler_retry_after_hours != null
+                    ? conf.scheduler_retry_after_hours
+                    : 24
+            );
+            // Defer clearing so any change events from programmatic
+            // assignments above don't immediately re-mark dirty.
+            setTimeout(() => { _suppressDirty = false; clearSettingsDirty(); }, 0);
         }
 
         function updateSchedulerBtn(enabled) {
@@ -1120,6 +1314,30 @@
             });
             const data = await res.json();
             updateAcoustidBtn(data.enabled);
+        }
+
+        function updateLidarrRenameBtn(enabled) {
+            const btn = document.getElementById('lidarrRenameBtn');
+            btn.innerText = enabled ? '✓ Lidarr Rename ON' : 'Lidarr Rename OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        async function toggleLidarrRename() {
+            const res = await fetch('/api/lidarr_rename/toggle', { method: 'POST' });
+            const data = await res.json();
+            updateLidarrRenameBtn(data.enabled);
+        }
+
+        function updateCoverArtBtn(enabled) {
+            const btn = document.getElementById('coverArtBtn');
+            btn.innerText = enabled ? '✓ Save cover.jpg ON' : 'Save cover.jpg OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        async function toggleCoverArt() {
+            const res = await fetch('/api/cover_art/toggle', { method: 'POST' });
+            const data = await res.json();
+            updateCoverArtBtn(data.enabled);
         }
 
         async function loadYtdlpVersion() {
@@ -1249,7 +1467,7 @@
                 }
             }
 
-            const forbiddenWordIdsSave = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute'];
+            const forbiddenWordIdsSave = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute', 'fw_reaction', 'fw_8daudio'];
             const forbiddenWords = forbiddenWordIdsSave
                 .map(id => document.getElementById(id))
                 .filter(checkbox => checkbox && checkbox.checked)
@@ -1277,6 +1495,7 @@
                 body: JSON.stringify({
                     scheduler_interval: document.getElementById('interval').value,
                     scheduler_max_albums: parseInt(document.getElementById('schedulerMaxAlbums').value) || 0,
+                    scheduler_retry_after_hours: parseFloat(document.getElementById('schedulerRetryAfterHours').value) || 0,
                     telegram_bot_token: document.getElementById('botToken').value,
                     telegram_chat_id: document.getElementById('chatId').value,
                     telegram_enabled: !!document.getElementById('botToken').value,
@@ -1287,13 +1506,16 @@
                     download_path: document.getElementById('downloadPath').value,
                     lidarr_path: document.getElementById('lidarrPath').value,
                     forbidden_words: forbiddenWords,
+                    forbidden_words_custom: getCustomForbiddenWords(),
                     duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10,
                     min_match_score: parseFloat(document.getElementById('minMatchScore').value) || 0.8,
                     concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
                     audio_format: document.getElementById('audioFormatSelect').value || 'mp3',
+                    audio_quality: document.getElementById('audioQualitySelect').value || '320',
                     acoustid_api_key: document.getElementById('acoustidApiKey').value
                 })
             });
+            clearSettingsDirty();
             showToast('success', 'Configuration Saved!', 'Changes to Download Path and Lidarr Path require an application restart.');
         }
 
@@ -1317,6 +1539,83 @@
         }
         updateQueueBadge();
         setInterval(updateQueueBadge, 5000);
+
+        function getCustomForbiddenWords() {
+            return Array.from(
+                document.querySelectorAll('#customForbiddenList [data-word]')
+            ).map(el => el.dataset.word);
+        }
+
+        function renderCustomForbiddenWords(words) {
+            const list = document.getElementById('customForbiddenList');
+            list.innerHTML = '';
+            (words || []).forEach(w => appendCustomForbiddenChip(w));
+        }
+
+        function appendCustomForbiddenChip(word) {
+            const list = document.getElementById('customForbiddenList');
+            const chip = document.createElement('span');
+            chip.dataset.word = word;
+            chip.className = 'custom-fw-chip';
+            const label = document.createElement('span');
+            label.textContent = word;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.innerHTML = '&times;';
+            btn.title = 'Remove';
+            btn.onclick = () => {
+                chip.remove();
+                markSettingsDirty();
+            };
+            chip.appendChild(label);
+            chip.appendChild(btn);
+            list.appendChild(chip);
+        }
+
+        function addCustomForbiddenWord() {
+            const input = document.getElementById('customForbiddenInput');
+            const raw = (input.value || '').trim().toLowerCase();
+            if (!raw) return;
+            const existing = new Set(getCustomForbiddenWords());
+            if (!existing.has(raw)) {
+                appendCustomForbiddenChip(raw);
+                markSettingsDirty();
+            }
+            input.value = '';
+            input.focus();
+        }
+
+        let _settingsDirty = false;
+        let _suppressDirty = false;
+
+        function markSettingsDirty() {
+            if (_suppressDirty) return;
+            _settingsDirty = true;
+            const btn = document.getElementById('floatingSaveBtn');
+            if (btn) btn.classList.add('visible');
+        }
+
+        function clearSettingsDirty() {
+            _settingsDirty = false;
+            const btn = document.getElementById('floatingSaveBtn');
+            if (btn) btn.classList.remove('visible');
+        }
+
+        function installDirtyListeners() {
+            const root = document.querySelector('.container') || document.body;
+            // Inputs, selects, checkboxes — anything the user can change
+            // and that requires the explicit "Save All Settings" action.
+            // Toggle buttons (.toggle-btn) persist immediately via their
+            // own POST and don't need to mark the form dirty.
+            root.addEventListener('input', (e) => {
+                if (e.target.closest('.toggle-btn')) return;
+                markSettingsDirty();
+            });
+            root.addEventListener('change', (e) => {
+                if (e.target.closest('.toggle-btn')) return;
+                markSettingsDirty();
+            });
+        }
 
         function saveAudioFormat(val) {
             fetch('/api/config', {

@@ -286,7 +286,17 @@ def process_album_download(album_id, force=False):
 
         album_mbid = album.get("foreignAlbumId", "")
 
-        sanitized_artist = sanitize_filename(artist_name)
+        # Prefer the artist folder name Lidarr actually uses (basename of
+        # its artist.path) so chars like "/" survive as "+" instead of
+        # being stripped — e.g. K/DA stays "K+DA" matching Lidarr and
+        # avoids duplicate "KDA" folders.
+        lidarr_artist_path_field = album["artist"].get("path", "") or ""
+        lidarr_artist_folder = os.path.basename(
+            lidarr_artist_path_field.rstrip("/\\")
+        )
+        sanitized_artist = (
+            lidarr_artist_folder or sanitize_filename(artist_name)
+        )
         sanitized_album = sanitize_filename(album_title)
 
         artist_path = os.path.join(DOWNLOAD_DIR, sanitized_artist)
@@ -314,9 +324,12 @@ def process_album_download(album_id, force=False):
 
         # Fetch cover art before sending the download_started
         # notification so the artwork can render in Telegram (sendPhoto)
-        # and Discord (embed thumbnail).
+        # and Discord (embed thumbnail). cover_data is kept in memory for
+        # ID3 embedding/notifications even when on-disk cover.jpg is
+        # disabled.
         cover_data = get_itunes_artwork(artist_name, album_title)
-        if cover_data:
+        save_cover_file = load_config().get("save_cover_art_file", True)
+        if cover_data and save_cover_file:
             try:
                 with open(os.path.join(album_path, "cover.jpg"), "wb") as f:
                     f.write(cover_data)
@@ -435,6 +448,19 @@ def process_album_download(album_id, force=False):
             "command",
             data={"name": "RefreshArtist", "artistId": artist_id},
         )
+
+        if config.get("lidarr_rename_after_import", False):
+            logger.info(
+                "Triggering Lidarr RenameFiles for albumId=%s", album_id
+            )
+            lidarr_request_with_retry(
+                "command",
+                data={
+                    "name": "RenameFiles",
+                    "artistId": artist_id,
+                    "albumIds": [album_id],
+                },
+            )
 
         if lidarr_path and copy_succeeded and os.path.exists(artist_path):
             try:

@@ -17,14 +17,17 @@ _file_write_lock = threading.Lock()
 ALLOWED_CONFIG_KEYS = {
     "scheduler_interval", "telegram_bot_token", "telegram_chat_id",
     "telegram_enabled", "telegram_log_types", "download_path",
-    "lidarr_path", "forbidden_words", "duration_tolerance",
+    "lidarr_path", "forbidden_words", "forbidden_words_custom",
+    "duration_tolerance",
     "scheduler_enabled", "scheduler_auto_download", "scheduler_max_albums",
     "xml_metadata_enabled", "concurrent_tracks", "yt_cookies_file", "yt_force_ipv4",
     "yt_player_client", "yt_retries", "yt_fragment_retries",
     "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
     "discord_enabled", "discord_webhook_url", "discord_log_types",
     "acoustid_enabled", "acoustid_api_key",
-    "min_match_score", "audio_format",
+    "min_match_score", "audio_format", "audio_quality",
+    "lidarr_rename_after_import", "save_cover_art_file",
+    "scheduler_retry_after_hours",
 }
 
 MIN_MATCH_SCORE_DEFAULT = 0.8
@@ -69,6 +72,9 @@ def load_config():
         ),
         "scheduler_interval": int(os.getenv("SCHEDULER_INTERVAL", "60")),
         "scheduler_max_albums": int(os.getenv("SCHEDULER_MAX_ALBUMS", "0")),
+        "scheduler_retry_after_hours": float(
+            os.getenv("SCHEDULER_RETRY_AFTER_HOURS", "24")
+        ),
         "telegram_enabled": (
             os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"
         ),
@@ -86,8 +92,9 @@ def load_config():
         "forbidden_words": [
             "remix", "cover", "mashup", "bootleg", "live", "dj mix",
             "karaoke", "slowed", "reverb", "nightcore", "sped up",
-            "instrumental", "acapella", "tribute",
+            "instrumental", "acapella", "tribute", "8d audio",
         ],
+        "forbidden_words_custom": [],
         "duration_tolerance": int(os.getenv("DURATION_TOLERANCE", "10")),
         "concurrent_tracks": int(os.getenv("CONCURRENT_TRACKS", "2")),
         "yt_cookies_file": os.getenv("YT_COOKIES_FILE", ""),
@@ -120,6 +127,13 @@ def load_config():
             os.getenv("MIN_MATCH_SCORE", "0.8"),
         ),
         "audio_format": os.getenv("AUDIO_FORMAT", "mp3"),
+        "audio_quality": os.getenv("AUDIO_QUALITY", "320"),
+        "lidarr_rename_after_import": (
+            os.getenv("LIDARR_RENAME_AFTER_IMPORT", "false").lower() == "true"
+        ),
+        "save_cover_art_file": (
+            os.getenv("SAVE_COVER_ART_FILE", "true").lower() == "true"
+        ),
         "path_conflict": False,
     }
 
