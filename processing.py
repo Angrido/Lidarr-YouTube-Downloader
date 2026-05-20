@@ -436,6 +436,19 @@ def process_album_download(album_id, force=False):
             data={"name": "RefreshArtist", "artistId": artist_id},
         )
 
+        if config.get("lidarr_rename_after_import", False):
+            logger.info(
+                "Triggering Lidarr RenameFiles for albumId=%s", album_id
+            )
+            lidarr_request_with_retry(
+                "command",
+                data={
+                    "name": "RenameFiles",
+                    "artistId": artist_id,
+                    "albumIds": [album_id],
+                },
+            )
+
         if lidarr_path and copy_succeeded and os.path.exists(artist_path):
             try:
                 logger.info(

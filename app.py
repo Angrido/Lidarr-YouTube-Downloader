@@ -798,6 +798,16 @@ def api_acoustid_toggle():
     return jsonify({"enabled": config["acoustid_enabled"]})
 
 
+@app.route("/api/lidarr_rename/toggle", methods=["POST"])
+def api_lidarr_rename_toggle():
+    config = load_config()
+    config["lidarr_rename_after_import"] = not config.get(
+        "lidarr_rename_after_import", False
+    )
+    save_config(config)
+    return jsonify({"enabled": config["lidarr_rename_after_import"]})
+
+
 @app.route("/api/youtube/search", methods=["POST"])
 def api_youtube_search():
     client_ip = request.remote_addr or "unknown"
