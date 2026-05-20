@@ -27,6 +27,7 @@ ALLOWED_CONFIG_KEYS = {
     "acoustid_enabled", "acoustid_api_key",
     "min_match_score", "audio_format", "audio_quality",
     "lidarr_rename_after_import", "save_cover_art_file",
+    "scheduler_retry_after_hours",
 }
 
 MIN_MATCH_SCORE_DEFAULT = 0.8
@@ -71,6 +72,9 @@ def load_config():
         ),
         "scheduler_interval": int(os.getenv("SCHEDULER_INTERVAL", "60")),
         "scheduler_max_albums": int(os.getenv("SCHEDULER_MAX_ALBUMS", "0")),
+        "scheduler_retry_after_hours": float(
+            os.getenv("SCHEDULER_RETRY_AFTER_HOURS", "24")
+        ),
         "telegram_enabled": (
             os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"
         ),

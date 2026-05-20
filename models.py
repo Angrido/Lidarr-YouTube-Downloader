@@ -233,6 +233,22 @@ def get_history_album_ids_since(since_timestamp):
     return {row[0] for row in rows}
 
 
+def get_attempted_album_ids_since(since_timestamp):
+    """Return album IDs that have *any* download log entry since timestamp.
+
+    Used by the scheduler to avoid hammering a failing album on every
+    cycle: an album that has already been attempted (success or failure)
+    within the retry window is skipped until other albums get a turn.
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT DISTINCT album_id FROM download_logs"
+        " WHERE timestamp >= ?",
+        (since_timestamp,),
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
 def clear_history():
     """Delete all track download records."""
     conn = db.get_db()
