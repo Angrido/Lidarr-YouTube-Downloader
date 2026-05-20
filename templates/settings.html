@@ -675,12 +675,24 @@
             <div class="input-group">
                 <label for="audioFormatSelect">
                     Audio Format
-                    <div class="label-description">MP3 re-encodes to 320kbps. M4A and Opus preserve the original YouTube stream without transcoding (no generational loss).</div>
+                    <div class="label-description">M4A and Opus prefer the native YouTube stream and stream-copy without re-encoding (no quality loss). MP3 always transcodes.</div>
                 </label>
-                <select id="audioFormatSelect" onchange="saveAudioFormat(this.value)" style="max-width:220px;">
-                    <option value="mp3">MP3 (320kbps)</option>
-                    <option value="m4a">M4A / AAC (original, no transcode)</option>
-                    <option value="opus">Opus (original, no transcode)</option>
+                <select id="audioFormatSelect" onchange="saveAudioFormat(this.value)" style="max-width:260px;">
+                    <option value="mp3">MP3 (transcoded)</option>
+                    <option value="m4a">M4A / AAC (prefer native, no transcode)</option>
+                    <option value="opus">Opus (prefer native, no transcode)</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label for="audioQualitySelect">
+                    Audio Quality (kbps)
+                    <div class="label-description">Target bitrate when transcoding (MP3 always, M4A/Opus only if the native codec isn't available). Stream-copied audio keeps the YouTube source bitrate regardless of this setting.</div>
+                </label>
+                <select id="audioQualitySelect" style="max-width:160px;">
+                    <option value="128">128</option>
+                    <option value="192">192</option>
+                    <option value="256">256</option>
+                    <option value="320">320</option>
                 </select>
             </div>
         </div>
@@ -1047,6 +1059,7 @@
             document.getElementById('minMatchScore').value = conf.min_match_score != null ? conf.min_match_score : 0.8;
             document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
             document.getElementById('audioFormatSelect').value = conf.audio_format || 'mp3';
+            document.getElementById('audioQualitySelect').value = String(conf.audio_quality || '320');
 
             document.getElementById('discordWebhook').value = conf.discord_webhook_url || '';
             const discordLogTypes = conf.discord_log_types || [];
@@ -1291,6 +1304,7 @@
                     min_match_score: parseFloat(document.getElementById('minMatchScore').value) || 0.8,
                     concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
                     audio_format: document.getElementById('audioFormatSelect').value || 'mp3',
+                    audio_quality: document.getElementById('audioQualitySelect').value || '320',
                     acoustid_api_key: document.getElementById('acoustidApiKey').value
                 })
             });

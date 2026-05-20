@@ -24,7 +24,7 @@ ALLOWED_CONFIG_KEYS = {
     "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
     "discord_enabled", "discord_webhook_url", "discord_log_types",
     "acoustid_enabled", "acoustid_api_key",
-    "min_match_score", "audio_format",
+    "min_match_score", "audio_format", "audio_quality",
 }
 
 MIN_MATCH_SCORE_DEFAULT = 0.8
@@ -120,6 +120,7 @@ def load_config():
             os.getenv("MIN_MATCH_SCORE", "0.8"),
         ),
         "audio_format": os.getenv("AUDIO_FORMAT", "mp3"),
+        "audio_quality": os.getenv("AUDIO_QUALITY", "320"),
         "path_conflict": False,
     }
 
