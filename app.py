@@ -808,6 +808,16 @@ def api_lidarr_rename_toggle():
     return jsonify({"enabled": config["lidarr_rename_after_import"]})
 
 
+@app.route("/api/cover_art/toggle", methods=["POST"])
+def api_cover_art_toggle():
+    config = load_config()
+    config["save_cover_art_file"] = not config.get(
+        "save_cover_art_file", True
+    )
+    save_config(config)
+    return jsonify({"enabled": config["save_cover_art_file"]})
+
+
 @app.route("/api/youtube/search", methods=["POST"])
 def api_youtube_search():
     client_ip = request.remote_addr or "unknown"

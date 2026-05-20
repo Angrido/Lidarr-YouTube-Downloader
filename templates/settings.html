@@ -647,6 +647,13 @@
             </div>
             <div class="input-group">
                 <label>
+                    Save cover.jpg in Album Folder
+                    <div class="label-description">Write the album artwork as cover.jpg next to the audio files. Disable to save disk space if you don't want artwork stored on disk. (Cover is still embedded in ID3 tags and used for notifications regardless.)</div>
+                </label>
+                <button class="toggle-btn" id="coverArtBtn" onclick="toggleCoverArt()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
                     Trigger Lidarr Rename After Import
                     <div class="label-description">After files are imported into Lidarr, send a RenameFiles command so Lidarr applies its configured naming convention (also fires Lidarr's "on rename" connections).</div>
                 </label>
@@ -1100,6 +1107,7 @@
             updateAcoustidBtn(conf.acoustid_enabled !== false);
             document.getElementById('acoustidApiKey').value = conf.acoustid_api_key || '';
             updateLidarrRenameBtn(conf.lidarr_rename_after_import === true);
+            updateCoverArtBtn(conf.save_cover_art_file !== false);
         }
 
         function updateSchedulerBtn(enabled) {
@@ -1168,6 +1176,18 @@
             const res = await fetch('/api/lidarr_rename/toggle', { method: 'POST' });
             const data = await res.json();
             updateLidarrRenameBtn(data.enabled);
+        }
+
+        function updateCoverArtBtn(enabled) {
+            const btn = document.getElementById('coverArtBtn');
+            btn.innerText = enabled ? '✓ Save cover.jpg ON' : 'Save cover.jpg OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        async function toggleCoverArt() {
+            const res = await fetch('/api/cover_art/toggle', { method: 'POST' });
+            const data = await res.json();
+            updateCoverArtBtn(data.enabled);
         }
 
         async function loadYtdlpVersion() {

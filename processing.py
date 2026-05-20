@@ -314,9 +314,12 @@ def process_album_download(album_id, force=False):
 
         # Fetch cover art before sending the download_started
         # notification so the artwork can render in Telegram (sendPhoto)
-        # and Discord (embed thumbnail).
+        # and Discord (embed thumbnail). cover_data is kept in memory for
+        # ID3 embedding/notifications even when on-disk cover.jpg is
+        # disabled.
         cover_data = get_itunes_artwork(artist_name, album_title)
-        if cover_data:
+        save_cover_file = load_config().get("save_cover_art_file", True)
+        if cover_data and save_cover_file:
             try:
                 with open(os.path.join(album_path, "cover.jpg"), "wb") as f:
                     f.write(cover_data)

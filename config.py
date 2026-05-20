@@ -26,7 +26,7 @@ ALLOWED_CONFIG_KEYS = {
     "discord_enabled", "discord_webhook_url", "discord_log_types",
     "acoustid_enabled", "acoustid_api_key",
     "min_match_score", "audio_format", "audio_quality",
-    "lidarr_rename_after_import",
+    "lidarr_rename_after_import", "save_cover_art_file",
 }
 
 MIN_MATCH_SCORE_DEFAULT = 0.8
@@ -126,6 +126,9 @@ def load_config():
         "audio_quality": os.getenv("AUDIO_QUALITY", "320"),
         "lidarr_rename_after_import": (
             os.getenv("LIDARR_RENAME_AFTER_IMPORT", "false").lower() == "true"
+        ),
+        "save_cover_art_file": (
+            os.getenv("SAVE_COVER_ART_FILE", "true").lower() == "true"
         ),
         "path_conflict": False,
     }
