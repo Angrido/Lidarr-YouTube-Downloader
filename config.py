@@ -92,7 +92,7 @@ def load_config():
         "forbidden_words": [
             "remix", "cover", "mashup", "bootleg", "live", "dj mix",
             "karaoke", "slowed", "reverb", "nightcore", "sped up",
-            "instrumental", "acapella", "tribute",
+            "instrumental", "acapella", "tribute", "8d audio",
         ],
         "forbidden_words_custom": [],
         "duration_tolerance": int(os.getenv("DURATION_TOLERANCE", "10")),

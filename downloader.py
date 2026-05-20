@@ -206,7 +206,7 @@ def search_youtube_candidates(
     forbidden_words = list(config.get("forbidden_words", [
         "remix", "cover", "mashup", "bootleg", "live", "dj mix",
         "karaoke", "slowed", "reverb", "nightcore", "sped up",
-        "instrumental", "acapella", "tribute",
+        "instrumental", "acapella", "tribute", "8d audio",
     ]))
     for extra in config.get("forbidden_words_custom", []) or []:
         word = (extra or "").strip().lower()
