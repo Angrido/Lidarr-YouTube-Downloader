@@ -203,11 +203,15 @@ def search_youtube_candidates(
         "extract_flat": True,
     }
 
-    forbidden_words = config.get("forbidden_words", [
+    forbidden_words = list(config.get("forbidden_words", [
         "remix", "cover", "mashup", "bootleg", "live", "dj mix",
         "karaoke", "slowed", "reverb", "nightcore", "sped up",
         "instrumental", "acapella", "tribute",
-    ])
+    ]))
+    for extra in config.get("forbidden_words_custom", []) or []:
+        word = (extra or "").strip().lower()
+        if word and word not in forbidden_words:
+            forbidden_words.append(word)
     duration_tolerance = config.get("duration_tolerance", 15)
 
     expected_duration_sec = None

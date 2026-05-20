@@ -773,6 +773,19 @@
             </div>
             <div class="input-group">
                 <label>
+                    Custom Forbidden Words
+                    <div class="label-description">Add your own words to filter out (e.g. "8D-Audio", "slowed and reverb"). Matched against the YouTube title using the same rules as the built-in list.</div>
+                </label>
+                <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                    <input type="text" id="customForbiddenInput" placeholder="Type a word and press Enter" style="flex: 1;" onkeydown="if(event.key==='Enter'){event.preventDefault();addCustomForbiddenWord();}">
+                    <button type="button" class="btn" onclick="addCustomForbiddenWord()" style="white-space: nowrap;">
+                        <i class="fa-solid fa-plus"></i> Add
+                    </button>
+                </div>
+                <div id="customForbiddenList" style="display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem;"></div>
+            </div>
+            <div class="input-group">
+                <label>
                     Duration Tolerance (seconds)
                     <div class="label-description">Allowed difference between track duration and YouTube video length.
                         Recommended: 5-15 seconds.</div>
@@ -1055,6 +1068,8 @@
                 }
             });
 
+            renderCustomForbiddenWords(conf.forbidden_words_custom || []);
+
             document.getElementById('durationTolerance').value = conf.duration_tolerance || 10;
             document.getElementById('minMatchScore').value = conf.min_match_score != null ? conf.min_match_score : 0.8;
             document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
@@ -1300,6 +1315,7 @@
                     download_path: document.getElementById('downloadPath').value,
                     lidarr_path: document.getElementById('lidarrPath').value,
                     forbidden_words: forbiddenWords,
+                    forbidden_words_custom: getCustomForbiddenWords(),
                     duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10,
                     min_match_score: parseFloat(document.getElementById('minMatchScore').value) || 0.8,
                     concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
@@ -1331,6 +1347,46 @@
         }
         updateQueueBadge();
         setInterval(updateQueueBadge, 5000);
+
+        function getCustomForbiddenWords() {
+            return Array.from(
+                document.querySelectorAll('#customForbiddenList [data-word]')
+            ).map(el => el.dataset.word);
+        }
+
+        function renderCustomForbiddenWords(words) {
+            const list = document.getElementById('customForbiddenList');
+            list.innerHTML = '';
+            (words || []).forEach(w => appendCustomForbiddenChip(w));
+        }
+
+        function appendCustomForbiddenChip(word) {
+            const list = document.getElementById('customForbiddenList');
+            const chip = document.createElement('span');
+            chip.dataset.word = word;
+            chip.style.cssText = 'display:inline-flex;align-items:center;gap:0.4rem;padding:0.35rem 0.7rem;background:var(--bg);border:1px solid var(--border);border-radius:999px;font-size:0.9rem;';
+            const label = document.createElement('span');
+            label.textContent = word;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.innerHTML = '&times;';
+            btn.title = 'Remove';
+            btn.style.cssText = 'background:none;border:none;color:var(--text-muted,#888);cursor:pointer;font-size:1.1rem;line-height:1;padding:0;';
+            btn.onclick = () => chip.remove();
+            chip.appendChild(label);
+            chip.appendChild(btn);
+            list.appendChild(chip);
+        }
+
+        function addCustomForbiddenWord() {
+            const input = document.getElementById('customForbiddenInput');
+            const raw = (input.value || '').trim().toLowerCase();
+            if (!raw) return;
+            const existing = new Set(getCustomForbiddenWords());
+            if (!existing.has(raw)) appendCustomForbiddenChip(raw);
+            input.value = '';
+            input.focus();
+        }
 
         function saveAudioFormat(val) {
             fetch('/api/config', {

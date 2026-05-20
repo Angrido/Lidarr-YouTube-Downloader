@@ -17,7 +17,8 @@ _file_write_lock = threading.Lock()
 ALLOWED_CONFIG_KEYS = {
     "scheduler_interval", "telegram_bot_token", "telegram_chat_id",
     "telegram_enabled", "telegram_log_types", "download_path",
-    "lidarr_path", "forbidden_words", "duration_tolerance",
+    "lidarr_path", "forbidden_words", "forbidden_words_custom",
+    "duration_tolerance",
     "scheduler_enabled", "scheduler_auto_download", "scheduler_max_albums",
     "xml_metadata_enabled", "concurrent_tracks", "yt_cookies_file", "yt_force_ipv4",
     "yt_player_client", "yt_retries", "yt_fragment_retries",
@@ -88,6 +89,7 @@ def load_config():
             "karaoke", "slowed", "reverb", "nightcore", "sped up",
             "instrumental", "acapella", "tribute",
         ],
+        "forbidden_words_custom": [],
         "duration_tolerance": int(os.getenv("DURATION_TOLERANCE", "10")),
         "concurrent_tracks": int(os.getenv("CONCURRENT_TRACKS", "2")),
         "yt_cookies_file": os.getenv("YT_COOKIES_FILE", ""),
