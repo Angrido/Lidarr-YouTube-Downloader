@@ -286,7 +286,17 @@ def process_album_download(album_id, force=False):
 
         album_mbid = album.get("foreignAlbumId", "")
 
-        sanitized_artist = sanitize_filename(artist_name)
+        # Prefer the artist folder name Lidarr actually uses (basename of
+        # its artist.path) so chars like "/" survive as "+" instead of
+        # being stripped — e.g. K/DA stays "K+DA" matching Lidarr and
+        # avoids duplicate "KDA" folders.
+        lidarr_artist_path_field = album["artist"].get("path", "") or ""
+        lidarr_artist_folder = os.path.basename(
+            lidarr_artist_path_field.rstrip("/\\")
+        )
+        sanitized_artist = (
+            lidarr_artist_folder or sanitize_filename(artist_name)
+        )
         sanitized_album = sanitize_filename(album_title)
 
         artist_path = os.path.join(DOWNLOAD_DIR, sanitized_artist)
