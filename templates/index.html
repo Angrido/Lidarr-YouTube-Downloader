@@ -3236,8 +3236,13 @@
         showSkeletonLoading();
         if (forceSync) {
           try {
-            await fetch("/api/sync/refresh", { method: "POST" });
-            await waitForSyncIdle(60000);
+            const refreshRes = await fetch("/api/sync/refresh", {
+              method: "POST",
+            });
+            const refreshData = await refreshRes.json();
+            await waitForSyncIdle(60000, {
+              requireRunning: !!refreshData.started,
+            });
           } catch (e) {
             // Fall through and read whatever the cache has.
           }
@@ -3248,7 +3253,9 @@
         updateStats();
       }
 
-      async function waitForSyncIdle(timeoutMs) {
+      async function waitForSyncIdle(timeoutMs, opts) {
+        const requireRunning = !!(opts && opts.requireRunning);
+        let sawRunning = false;
         const start = Date.now();
         // Poll /api/sync/status until the worker reports it's done
         // (or the timeout elapses). Errors fall back to reading
@@ -3257,7 +3264,11 @@
           try {
             const r = await fetch("/api/sync/status");
             const s = await r.json();
-            if (s.status && s.status !== "running") return;
+            if (s.status === "running") {
+              sawRunning = true;
+            } else if (s.status && (!requireRunning || sawRunning)) {
+              return;
+            }
           } catch (e) {
             return;
           }
