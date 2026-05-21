@@ -953,6 +953,36 @@
 
         <div class="settings-section">
             <div class="section-header">
+                <i class="fa-solid fa-cookie-bite"></i>
+                <h2>YouTube Cookies</h2>
+            </div>
+            <div class="input-group">
+                <label for="ytCookiesFile">
+                    Cookies File Path
+                    <div class="label-description">Absolute path inside the container to a Netscape-format <code>cookies.txt</code>. Required when YouTube asks for sign-in or returns 403. Upload below to write to <code>/config/cookies.txt</code> automatically.</div>
+                </label>
+                <input type="text" id="ytCookiesFile" placeholder="/config/cookies.txt">
+            </div>
+            <div class="input-group">
+                <label>
+                    Upload cookies.txt
+                    <div class="label-description">Pick a Netscape-format cookies.txt exported from your browser (e.g. "Get cookies.txt LOCALLY" extension). It will be saved to <code>/config/cookies.txt</code> and the path above will be set automatically.</div>
+                </label>
+                <input type="file" id="cookiesUploadInput" accept=".txt,text/plain" style="margin-bottom:0.5rem;">
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                    <button type="button" class="btn" onclick="uploadCookies()">
+                        <i class="fa-solid fa-upload"></i> Upload
+                    </button>
+                    <button type="button" class="btn" onclick="testCookies()">
+                        <i class="fa-solid fa-vial"></i> Test Cookies
+                    </button>
+                </div>
+                <div id="cookiesStatus" style="margin-top:0.75rem; font-size:0.85rem; color:var(--muted);"></div>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="section-header">
                 <i class="fa-solid fa-download"></i>
                 <h2>yt-dlp Engine</h2>
             </div>
@@ -1231,6 +1261,9 @@
             document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
             document.getElementById('audioFormatSelect').value = conf.audio_format || 'mp3';
             document.getElementById('audioQualitySelect').value = String(conf.audio_quality || '320');
+            const ytCookiesInput = document.getElementById('ytCookiesFile');
+            if (ytCookiesInput) ytCookiesInput.value = conf.yt_cookies_file || '';
+            refreshCookiesStatus();
 
             document.getElementById('discordWebhook').value = conf.discord_webhook_url || '';
             const discordLogTypes = conf.discord_log_types || [];
@@ -1512,6 +1545,7 @@
                     concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
                     audio_format: document.getElementById('audioFormatSelect').value || 'mp3',
                     audio_quality: document.getElementById('audioQualitySelect').value || '320',
+                    yt_cookies_file: (document.getElementById('ytCookiesFile').value || '').trim(),
                     acoustid_api_key: document.getElementById('acoustidApiKey').value
                 })
             });
@@ -1623,6 +1657,78 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({audio_format: val})
             });
+        }
+
+        function setCookiesStatus(text, kind) {
+            const el = document.getElementById('cookiesStatus');
+            if (!el) return;
+            const palette = {
+                ok: 'var(--primary)',
+                err: '#ef4444',
+                info: 'var(--muted)'
+            };
+            el.style.color = palette[kind] || palette.info;
+            el.textContent = text;
+        }
+
+        async function refreshCookiesStatus() {
+            try {
+                const r = await fetch('/api/cookies/status');
+                const s = await r.json();
+                if (!s.configured) {
+                    setCookiesStatus('No cookies file configured.', 'info');
+                    return;
+                }
+                if (!s.exists) {
+                    setCookiesStatus(`Configured path does not exist: ${s.path}`, 'err');
+                    return;
+                }
+                const kb = s.size ? (s.size / 1024).toFixed(1) : '?';
+                setCookiesStatus(`Active: ${s.path} (${kb} KB)`, 'ok');
+            } catch (e) {
+                setCookiesStatus('Could not read cookies status.', 'err');
+            }
+        }
+
+        async function uploadCookies() {
+            const input = document.getElementById('cookiesUploadInput');
+            if (!input || !input.files || !input.files[0]) {
+                setCookiesStatus('Pick a cookies.txt file first.', 'err');
+                return;
+            }
+            const fd = new FormData();
+            fd.append('file', input.files[0]);
+            setCookiesStatus('Uploading...', 'info');
+            try {
+                const r = await fetch('/api/cookies/upload', { method: 'POST', body: fd });
+                const j = await r.json();
+                if (!j.success) {
+                    setCookiesStatus('Upload failed: ' + (j.message || 'unknown error'), 'err');
+                    return;
+                }
+                const ytCookiesInput = document.getElementById('ytCookiesFile');
+                if (ytCookiesInput) ytCookiesInput.value = j.path;
+                clearSettingsDirty();
+                setCookiesStatus(`Saved to ${j.path}. Testing...`, 'info');
+                await testCookies();
+            } catch (e) {
+                setCookiesStatus('Upload failed: ' + e, 'err');
+            }
+        }
+
+        async function testCookies() {
+            setCookiesStatus('Testing cookies against YouTube...', 'info');
+            try {
+                const r = await fetch('/api/cookies/test', { method: 'POST' });
+                const j = await r.json();
+                if (j.success) {
+                    setCookiesStatus(j.message || 'OK', 'ok');
+                } else {
+                    setCookiesStatus(j.message || 'Test failed', 'err');
+                }
+            } catch (e) {
+                setCookiesStatus('Test failed: ' + e, 'err');
+            }
         }
 
     </script>

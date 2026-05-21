@@ -57,7 +57,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.7.5"
+VERSION = "1.7.6"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -207,6 +207,140 @@ def api_sync_status():
 def api_sync_refresh():
     started = lidarr_sync.trigger_sync()
     return jsonify({"started": started})
+
+
+COOKIES_PATH = "/config/cookies.txt"
+COOKIES_MAX_BYTES = 2 * 1024 * 1024
+
+
+def _looks_like_netscape_cookies(content):
+    """Best-effort sniff for Netscape-format cookies.txt."""
+    if not content:
+        return False
+    head = content[:512].lstrip()
+    if head.startswith("# Netscape HTTP Cookie File"):
+        return True
+    # Some browser exporters drop the header; accept tab-separated
+    # rows with a domain in the first column too.
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 7 and "." in parts[0]:
+            return True
+        break
+    return False
+
+
+@app.route("/api/cookies/upload", methods=["POST"])
+def api_cookies_upload():
+    if "file" not in request.files:
+        return jsonify({"success": False, "message": "No file uploaded"}), 400
+    file = request.files["file"]
+    raw = file.read()
+    if not raw:
+        return jsonify({"success": False, "message": "Uploaded file is empty"}), 400
+    if len(raw) > COOKIES_MAX_BYTES:
+        return jsonify(
+            {"success": False, "message": "Cookies file too large (>2MB)"}
+        ), 400
+    try:
+        content = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return jsonify(
+            {"success": False, "message": "Cookies file must be UTF-8 text"}
+        ), 400
+    if not _looks_like_netscape_cookies(content):
+        return jsonify(
+            {
+                "success": False,
+                "message": (
+                    "File does not look like a Netscape cookies.txt."
+                    " Export from your browser with a 'Get cookies.txt' extension."
+                ),
+            }
+        ), 400
+    try:
+        os.makedirs(os.path.dirname(COOKIES_PATH), exist_ok=True)
+        with open(COOKIES_PATH, "w", encoding="utf-8") as f:
+            f.write(content)
+        try:
+            os.chmod(COOKIES_PATH, 0o600)
+        except OSError:
+            pass
+    except OSError as e:
+        return jsonify(
+            {"success": False, "message": f"Failed to write cookies file: {e}"}
+        ), 500
+    cfg = load_config()
+    cfg["yt_cookies_file"] = COOKIES_PATH
+    save_config(cfg)
+    return jsonify({"success": True, "path": COOKIES_PATH, "size": len(raw)})
+
+
+@app.route("/api/cookies/status")
+def api_cookies_status():
+    cfg = load_config()
+    path = (cfg.get("yt_cookies_file") or "").strip()
+    if not path:
+        return jsonify({"configured": False, "exists": False, "path": ""})
+    exists = os.path.exists(path)
+    info = {"configured": True, "exists": exists, "path": path}
+    if exists:
+        try:
+            info["size"] = os.path.getsize(path)
+            info["mtime"] = int(os.path.getmtime(path))
+        except OSError:
+            pass
+    return jsonify(info)
+
+
+@app.route("/api/cookies/test", methods=["POST"])
+def api_cookies_test():
+    """Probe YouTube with the configured cookies file.
+
+    Resolves a known video so we can tell whether yt-dlp can extract
+    media (200 OK with formats) vs. is being blocked (403, cookies
+    invalid, login required, etc.).
+    """
+    cfg = load_config()
+    path = (cfg.get("yt_cookies_file") or "").strip()
+    if not path:
+        return jsonify({"success": False, "message": "No cookies file configured"})
+    if not os.path.exists(path):
+        return jsonify(
+            {"success": False, "message": f"Cookies file not found: {path}"}
+        )
+    try:
+        import yt_dlp
+        ydl_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "skip_download": True,
+            "cookiefile": path,
+            "extract_flat": False,
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # "Me at the zoo" - first YouTube video, never region-locked.
+            info = ydl.extract_info(
+                "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+                download=False,
+            )
+        formats = info.get("formats") or []
+        if not formats:
+            return jsonify(
+                {"success": False, "message": "yt-dlp returned no formats"}
+            )
+        return jsonify(
+            {
+                "success": True,
+                "message": f"OK ({len(formats)} formats available)",
+            }
+        )
+    except Exception as e:
+        msg = str(e)
+        return jsonify({"success": False, "message": msg[:240]})
 
 
 @app.route("/api/album/<int:album_id>")

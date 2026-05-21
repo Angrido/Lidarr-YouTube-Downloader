@@ -110,6 +110,21 @@ def _is_official_channel(channel_name, artist_name):
     return False
 
 
+def _is_topic_channel(channel_name, artist_name):
+    """True for YouTube's auto-generated "<Artist> - Topic" channels.
+
+    Topic channels host the same masters Lidarr already pulls metadata
+    for, so they're the highest-quality, most canonical source.
+    """
+    if not channel_name:
+        return False
+    ch = channel_name.lower().strip()
+    ar = artist_name.lower().strip()
+    if not ar:
+        return False
+    return ch.endswith("- topic") and ar in ch
+
+
 def _check_forbidden(yt_title_lower, track_title_lower, forbidden_list):
     """Check if a YouTube title contains a forbidden word.
 
@@ -233,7 +248,14 @@ def search_youtube_candidates(
         base_artist = artist_part
 
     added = {query}
-    search_queries = [query]
+    # Front-load Topic/official-channel queries so we lock onto the
+    # canonical master before falling back to user uploads (see #58).
+    search_queries = [
+        f"{base_artist} - Topic {base_track}",
+        f'"{base_artist}" {base_track} official audio',
+        query,
+    ]
+    added.update(search_queries)
 
     for candidate_q in [
         f"{base_artist} - {base_track}",
@@ -321,10 +343,12 @@ def search_youtube_candidates(
                         entry.get("title", ""),
                         track_title_original, base_artist,
                     )
-                    official_bonus = (
-                        0.15 if _is_official_channel(channel, base_artist)
-                        else 0.0
-                    )
+                    if _is_topic_channel(channel, base_artist):
+                        official_bonus = 0.45
+                    elif _is_official_channel(channel, base_artist):
+                        official_bonus = 0.30
+                    else:
+                        official_bonus = 0.0
                     view_score = 0.0
                     if view_count > 0:
                         view_score = min(
@@ -374,20 +398,30 @@ def download_youtube_candidate(
     audio_format = config.get("audio_format", "mp3")
     audio_quality = str(config.get("audio_quality", "320"))
 
-    # Format-specific selector: prefer the native codec to avoid
-    # lossy-to-lossy transcoding (e.g. Opus->AAC), which is the main
-    # cause of "tin can" audio. FFmpegExtractAudio stream-copies when
-    # the source codec already matches preferredcodec.
+    # Format-specific selector chain. Each entry is tried in order; if
+    # yt-dlp reports "Requested format is not available" we fall through
+    # to the next, broader selector. The final entry must always match
+    # something downloadable. (See issue #64.)
     if audio_format == "m4a":
-        format_selector = (
-            "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio/best"
-        )
+        format_selectors = [
+            "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]",
+            "bestaudio",
+            "bestaudio/best",
+            "best",
+        ]
     elif audio_format == "opus":
-        format_selector = (
-            "bestaudio[acodec=opus]/bestaudio[ext=webm]/bestaudio/best"
-        )
+        format_selectors = [
+            "bestaudio[acodec=opus]/bestaudio[ext=webm]",
+            "bestaudio",
+            "bestaudio/best",
+            "best",
+        ]
     else:  # mp3 always requires transcoding
-        format_selector = "bestaudio/best"
+        format_selectors = [
+            "bestaudio/best",
+            "bestaudio",
+            "best",
+        ]
 
     first_client = config.get("yt_player_client", "android")
     clients_to_try = []
@@ -400,48 +434,75 @@ def download_youtube_candidate(
 
     last_err = None
     any_403 = False
+    format_unavailable_errors = 0
     for pc in clients_to_try:
         if skip_check and skip_check():
             return {"skipped": True}
-        ydl_opts_download = {
-            **_build_common_opts(player_client=pc),
-            "format": format_selector,
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": audio_format,
-                    "preferredquality": audio_quality,
-                }
-            ],
-            "outtmpl": output_path,
-        }
-        if progress_hook:
-            ydl_opts_download["progress_hooks"] = [progress_hook]
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
-                ydl_dl.download([candidate["url"]])
-            return {
-                "success": True,
-                "youtube_url": candidate["url"],
-                "youtube_title": candidate["title"],
-                "match_score": round(candidate["score"], 4),
-                "duration_seconds": int(candidate["duration"]),
+        # Walk the selector chain, broadening on "format not available".
+        for sel_idx, selector in enumerate(format_selectors):
+            if skip_check and skip_check():
+                return {"skipped": True}
+            ydl_opts_download = {
+                **_build_common_opts(player_client=pc),
+                "format": selector,
+                "postprocessors": [
+                    {
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": audio_format,
+                        "preferredquality": audio_quality,
+                    }
+                ],
+                "outtmpl": output_path,
             }
-        except Exception as e:
-            last_err = e
-            msg = str(e)
-            if "403" in msg:
-                any_403 = True
+            # On the broadest fallback drop format_sort: some
+            # transient streams have no abr/asr metadata and the
+            # sort can cause yt-dlp to reject otherwise-usable
+            # formats with "Requested format is not available".
+            if sel_idx == len(format_selectors) - 1:
+                ydl_opts_download.pop("format_sort", None)
+            if progress_hook:
+                ydl_opts_download["progress_hooks"] = [progress_hook]
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
+                    ydl_dl.download([candidate["url"]])
+                return {
+                    "success": True,
+                    "youtube_url": candidate["url"],
+                    "youtube_title": candidate["title"],
+                    "match_score": round(candidate["score"], 4),
+                    "duration_seconds": int(candidate["duration"]),
+                }
+            except Exception as e:
+                last_err = e
+                msg = str(e)
+                msg_low = msg.lower()
+                if "403" in msg:
+                    any_403 = True
+                    logger.debug(
+                        f"   403 with player_client={pc or 'default'};"
+                        " ensure cookies are provided"
+                        " (YT_COOKIES_FILE) and try again"
+                    )
+                    # 403 won't be fixed by changing format selector,
+                    # break to next client.
+                    break
+                if (
+                    "requested format is not available" in msg_low
+                    or "no video formats" in msg_low
+                ):
+                    format_unavailable_errors += 1
+                    logger.debug(
+                        "   Format '%s' not available with player_client=%s;"
+                        " falling back to next selector",
+                        selector, pc or "default",
+                    )
+                    continue
                 logger.debug(
-                    f"   403 with player_client={pc or 'default'};"
-                    " ensure cookies are provided"
-                    " (YT_COOKIES_FILE) and try again"
+                    f"   Failed with player_client={pc or 'default'}"
+                    f" selector='{selector}'; {msg[:180]}"
                 )
-            else:
-                logger.debug(
-                    f"   Failed with player_client={pc or 'default'};"
-                    f" {msg[:180]}"
-                )
+                # Unknown error: try next client rather than next selector.
+                break
 
     if last_err:
         logger.debug(
@@ -456,6 +517,14 @@ def download_youtube_candidate(
             "error_message": (
                 "HTTP 403 Forbidden"
                 " - try providing/refreshing YouTube cookies"
+            ),
+        }
+    if format_unavailable_errors and "requested format" in last_error_msg.lower():
+        return {
+            "success": False,
+            "error_message": (
+                "No downloadable audio format available for this video."
+                " YouTube may require cookies — set yt_cookies_file in settings."
             ),
         }
     return {
