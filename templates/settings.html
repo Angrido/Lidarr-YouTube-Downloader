@@ -978,6 +978,50 @@
 
         <div class="settings-section">
             <div class="section-header">
+                <i class="fa-solid fa-cookie-bite"></i>
+                <h2>YouTube Cookies</h2>
+            </div>
+            <div class="input-group">
+                <label>
+                    Cookies Status
+                    <div class="label-description">Required if YouTube asks for sign-in. Export cookies from your browser using a browser extension (e.g. "Get cookies.txt LOCALLY") while logged in to YouTube.</div>
+                </label>
+                <div id="cookiesStatus" style="display:flex; align-items:center; gap:0.75rem; padding:0.75rem 1rem; background:var(--bg); border:1px solid var(--border); border-radius:10px; margin-top:0.25rem;">
+                    <span id="cookiesStatusDot" style="width:10px;height:10px;border-radius:50%;background:#71717a;flex-shrink:0;"></span>
+                    <span id="cookiesStatusText" style="font-size:0.85rem;color:var(--text-dim);">Checking...</span>
+                </div>
+            </div>
+            <div class="input-group">
+                <label>
+                    Cookies File Path
+                    <div class="label-description">Absolute path inside the container to a Netscape cookies.txt file. When you upload a file below it is automatically saved to <code>/config/cookies.txt</code> and this field is updated.</div>
+                </label>
+                <div style="display:flex;gap:0.5rem;align-items:center;">
+                    <input type="text" id="cookiesFilePath" placeholder="/config/cookies.txt" style="flex:1;">
+                    <button class="btn" onclick="saveCookiesPath()" style="padding:0.5rem 1rem;font-size:0.85rem;white-space:nowrap;width:auto;">
+                        <i class="fa-solid fa-floppy-disk"></i> Save Path
+                    </button>
+                </div>
+            </div>
+            <div class="input-group">
+                <label>
+                    Upload cookies.txt
+                    <div class="label-description">Upload a Netscape-format cookies.txt file. It will be saved to <code>/config/cookies.txt</code> inside the container.</div>
+                </label>
+                <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                    <input type="file" id="cookiesFileInput" accept=".txt,text/plain" style="display:none;" onchange="uploadCookiesFile(this)">
+                    <button class="btn" onclick="document.getElementById('cookiesFileInput').click()" style="padding:0.5rem 1rem;font-size:0.85rem;white-space:nowrap;width:auto;">
+                        <i class="fa-solid fa-upload"></i> Upload cookies.txt
+                    </button>
+                    <button class="btn" id="deleteCookiesBtn" onclick="deleteCookies()" style="padding:0.5rem 1rem;font-size:0.85rem;white-space:nowrap;width:auto;background:rgba(239,68,68,0.15);border-color:rgba(239,68,68,0.3);color:#ef4444;" title="Remove cookies file and clear the configured path">
+                        <i class="fa-solid fa-trash"></i> Remove Cookies
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="section-header">
                 <i class="fa-brands fa-telegram"></i>
                 <h2>Telegram Notifications</h2>
             </div>
@@ -1255,9 +1299,86 @@
                     ? conf.scheduler_retry_after_hours
                     : 24
             );
+            document.getElementById('cookiesFilePath').value = conf.yt_cookies_file || '';
             // Defer clearing so any change events from programmatic
             // assignments above don't immediately re-mark dirty.
             setTimeout(() => { _suppressDirty = false; clearSettingsDirty(); }, 0);
+            loadCookiesStatus();
+        }
+
+        async function loadCookiesStatus() {
+            try {
+                const res = await fetch('/api/cookies/check');
+                const data = await res.json();
+                const dot = document.getElementById('cookiesStatusDot');
+                const text = document.getElementById('cookiesStatusText');
+                if (!data.configured) {
+                    dot.style.background = '#71717a';
+                    text.textContent = 'No cookies configured — YouTube may block downloads';
+                    text.style.color = 'var(--text-dim)';
+                } else if (data.exists) {
+                    dot.style.background = '#10b981';
+                    const kb = Math.round(data.size / 1024);
+                    text.textContent = `Cookies loaded: ${data.path} (${kb} KB)`;
+                    text.style.color = '#10b981';
+                } else {
+                    dot.style.background = '#ef4444';
+                    text.textContent = `File not found: ${data.path}`;
+                    text.style.color = '#ef4444';
+                }
+            } catch {
+                document.getElementById('cookiesStatusText').textContent = 'Error checking cookies status';
+            }
+        }
+
+        async function saveCookiesPath() {
+            const path = document.getElementById('cookiesFilePath').value.trim();
+            const res = await fetch('/api/config', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({yt_cookies_file: path}),
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast('success', 'Saved', 'Cookies file path updated');
+                loadCookiesStatus();
+            } else {
+                showToast('error', 'Save Failed', 'Could not save cookies path');
+            }
+        }
+
+        async function uploadCookiesFile(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const res = await fetch('/api/cookies/upload', {method: 'POST', body: formData});
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('cookiesFilePath').value = data.path;
+                    showToast('success', 'Cookies Uploaded', `Saved to ${data.path}`);
+                    loadCookiesStatus();
+                } else {
+                    showToast('error', 'Upload Failed', data.message || 'Unknown error');
+                }
+            } catch {
+                showToast('error', 'Upload Failed', 'Network error');
+            }
+            input.value = '';
+        }
+
+        async function deleteCookies() {
+            if (!confirm('Remove the cookies file and clear the configured path?')) return;
+            const res = await fetch('/api/cookies/delete', {method: 'POST'});
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('cookiesFilePath').value = '';
+                showToast('success', 'Cookies Removed', 'Cookies file deleted and path cleared');
+                loadCookiesStatus();
+            } else {
+                showToast('error', 'Remove Failed', data.message || 'Unknown error');
+            }
         }
 
         function updateSchedulerBtn(enabled) {

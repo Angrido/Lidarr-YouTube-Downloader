@@ -818,6 +818,73 @@ def api_cover_art_toggle():
     return jsonify({"enabled": config["save_cover_art_file"]})
 
 
+COOKIES_UPLOAD_PATH = "/config/cookies.txt"
+
+
+@app.route("/api/cookies/check", methods=["GET"])
+def api_cookies_check():
+    config = load_config()
+    cookies_path = (config.get("yt_cookies_file") or "").strip()
+    if not cookies_path:
+        return jsonify({"configured": False, "exists": False, "path": ""})
+    exists = os.path.exists(cookies_path)
+    size = os.path.getsize(cookies_path) if exists else 0
+    return jsonify({"configured": True, "exists": exists, "path": cookies_path, "size": size})
+
+
+@app.route("/api/cookies/upload", methods=["POST"])
+def api_cookies_upload():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"cookies_upload:{client_ip}", rate_limit_store, window=30, max_requests=5
+    ):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
+    if "file" not in request.files:
+        return jsonify({"success": False, "message": "No file provided"}), 400
+    file = request.files["file"]
+    if not file.filename:
+        return jsonify({"success": False, "message": "No file selected"}), 400
+    try:
+        content = file.read()
+        text = content.decode("utf-8")
+    except (UnicodeDecodeError, OSError) as e:
+        return jsonify({"success": False, "message": f"Could not read file: {e}"}), 400
+    if not any(
+        line.strip().startswith("# Netscape HTTP Cookie File")
+        or "\t" in line
+        for line in text.splitlines()[:5]
+    ):
+        return jsonify(
+            {"success": False, "message": "File does not look like a Netscape cookies.txt"}
+        ), 400
+    try:
+        os.makedirs(os.path.dirname(COOKIES_UPLOAD_PATH), exist_ok=True)
+        with open(COOKIES_UPLOAD_PATH, "w", encoding="utf-8") as f:
+            f.write(text)
+    except OSError as e:
+        return jsonify({"success": False, "message": f"Could not save file: {e}"}), 500
+    config = load_config()
+    config["yt_cookies_file"] = COOKIES_UPLOAD_PATH
+    save_config(config)
+    logger.info("Cookies file uploaded and saved to %s", COOKIES_UPLOAD_PATH)
+    return jsonify({"success": True, "path": COOKIES_UPLOAD_PATH, "size": len(content)})
+
+
+@app.route("/api/cookies/delete", methods=["POST"])
+def api_cookies_delete():
+    config = load_config()
+    cookies_path = (config.get("yt_cookies_file") or "").strip()
+    if cookies_path and os.path.exists(cookies_path):
+        try:
+            os.remove(cookies_path)
+        except OSError as e:
+            return jsonify({"success": False, "message": f"Could not delete file: {e}"}), 500
+    config["yt_cookies_file"] = ""
+    save_config(config)
+    logger.info("Cookies file removed")
+    return jsonify({"success": True})
+
+
 @app.route("/api/youtube/search", methods=["POST"])
 def api_youtube_search():
     client_ip = request.remote_addr or "unknown"
@@ -842,6 +909,8 @@ def api_youtube_search():
     cookies_path = (config.get("yt_cookies_file") or "").strip()
     if cookies_path and os.path.exists(cookies_path):
         ydl_opts["cookiefile"] = cookies_path
+    elif cookies_path:
+        logger.warning("YouTube cookies file not found: %s", cookies_path)
     if config.get("yt_force_ipv4", True):
         ydl_opts["source_address"] = "0.0.0.0"
     pc = config.get("yt_player_client", "android")
@@ -942,6 +1011,8 @@ def api_youtube_stream():
         cookies_path = (config.get("yt_cookies_file") or "").strip()
         if cookies_path and os.path.exists(cookies_path):
             ydl_opts["cookiefile"] = cookies_path
+        elif cookies_path:
+            logger.warning("YouTube cookies file not found: %s", cookies_path)
         if config.get("yt_force_ipv4", True):
             ydl_opts["source_address"] = "0.0.0.0"
         pc = config.get("yt_player_client", "android")
@@ -1322,6 +1393,8 @@ def _build_ydl_opts(config, temp_file):
     cookies_path = (config.get("yt_cookies_file") or "").strip()
     if cookies_path and os.path.exists(cookies_path):
         opts["cookiefile"] = cookies_path
+    elif cookies_path:
+        logger.warning("YouTube cookies file not found: %s", cookies_path)
     if config.get("yt_force_ipv4", True):
         opts["source_address"] = "0.0.0.0"
     pc = config.get("yt_player_client", "android")
@@ -1908,6 +1981,8 @@ def api_youtube_playlist_info():
     cookies_path = (config.get("yt_cookies_file") or "").strip()
     if cookies_path and os.path.exists(cookies_path):
         ydl_opts["cookiefile"] = cookies_path
+    elif cookies_path:
+        logger.warning("YouTube cookies file not found: %s", cookies_path)
     if config.get("yt_force_ipv4", True):
         ydl_opts["source_address"] = "0.0.0.0"
     pc = config.get("yt_player_client", "android")
@@ -2755,6 +2830,22 @@ def _startup_ytdlp_update():
     _exec_restart()
 
 
+def _startup_cookies_check():
+    config = load_config()
+    cookies_path = (config.get("yt_cookies_file") or "").strip()
+    if not cookies_path:
+        logger.info("YouTube cookies: not configured")
+        return
+    if os.path.exists(cookies_path):
+        size = os.path.getsize(cookies_path)
+        logger.info("YouTube cookies: found at %s (%d bytes)", cookies_path, size)
+    else:
+        logger.warning(
+            "YouTube cookies: configured path does not exist: %s"
+            " — downloads will proceed without cookies", cookies_path
+        )
+
+
 if __name__ == "__main__":
     db.init_db()
     models.reset_downloading_to_queued()
@@ -2764,6 +2855,7 @@ if __name__ == "__main__":
         "Download directory: %s",
         DOWNLOAD_DIR if DOWNLOAD_DIR else "Not set (check DOWNLOAD_PATH env)",
     )
+    _startup_cookies_check()
     setup_scheduler()
     threading.Thread(target=run_scheduler, daemon=True).start()
     threading.Thread(target=process_download_queue, daemon=True).start()
