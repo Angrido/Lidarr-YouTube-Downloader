@@ -2622,7 +2622,7 @@
           <button class="btn btn-secondary" onclick="testConnection()">
             Check Connection
           </button>
-          <button class="btn btn-primary" onclick="loadAlbums()">
+          <button class="btn btn-primary" onclick="refreshLibrary()">
             Refresh Library
           </button>
           <button
@@ -3231,12 +3231,42 @@
         container.innerHTML = skeletons;
       }
 
-      async function loadAlbums() {
+      async function loadAlbums(opts) {
+        const forceSync = !!(opts && opts.forceSync);
         showSkeletonLoading();
+        if (forceSync) {
+          try {
+            await fetch("/api/sync/refresh", { method: "POST" });
+            await waitForSyncIdle(60000);
+          } catch (e) {
+            // Fall through and read whatever the cache has.
+          }
+        }
         const res = await fetch("/api/missing-albums");
         allAlbums = await res.json();
         applyFilters();
         updateStats();
+      }
+
+      async function waitForSyncIdle(timeoutMs) {
+        const start = Date.now();
+        // Poll /api/sync/status until the worker reports it's done
+        // (or the timeout elapses). Errors fall back to reading
+        // whatever is already in the cache.
+        while (Date.now() - start < timeoutMs) {
+          try {
+            const r = await fetch("/api/sync/status");
+            const s = await r.json();
+            if (s.status && s.status !== "running") return;
+          } catch (e) {
+            return;
+          }
+          await new Promise((res) => setTimeout(res, 1000));
+        }
+      }
+
+      function refreshLibrary() {
+        return loadAlbums({ forceSync: true });
       }
 
       async function updateStats() {

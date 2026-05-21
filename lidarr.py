@@ -4,6 +4,7 @@ Provides functions for communicating with the Lidarr API: making requests,
 fetching missing albums, and resolving release IDs.
 """
 
+import json
 import logging
 import time
 
@@ -27,8 +28,14 @@ def lidarr_request(endpoint, method="GET", data=None, params=None):
         Parsed JSON response as a dict, or {"error": "..."} on failure.
     """
     config = load_config()
-    url = f"{config['lidarr_url']}/api/v1/{endpoint}"
-    headers = {"X-Api-Key": config["lidarr_api_key"]}
+    base_url = (config.get("lidarr_url") or "").rstrip("/")
+    api_key = config.get("lidarr_api_key") or ""
+    if not base_url:
+        return {"error": "LIDARR_URL not configured"}
+    if not api_key:
+        return {"error": "LIDARR_API_KEY not configured"}
+    url = f"{base_url}/api/v1/{endpoint}"
+    headers = {"X-Api-Key": api_key}
     try:
         if method == "GET":
             r = requests.get(
@@ -38,14 +45,39 @@ def lidarr_request(endpoint, method="GET", data=None, params=None):
             r = requests.post(
                 url, headers=headers, json=data, timeout=30
             )
+        else:
+            return {"error": f"Unsupported HTTP method: {method}"}
         r.raise_for_status()
-        return r.json()
+        try:
+            return r.json()
+        except (ValueError, json.JSONDecodeError):
+            preview = (r.text or "")[:120].replace("\n", " ").strip()
+            ctype = r.headers.get("Content-Type", "unknown")
+            logger.warning(
+                "Lidarr returned non-JSON response (HTTP %d, content-type=%s) for %s: %r",
+                r.status_code, ctype, endpoint, preview,
+            )
+            return {
+                "error": (
+                    f"Lidarr returned a non-JSON response (HTTP {r.status_code})."
+                    " Check that LIDARR_URL points to Lidarr (not a reverse-proxy"
+                    " login page) and that LIDARR_API_KEY is correct."
+                )
+            }
     except requests.exceptions.ConnectionError as e:
         logger.warning("Cannot connect to Lidarr at %s: %s", url, e)
         return {"error": f"Cannot connect to Lidarr: {e}"}
     except requests.exceptions.Timeout:
         logger.warning("Lidarr request timed out: %s", endpoint)
         return {"error": "Lidarr request timed out"}
+    except requests.exceptions.HTTPError as e:
+        status = getattr(e.response, "status_code", "?")
+        logger.warning("Lidarr HTTP error %s on %s: %s", status, endpoint, e)
+        if status == 401:
+            return {"error": "Lidarr authentication failed (401). Check LIDARR_API_KEY."}
+        if status == 404:
+            return {"error": f"Lidarr endpoint not found (404): {endpoint}"}
+        return {"error": f"Lidarr HTTP {status}: {e}"}
     except Exception as e:
         logger.error("Unexpected error calling Lidarr %s: %s", endpoint, e)
         return {"error": str(e)}
