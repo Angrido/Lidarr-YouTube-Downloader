@@ -340,9 +340,7 @@ def search_youtube_candidates(
                     len(search_results.get("entries", []) or [])
                     if isinstance(search_results, dict) else 0
                 )
-                logger.info(
-                    f"   [{kind}] returned {entries_total} entries"
-                )
+                accepted_before = len(candidates)
                 for entry in search_results.get("entries", []):
                     title = entry.get("title", "").lower()
                     url = entry.get("url")
@@ -369,7 +367,8 @@ def search_youtube_candidates(
                             )
                             continue
 
-                    if expected_duration_sec:
+                    duration_known = bool(duration) and duration > 0
+                    if expected_duration_sec and duration_known:
                         min_dur = max(
                             15, expected_duration_sec - duration_tolerance
                         )
@@ -385,8 +384,12 @@ def search_youtube_candidates(
                         duration_score = max(
                             0, 1.0 - (dur_diff / max(duration_tolerance, 1))
                         )
+                    elif expected_duration_sec and not duration_known:
+                        # Music search returns flat entries without
+                        # duration; trust the search and score neutral.
+                        duration_score = 0.5
                     else:
-                        if duration < 15 or duration > 7200:
+                        if duration_known and (duration < 15 or duration > 7200):
                             continue
                         duration_score = 0.5
 
@@ -451,6 +454,10 @@ def search_youtube_candidates(
                         f" certainty={certainty_bonus:.2f}"
                         f" views={view_score:.3f})"
                     )
+                logger.info(
+                    f"   [{kind}] {entries_total} entries"
+                    f" -> {len(candidates) - accepted_before} accepted"
+                )
         except Exception as e:
             logger.error(f'   Search failed for "{sq}": {e}')
 

@@ -577,6 +577,36 @@ class TestTopicChannelForbiddenExemption:
         assert "remix_url" not in urls
 
 
+class TestFlatEntryWithoutDuration:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_ytmusic_entry_without_duration_still_accepted(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Pattern Index",
+                    "url": "v4GurmZYFwk",
+                    "duration": None,
+                    "channel": "Max Cooper - Topic",
+                    "view_count": 0,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Max Cooper Pattern Index official audio", "Pattern Index",
+            expected_duration_ms=381000,
+        )
+        assert any(c["url"] == "v4GurmZYFwk" for c in candidates)
+
+
 class TestCandidateDisplayUrl:
     def test_ytmusic_id_renders_music_url(self):
         c = {"url": "abc12345678", "source": "ytmusic"}
