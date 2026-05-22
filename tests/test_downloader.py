@@ -583,11 +583,12 @@ class TestTopicChannelForbiddenExemption:
 
 
 class TestYouTubeMusicSearch:
-    """ytmsearch query is issued before plain ytsearch. (Issue #58.)"""
+    """YouTube Music URL search is issued before plain ytsearch.
+    (Issue #58.)"""
 
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")
-    def test_ytmsearch_used_before_ytsearch(
+    def test_ytmusic_url_used_before_ytsearch(
         self, mock_config, mock_ydl_class,
     ):
         mock_config.return_value = {
@@ -601,16 +602,22 @@ class TestYouTubeMusicSearch:
             "Artist Track official audio", "Track",
             expected_duration_ms=200000,
         )
-        called_prefixes = [
-            call.args[0].split(":", 1)[0]
+        called_targets = [
+            call.args[0]
             for call in mock_ydl.extract_info.call_args_list
             if call.args
         ]
-        assert "ytmsearch15" in called_prefixes
-        # ytmsearch should appear before any ytsearch call
-        first_ytmsearch = called_prefixes.index("ytmsearch15")
-        first_ytsearch_indices = [
-            i for i, p in enumerate(called_prefixes) if p == "ytsearch15"
-        ]
-        if first_ytsearch_indices:
-            assert first_ytmsearch < first_ytsearch_indices[0]
+        # YouTube Music URL form goes first
+        first_ytmusic = next(
+            (i for i, t in enumerate(called_targets)
+             if t.startswith("https://music.youtube.com/search")),
+            -1,
+        )
+        first_ytsearch = next(
+            (i for i, t in enumerate(called_targets)
+             if t.startswith("ytsearch")),
+            -1,
+        )
+        assert first_ytmusic != -1
+        if first_ytsearch != -1:
+            assert first_ytmusic < first_ytsearch
