@@ -423,6 +423,7 @@ def search_youtube_candidates(
                             "duration": duration,
                             "channel": channel,
                             "score": total_score,
+                            "source": kind,
                         })
                         logger.debug(
                             f"   Candidate '{entry.get('title', '')}'"
@@ -440,6 +441,26 @@ def search_youtube_candidates(
     return candidates[:MAX_CANDIDATES]
 
 
+_VIDEO_ID_RE = re.compile(r"(?:v=|/)([0-9A-Za-z_-]{11})(?:[?&#]|$)")
+
+
+def _candidate_download_url(candidate):
+    raw = candidate.get("url", "")
+    source = candidate.get("source", "ytsearch")
+    if not raw:
+        return raw
+    if source == "ytmusic":
+        if "music.youtube.com" in raw:
+            return raw
+        match = _VIDEO_ID_RE.search(raw)
+        video_id = match.group(1) if match else (
+            raw if re.fullmatch(r"[0-9A-Za-z_-]{11}", raw) else None
+        )
+        if video_id:
+            return f"https://music.youtube.com/watch?v={video_id}"
+    return raw
+
+
 def download_youtube_candidate(
     candidate, output_path, progress_hook=None, skip_check=None,
 ):
@@ -449,6 +470,7 @@ def download_youtube_candidate(
     config = load_config()
     audio_format = config.get("audio_format", "mp3")
     audio_quality = str(config.get("audio_quality", "320"))
+    download_url = _candidate_download_url(candidate)
 
     # Ordered from strictest to broadest. Trailing "" lets yt-dlp pick
     # its default, covering HLS-only / live / unusual streams.
@@ -480,11 +502,20 @@ def download_youtube_candidate(
         ]
 
     first_client = config.get("yt_player_client", "android")
+    is_music = candidate.get("source") == "ytmusic"
     clients_to_try = []
     if first_client:
         clients_to_try.append(first_client)
+    # Music-specific clients reach the YouTube Music endpoint, which
+    # tends to expose higher-bitrate opus/m4a and honors cookies more
+    # reliably than the bare android client.
+    if is_music:
+        music_clients = ["web_music", "android_music", "ios_music"]
+        for c in music_clients:
+            if c not in clients_to_try:
+                clients_to_try.append(c)
     for alt in ["web", "ios", "web_creator", "tv_embedded"]:
-        if alt != first_client:
+        if alt not in clients_to_try:
             clients_to_try.append(alt)
     clients_to_try.append(None)
 
@@ -520,10 +551,10 @@ def download_youtube_candidate(
                 ydl_opts_download["progress_hooks"] = [progress_hook]
             try:
                 with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
-                    ydl_dl.download([candidate["url"]])
+                    ydl_dl.download([download_url])
                 return {
                     "success": True,
-                    "youtube_url": candidate["url"],
+                    "youtube_url": download_url,
                     "youtube_title": candidate["title"],
                     "match_score": round(candidate["score"], 4),
                     "duration_seconds": int(candidate["duration"]),

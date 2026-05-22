@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from downloader import (
+    _candidate_download_url,
     _check_forbidden,
     _is_official_channel,
     _title_similarity,
@@ -574,6 +575,99 @@ class TestTopicChannelForbiddenExemption:
         )
         urls = [c["url"] for c in candidates]
         assert "remix_url" not in urls
+
+
+class TestCandidateDownloadUrl:
+    def test_ytsearch_url_passes_through(self):
+        c = {"url": "https://www.youtube.com/watch?v=abc12345678", "source": "ytsearch"}
+        assert _candidate_download_url(c) == c["url"]
+
+    def test_ytsearch_bare_id_passes_through(self):
+        c = {"url": "abc12345678", "source": "ytsearch"}
+        assert _candidate_download_url(c) == "abc12345678"
+
+    def test_ytmusic_bare_id_routed_to_music_domain(self):
+        c = {"url": "abc12345678", "source": "ytmusic"}
+        assert _candidate_download_url(c) == (
+            "https://music.youtube.com/watch?v=abc12345678"
+        )
+
+    def test_ytmusic_youtube_url_rewritten(self):
+        c = {
+            "url": "https://www.youtube.com/watch?v=abc12345678",
+            "source": "ytmusic",
+        }
+        assert _candidate_download_url(c) == (
+            "https://music.youtube.com/watch?v=abc12345678"
+        )
+
+    def test_ytmusic_music_url_passes_through(self):
+        c = {
+            "url": "https://music.youtube.com/watch?v=abc12345678",
+            "source": "ytmusic",
+        }
+        assert _candidate_download_url(c) == c["url"]
+
+    def test_missing_source_defaults_to_ytsearch(self):
+        c = {"url": "https://www.youtube.com/watch?v=abc12345678"}
+        assert _candidate_download_url(c) == c["url"]
+
+    def test_empty_url_returns_empty(self):
+        assert _candidate_download_url({"url": "", "source": "ytmusic"}) == ""
+
+
+class TestMusicClientPriority:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_music_source_adds_music_clients(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android",
+            "audio_format": "m4a",
+            "audio_quality": "320",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception("Please sign in")
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "ytmusic",
+        }
+        download_youtube_candidate(candidate, "/tmp/out")
+        called_clients = []
+        for call in mock_ydl_class.call_args_list:
+            opts = call.args[0] if call.args else call.kwargs
+            extractor_args = opts.get("extractor_args", {}) if isinstance(opts, dict) else {}
+            yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+            pc = yt_args.get("player_client", [None])
+            called_clients.extend(pc if isinstance(pc, list) else [pc])
+        assert any("music" in str(c) for c in called_clients if c)
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_non_music_source_skips_music_clients(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android",
+            "audio_format": "m4a",
+            "audio_quality": "320",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception("Please sign in")
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "ytsearch",
+        }
+        download_youtube_candidate(candidate, "/tmp/out")
+        called_clients = []
+        for call in mock_ydl_class.call_args_list:
+            opts = call.args[0] if call.args else call.kwargs
+            extractor_args = opts.get("extractor_args", {}) if isinstance(opts, dict) else {}
+            yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+            pc = yt_args.get("player_client", [None])
+            called_clients.extend(pc if isinstance(pc, list) else [pc])
+        assert not any("music" in str(c) for c in called_clients if c)
 
 
 class TestYouTubeMusicSearch:
