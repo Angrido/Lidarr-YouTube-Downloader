@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from downloader import (
+    _candidate_display_url,
     _check_forbidden,
     _is_official_channel,
     _title_similarity,
@@ -574,6 +575,55 @@ class TestTopicChannelForbiddenExemption:
         )
         urls = [c["url"] for c in candidates]
         assert "remix_url" not in urls
+
+
+class TestCandidateDisplayUrl:
+    def test_ytmusic_id_renders_music_url(self):
+        c = {"url": "abc12345678", "source": "ytmusic"}
+        assert _candidate_display_url(c) == (
+            "https://music.youtube.com/watch?v=abc12345678"
+        )
+
+    def test_ytmusic_youtube_url_rewritten_to_music(self):
+        c = {
+            "url": "https://www.youtube.com/watch?v=abc12345678",
+            "source": "ytmusic",
+        }
+        assert _candidate_display_url(c) == (
+            "https://music.youtube.com/watch?v=abc12345678"
+        )
+
+    def test_ytsearch_id_renders_youtube_url(self):
+        c = {"url": "abc12345678", "source": "ytsearch"}
+        assert _candidate_display_url(c) == (
+            "https://www.youtube.com/watch?v=abc12345678"
+        )
+
+    def test_unknown_url_passes_through(self):
+        c = {"url": "not-a-yt-url", "source": "ytmusic"}
+        assert _candidate_display_url(c) == "not-a-yt-url"
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_download_result_records_music_url_for_ytmusic_candidate(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android",
+            "audio_format": "m4a",
+            "audio_quality": "320",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.return_value = 0
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "ytmusic",
+        }
+        result = download_youtube_candidate(candidate, "/tmp/out")
+        assert result["success"] is True
+        assert result["youtube_url"] == (
+            "https://music.youtube.com/watch?v=abc12345678"
+        )
 
 
 class TestMusicClientPriority:

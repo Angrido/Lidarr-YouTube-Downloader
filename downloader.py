@@ -444,6 +444,30 @@ def search_youtube_candidates(
     return candidates[:MAX_CANDIDATES]
 
 
+_VIDEO_ID_RE = re.compile(r"(?:v=|/)([0-9A-Za-z_-]{11})(?:[?&#]|$)")
+
+
+def _extract_video_id(url):
+    if not url:
+        return None
+    match = _VIDEO_ID_RE.search(url)
+    if match:
+        return match.group(1)
+    if re.fullmatch(r"[0-9A-Za-z_-]{11}", url):
+        return url
+    return None
+
+
+def _candidate_display_url(candidate):
+    raw = candidate.get("url", "")
+    video_id = _extract_video_id(raw)
+    if not video_id:
+        return raw
+    if candidate.get("source") == "ytmusic":
+        return f"https://music.youtube.com/watch?v={video_id}"
+    return f"https://www.youtube.com/watch?v={video_id}"
+
+
 def download_youtube_candidate(
     candidate, output_path, progress_hook=None, skip_check=None,
 ):
@@ -454,6 +478,7 @@ def download_youtube_candidate(
     audio_format = config.get("audio_format", "mp3")
     audio_quality = str(config.get("audio_quality", "320"))
     download_url = candidate["url"]
+    display_url = _candidate_display_url(candidate)
 
     # Ordered from strictest to broadest. Trailing "" lets yt-dlp pick
     # its default, covering HLS-only / live / unusual streams.
@@ -535,7 +560,7 @@ def download_youtube_candidate(
                     ydl_dl.download([download_url])
                 return {
                     "success": True,
-                    "youtube_url": download_url,
+                    "youtube_url": display_url,
                     "youtube_title": candidate["title"],
                     "match_score": round(candidate["score"], 4),
                     "duration_seconds": int(candidate["duration"]),
