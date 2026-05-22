@@ -285,6 +285,18 @@ def process_album_download(album_id, force=False):
             "",
         )
 
+        # Fetch the cover before anything else. The bytes ride along in
+        # memory for ID3 embedding and notifications, and get flushed
+        # to disk as soon as the album directory exists below.
+        logger.info(f"Fetching album cover: {artist_name} - {album_title}")
+        cover_data = get_itunes_artwork(artist_name, album_title)
+        if cover_data:
+            logger.info(
+                f"Album cover fetched ({len(cover_data) // 1024} KB)"
+            )
+        else:
+            logger.info("No album cover found on iTunes")
+
         release_id = get_valid_release_id(album)
         if release_id == 0:
             return {"error": "No valid releases found for this album."}
@@ -338,12 +350,6 @@ def process_album_download(album_id, force=False):
                 )
             }
 
-        # Fetch cover art before sending the download_started
-        # notification so the artwork can render in Telegram (sendPhoto)
-        # and Discord (embed thumbnail). cover_data is kept in memory for
-        # ID3 embedding/notifications even when on-disk cover.jpg is
-        # disabled.
-        cover_data = get_itunes_artwork(artist_name, album_title)
         cfg = load_config()
         save_cover_file = cfg.get("save_cover_art_file", True)
         if cover_data and save_cover_file:
