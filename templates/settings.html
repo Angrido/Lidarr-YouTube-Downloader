@@ -1054,6 +1054,15 @@
                     </label>
                 </div>
             </div>
+            <div class="input-group">
+                <label>
+                    Send Test Message
+                    <div class="label-description">Verify your bot token and chat ID by sending a test message right now</div>
+                </label>
+                <button class="btn" id="telegramTestBtn" type="button" onclick="sendTelegramTest()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                    <i class="fa-solid fa-paper-plane"></i> Send Telegram test
+                </button>
+            </div>
         </div>
 
         <div class="settings-section">
@@ -1091,6 +1100,15 @@
                         <span>❌ Album Error</span>
                     </label>
                 </div>
+            </div>
+            <div class="input-group">
+                <label>
+                    Send Test Message
+                    <div class="label-description">Verify your webhook URL by posting a test message right now</div>
+                </label>
+                <button class="btn" id="discordTestBtn" type="button" onclick="sendDiscordTest()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                    <i class="fa-solid fa-paper-plane"></i> Send Discord test
+                </button>
             </div>
         </div>
 
@@ -1436,6 +1454,67 @@
 
         function exportConfig() {
             window.location.href = '/api/config/export';
+        }
+
+        async function sendTelegramTest() {
+            const btn = document.getElementById('telegramTestBtn');
+            const botToken = document.getElementById('botToken').value.trim();
+            const chatId = document.getElementById('chatId').value.trim();
+            if (!botToken || !chatId) {
+                showToast('error', 'Missing fields', 'Enter both Bot Token and Chat ID first.');
+                return;
+            }
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...';
+            try {
+                const res = await fetch('/api/notifications/test/telegram', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bot_token: botToken, chat_id: chatId }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('success', 'Telegram test sent', 'Check the configured chat.');
+                } else {
+                    showToast('error', 'Telegram test failed', data.message || 'Unknown error');
+                }
+            } catch (e) {
+                showToast('error', 'Telegram test failed', 'Network error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        }
+
+        async function sendDiscordTest() {
+            const btn = document.getElementById('discordTestBtn');
+            const webhook = document.getElementById('discordWebhook').value.trim();
+            if (!webhook) {
+                showToast('error', 'Missing field', 'Enter a Discord webhook URL first.');
+                return;
+            }
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...';
+            try {
+                const res = await fetch('/api/notifications/test/discord', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ webhook_url: webhook }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('success', 'Discord test sent', 'Check the configured channel.');
+                } else {
+                    showToast('error', 'Discord test failed', data.message || 'Unknown error');
+                }
+            } catch (e) {
+                showToast('error', 'Discord test failed', 'Network error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
         }
 
         async function handleConfigImport(event) {

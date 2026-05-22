@@ -99,19 +99,29 @@ def makedirs_within(base_dir, target_path):
             os.mkdir(current)
         except FileExistsError:
             _try_relax_dir(current)
-        except PermissionError as exc:
+        except PermissionError:
             parent = os.path.dirname(current)
-            owner = "?"
+            if parent:
+                _try_relax_dir(parent)
             try:
-                st = os.stat(parent)
-                owner = f"uid={st.st_uid} gid={st.st_gid} mode={oct(st.st_mode & 0o777)}"
-            except OSError:
-                pass
-            raise PermissionError(
-                f"Cannot create '{current}': parent '{parent}' is not writable "
-                f"by uid={os.geteuid()} gid={os.getegid()} (parent {owner}). "
-                f"Fix host ownership or set PUID/PGID to match."
-            ) from exc
+                os.mkdir(current)
+            except FileExistsError:
+                _try_relax_dir(current)
+            except PermissionError as exc:
+                owner = "?"
+                try:
+                    st = os.stat(parent)
+                    owner = (
+                        f"uid={st.st_uid} gid={st.st_gid} "
+                        f"mode={oct(st.st_mode & 0o777)}"
+                    )
+                except OSError:
+                    pass
+                raise PermissionError(
+                    f"Cannot create '{current}': parent '{parent}' is not writable "
+                    f"by uid={os.geteuid()} gid={os.getegid()} (parent {owner}). "
+                    f"Fix host ownership or set PUID/PGID to match."
+                ) from exc
 
 
 def makedirs_safe(target_path, known_bases):
@@ -123,9 +133,22 @@ def makedirs_safe(target_path, known_bases):
             real_base = os.path.realpath(base)
         except OSError:
             continue
-        if real_target.startswith(real_base + os.sep) or real_target == real_base:
-            makedirs_within(base, target_path)
-            return
+        if not (
+            real_target.startswith(real_base + os.sep)
+            or real_target == real_base
+        ):
+            continue
+        if not os.path.isdir(real_base):
+            # Base directory absent: try to create it (normal first-run
+            # case). If that fails (e.g. unmounted Docker volume on a
+            # read-only filesystem), surface a typed error so the
+            # operator knows to mount the volume.
+            try:
+                os.makedirs(real_base, exist_ok=True)
+            except OSError as exc:
+                raise BaseNotMountedError(base) from exc
+        makedirs_within(base, target_path)
+        return
     os.makedirs(target_path, exist_ok=True)
 
 

@@ -217,3 +217,67 @@ def send_notifications(
         disable_notification=disable_notification,
     )
     send_discord(message, log_type=log_type, embed_data=embed_data)
+
+
+def send_telegram_test(bot_token, chat_id, message=None):
+    """Send a one-off Telegram test message and return a status dict.
+
+    Unlike :func:`send_telegram` this bypasses ``load_config()`` so the
+    UI can validate credentials entered in the form *before* persisting
+    them. Returns ``{"success": bool, "error": str}``.
+    """
+    if not bot_token or not chat_id:
+        return {"success": False, "error": "Missing bot token or chat ID"}
+    body = message or (
+        "✅ Lidarr YouTube Downloader — test notification\n"
+        "If you can see this, your Telegram bot is configured correctly."
+    )
+    try:
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        res = requests.post(
+            url,
+            json={"chat_id": chat_id, "text": body},
+            timeout=10,
+        )
+        if res.status_code == 200:
+            return {"success": True, "error": ""}
+        snippet = (res.text or "")[:300]
+        return {
+            "success": False,
+            "error": f"HTTP {res.status_code}: {snippet}",
+        }
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out after 10s"}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+def send_discord_test(webhook_url, message=None):
+    """Send a one-off Discord test message and return a status dict.
+
+    Bypasses ``load_config()`` so the UI can validate the webhook URL
+    entered in the form *before* persisting it.
+    """
+    if not webhook_url:
+        return {"success": False, "error": "Missing webhook URL"}
+    body = message or (
+        "✅ **Lidarr YouTube Downloader — test notification**\n"
+        "If you can see this, your Discord webhook is configured correctly."
+    )
+    try:
+        res = requests.post(
+            webhook_url,
+            json={"content": body},
+            timeout=10,
+        )
+        if 200 <= res.status_code < 300:
+            return {"success": True, "error": ""}
+        snippet = (res.text or "")[:300]
+        return {
+            "success": False,
+            "error": f"HTTP {res.status_code}: {snippet}",
+        }
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out after 10s"}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}

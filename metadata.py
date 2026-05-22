@@ -359,8 +359,35 @@ def get_itunes_tracks(artist, album_name):
     return []
 
 
+def _hires_artwork_url(artwork_url):
+    if not artwork_url:
+        return ""
+    return (
+        artwork_url
+        .replace("100x100", "3000x3000")
+        .replace("600x600", "3000x3000")
+    )
+
+
+def get_artwork_from_url(artwork_url):
+    """Fetch artwork bytes from a known artwork URL."""
+    try:
+        artwork_url = _hires_artwork_url(artwork_url)
+        if not artwork_url.startswith(("http://", "https://")):
+            return None
+        data = requests.get(artwork_url, timeout=15).content
+        return data or None
+    except Exception as e:
+        logger.debug(f"Artwork URL fetch failed: {e}")
+    return None
+
+
 def get_itunes_artwork(artist, album):
     """Fetch high-resolution album artwork from the iTunes Search API.
+
+    The iTunes Search API serves Apple Music's catalogue: ``artworkUrl100``
+    points to the same artwork that Apple Music displays, just resizable
+    to 3000x3000.
 
     Args:
         artist: Artist name to search for.
@@ -379,12 +406,110 @@ def get_itunes_artwork(artist, album):
         r = requests.get(url, params=params, timeout=10)
         data = r.json()
         if data.get("resultCount", 0) > 0:
-            artwork_url = (
-                data["results"][0]
-                .get("artworkUrl100", "")
-                .replace("100x100", "3000x3000")
-            )
-            return requests.get(artwork_url, timeout=15).content
+            artwork_url = data["results"][0].get("artworkUrl100", "")
+            return get_artwork_from_url(artwork_url)
     except Exception as e:
         logger.debug(f"iTunes artwork lookup failed: {e}")
+    return None
+
+
+def get_deezer_artwork(artist, album):
+    """Fetch album artwork from the Deezer public search API.
+
+    Deezer exposes ``cover_xl`` (1000x1000) without authentication and
+    covers a slightly different long-tail catalogue than iTunes/Apple
+    Music (notably better for European indie / non-US releases).
+    """
+    try:
+        url = "https://api.deezer.com/search/album"
+        params = {"q": f'artist:"{artist}" album:"{album}"', "limit": 5}
+        r = requests.get(url, params=params, timeout=10)
+        data = r.json() or {}
+        results = data.get("data", []) or []
+        if not results:
+            params = {"q": f"{artist} {album}", "limit": 5}
+            r = requests.get(url, params=params, timeout=10)
+            data = r.json() or {}
+            results = data.get("data", []) or []
+        artist_lower = (artist or "").lower()
+        for entry in results:
+            entry_artist = (
+                (entry.get("artist", {}) or {}).get("name", "")
+            )
+            if artist_lower and artist_lower not in entry_artist.lower():
+                continue
+            cover_url = (
+                entry.get("cover_xl")
+                or entry.get("cover_big")
+                or entry.get("cover_medium")
+                or ""
+            )
+            if cover_url:
+                data_bytes = requests.get(cover_url, timeout=15).content
+                if data_bytes:
+                    return data_bytes
+    except Exception as e:
+        logger.debug(f"Deezer artwork lookup failed: {e}")
+    return None
+
+
+def _musicbrainz_release_id(artist, album):
+    """Resolve a MusicBrainz release id (uuid) for artist+album, or None."""
+    try:
+        url = "https://musicbrainz.org/ws/2/release/"
+        params = {
+            "query": f'artist:"{artist}" AND release:"{album}"',
+            "fmt": "json",
+            "limit": 5,
+        }
+        headers = {"User-Agent": "Lidarr-YouTube-Downloader/1.7"}
+        r = requests.get(url, params=params, headers=headers, timeout=10)
+        data = r.json() or {}
+        releases = data.get("releases", []) or []
+        artist_lower = (artist or "").lower()
+        for rel in releases:
+            rel_artists = rel.get("artist-credit", []) or []
+            rel_artist_name = " ".join(
+                (
+                    a.get("name", "")
+                    if isinstance(a, dict)
+                    else (
+                        (a.get("artist", {}) or {}).get("name", "")
+                        if isinstance(a, dict) else ""
+                    )
+                )
+                for a in rel_artists
+            ).lower()
+            if artist_lower and artist_lower not in rel_artist_name:
+                continue
+            rid = rel.get("id") or ""
+            if rid:
+                return rid
+        if releases:
+            return releases[0].get("id") or None
+    except Exception as e:
+        logger.debug(f"MusicBrainz lookup failed: {e}")
+    return None
+
+
+def get_cover_art_archive_artwork(artist, album):
+    """Fetch album artwork from MusicBrainz Cover Art Archive (CAA).
+
+    The Cover Art Archive is a free, no-auth project run by MusicBrainz
+    in partnership with the Internet Archive. We first resolve a release
+    id via the MusicBrainz API and then fetch ``/release/<id>/front``
+    from coverartarchive.org.
+    """
+    release_id = _musicbrainz_release_id(artist, album)
+    if not release_id:
+        return None
+    try:
+        cover_url = (
+            f"https://coverartarchive.org/release/{release_id}/front"
+        )
+        r = requests.get(cover_url, timeout=15, allow_redirects=True)
+        if r.status_code == 200 and r.content:
+            return r.content
+    except Exception as e:
+        logger.debug(f"Cover Art Archive fetch failed: {e}")
     return None

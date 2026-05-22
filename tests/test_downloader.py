@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from downloader import (
     _candidate_display_url,
@@ -7,6 +7,8 @@ from downloader import (
     _title_similarity,
     download_track_youtube,
     download_youtube_candidate,
+    find_album_on_ytmusic,
+    match_album_track,
     search_youtube_candidates,
 )
 
@@ -338,13 +340,15 @@ class TestSearchYoutubeCandidates:
             "yt_player_client": "android",
         }
         mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        # Both entries are from the artist's official channel so Phase 1
+        # accepts both and the ranking can be asserted.
         mock_ydl.extract_info.return_value = {
             "entries": [
                 {
                     "title": "Artist - Track B",
                     "url": "url_b",
                     "duration": 200,
-                    "channel": "Other",
+                    "channel": "Artist",
                     "view_count": 100,
                 },
                 {
@@ -515,6 +519,232 @@ class TestDownloadYoutubeCandidate:
         assert result["success"] is False
         assert "format" in result["error_message"].lower() \
             or "no downloadable" in result["error_message"].lower()
+
+
+class TestYouTubeMusicSourceAcceptedWithoutChannel:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_ytmusic_entry_with_artists_field_accepted_in_phase1(
+        self, mock_config, mock_ydl_class,
+    ):
+        # YT Music entries with the structured ``artists`` field credit the
+        # song to a specific artist; that's enough to prove this is an
+        # artist-official catalogue hit even when channel is empty.
+        mock_config.return_value = {
+            "forbidden_words": ["remix", "live"],
+            "duration_tolerance": 10,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Iceberg",
+                    "url": "ytmusic_video_id",
+                    "duration": 207,
+                    "channel": "",
+                    "artists": [{"name": "Zaho"}],
+                    "view_count": 0,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Zaho Iceberg", "Iceberg", expected_duration_ms=207000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "ytmusic_video_id" in urls
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_ytmusic_entry_without_any_artist_signal_accepted_in_phase1(
+        self, mock_config, mock_ydl_class,
+    ):
+        # yt-dlp's extract_flat on music.youtube can return bare entries
+        # with no channel/uploader/artists field. Phase 1 must still accept
+        # these (lenient) because YT Music is by definition an official
+        # catalogue; explicit-mismatch detection prevents wrong-artist hits.
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 10,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Iceberg",
+                    "url": "bare_ytmusic_id",
+                    "duration": 207,
+                    "view_count": 0,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Zaho Iceberg", "Iceberg", expected_duration_ms=207000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "bare_ytmusic_id" in urls
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_ytmusic_entry_with_explicit_wrong_artist_rejected_in_phase1(
+        self, mock_config, mock_ydl_class,
+    ):
+        # ytmusic entry crediting a different artist is rejected outright
+        # in phase 1 (explicit mismatch on the ``artists`` field).
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 10,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Iceberg",
+                    "url": "wrong_artist_id",
+                    "duration": 207,
+                    "artists": [{"name": "Different Person"}],
+                    "view_count": 10_000_000,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Zaho Iceberg", "Iceberg", expected_duration_ms=207000,
+        )
+        # The entry can still surface in phase 2 (fallback) but with a
+        # large artist-mismatch penalty in score.
+        for c in candidates:
+            if c["url"] == "wrong_artist_id":
+                assert c["score"] < 0.80
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_ytmusic_entry_with_topic_uploader_accepted_in_phase1(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": ["remix", "live"],
+            "duration_tolerance": 10,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Iceberg",
+                    "url": "yt_topic_uploader",
+                    "duration": 207,
+                    "uploader": "Zaho - Topic",
+                    "view_count": 0,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Zaho Iceberg", "Iceberg", expected_duration_ms=207000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "yt_topic_uploader" in urls
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_ytmusic_entry_with_wrong_artists_field_penalised(
+        self, mock_config, mock_ydl_class,
+    ):
+        # When YT Music explicitly credits a different artist, the entry
+        # may still surface (phase 2 fallback) but its score must take a
+        # significant artist-mismatch hit so it never beats a correct hit.
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 10,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Iceberg",
+                    "url": "wrong_artist_url",
+                    "duration": 207,
+                    "artists": [{"name": "Some Other Artist"}],
+                    "view_count": 10_000_000,
+                },
+                {
+                    "title": "Iceberg",
+                    "url": "right_artist_url",
+                    "duration": 207,
+                    "artists": [{"name": "Zaho"}],
+                    "view_count": 100,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Zaho Iceberg", "Iceberg", expected_duration_ms=207000,
+        )
+        assert candidates
+        assert candidates[0]["url"] == "right_artist_url"
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_ytmusic_remix_blocked_by_forbidden_words(
+        self, mock_config, mock_ydl_class,
+    ):
+        # ytmusic source alone shouldn't exempt remixes/covers when the
+        # channel name doesn't confirm the artist's official source.
+        mock_config.return_value = {
+            "forbidden_words": ["remix"],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Iceberg (Some DJ Remix)",
+                    "url": "remix_url",
+                    "duration": 200,
+                    "channel": "",
+                    "view_count": 1000,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Zaho Iceberg", "Iceberg", expected_duration_ms=200000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "remix_url" not in urls
+
+
+class TestOfficialChannelForbiddenExemption:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_official_channel_live_in_title_still_accepted(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": ["live"],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Chelsea Smile (Live at Wembley)",
+                    "url": "official_url",
+                    "duration": 200,
+                    "channel": "Bring Me The Horizon",
+                    "view_count": 500000,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Bring Me The Horizon Chelsea Smile official audio",
+            "Chelsea Smile",
+            expected_duration_ms=200000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "official_url" in urls
 
 
 class TestTopicChannelForbiddenExemption:
@@ -917,3 +1147,304 @@ class TestYouTubeMusicSearch:
         assert first_ytmusic != -1
         if first_ytsearch != -1:
             assert first_ytmusic < first_ytsearch
+
+
+class TestMatchAlbumTrack:
+    def test_returns_candidate_for_exact_title_match(self):
+        entries = [
+            {
+                "url": "https://music.youtube.com/watch?v=abc",
+                "title": "Iceberg",
+                "duration": 207,
+                "channel": "Zaho",
+            },
+            {
+                "url": "https://music.youtube.com/watch?v=def",
+                "title": "Stockholm",
+                "duration": 182,
+                "channel": "Zaho",
+            },
+        ]
+        cand = match_album_track(
+            entries, "Iceberg", expected_duration_ms=207000,
+        )
+        assert cand is not None
+        assert cand["url"] == "https://music.youtube.com/watch?v=abc"
+        assert cand["score"] == 1.0
+        assert cand["from_album_playlist"] is True
+
+    def test_returns_none_when_no_similar_title(self):
+        entries = [
+            {
+                "url": "u",
+                "title": "Completely Different",
+                "duration": 200,
+                "channel": "A",
+            },
+        ]
+        cand = match_album_track(
+            entries, "Iceberg", expected_duration_ms=200000,
+        )
+        assert cand is None
+
+    def test_rejects_entry_with_far_duration(self):
+        entries = [
+            {
+                "url": "u",
+                "title": "Iceberg",
+                "duration": 400,
+                "channel": "Zaho",
+            },
+        ]
+        cand = match_album_track(
+            entries, "Iceberg", expected_duration_ms=200000,
+        )
+        assert cand is None
+
+    def test_empty_entries_returns_none(self):
+        assert match_album_track([], "x") is None
+
+    def test_partial_title_match_still_accepts(self):
+        entries = [
+            {
+                "url": "u",
+                "title": "Iceberg (feat. X)",
+                "duration": 210,
+                "channel": "Zaho",
+            },
+        ]
+        cand = match_album_track(
+            entries, "Iceberg", expected_duration_ms=210000,
+        )
+        assert cand is not None
+
+
+class TestFindAlbumOnYtmusic:
+    @patch("downloader._find_album_via_ytmusicapi", return_value=None)
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_returns_none_when_no_playlist_id_in_results(
+        self, mock_cfg, mock_ydl_cls, _mock_api,
+    ):
+        mock_cfg.return_value = {"yt_player_client": "android"}
+        ydl = mock_ydl_cls.return_value.__enter__.return_value
+        ydl.extract_info.return_value = {
+            "entries": [{"id": "abc123", "title": "song"}],
+        }
+        result = find_album_on_ytmusic("Zaho", "VERSATILE")
+        assert result is None
+
+    @patch("downloader._find_album_via_ytmusicapi", return_value=None)
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_finds_album_via_url_with_list_param(
+        self, mock_cfg, mock_ydl_cls, _mock_api,
+    ):
+        mock_cfg.return_value = {"yt_player_client": "android"}
+        ydl = mock_ydl_cls.return_value.__enter__.return_value
+        ydl.extract_info.side_effect = [
+            {
+                "entries": [
+                    {
+                        "url": (
+                            "https://music.youtube.com/playlist"
+                            "?list=OLAK5uy_xyz"
+                        ),
+                    },
+                ],
+            },
+            {
+                "entries": [
+                    {
+                        "id": "vid1",
+                        "title": "Iceberg",
+                        "duration": 207,
+                        "uploader": "Zaho",
+                    },
+                    {
+                        "id": "vid2",
+                        "title": "Stockholm",
+                        "duration": 182,
+                        "uploader": "Zaho",
+                    },
+                ],
+            },
+        ]
+        result = find_album_on_ytmusic("Zaho", "VERSATILE")
+        assert result is not None
+        assert result["playlist_id"] == "OLAK5uy_xyz"
+        assert "playlist?list=OLAK5uy_xyz" in result["playlist_url"]
+        assert len(result["entries"]) == 2
+        assert result["entries"][0]["title"] == "Iceberg"
+        assert "watch?v=vid1" in result["entries"][0]["url"]
+
+    @patch("downloader._find_album_via_ytmusicapi", return_value=None)
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_albums_filter_url_is_attempted_first(
+        self, mock_cfg, mock_ydl_cls, _mock_api,
+    ):
+        mock_cfg.return_value = {"yt_player_client": "android"}
+        ydl = mock_ydl_cls.return_value.__enter__.return_value
+        ydl.extract_info.side_effect = [
+            {"entries": [{"id": "OLAK5uy_filtered"}]},
+            {"entries": [{"id": "v", "title": "T", "duration": 100}]},
+        ]
+        result = find_album_on_ytmusic("Zaho", "VERSATILE")
+        assert result is not None
+        assert result["playlist_id"] == "OLAK5uy_filtered"
+        first_url = ydl.extract_info.call_args_list[0].args[0]
+        assert "sp=" in first_url
+
+    @patch("downloader._find_album_via_ytmusicapi", return_value=None)
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_finds_album_via_recursive_scan(
+        self, mock_cfg, mock_ydl_cls, _mock_api,
+    ):
+        # YT Music sometimes nests album shelves in structured fields;
+        # the recursive scan must dig into nested dicts/lists.
+        mock_cfg.return_value = {"yt_player_client": "android"}
+        ydl = mock_ydl_cls.return_value.__enter__.return_value
+        ydl.extract_info.side_effect = [
+            {
+                "sections": [
+                    {"shelf": "Songs", "items": []},
+                    {
+                        "shelf": "Albums",
+                        "items": [
+                            {
+                                "album": {
+                                    "browse_id": "OLAK5uy_nested",
+                                    "title": "VERSATILE",
+                                },
+                            },
+                        ],
+                    },
+                ],
+            },
+            {"entries": [{"id": "v", "title": "T", "duration": 100}]},
+        ]
+        result = find_album_on_ytmusic("Zaho", "VERSATILE")
+        assert result is not None
+        assert result["playlist_id"] == "OLAK5uy_nested"
+
+    @patch("downloader._find_album_via_ytmusicapi", return_value=None)
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_finds_album_via_direct_id_field(
+        self, mock_cfg, mock_ydl_cls, _mock_api,
+    ):
+        mock_cfg.return_value = {"yt_player_client": "android"}
+        ydl = mock_ydl_cls.return_value.__enter__.return_value
+        ydl.extract_info.side_effect = [
+            {"entries": [{"id": "OLAK5uy_abc"}]},
+            {
+                "entries": [
+                    {"id": "vid1", "title": "A", "duration": 100},
+                ],
+            },
+        ]
+        result = find_album_on_ytmusic("Artist", "Album")
+        assert result is not None
+        assert result["playlist_id"] == "OLAK5uy_abc"
+
+    @patch("downloader._find_album_via_ytmusicapi", return_value=None)
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_returns_none_when_extract_raises(
+        self, mock_cfg, mock_ydl_cls, _mock_api,
+    ):
+        mock_cfg.return_value = {"yt_player_client": "android"}
+        ydl = mock_ydl_cls.return_value.__enter__.return_value
+        ydl.extract_info.side_effect = Exception("network")
+        result = find_album_on_ytmusic("Artist", "Album")
+        assert result is None
+
+    def test_returns_none_for_empty_inputs(self):
+        assert find_album_on_ytmusic("", "x") is None
+        assert find_album_on_ytmusic("x", "") is None
+
+    @patch("downloader._ytmusicapi_client")
+    def test_ytmusicapi_resolves_album_directly(self, mock_client):
+        # ytmusicapi returns OLAK5uy_ playlistId from search(albums) and the
+        # full track list from get_album(browseId). yt-dlp is never called.
+        yt = MagicMock()
+        yt.search.return_value = [
+            {
+                "resultType": "album",
+                "browseId": "MPREb_xyz",
+                "playlistId": "OLAK5uy_realalbum",
+                "title": "VERSATILE",
+                "artist": "Zaho",
+            },
+        ]
+        yt.get_album.return_value = {
+            "audioPlaylistId": "OLAK5uy_realalbum",
+            "tracks": [
+                {
+                    "videoId": "vid_iceberg",
+                    "title": "Iceberg",
+                    "duration": "3:27",
+                    "artists": [{"name": "Zaho"}],
+                },
+                {
+                    "videoId": "vid_stockholm",
+                    "title": "Stockholm",
+                    "duration": "3:02",
+                    "artists": [{"name": "Zaho"}],
+                },
+            ],
+        }
+        mock_client.return_value = yt
+        result = find_album_on_ytmusic("Zaho", "VERSATILE")
+        assert result is not None
+        assert result["playlist_id"] == "OLAK5uy_realalbum"
+        assert len(result["entries"]) == 2
+        assert result["entries"][0]["url"].endswith("v=vid_iceberg")
+        assert result["entries"][0]["duration"] == 207
+        assert result["entries"][1]["duration"] == 182
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    @patch("downloader._ytmusicapi_client")
+    def test_ytmusicapi_rejects_wrong_artist_album(
+        self, mock_client, mock_cfg, mock_ydl_cls,
+    ):
+        # Album results from ytmusicapi may include a homonym album by
+        # another artist; the picker must require an artist-field match.
+        # yt-dlp fallback is mocked to also return nothing so the test
+        # avoids real network calls.
+        mock_cfg.return_value = {"yt_player_client": "android"}
+        ydl = mock_ydl_cls.return_value.__enter__.return_value
+        ydl.extract_info.return_value = {"entries": []}
+        yt = MagicMock()
+        yt.search.return_value = [
+            {
+                "resultType": "album",
+                "browseId": "MPREb_other",
+                "playlistId": "OLAK5uy_otherartist",
+                "title": "VERSATILE",
+                "artist": "Different Person",
+            },
+        ]
+        mock_client.return_value = yt
+        result = find_album_on_ytmusic("Zaho", "VERSATILE")
+        assert result is None
+
+    @patch("downloader._ytmusicapi_client", return_value=None)
+    def test_ytmusicapi_unavailable_falls_back_to_ytdlp(self, _mock_client):
+        # When ytmusicapi is not installed _ytmusicapi_client returns None;
+        # find_album_on_ytmusic must continue to the yt-dlp fallback path
+        # rather than raising or returning eagerly.
+        with patch("downloader.yt_dlp.YoutubeDL") as mock_ydl_cls, \
+             patch("downloader.load_config") as mock_cfg:
+            mock_cfg.return_value = {"yt_player_client": "android"}
+            ydl = mock_ydl_cls.return_value.__enter__.return_value
+            ydl.extract_info.side_effect = [
+                {"entries": [{"id": "OLAK5uy_fb"}]},
+                {"entries": [{"id": "v", "title": "T", "duration": 100}]},
+            ]
+            result = find_album_on_ytmusic("A", "B")
+            assert result is not None
+            assert result["playlist_id"] == "OLAK5uy_fb"

@@ -155,6 +155,126 @@ class TestGetItunesArtwork:
         mock_get.side_effect = Exception("timeout")
         assert metadata.get_itunes_artwork("Artist", "Album") is None
 
+    @patch("metadata.requests.get")
+    def test_fetches_known_artwork_url(self, mock_get):
+        mock_get.return_value = MagicMock(content=b"cover")
+        result = metadata.get_artwork_from_url(
+            "https://is1-ssl.mzstatic.com/image/600x600bb.jpg"
+        )
+        assert result == b"cover"
+        assert "3000x3000" in mock_get.call_args[0][0]
+
+    @patch("metadata.requests.get")
+    def test_known_artwork_url_rejects_non_http(self, mock_get):
+        assert metadata.get_artwork_from_url("file:///tmp/cover.jpg") is None
+        mock_get.assert_not_called()
+
+
+class TestGetDeezerArtwork:
+    @patch("metadata.requests.get")
+    def test_returns_artwork_from_cover_xl(self, mock_get):
+        mock_get.side_effect = [
+            MagicMock(json=lambda: {
+                "data": [
+                    {
+                        "title": "VERSATILE",
+                        "artist": {"name": "Zaho"},
+                        "cover_xl": "https://deezer.cdn/cover_xl.jpg",
+                    },
+                ],
+            }),
+            MagicMock(content=b"deezer_cover"),
+        ]
+        result = metadata.get_deezer_artwork("Zaho", "VERSATILE")
+        assert result == b"deezer_cover"
+        second_url = mock_get.call_args_list[1][0][0]
+        assert second_url == "https://deezer.cdn/cover_xl.jpg"
+
+    @patch("metadata.requests.get")
+    def test_skips_entries_with_wrong_artist(self, mock_get):
+        mock_get.side_effect = [
+            MagicMock(json=lambda: {
+                "data": [
+                    {
+                        "title": "VERSATILE",
+                        "artist": {"name": "Different Person"},
+                        "cover_xl": "https://wrong",
+                    },
+                    {
+                        "title": "VERSATILE",
+                        "artist": {"name": "Zaho"},
+                        "cover_xl": "https://right",
+                    },
+                ],
+            }),
+            MagicMock(content=b"correct_cover"),
+        ]
+        result = metadata.get_deezer_artwork("Zaho", "VERSATILE")
+        assert result == b"correct_cover"
+        assert mock_get.call_args_list[1][0][0] == "https://right"
+
+    @patch("metadata.requests.get")
+    def test_returns_none_when_no_results(self, mock_get):
+        mock_get.return_value = MagicMock(json=lambda: {"data": []})
+        assert metadata.get_deezer_artwork("X", "Y") is None
+
+    @patch("metadata.requests.get")
+    def test_returns_none_on_exception(self, mock_get):
+        mock_get.side_effect = Exception("network")
+        assert metadata.get_deezer_artwork("X", "Y") is None
+
+
+class TestGetCoverArtArchiveArtwork:
+    @patch("metadata.requests.get")
+    def test_returns_artwork_via_musicbrainz_release(self, mock_get):
+        # MusicBrainz returns a release id, then CAA returns image bytes.
+        mock_get.side_effect = [
+            MagicMock(json=lambda: {
+                "releases": [
+                    {
+                        "id": "abc-uuid",
+                        "artist-credit": [{"name": "Zaho"}],
+                        "title": "VERSATILE",
+                    },
+                ],
+            }),
+            MagicMock(status_code=200, content=b"caa_image"),
+        ]
+        result = metadata.get_cover_art_archive_artwork("Zaho", "VERSATILE")
+        assert result == b"caa_image"
+        caa_url = mock_get.call_args_list[1][0][0]
+        assert "coverartarchive.org/release/abc-uuid/front" in caa_url
+
+    @patch("metadata.requests.get")
+    def test_returns_none_when_musicbrainz_has_no_release(self, mock_get):
+        mock_get.return_value = MagicMock(json=lambda: {"releases": []})
+        result = metadata.get_cover_art_archive_artwork("X", "Y")
+        assert result is None
+        assert mock_get.call_count == 1
+
+    @patch("metadata.requests.get")
+    def test_returns_none_on_caa_404(self, mock_get):
+        mock_get.side_effect = [
+            MagicMock(json=lambda: {
+                "releases": [
+                    {
+                        "id": "abc",
+                        "artist-credit": [{"name": "X"}],
+                    },
+                ],
+            }),
+            MagicMock(status_code=404, content=b""),
+        ]
+        assert metadata.get_cover_art_archive_artwork("X", "Y") is None
+
+    @patch("metadata.requests.get")
+    def test_sends_user_agent_to_musicbrainz(self, mock_get):
+        # MusicBrainz mandates a User-Agent header.
+        mock_get.return_value = MagicMock(json=lambda: {"releases": []})
+        metadata.get_cover_art_archive_artwork("X", "Y")
+        first_call = mock_get.call_args_list[0]
+        assert "User-Agent" in (first_call.kwargs.get("headers") or {})
+
 
 class TestTagMp3:
     @patch("metadata.get_monitored_release")

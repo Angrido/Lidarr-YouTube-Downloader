@@ -18,6 +18,8 @@ from config import load_config, MIN_MATCH_SCORE_DEFAULT
 from models import CandidateOutcome
 from downloader import (
     download_youtube_candidate,
+    find_album_on_ytmusic,
+    match_album_track,
     search_youtube_candidates,
 )
 from fingerprint import fingerprint_track, verify_fingerprint
@@ -25,6 +27,9 @@ from lidarr import get_valid_release_id, lidarr_request, lidarr_request_with_ret
 from metadata import (
     create_xml_metadata,
     tag_audio_file,
+    get_artwork_from_url,
+    get_cover_art_archive_artwork,
+    get_deezer_artwork,
     get_itunes_artwork,
     get_itunes_tracks,
 )
@@ -285,17 +290,55 @@ def process_album_download(album_id, force=False):
             "",
         )
 
-        # Fetch the cover before anything else. The bytes ride along in
-        # memory for ID3 embedding and notifications, and get flushed
-        # to disk as soon as the album directory exists below.
+        # Cover bytes ride along in memory for ID3 + notifications,
+        # flushed to disk once the album directory exists below.
         logger.info(f"Fetching album cover: {artist_name} - {album_title}")
-        cover_data = get_itunes_artwork(artist_name, album_title)
-        if cover_data:
-            logger.info(
-                f"Album cover fetched ({len(cover_data) // 1024} KB)"
-            )
-        else:
-            logger.info("No album cover found on iTunes")
+        cover_sources = [
+            ("iTunes (Apple Music)", lambda: get_itunes_artwork(
+                artist_name, album_title,
+            )),
+            ("Cover Art Archive", lambda: get_cover_art_archive_artwork(
+                artist_name, album_title,
+            )),
+            ("Deezer", lambda: get_deezer_artwork(
+                artist_name, album_title,
+            )),
+        ]
+        if download_process.get("cover_url"):
+            cover_sources.append((
+                "Lidarr cover URL",
+                lambda: get_artwork_from_url(
+                    download_process["cover_url"],
+                ),
+            ))
+        cover_data = None
+        for source_name, fetcher in cover_sources:
+            try:
+                cover_data = fetcher()
+            except Exception as exc:
+                logger.debug(
+                    "Cover source %s raised: %s", source_name, exc,
+                )
+                cover_data = None
+            if cover_data:
+                logger.info(
+                    "Album cover fetched from %s (%d KB)",
+                    source_name, len(cover_data) // 1024,
+                )
+                break
+            logger.info("No album cover from %s", source_name)
+        if not cover_data:
+            logger.info("No album cover found in any source")
+
+        # Resolve the official YT Music album playlist once so per-track
+        # search can map directly to canonical entries instead of fishing
+        # in generic search results.
+        ytmusic_album = None
+        try:
+            ytmusic_album = find_album_on_ytmusic(artist_name, album_title)
+        except Exception as exc:
+            logger.debug("YT Music album discovery raised: %s", exc)
+        download_process["ytmusic_album"] = ytmusic_album
 
         release_id = get_valid_release_id(album)
         if release_id == 0:
@@ -428,6 +471,7 @@ def process_album_download(album_id, force=False):
             "cover_data": cover_data,
             "cover_url": download_process.get("cover_url", ""),
             "lidarr_album_path": lidarr_album_path,
+            "ytmusic_album": ytmusic_album,
         }
         def _parse_track_num(raw, fallback):
             try:
@@ -554,6 +598,7 @@ def process_album_download(album_id, force=False):
             download_process["album_title"] = ""
             download_process["artist_name"] = ""
             download_process["cover_url"] = ""
+            download_process["ytmusic_album"] = None
 
 
 def _filter_tracks(tracks, force, album_path):
@@ -909,11 +954,42 @@ def _download_tracks(
             )
             banned_url_set = set()
 
-        candidates = search_youtube_candidates(
-            f"{artist_name} {track_title} official audio",
-            track_title, track_duration_ms,
-            skip_check=_skip_check, banned_urls=banned_url_set,
-        )
+        # Map directly to a discovered album entry to stay inside the
+        # artist's official catalogue (avoids high-view non-canonical
+        # uploads).
+        ytm_album = album_ctx.get("ytmusic_album")
+        album_candidate = None
+        if ytm_album:
+            album_candidate = match_album_track(
+                ytm_album.get("entries", []),
+                track_title,
+                track_duration_ms,
+            )
+            if album_candidate and album_candidate.get("url") in banned_url_set:
+                logger.info(
+                    "   Album-playlist match for '%s' is banned, falling"
+                    " back to search", track_title,
+                )
+                album_candidate = None
+
+        if album_candidate:
+            logger.info(
+                "   Album-first match: '%s' from official playlist %s",
+                album_candidate["title"],
+                ytm_album.get("playlist_url", ""),
+            )
+            candidates = [album_candidate]
+        else:
+            if ytm_album:
+                logger.info(
+                    "   No album-playlist match for '%s';"
+                    " falling back to per-track search", track_title,
+                )
+            candidates = search_youtube_candidates(
+                f"{artist_name} {track_title} official audio",
+                track_title, track_duration_ms,
+                skip_check=_skip_check, banned_urls=banned_url_set,
+            )
 
         if not candidates:
             if _skip_check():

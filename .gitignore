@@ -1,6 +1,7 @@
 .claude/
 CLAUDE.md
 CLAUDE.local.md
+AGENTS.md
 requirements-dev.txt
 __pycache__/
 *.py[cod]
@@ -15,6 +16,10 @@ build/
 pytest-of-*/
 .mypy_cache/
 .ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
 venv/
 .venv/
 env/
@@ -28,6 +33,7 @@ Thumbs.db
 desktop.ini
 .idea/
 .vscode/
+.cursor/
 *.swp
 *.swo
 *~
@@ -45,3 +51,9 @@ cookies.txt
 tmp/
 .serena/
 .superpowers/
+.lean-ctx/
+agent-tools/
+agent-transcripts/
+terminals/
+babysitter-state.json
+*.bak

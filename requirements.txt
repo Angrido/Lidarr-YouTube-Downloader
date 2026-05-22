@@ -1,6 +1,7 @@
 Flask
 requests
 yt-dlp[default]
+ytmusicapi
 mutagen
 schedule
 bing-image-downloader

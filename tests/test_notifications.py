@@ -433,3 +433,65 @@ def test_send_discord_embed_with_url(mock_cfg, mock_post, mock_config):
     )
     payload = mock_post.call_args.kwargs["json"]
     assert payload["embeds"][0]["url"] == "http://l/album/x"
+
+
+@patch("notifications.requests.post")
+def test_send_telegram_test_success(mock_post):
+    mock_post.return_value = MagicMock(status_code=200, text="ok")
+    result = notifications.send_telegram_test("tok", "123")
+    assert result["success"] is True
+    assert result["error"] == ""
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["chat_id"] == "123"
+    assert "test notification" in payload["text"]
+
+
+@patch("notifications.requests.post")
+def test_send_telegram_test_missing_credentials(mock_post):
+    result = notifications.send_telegram_test("", "123")
+    assert result["success"] is False
+    assert "Missing" in result["error"]
+    mock_post.assert_not_called()
+
+
+@patch("notifications.requests.post")
+def test_send_telegram_test_http_error_returns_status(mock_post):
+    mock_post.return_value = MagicMock(status_code=401, text="Unauthorized")
+    result = notifications.send_telegram_test("bad_token", "123")
+    assert result["success"] is False
+    assert "401" in result["error"]
+
+
+@patch("notifications.requests.post")
+def test_send_telegram_test_exception_returns_error(mock_post):
+    mock_post.side_effect = Exception("boom")
+    result = notifications.send_telegram_test("tok", "123")
+    assert result["success"] is False
+    assert "boom" in result["error"]
+
+
+@patch("notifications.requests.post")
+def test_send_discord_test_success(mock_post):
+    mock_post.return_value = MagicMock(status_code=204, text="")
+    result = notifications.send_discord_test(
+        "https://discord.com/api/webhooks/1/abc",
+    )
+    assert result["success"] is True
+    payload = mock_post.call_args.kwargs["json"]
+    assert "test notification" in payload["content"]
+
+
+@patch("notifications.requests.post")
+def test_send_discord_test_missing_url(mock_post):
+    result = notifications.send_discord_test("")
+    assert result["success"] is False
+    assert "Missing" in result["error"]
+    mock_post.assert_not_called()
+
+
+@patch("notifications.requests.post")
+def test_send_discord_test_http_error_returns_status(mock_post):
+    mock_post.return_value = MagicMock(status_code=404, text="Not Found")
+    result = notifications.send_discord_test("https://x/y")
+    assert result["success"] is False
+    assert "404" in result["error"]

@@ -1244,6 +1244,53 @@
         let currentQueue = [];
         let isDragging = false;
         let dragSourceId = null;
+        let queueWheelHandler = null;
+        let dragAutoScrollFrame = null;
+        let dragAutoScrollSpeed = 0;
+        const DRAG_EDGE_THRESHOLD = 90;
+        const DRAG_MAX_SCROLL_PER_FRAME = 22;
+
+        function startDragAutoScrollLoop() {
+            if (dragAutoScrollFrame !== null) return;
+            const step = function () {
+                if (!isDragging || dragAutoScrollSpeed === 0) {
+                    dragAutoScrollFrame = null;
+                    return;
+                }
+                window.scrollBy(0, dragAutoScrollSpeed);
+                dragAutoScrollFrame = window.requestAnimationFrame(step);
+            };
+            dragAutoScrollFrame = window.requestAnimationFrame(step);
+        }
+
+        function stopDragAutoScroll() {
+            dragAutoScrollSpeed = 0;
+            if (dragAutoScrollFrame !== null) {
+                window.cancelAnimationFrame(dragAutoScrollFrame);
+                dragAutoScrollFrame = null;
+            }
+        }
+
+        function updateDragAutoScrollFromEvent(ev) {
+            if (!isDragging) return;
+            const y = ev.clientY;
+            const h = window.innerHeight;
+            if (y < DRAG_EDGE_THRESHOLD) {
+                const ratio = (DRAG_EDGE_THRESHOLD - y) / DRAG_EDGE_THRESHOLD;
+                dragAutoScrollSpeed = -Math.max(
+                    4, Math.round(ratio * DRAG_MAX_SCROLL_PER_FRAME)
+                );
+                startDragAutoScrollLoop();
+            } else if (y > h - DRAG_EDGE_THRESHOLD) {
+                const ratio = (y - (h - DRAG_EDGE_THRESHOLD)) / DRAG_EDGE_THRESHOLD;
+                dragAutoScrollSpeed = Math.max(
+                    4, Math.round(ratio * DRAG_MAX_SCROLL_PER_FRAME)
+                );
+                startDragAutoScrollLoop();
+            } else {
+                dragAutoScrollSpeed = 0;
+            }
+        }
 
         function escapeHtml(str) {
             if (!str) return '';
@@ -1656,13 +1703,32 @@
             dragSourceId = albumId;
             e.dataTransfer.effectAllowed = 'move';
             e.currentTarget.classList.add('dragging');
+            queueWheelHandler = function(ev) {
+                ev.preventDefault();
+                window.scrollBy({
+                    top: ev.deltaY * 1.5,
+                    left: 0,
+                    behavior: 'auto'
+                });
+            };
+            document.addEventListener('wheel', queueWheelHandler, { passive: false });
         }
 
         function onQueueDragOver(e) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
+            updateDragAutoScrollFromEvent(e);
             document.querySelectorAll('.queue-item').forEach(function(el) { el.classList.remove('drag-over'); });
             e.currentTarget.classList.add('drag-over');
+        }
+
+        function teardownDragState() {
+            isDragging = false;
+            stopDragAutoScroll();
+            if (queueWheelHandler) {
+                document.removeEventListener('wheel', queueWheelHandler, { passive: false });
+                queueWheelHandler = null;
+            }
         }
 
         function onQueueDrop(e, targetId) {
@@ -1670,7 +1736,7 @@
             document.querySelectorAll('.queue-item').forEach(function(el) {
                 el.classList.remove('drag-over', 'dragging');
             });
-            isDragging = false;
+            teardownDragState();
             if (dragSourceId === targetId) return;
             var srcIdx = currentQueue.findIndex(function(q) { return q.id === dragSourceId; });
             var tgtIdx = currentQueue.findIndex(function(q) { return q.id === targetId; });
@@ -1688,11 +1754,18 @@
         }
 
         function onQueueDragEnd(e) {
-            isDragging = false;
+            teardownDragState();
             document.querySelectorAll('.queue-item').forEach(function(el) {
                 el.classList.remove('dragging', 'drag-over');
             });
         }
+
+        document.addEventListener('dragover', function(e) {
+            if (isDragging) updateDragAutoScrollFromEvent(e);
+        });
+        document.addEventListener('dragleave', function(e) {
+            if (isDragging && e.relatedTarget === null) stopDragAutoScroll();
+        });
 
         const HISTORY_PER_PAGE = 50;
         let historyCurrentPage = 1;

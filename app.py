@@ -64,7 +64,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.7.7"
+VERSION = "1.7.8"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -196,6 +196,72 @@ def api_test_connection():
             "lidarr_version": system.get("version", "Unknown"),
         }
     )
+
+
+@app.route("/api/notifications/test/telegram", methods=["POST"])
+def api_notifications_test_telegram():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"notif_test_tg:{client_ip}",
+        rate_limit_store,
+        window=10,
+        max_requests=3,
+    ):
+        return jsonify(
+            {"success": False, "message": "Too many test requests"}
+        ), 429
+    payload = request.get_json(silent=True) or {}
+    bot_token = (payload.get("bot_token") or "").strip()
+    chat_id = (payload.get("chat_id") or "").strip()
+    if not bot_token or not chat_id:
+        cfg = load_config()
+        bot_token = bot_token or cfg.get("telegram_bot_token", "")
+        chat_id = chat_id or cfg.get("telegram_chat_id", "")
+    from notifications import send_telegram_test
+    result = send_telegram_test(bot_token, chat_id)
+    status_code = 200 if result.get("success") else 400
+    return jsonify({
+        "success": result.get("success", False),
+        "message": (
+            "Test message sent successfully"
+            if result.get("success")
+            else result.get("error", "Unknown error")
+        ),
+    }), status_code
+
+
+@app.route("/api/notifications/test/discord", methods=["POST"])
+def api_notifications_test_discord():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"notif_test_dc:{client_ip}",
+        rate_limit_store,
+        window=10,
+        max_requests=3,
+    ):
+        return jsonify(
+            {"success": False, "message": "Too many test requests"}
+        ), 429
+    payload = request.get_json(silent=True) or {}
+    webhook_url = (payload.get("webhook_url") or "").strip()
+    if not webhook_url:
+        webhook_url = load_config().get("discord_webhook_url", "")
+    if not webhook_url.startswith(("http://", "https://")):
+        return jsonify({
+            "success": False,
+            "message": "Webhook URL must start with http:// or https://",
+        }), 400
+    from notifications import send_discord_test
+    result = send_discord_test(webhook_url)
+    status_code = 200 if result.get("success") else 400
+    return jsonify({
+        "success": result.get("success", False),
+        "message": (
+            "Test message sent successfully"
+            if result.get("success")
+            else result.get("error", "Unknown error")
+        ),
+    }), status_code
 
 
 @app.route("/api/missing-albums")
@@ -1208,22 +1274,11 @@ def api_download_manual():
 
     failed_ctx = models.get_failed_tracks_for_retry(album_id_ctx)
     config = load_config()
-    lidarr_path = config.get("lidarr_path", "")
 
-    artist_name_meta = album_data.get("artist", {}).get("artistName", "")
-    album_title_meta = album_data.get("title", "")
-    release_year_meta = str(album_data.get("releaseDate", ""))[:4]
-    san_artist = sanitize_filename(artist_name_meta)
-    san_album = sanitize_filename(album_title_meta)
-    if release_year_meta:
-        album_folder_meta = f"{san_album} ({release_year_meta})"
-    else:
-        album_folder_meta = san_album
-
-    if lidarr_path:
-        target_path = os.path.join(lidarr_path, san_artist, album_folder_meta)
-    elif DOWNLOAD_DIR:
-        target_path = os.path.join(DOWNLOAD_DIR, san_artist, album_folder_meta)
+    if _resolve_write_base(config):
+        target_path, makedirs_bases, lidarr_import_path = _build_album_paths(
+            album_data, config,
+        )
     else:
         lidarr_album_path_val = failed_ctx.get("lidarr_album_path", "")
         dl_album_path = failed_ctx.get("album_path", "")
@@ -1232,6 +1287,8 @@ def api_download_manual():
             if lidarr_album_path_val and os.path.isdir(lidarr_album_path_val)
             else dl_album_path
         )
+        makedirs_bases = _makedirs_bases_for(target_path, config) if target_path else []
+        lidarr_import_path = lidarr_album_path_val or target_path or ""
 
     if not target_path:
         return jsonify({"success": False, "message": "No album path available"}), 400
@@ -1240,7 +1297,7 @@ def api_download_manual():
         return jsonify({"success": False, "message": "Invalid target path"}), 400
 
     try:
-        makedirs_safe(target_path, [DOWNLOAD_DIR, lidarr_path])
+        makedirs_safe(target_path, makedirs_bases)
     except BaseNotMountedError as exc:
         return jsonify({
             "success": False,
@@ -1264,7 +1321,7 @@ def api_download_manual():
         album_id_ctx,
         failed_ctx,
         config,
-        lidarr_path=lidarr_path,
+        lidarr_album_path=lidarr_import_path,
     )
 
 
@@ -1334,15 +1391,92 @@ def _validate_youtube_url(youtube_url):
     return youtube_url
 
 
-def _validate_target_path(target_path, config):
+def _artist_folder_from_album(album_data):
+    """Match processing.py: use Lidarr's artist.path basename when available."""
+    artist_name = album_data.get("artist", {}).get("artistName", "") or "Unknown"
+    lidarr_artist_path_field = album_data.get("artist", {}).get("path", "") or ""
+    lidarr_artist_folder = os.path.basename(
+        lidarr_artist_path_field.rstrip("/\\")
+    )
+    return lidarr_artist_folder or sanitize_filename(artist_name)
+
+
+def _album_folder_from_album(album_data):
+    album_title = album_data.get("title", "Unknown")
+    release_year = str(album_data.get("releaseDate", ""))[:4]
+    sanitized_album = sanitize_filename(album_title)
+    if release_year:
+        return f"{sanitized_album} ({release_year})"
+    return sanitized_album
+
+
+def _writable_path_bases(config):
+    """Configured write bases (existence is checked later by makedirs_safe)."""
+    bases = []
+    seen = set()
+    for candidate in (DOWNLOAD_DIR, config.get("lidarr_path", "")):
+        if not candidate:
+            continue
+        try:
+            real = os.path.realpath(candidate)
+        except OSError:
+            continue
+        if real in seen:
+            continue
+        seen.add(real)
+        bases.append(candidate)
+    return bases
+
+
+def _resolve_write_base(config):
+    """Primary write base for new downloads (same priority as processing.py)."""
+    for candidate in (DOWNLOAD_DIR, config.get("lidarr_path", "")):
+        if candidate:
+            return candidate
+    return ""
+
+
+def _makedirs_bases_for(target_path, config):
+    """Bases under which target_path lives; must match makedirs_safe allowlist."""
+    real_target = os.path.realpath(target_path)
+    matching = []
+    for base in _writable_path_bases(config):
+        try:
+            real_base = os.path.realpath(base)
+        except OSError:
+            continue
+        if real_target.startswith(real_base + os.sep) or real_target == real_base:
+            matching.append(base)
+    if matching:
+        return matching
+    write_base = _resolve_write_base(config)
+    return [write_base] if write_base else []
+
+
+def _build_album_paths(album_data, config):
+    """Return (target_path, makedirs_bases, lidarr_import_path)."""
+    write_base = _resolve_write_base(config)
+    if not write_base:
+        return None, [], ""
+    artist_folder = _artist_folder_from_album(album_data)
+    album_folder = _album_folder_from_album(album_data)
+    target_path = os.path.join(write_base, artist_folder, album_folder)
+    makedirs_bases = _makedirs_bases_for(target_path, config)
     lidarr_path = config.get("lidarr_path", "")
-    allowed_bases = [os.path.realpath(DOWNLOAD_DIR)] if DOWNLOAD_DIR else []
+    lidarr_import_path = target_path
     if lidarr_path:
-        allowed_bases.append(os.path.realpath(lidarr_path))
+        lidarr_import_path = os.path.join(
+            lidarr_path, artist_folder, album_folder,
+        )
+    return target_path, makedirs_bases, lidarr_import_path
+
+
+def _validate_target_path(target_path, config):
     real_target = os.path.realpath(target_path)
     return any(
-        real_target.startswith(base + os.sep) or real_target == base
-        for base in allowed_bases
+        real_target.startswith(os.path.realpath(base) + os.sep)
+        or real_target == os.path.realpath(base)
+        for base in _writable_path_bases(config)
     )
 
 
@@ -1355,9 +1489,8 @@ def _execute_manual_download(
     album_id_ctx,
     failed_ctx,
     config,
-    lidarr_path="",
+    lidarr_album_path="",
 ):
-    lidarr_album_path_rec = target_path if lidarr_path else ""
     return _execute_manual_dl(
         youtube_url=youtube_url,
         track_title=track_title,
@@ -1372,7 +1505,7 @@ def _execute_manual_download(
         ),
         config=config,
         album_path=target_path,
-        lidarr_album_path=lidarr_album_path_rec,
+        lidarr_album_path=lidarr_album_path,
         cover_url=failed_ctx.get("cover_url", ""),
     )
 
@@ -1408,24 +1541,13 @@ def api_manual_track_download(album_id):
 
     artist_name = album_data.get("artist", {}).get("artistName", "Unknown")
     album_title = album_data.get("title", "Unknown")
-    release_year = str(album_data.get("releaseDate", ""))[:4]
     album_type = album_data.get("albumType", "Album")
 
-    sanitized_artist = sanitize_filename(artist_name)
-    sanitized_album = sanitize_filename(album_title)
-    if release_year:
-        album_folder = f"{sanitized_album} ({release_year})"
-    else:
-        album_folder = sanitized_album
-
     config = load_config()
-    lidarr_path = config.get("lidarr_path", "")
-
-    if lidarr_path:
-        target_path = os.path.join(lidarr_path, sanitized_artist, album_folder)
-    elif DOWNLOAD_DIR:
-        target_path = os.path.join(DOWNLOAD_DIR, sanitized_artist, album_folder)
-    else:
+    target_path, makedirs_bases, lidarr_import_path = _build_album_paths(
+        album_data, config,
+    )
+    if not target_path:
         return jsonify(
             {"success": False, "message": "No download path configured"}
         ), 400
@@ -1450,7 +1572,8 @@ def api_manual_track_download(album_id):
             artist_name=artist_name,
             config=config,
             album_path=target_path,
-            lidarr_album_path=target_path if lidarr_path else "",
+            lidarr_album_path=lidarr_import_path,
+            makedirs_bases=makedirs_bases,
             cover_url=cover_url,
         )
 
@@ -1509,7 +1632,10 @@ def _execute_manual_dl_with_progress(
     album_path,
     lidarr_album_path,
     cover_url,
+    makedirs_bases=None,
 ):
+    if makedirs_bases is None:
+        makedirs_bases = _makedirs_bases_for(target_path, config)
     for _ in range(300):
         if not download_process["active"]:
             break
@@ -1545,7 +1671,7 @@ def _execute_manual_dl_with_progress(
 
     try:
         try:
-            makedirs_safe(target_path, [DOWNLOAD_DIR, config.get("lidarr_path", "")])
+            makedirs_safe(target_path, makedirs_bases)
         except (BaseNotMountedError, PermissionError) as exc:
             logger.error("Manual download target unusable: %s", exc)
             track_state = download_process["tracks"][0]
@@ -2382,15 +2508,14 @@ def api_youtube_playlist_download():
         validated_entries.append({**entry, "url": v_url})
 
     config = load_config()
-    lidarr_path = config.get("lidarr_path", "")
-    base = lidarr_path if lidarr_path else DOWNLOAD_DIR
-    if not base:
+    write_base = _resolve_write_base(config)
+    if not write_base:
         return jsonify(
             {"success": False, "message": "No download path configured"}
         ), 400
 
     path_parts = [p for p in [sanitize_filename(artist_name), sanitize_filename(album_title)] if p]
-    target_path = os.path.join(base, *path_parts)
+    target_path = os.path.join(write_base, *path_parts)
 
     if not _validate_target_path(target_path, config):
         return jsonify({"success": False, "message": "Invalid target path"}), 400
@@ -2465,7 +2590,7 @@ def _execute_playlist_download(
     success_count = 0
     try:
         try:
-            makedirs_safe(target_path, [DOWNLOAD_DIR, config.get("lidarr_path", "")])
+            makedirs_safe(target_path, _makedirs_bases_for(target_path, config))
         except (BaseNotMountedError, PermissionError) as exc:
             logger.error("Playlist target unusable: %s", exc)
             for ts in download_process.get("tracks", []):
