@@ -607,6 +607,64 @@ class TestTitleScoreFloor:
         urls = [c["url"] for c in candidates]
         assert "wrong_song_id" not in urls
 
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_artist_match_but_different_track_rejected(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Maroon 5 - Nothing Lasts Forever (Lyrics)",
+                    "url": "wrong_id",
+                    "duration": 200,
+                    "channel": "Maroon 5",
+                    "view_count": 500000,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Maroon 5 Everyday Goodbyes official audio", "Everyday Goodbyes",
+            expected_duration_ms=200000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "wrong_id" not in urls
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_track_title_in_yt_title_accepted(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Max Cooper - Pattern Index",
+                    "url": "right_id",
+                    "duration": 381,
+                    "channel": "Max Cooper - Topic",
+                    "view_count": 100000,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Max Cooper Pattern Index official audio", "Pattern Index",
+            expected_duration_ms=381000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "right_id" in urls
+
 
 class TestFlatEntryWithoutDuration:
     @patch("downloader.yt_dlp.YoutubeDL")
