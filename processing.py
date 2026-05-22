@@ -344,13 +344,35 @@ def process_album_download(album_id, force=False):
         # ID3 embedding/notifications even when on-disk cover.jpg is
         # disabled.
         cover_data = get_itunes_artwork(artist_name, album_title)
-        save_cover_file = load_config().get("save_cover_art_file", True)
+        cfg = load_config()
+        save_cover_file = cfg.get("save_cover_art_file", True)
         if cover_data and save_cover_file:
-            try:
-                with open(os.path.join(album_path, "cover.jpg"), "wb") as f:
-                    f.write(cover_data)
-            except OSError as exc:
-                logger.warning("Failed to write cover.jpg: %s", exc)
+            # Write upfront to both DOWNLOAD_DIR and (if distinct)
+            # LIDARR_PATH so the artwork lands in the music library
+            # even when every track fails and _copy_to_lidarr is
+            # skipped. (Issue #68.)
+            cover_targets = [album_path]
+            lidarr_path_cfg = cfg.get("lidarr_path", "") or ""
+            if lidarr_path_cfg:
+                try:
+                    lidarr_target = os.path.join(
+                        lidarr_path_cfg, sanitized_artist, album_folder_name,
+                    )
+                    if os.path.abspath(lidarr_target) != os.path.abspath(album_path):
+                        cover_targets.append(lidarr_target)
+                except (OSError, ValueError) as exc:
+                    logger.debug(
+                        "Skipping early lidarr cover copy: %s", exc,
+                    )
+            for target in cover_targets:
+                try:
+                    os.makedirs(target, exist_ok=True)
+                    with open(os.path.join(target, "cover.jpg"), "wb") as f:
+                        f.write(cover_data)
+                except OSError as exc:
+                    logger.warning(
+                        "Failed to write cover.jpg to %s: %s", target, exc,
+                    )
         cover_url = download_process.get("cover_url", "")
 
         models.add_log(
