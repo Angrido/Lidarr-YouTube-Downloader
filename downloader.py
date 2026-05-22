@@ -385,9 +385,11 @@ def search_youtube_candidates(
                             0, 1.0 - (dur_diff / max(duration_tolerance, 1))
                         )
                     elif expected_duration_sec and not duration_known:
-                        # Music search returns flat entries without
-                        # duration; trust the search and score neutral.
-                        duration_score = 0.5
+                        # extract_flat ytmusic entries never carry
+                        # duration; the YT Music search itself is
+                        # already scoped to the catalog, so don't
+                        # penalise them on a field we can't measure.
+                        duration_score = 1.0 if kind == "ytmusic" else 0.5
                     else:
                         if duration_known and (duration < 15 or duration > 7200):
                             continue
@@ -404,17 +406,28 @@ def search_youtube_candidates(
                         entry.get("title", ""),
                         track_title_original, base_artist,
                     )
-                    if _is_topic_channel(channel, base_artist):
+                    # A ytmusic match is by construction in YouTube
+                    # Music's catalog (Songs/Videos tab) — treat it as
+                    # canonical, equivalent to a Topic channel hit, so
+                    # the recorded source reflects the music endpoint
+                    # instead of getting outscored by ytsearch view-count.
+                    if kind == "ytmusic" or _is_topic_channel(channel, base_artist):
                         official_bonus = 0.45
                     elif _is_official_channel(channel, base_artist):
                         official_bonus = 0.30
                     else:
                         official_bonus = 0.0
-                    view_score = 0.0
                     if view_count > 0:
                         view_score = min(
                             0.1, math.log10(max(view_count, 1)) / 100
                         )
+                    elif kind == "ytmusic":
+                        # ytmusic flat entries omit view_count; use a
+                        # neutral baseline so they aren't penalised
+                        # against ytsearch results that have it.
+                        view_score = 0.05
+                    else:
+                        view_score = 0.0
                     certainty_bonus = 0.15 if title_score >= 1.0 else 0.0
                     total_score = (
                         (duration_score * 0.25)

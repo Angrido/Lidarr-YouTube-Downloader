@@ -577,6 +577,45 @@ class TestTopicChannelForbiddenExemption:
         assert "remix_url" not in urls
 
 
+class TestYtmusicOutranksYtsearchOnFlatEntries:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_ytmusic_flat_entry_outscores_ytsearch_topic(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        results = iter([
+            {"entries": [{
+                "title": "Pattern Index",
+                "url": "music_video_id",
+                "duration": None,
+                "channel": "Max Cooper",
+                "view_count": 0,
+            }]},
+            {"entries": []},
+            {"entries": [{
+                "title": "Max Cooper - Pattern Index",
+                "url": "topic_video_id",
+                "duration": 381,
+                "channel": "Max Cooper - Topic",
+                "view_count": 500000,
+            }]},
+        ] + [{"entries": []}] * 10)
+        mock_ydl.extract_info.side_effect = lambda *a, **kw: next(results)
+        candidates = search_youtube_candidates(
+            "Max Cooper Pattern Index official audio", "Pattern Index",
+            expected_duration_ms=381000,
+        )
+        assert candidates
+        assert candidates[0]["source"] == "ytmusic"
+        assert candidates[0]["url"] == "music_video_id"
+
+
 class TestFlatEntryWithoutDuration:
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")
