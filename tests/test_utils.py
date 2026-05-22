@@ -113,6 +113,60 @@ class TestGetUmask:
         assert utils.get_umask() == 0o022
 
 
+class TestMakedirsSafe:
+    def test_creates_path_under_existing_base(self, tmp_path):
+        base = tmp_path / "downloads"
+        base.mkdir()
+        target = base / "Artist" / "Album (2024)"
+        utils.makedirs_safe(str(target), [str(base)])
+        assert target.is_dir()
+
+    def test_falls_back_to_plain_makedirs_when_no_base_matches(self, tmp_path):
+        target = tmp_path / "x" / "y" / "z"
+        utils.makedirs_safe(str(target), ["/totally/unrelated/base"])
+        assert target.is_dir()
+
+    def test_skips_empty_base_entries(self, tmp_path):
+        base = tmp_path / "downloads"
+        base.mkdir()
+        target = base / "Artist"
+        utils.makedirs_safe(str(target), ["", None, str(base)])
+        assert target.is_dir()
+
+    def test_unmounted_base_raises_typed_error(self, tmp_path, monkeypatch):
+        unmounted_base = "/proc/self/nonexistent-vol"
+        target = unmounted_base + "/Artist/Album"
+        with pytest.raises(utils.BaseNotMountedError) as exc_info:
+            utils.makedirs_safe(target, [unmounted_base])
+        assert unmounted_base in str(exc_info.value)
+        assert exc_info.value.base_dir == unmounted_base
+
+    def test_existing_artist_dir_without_group_write_gets_relaxed(
+        self, tmp_path,
+    ):
+        base = tmp_path / "downloads"
+        base.mkdir()
+        artist = base / "Artist"
+        artist.mkdir(mode=0o755)
+        try:
+            os.chmod(str(artist), 0o755)
+        except OSError:
+            pytest.skip("chmod not supported")
+        target = artist / "Album (2024)"
+        utils.makedirs_safe(str(target), [str(base)])
+        assert target.is_dir()
+        mode = os.stat(str(artist)).st_mode & 0o777
+        assert mode & 0o070 == 0o070
+
+    def test_already_existing_target_is_noop(self, tmp_path):
+        base = tmp_path / "downloads"
+        base.mkdir()
+        target = base / "Artist" / "Album"
+        target.mkdir(parents=True)
+        utils.makedirs_safe(str(target), [str(base)])
+        assert target.is_dir()
+
+
 class TestSetPermissions:
     def test_sets_file_permissions(self, tmp_path, monkeypatch):
         monkeypatch.setenv("UMASK", "002")

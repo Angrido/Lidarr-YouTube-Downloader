@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
 from downloader import (
+    _candidate_display_url,
     _check_forbidden,
     _is_official_channel,
     _title_similarity,
@@ -496,3 +497,423 @@ class TestDownloadYoutubeCandidate:
             candidate, "/tmp/output", skip_check=lambda: True
         )
         assert result.get("skipped") is True
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_format_unavailable_falls_through_chain(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "ERROR: Requested format is not available"
+        )
+        candidate = {
+            "url": "u", "title": "t", "duration": 200, "score": 0.9,
+        }
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result["success"] is False
+        assert "format" in result["error_message"].lower() \
+            or "no downloadable" in result["error_message"].lower()
+
+
+class TestTopicChannelForbiddenExemption:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_topic_channel_track_with_remix_word_still_accepted(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": ["remix"],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Calling (Remix)",
+                    "url": "topic_url",
+                    "duration": 200,
+                    "channel": "Some Artist - Topic",
+                    "view_count": 100000,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Some Artist Calling official audio", "Calling",
+            expected_duration_ms=200000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "topic_url" in urls
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_non_topic_remix_still_blocked(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": ["remix"],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Calling (Some DJ Remix)",
+                    "url": "remix_url",
+                    "duration": 200,
+                    "channel": "RandomDJ",
+                    "view_count": 50000,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Some Artist Calling official audio", "Calling",
+            expected_duration_ms=200000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "remix_url" not in urls
+
+
+class TestTitleScoreFloor:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_wrong_song_same_artist_rejected(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Won't Go Home Without You (Official Music Video)",
+                    "url": "wrong_song_id",
+                    "duration": None,
+                    "channel": "Maroon 5",
+                    "view_count": 0,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Maroon 5 Good at Being Gone official audio", "Good at Being Gone",
+            expected_duration_ms=200000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "wrong_song_id" not in urls
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_artist_match_but_different_track_rejected(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Maroon 5 - Nothing Lasts Forever (Lyrics)",
+                    "url": "wrong_id",
+                    "duration": 200,
+                    "channel": "Maroon 5",
+                    "view_count": 500000,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Maroon 5 Everyday Goodbyes official audio", "Everyday Goodbyes",
+            expected_duration_ms=200000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "wrong_id" not in urls
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_track_title_in_yt_title_accepted(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Max Cooper - Pattern Index",
+                    "url": "right_id",
+                    "duration": 381,
+                    "channel": "Max Cooper - Topic",
+                    "view_count": 100000,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Max Cooper Pattern Index official audio", "Pattern Index",
+            expected_duration_ms=381000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "right_id" in urls
+
+
+class TestFlatEntryWithoutDuration:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_ytmusic_entry_without_duration_still_accepted(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Pattern Index",
+                    "url": "v4GurmZYFwk",
+                    "duration": None,
+                    "channel": "Max Cooper - Topic",
+                    "view_count": 0,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Max Cooper Pattern Index official audio", "Pattern Index",
+            expected_duration_ms=381000,
+        )
+        assert any(c["url"] == "v4GurmZYFwk" for c in candidates)
+
+
+class TestCandidateDisplayUrl:
+    def test_ytmusic_id_renders_music_url(self):
+        c = {"url": "abc12345678", "source": "ytmusic"}
+        assert _candidate_display_url(c) == (
+            "https://music.youtube.com/watch?v=abc12345678"
+        )
+
+    def test_ytmusic_youtube_url_rewritten_to_music(self):
+        c = {
+            "url": "https://www.youtube.com/watch?v=abc12345678",
+            "source": "ytmusic",
+        }
+        assert _candidate_display_url(c) == (
+            "https://music.youtube.com/watch?v=abc12345678"
+        )
+
+    def test_ytsearch_id_renders_youtube_url(self):
+        c = {"url": "abc12345678", "source": "ytsearch"}
+        assert _candidate_display_url(c) == (
+            "https://www.youtube.com/watch?v=abc12345678"
+        )
+
+    def test_unknown_url_passes_through(self):
+        c = {"url": "not-a-yt-url", "source": "ytmusic"}
+        assert _candidate_display_url(c) == "not-a-yt-url"
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_download_result_records_music_url_for_ytmusic_candidate(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android",
+            "audio_format": "m4a",
+            "audio_quality": "320",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.return_value = 0
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "ytmusic",
+        }
+        result = download_youtube_candidate(candidate, "/tmp/out")
+        assert result["success"] is True
+        assert result["youtube_url"] == (
+            "https://music.youtube.com/watch?v=abc12345678"
+        )
+
+
+class TestMusicClientPriority:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_music_source_adds_music_clients(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android",
+            "audio_format": "m4a",
+            "audio_quality": "320",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception("Please sign in")
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "ytmusic",
+        }
+        download_youtube_candidate(candidate, "/tmp/out")
+        called_clients = []
+        for call in mock_ydl_class.call_args_list:
+            opts = call.args[0] if call.args else call.kwargs
+            extractor_args = opts.get("extractor_args", {}) if isinstance(opts, dict) else {}
+            yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+            pc = yt_args.get("player_client", [None])
+            called_clients.extend(pc if isinstance(pc, list) else [pc])
+        assert any("music" in str(c) for c in called_clients if c)
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_music_clients_tried_before_user_default(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android",
+            "audio_format": "m4a",
+            "audio_quality": "320",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception("Please sign in")
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "ytmusic",
+        }
+        download_youtube_candidate(candidate, "/tmp/out")
+        called_clients = []
+        for call in mock_ydl_class.call_args_list:
+            opts = call.args[0] if call.args else call.kwargs
+            extractor_args = opts.get("extractor_args", {}) if isinstance(opts, dict) else {}
+            yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+            pc = yt_args.get("player_client", [None])
+            called_clients.extend(pc if isinstance(pc, list) else [pc])
+        first_music = next(
+            (i for i, c in enumerate(called_clients) if c and "music" in str(c)),
+            -1,
+        )
+        first_android = next(
+            (i for i, c in enumerate(called_clients) if c == "android"),
+            -1,
+        )
+        assert first_music != -1
+        assert first_android == -1 or first_music < first_android
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_non_music_source_skips_music_clients(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android",
+            "audio_format": "m4a",
+            "audio_quality": "320",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception("Please sign in")
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "ytsearch",
+        }
+        download_youtube_candidate(candidate, "/tmp/out")
+        called_clients = []
+        for call in mock_ydl_class.call_args_list:
+            opts = call.args[0] if call.args else call.kwargs
+            extractor_args = opts.get("extractor_args", {}) if isinstance(opts, dict) else {}
+            yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+            pc = yt_args.get("player_client", [None])
+            called_clients.extend(pc if isinstance(pc, list) else [pc])
+        assert not any("music" in str(c) for c in called_clients if c)
+
+
+class TestVideoIdDedup:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_same_video_from_ytmusic_and_ytsearch_keeps_ytmusic_source(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        ytmusic_entry = {
+            "title": "Pattern Index",
+            "url": "https://www.youtube.com/watch?v=v4GurmZYFwk",
+            "duration": 380,
+            "channel": "Max Cooper - Topic",
+            "view_count": 1000,
+        }
+        ytsearch_entry = {
+            "title": "Pattern Index",
+            "url": "v4GurmZYFwk",
+            "duration": 380,
+            "channel": "Max Cooper - Topic",
+            "view_count": 1000,
+        }
+        results = iter([
+            {"entries": [ytmusic_entry]},
+            {"entries": [ytmusic_entry]},
+            {"entries": [ytsearch_entry]},
+            {"entries": []},
+            {"entries": []},
+            {"entries": []},
+            {"entries": []},
+            {"entries": []},
+            {"entries": []},
+            {"entries": []},
+        ])
+        mock_ydl.extract_info.side_effect = lambda *a, **kw: next(results)
+        candidates = search_youtube_candidates(
+            "Max Cooper Pattern Index official audio", "Pattern Index",
+            expected_duration_ms=380000,
+        )
+        matching = [c for c in candidates if "v4GurmZYFwk" in c["url"]]
+        assert len(matching) == 1
+        assert matching[0]["source"] == "ytmusic"
+
+
+class TestYouTubeMusicSearch:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_ytmusic_url_used_before_ytsearch(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {"entries": []}
+        search_youtube_candidates(
+            "Artist Track official audio", "Track",
+            expected_duration_ms=200000,
+        )
+        called_targets = [
+            call.args[0]
+            for call in mock_ydl.extract_info.call_args_list
+            if call.args
+        ]
+        first_ytmusic = next(
+            (i for i, t in enumerate(called_targets)
+             if t.startswith("https://music.youtube.com/search")),
+            -1,
+        )
+        first_ytsearch = next(
+            (i for i, t in enumerate(called_targets)
+             if t.startswith("ytsearch")),
+            -1,
+        )
+        assert first_ytmusic != -1
+        if first_ytsearch != -1:
+            assert first_ytmusic < first_ytsearch

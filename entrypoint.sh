@@ -20,10 +20,18 @@ if [ "$PUID" != "0" ] && [ "$PGID" != "0" ]; then
 
     chown -R "$PUID:$PGID" /config
 
+    # Only the mount root and artist folders — recursing into a multi-TB
+    # library would stall the container on startup.
     for _dir in "$DOWNLOAD_PATH" "$LIDARR_PATH"; do
         if [ -n "$_dir" ] && [ -d "$_dir" ]; then
             chown "$PUID:$PGID" "$_dir" 2>/dev/null \
                 || echo "WARNING: Cannot fix ownership of $_dir — ensure it is writable by uid=$PUID"
+            chmod g+rwx "$_dir" 2>/dev/null || true
+            find "$_dir" -mindepth 1 -maxdepth 1 -type d \
+                \( ! -uid "$PUID" -o ! -gid "$PGID" \) \
+                -exec chown "$PUID:$PGID" {} + 2>/dev/null || true
+            find "$_dir" -mindepth 1 -maxdepth 1 -type d \
+                -exec chmod g+rwx {} + 2>/dev/null || true
         fi
     done
 

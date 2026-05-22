@@ -130,7 +130,8 @@ def _check_forbidden(yt_title_lower, track_title_lower, forbidden_list):
 
     Multi-word forbidden terms use substring matching. Single words
     use word-boundary regex. Terms present in the original track
-    title are allowed.
+    title are allowed (so a track called "Foo (Live)" still matches
+    "Foo (Live)" on YouTube).
 
     Returns:
         The matched forbidden word, or None if clean.
@@ -149,27 +150,52 @@ def _check_forbidden(yt_title_lower, track_title_lower, forbidden_list):
     return None
 
 
+class _SilentYDLLogger:
+    # yt-dlp routes format errors through report_error, which writes to
+    # stderr even with quiet=True. We catch them as exceptions and
+    # walk the fallback chain, so they don't deserve ERROR-level noise.
+    _SUPPRESS_SUBSTRINGS = (
+        "requested format is not available",
+        "no video formats found",
+        # android client commonly returns this even with valid cookies;
+        # music/web clients recover on the next attempt.
+        "please sign in",
+    )
+
+    def debug(self, msg):
+        pass
+
+    def info(self, msg):
+        pass
+
+    def warning(self, msg):
+        logger.debug("yt-dlp warning: %s", msg)
+
+    def error(self, msg):
+        text = str(msg or "").lower()
+        if any(s in text for s in self._SUPPRESS_SUBSTRINGS):
+            logger.debug("yt-dlp (suppressed): %s", msg)
+            return
+        logger.warning("yt-dlp: %s", msg)
+
+
+_SILENT_YDL_LOGGER = _SilentYDLLogger()
+
+
 def _build_common_opts(player_client=None):
-    """Build yt-dlp options dict from current config.
-
-    Args:
-        player_client: YouTube player client override (e.g. "android").
-
-    Returns:
-        Dict of yt-dlp options.
-    """
     cfg = load_config()
     opts = {
         "quiet": True,
         "no_warnings": True,
+        "noprogress": True,
+        "logger": _SILENT_YDL_LOGGER,
         "retries": int(cfg.get("yt_retries", 10)),
         "fragment_retries": int(cfg.get("yt_fragment_retries", 10)),
         "sleep_interval_requests": int(cfg.get("yt_sleep_requests", 1)),
         "sleep_interval": int(cfg.get("yt_sleep_interval", 1)),
         "max_sleep_interval": int(cfg.get("yt_max_sleep_interval", 5)),
         "noplaylist": True,
-        # Prefer the highest available audio bitrate, then sample rate.
-        # Without this yt-dlp may pick a 128k stream when a 256k one exists.
+        # Without this yt-dlp may pick a 128k stream over a 256k one.
         "format_sort": ["abr", "asr"],
     }
     cookies_path = (cfg.get("yt_cookies_file") or "").strip()
@@ -248,14 +274,21 @@ def search_youtube_candidates(
         base_artist = artist_part
 
     added = {query}
-    # Front-load Topic/official-channel queries so we lock onto the
-    # canonical master before falling back to user uploads (see #58).
+    import urllib.parse as _urlparse
+
+    def _ytmusic_url(q):
+        return (
+            "https://music.youtube.com/search?q=" + _urlparse.quote(q)
+        )
+
     search_queries = [
-        f"{base_artist} - Topic {base_track}",
-        f'"{base_artist}" {base_track} official audio',
-        query,
+        ("ytmusic", _ytmusic_url(f"{base_artist} {base_track}")),
+        ("ytmusic", _ytmusic_url(f"{base_artist} {base_track} official audio")),
+        ("ytsearch", f"{base_artist} - Topic {base_track}"),
+        ("ytsearch", f'"{base_artist}" {base_track} official audio'),
+        ("ytsearch", query),
     ]
-    added.update(search_queries)
+    added.update(sq for kind, sq in search_queries if kind == "ytsearch")
 
     for candidate_q in [
         f"{base_artist} - {base_track}",
@@ -266,13 +299,13 @@ def search_youtube_candidates(
     ]:
         if candidate_q not in added:
             added.add(candidate_q)
-            search_queries.append(candidate_q)
+            search_queries.append(("ytsearch", candidate_q))
 
-    seen_urls = set()
+    seen_ids = {}
     candidates = []
     GOOD_SCORE = 0.80
 
-    for qi, sq in enumerate(search_queries):
+    for qi, (kind, sq) in enumerate(search_queries):
         if skip_check and skip_check():
             return []
 
@@ -280,16 +313,34 @@ def search_youtube_candidates(
         if has_good:
             break
 
-        if qi > 0:
-            logger.info(
-                f"   Fallback search ({qi+1}/{len(search_queries)}):"
-                f' "{sq}"'
-            )
+        logger.info(
+            f"   Search ({qi+1}/{len(search_queries)}) [{kind}]:"
+            f' "{sq}"'
+        )
+        if kind == "ytmusic":
+            search_target = sq
+            search_limit = 10
+        else:
+            search_target = f"ytsearch15:{sq}"
+            search_limit = None
         try:
             with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
                 search_results = ydl.extract_info(
-                    f"ytsearch15:{sq}", download=False
+                    search_target, download=False,
                 )
+                if (
+                    search_limit is not None
+                    and isinstance(search_results, dict)
+                    and search_results.get("entries")
+                ):
+                    search_results = {
+                        "entries": list(search_results["entries"])[:search_limit]
+                    }
+                entries_total = (
+                    len(search_results.get("entries", []) or [])
+                    if isinstance(search_results, dict) else 0
+                )
+                accepted_before = len(candidates)
                 for entry in search_results.get("entries", []):
                     title = entry.get("title", "").lower()
                     url = entry.get("url")
@@ -301,17 +352,23 @@ def search_youtube_candidates(
                     )
                     view_count = entry.get("view_count", 0) or 0
 
-                    blocked = _check_forbidden(
-                        title, track_title_original.lower(), forbidden_words,
-                    )
-                    if blocked:
-                        logger.debug(
-                            f"   Rejected '{entry.get('title', '')}'"
-                            f" - forbidden word '{blocked}'"
+                    # Topic channels host the canonical master, so the user's
+                    # chosen album wins over any forbidden-word filter.
+                    is_topic = _is_topic_channel(channel, base_artist)
+                    if not is_topic:
+                        blocked = _check_forbidden(
+                            title, track_title_original.lower(),
+                            forbidden_words,
                         )
-                        continue
+                        if blocked:
+                            logger.debug(
+                                f"   Rejected '{entry.get('title', '')}'"
+                                f" - forbidden word '{blocked}'"
+                            )
+                            continue
 
-                    if expected_duration_sec:
+                    duration_known = bool(duration) and duration > 0
+                    if expected_duration_sec and duration_known:
                         min_dur = max(
                             15, expected_duration_sec - duration_tolerance
                         )
@@ -327,8 +384,10 @@ def search_youtube_candidates(
                         duration_score = max(
                             0, 1.0 - (dur_diff / max(duration_tolerance, 1))
                         )
+                    elif expected_duration_sec and not duration_known:
+                        duration_score = 0.5
                     else:
-                        if duration < 15 or duration > 7200:
+                        if duration_known and (duration < 15 or duration > 7200):
                             continue
                         duration_score = 0.5
 
@@ -339,21 +398,46 @@ def search_youtube_candidates(
                         )
                         continue
 
+                    # Hard requirement: the track title must actually
+                    # appear in the YouTube title (or cover ≥85% of it
+                    # by longest common substring, to allow tiny
+                    # punctuation/normalisation differences). Just
+                    # matching the artist name is the same-artist
+                    # wrong-song trap.
+                    yt_title_raw = entry.get("title", "")
+                    yt_norm = _normalize_dashes(yt_title_raw).lower()
+                    track_norm = _normalize_dashes(track_title_original).lower()
+                    if track_norm and track_norm not in yt_norm:
+                        match = SequenceMatcher(
+                            None, track_norm, yt_norm,
+                        ).find_longest_match(
+                            0, len(track_norm), 0, len(yt_norm),
+                        )
+                        coverage = match.size / max(len(track_norm), 1)
+                        if coverage < 0.85:
+                            logger.debug(
+                                f"   Rejected '{yt_title_raw}'"
+                                f" - track title not present"
+                                f" (coverage {coverage:.0%})"
+                            )
+                            continue
+
                     title_score = _title_similarity(
-                        entry.get("title", ""),
+                        yt_title_raw,
                         track_title_original, base_artist,
                     )
-                    if _is_topic_channel(channel, base_artist):
+                    if kind == "ytmusic" or _is_topic_channel(channel, base_artist):
                         official_bonus = 0.45
                     elif _is_official_channel(channel, base_artist):
                         official_bonus = 0.30
                     else:
                         official_bonus = 0.0
-                    view_score = 0.0
                     if view_count > 0:
                         view_score = min(
                             0.1, math.log10(max(view_count, 1)) / 100
                         )
+                    else:
+                        view_score = 0.0
                     certainty_bonus = 0.15 if title_score >= 1.0 else 0.0
                     total_score = (
                         (duration_score * 0.25)
@@ -363,29 +447,69 @@ def search_youtube_candidates(
                         + certainty_bonus
                     )
 
-                    if url and url not in seen_urls:
-                        seen_urls.add(url)
-                        candidates.append({
-                            "url": url,
-                            "title": entry.get("title", ""),
-                            "duration": duration,
-                            "channel": channel,
-                            "score": total_score,
-                        })
-                        logger.debug(
-                            f"   Candidate '{entry.get('title', '')}'"
-                            f" -- score={total_score:.2f}"
-                            f" (dur={duration_score:.2f}"
-                            f" title={title_score:.2f}"
-                            f" official={official_bonus:.2f}"
-                            f" certainty={certainty_bonus:.2f}"
-                            f" views={view_score:.3f})"
-                        )
+                    if not url:
+                        continue
+                    video_id = _extract_video_id(url) or url
+                    if video_id in seen_ids:
+                        existing = candidates[seen_ids[video_id]]
+                        # Same video found by both ytmusic and ytsearch
+                        # passes — keep the ytmusic source so the UI
+                        # link reflects YouTube Music.
+                        if kind == "ytmusic" and existing.get("source") != "ytmusic":
+                            existing["source"] = "ytmusic"
+                            existing["url"] = url
+                        continue
+                    seen_ids[video_id] = len(candidates)
+                    candidates.append({
+                        "url": url,
+                        "title": entry.get("title", ""),
+                        "duration": duration,
+                        "channel": channel,
+                        "score": total_score,
+                        "source": kind,
+                    })
+                    logger.debug(
+                        f"   Candidate '{entry.get('title', '')}'"
+                        f" -- score={total_score:.2f}"
+                        f" (dur={duration_score:.2f}"
+                        f" title={title_score:.2f}"
+                        f" official={official_bonus:.2f}"
+                        f" certainty={certainty_bonus:.2f}"
+                        f" views={view_score:.3f})"
+                    )
+                logger.info(
+                    f"   [{kind}] {entries_total} entries"
+                    f" -> {len(candidates) - accepted_before} accepted"
+                )
         except Exception as e:
             logger.error(f'   Search failed for "{sq}": {e}')
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
     return candidates[:MAX_CANDIDATES]
+
+
+_VIDEO_ID_RE = re.compile(r"(?:v=|/)([0-9A-Za-z_-]{11})(?:[?&#]|$)")
+
+
+def _extract_video_id(url):
+    if not url:
+        return None
+    match = _VIDEO_ID_RE.search(url)
+    if match:
+        return match.group(1)
+    if re.fullmatch(r"[0-9A-Za-z_-]{11}", url):
+        return url
+    return None
+
+
+def _candidate_display_url(candidate):
+    raw = candidate.get("url", "")
+    video_id = _extract_video_id(raw)
+    if not video_id:
+        return raw
+    if candidate.get("source") == "ytmusic":
+        return f"https://music.youtube.com/watch?v={video_id}"
+    return f"https://www.youtube.com/watch?v={video_id}"
 
 
 def download_youtube_candidate(
@@ -397,54 +521,67 @@ def download_youtube_candidate(
     config = load_config()
     audio_format = config.get("audio_format", "mp3")
     audio_quality = str(config.get("audio_quality", "320"))
+    download_url = candidate["url"]
+    display_url = _candidate_display_url(candidate)
 
-    # Format-specific selector chain. Each entry is tried in order; if
-    # yt-dlp reports "Requested format is not available" we fall through
-    # to the next, broader selector. The final entry must always match
-    # something downloadable. (See issue #64.)
+    # Ordered from strictest to broadest. Trailing "" lets yt-dlp pick
+    # its default, covering HLS-only / live / unusual streams.
     if audio_format == "m4a":
         format_selectors = [
             "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]",
             "bestaudio",
             "bestaudio/best",
+            "bestaudio*[acodec!=none]/best*[acodec!=none]",
             "best",
+            "",
         ]
     elif audio_format == "opus":
         format_selectors = [
             "bestaudio[acodec=opus]/bestaudio[ext=webm]",
             "bestaudio",
             "bestaudio/best",
+            "bestaudio*[acodec!=none]/best*[acodec!=none]",
             "best",
+            "",
         ]
-    else:  # mp3 always requires transcoding
+    else:
         format_selectors = [
             "bestaudio/best",
             "bestaudio",
+            "bestaudio*[acodec!=none]/best*[acodec!=none]",
             "best",
+            "",
         ]
 
     first_client = config.get("yt_player_client", "android")
+    is_music = candidate.get("source") == "ytmusic"
     clients_to_try = []
-    if first_client:
+    # Music clients hit the YouTube Music InnerTube endpoint, honor
+    # cookies more reliably than bare android, and expose higher-tier
+    # audio. For ytmusic-sourced candidates they take priority over
+    # the user-configured default.
+    if is_music:
+        clients_to_try.extend(["web_music", "android_music", "ios_music"])
+    if first_client and first_client not in clients_to_try:
         clients_to_try.append(first_client)
-    for alt in ["web", "ios"]:
-        if alt != first_client:
+    for alt in ["web", "ios", "web_creator", "tv_embedded"]:
+        if alt not in clients_to_try:
             clients_to_try.append(alt)
     clients_to_try.append(None)
 
+    # Selector-outer / client-inner: ``android`` often only sees the
+    # combined 360p mp4 (22k audio) while ``web`` exposes the 130k DASH
+    # m4a. The obvious "exhaust selectors per client" order would
+    # download the 22k stream from android and never try web.
     last_err = None
     any_403 = False
     format_unavailable_errors = 0
-    for pc in clients_to_try:
-        if skip_check and skip_check():
-            return {"skipped": True}
-        # Walk the selector chain, broadening on "format not available".
-        for sel_idx, selector in enumerate(format_selectors):
+    for sel_idx, selector in enumerate(format_selectors):
+        for pc in clients_to_try:
             if skip_check and skip_check():
                 return {"skipped": True}
             ydl_opts_download = {
                 **_build_common_opts(player_client=pc),
-                "format": selector,
                 "postprocessors": [
                     {
                         "key": "FFmpegExtractAudio",
@@ -454,20 +591,20 @@ def download_youtube_candidate(
                 ],
                 "outtmpl": output_path,
             }
-            # On the broadest fallback drop format_sort: some
-            # transient streams have no abr/asr metadata and the
-            # sort can cause yt-dlp to reject otherwise-usable
-            # formats with "Requested format is not available".
-            if sel_idx == len(format_selectors) - 1:
+            if selector:
+                ydl_opts_download["format"] = selector
+            # Streams without abr/asr metadata get rejected by
+            # format_sort, so drop it on the last two fallbacks.
+            if sel_idx >= len(format_selectors) - 2:
                 ydl_opts_download.pop("format_sort", None)
             if progress_hook:
                 ydl_opts_download["progress_hooks"] = [progress_hook]
             try:
                 with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
-                    ydl_dl.download([candidate["url"]])
+                    ydl_dl.download([download_url])
                 return {
                     "success": True,
-                    "youtube_url": candidate["url"],
+                    "youtube_url": display_url,
                     "youtube_title": candidate["title"],
                     "match_score": round(candidate["score"], 4),
                     "duration_seconds": int(candidate["duration"]),
@@ -483,9 +620,7 @@ def download_youtube_candidate(
                         " ensure cookies are provided"
                         " (YT_COOKIES_FILE) and try again"
                     )
-                    # 403 won't be fixed by changing format selector,
-                    # break to next client.
-                    break
+                    continue
                 if (
                     "requested format is not available" in msg_low
                     or "no video formats" in msg_low
@@ -493,7 +628,7 @@ def download_youtube_candidate(
                     format_unavailable_errors += 1
                     logger.debug(
                         "   Format '%s' not available with player_client=%s;"
-                        " falling back to next selector",
+                        " trying next client/selector",
                         selector, pc or "default",
                     )
                     continue
@@ -501,8 +636,7 @@ def download_youtube_candidate(
                     f"   Failed with player_client={pc or 'default'}"
                     f" selector='{selector}'; {msg[:180]}"
                 )
-                # Unknown error: try next client rather than next selector.
-                break
+                continue
 
     if last_err:
         logger.debug(

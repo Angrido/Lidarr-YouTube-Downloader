@@ -34,7 +34,12 @@ from notifications import (
     md2_escape,
     send_notifications,
 )
-from utils import sanitize_filename, set_permissions, makedirs_safe
+from utils import (
+    BaseNotMountedError,
+    makedirs_safe,
+    sanitize_filename,
+    set_permissions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -280,6 +285,18 @@ def process_album_download(album_id, force=False):
             "",
         )
 
+        # Fetch the cover before anything else. The bytes ride along in
+        # memory for ID3 embedding and notifications, and get flushed
+        # to disk as soon as the album directory exists below.
+        logger.info(f"Fetching album cover: {artist_name} - {album_title}")
+        cover_data = get_itunes_artwork(artist_name, album_title)
+        if cover_data:
+            logger.info(
+                f"Album cover fetched ({len(cover_data) // 1024} KB)"
+            )
+        else:
+            logger.info("No album cover found on iTunes")
+
         release_id = get_valid_release_id(album)
         if release_id == 0:
             return {"error": "No valid releases found for this album."}
@@ -307,6 +324,17 @@ def process_album_download(album_id, force=False):
         album_path = os.path.join(artist_path, album_folder_name)
         try:
             makedirs_safe(album_path, [DOWNLOAD_DIR])
+        except BaseNotMountedError as exc:
+            logger.error(
+                "DOWNLOAD_PATH (%s) is not mounted inside the container: %s",
+                DOWNLOAD_DIR, exc,
+            )
+            return {
+                "error": (
+                    f"DOWNLOAD_PATH '{DOWNLOAD_DIR}' is not mounted. "
+                    "Add a volume mount in docker-compose.yml or correct the path in settings."
+                )
+            }
         except PermissionError as exc:
             puid = os.getenv("PUID", "?")
             logger.error(
@@ -318,23 +346,39 @@ def process_album_download(album_id, force=False):
             return {
                 "error": (
                     f"Permission denied: cannot create {album_path}. "
-                    f"Check that DOWNLOAD_PATH is writable by PUID={puid}."
+                    f"{exc}"
                 )
             }
 
-        # Fetch cover art before sending the download_started
-        # notification so the artwork can render in Telegram (sendPhoto)
-        # and Discord (embed thumbnail). cover_data is kept in memory for
-        # ID3 embedding/notifications even when on-disk cover.jpg is
-        # disabled.
-        cover_data = get_itunes_artwork(artist_name, album_title)
-        save_cover_file = load_config().get("save_cover_art_file", True)
+        cfg = load_config()
+        save_cover_file = cfg.get("save_cover_art_file", True)
         if cover_data and save_cover_file:
-            try:
-                with open(os.path.join(album_path, "cover.jpg"), "wb") as f:
-                    f.write(cover_data)
-            except OSError as exc:
-                logger.warning("Failed to write cover.jpg: %s", exc)
+            # Write upfront to both DOWNLOAD_DIR and (if distinct)
+            # LIDARR_PATH so the artwork lands in the music library
+            # even when every track fails and _copy_to_lidarr is
+            # skipped. (Issue #68.)
+            cover_targets = [album_path]
+            lidarr_path_cfg = cfg.get("lidarr_path", "") or ""
+            if lidarr_path_cfg:
+                try:
+                    lidarr_target = os.path.join(
+                        lidarr_path_cfg, sanitized_artist, album_folder_name,
+                    )
+                    if os.path.abspath(lidarr_target) != os.path.abspath(album_path):
+                        cover_targets.append(lidarr_target)
+                except (OSError, ValueError) as exc:
+                    logger.debug(
+                        "Skipping early lidarr cover copy: %s", exc,
+                    )
+            for target in cover_targets:
+                try:
+                    os.makedirs(target, exist_ok=True)
+                    with open(os.path.join(target, "cover.jpg"), "wb") as f:
+                        f.write(cover_data)
+                except OSError as exc:
+                    logger.warning(
+                        "Failed to write cover.jpg to %s: %s", target, exc,
+                    )
         cover_url = download_process.get("cover_url", "")
 
         models.add_log(
