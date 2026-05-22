@@ -502,9 +502,6 @@ class TestDownloadYoutubeCandidate:
     def test_format_unavailable_falls_through_chain(
         self, mock_config, mock_ydl_class,
     ):
-        """Exhausting the selector chain across clients still returns a
-        clear error rather than retrying the first selector forever.
-        (Issue #64.)"""
         mock_config.return_value = {"yt_player_client": "android"}
         mock_ydl = mock_ydl_class.return_value.__enter__.return_value
         mock_ydl.download.side_effect = Exception(
@@ -520,9 +517,6 @@ class TestDownloadYoutubeCandidate:
 
 
 class TestTopicChannelForbiddenExemption:
-    """Topic channels are canonical masters — exempt them from
-    forbidden-word filtering. (Issue #58.)"""
-
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")
     def test_topic_channel_track_with_remix_word_still_accepted(
@@ -583,9 +577,6 @@ class TestTopicChannelForbiddenExemption:
 
 
 class TestYouTubeMusicSearch:
-    """YouTube Music URL search is issued before plain ytsearch.
-    (Issue #58.)"""
-
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")
     def test_ytmusic_url_used_before_ytsearch(
@@ -607,7 +598,6 @@ class TestYouTubeMusicSearch:
             for call in mock_ydl.extract_info.call_args_list
             if call.args
         ]
-        # YouTube Music URL form goes first
         first_ytmusic = next(
             (i for i, t in enumerate(called_targets)
              if t.startswith("https://music.youtube.com/search")),

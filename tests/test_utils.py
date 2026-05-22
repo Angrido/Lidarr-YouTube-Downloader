@@ -114,8 +114,6 @@ class TestGetUmask:
 
 
 class TestMakedirsSafe:
-    """``makedirs_safe`` / ``makedirs_within`` mounting + perm handling."""
-
     def test_creates_path_under_existing_base(self, tmp_path):
         base = tmp_path / "downloads"
         base.mkdir()
@@ -136,9 +134,6 @@ class TestMakedirsSafe:
         assert target.is_dir()
 
     def test_unmounted_base_raises_typed_error(self, tmp_path, monkeypatch):
-        """If creating the base fails (eg /volume1 not mounted), raise
-        BaseNotMountedError rather than leaking os.makedirs's
-        PermissionError on a parent we can't reach. (Issue #67.)"""
         unmounted_base = "/proc/self/nonexistent-vol"
         target = unmounted_base + "/Artist/Album"
         with pytest.raises(utils.BaseNotMountedError) as exc_info:
@@ -149,10 +144,6 @@ class TestMakedirsSafe:
     def test_existing_artist_dir_without_group_write_gets_relaxed(
         self, tmp_path,
     ):
-        """When an artist folder already exists with restrictive perms
-        (eg pre-existing folder from a previous run with a stricter
-        umask), makedirs_within should add group-write so a new album
-        sub-folder can be created. (Issue #66.)"""
         base = tmp_path / "downloads"
         base.mkdir()
         artist = base / "Artist"

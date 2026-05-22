@@ -151,17 +151,9 @@ def _check_forbidden(yt_title_lower, track_title_lower, forbidden_list):
 
 
 class _SilentYDLLogger:
-    """Logger that drops yt-dlp messages our fallback chain handles.
-
-    yt-dlp prints ``ERROR: Requested format is not available`` and
-    similar to stderr even with ``quiet=True``, because format errors
-    go through ``report_error`` rather than the normal ``to_screen``
-    path. We catch these as Python exceptions and try the next
-    selector, so the stderr noise is misleading. Forwarding only true
-    surprises (debug/info dropped, warning forwarded at debug level,
-    error filtered) keeps the container logs clean.
-    """
-
+    # yt-dlp routes format errors through report_error, which writes to
+    # stderr even with quiet=True. We catch them as exceptions and
+    # walk the fallback chain, so they don't deserve ERROR-level noise.
     _SUPPRESS_SUBSTRINGS = (
         "requested format is not available",
         "no video formats found",
@@ -188,22 +180,11 @@ _SILENT_YDL_LOGGER = _SilentYDLLogger()
 
 
 def _build_common_opts(player_client=None):
-    """Build yt-dlp options dict from current config.
-
-    Args:
-        player_client: YouTube player client override (e.g. "android").
-
-    Returns:
-        Dict of yt-dlp options.
-    """
     cfg = load_config()
     opts = {
         "quiet": True,
         "no_warnings": True,
         "noprogress": True,
-        # Route yt-dlp messages through our logger so "format not
-        # available" walks we recover from don't spam the container
-        # stderr.
         "logger": _SILENT_YDL_LOGGER,
         "retries": int(cfg.get("yt_retries", 10)),
         "fragment_retries": int(cfg.get("yt_fragment_retries", 10)),
@@ -211,8 +192,7 @@ def _build_common_opts(player_client=None):
         "sleep_interval": int(cfg.get("yt_sleep_interval", 1)),
         "max_sleep_interval": int(cfg.get("yt_max_sleep_interval", 5)),
         "noplaylist": True,
-        # Prefer the highest available audio bitrate, then sample rate.
-        # Without this yt-dlp may pick a 128k stream when a 256k one exists.
+        # Without this yt-dlp may pick a 128k stream over a 256k one.
         "format_sort": ["abr", "asr"],
     }
     cookies_path = (cfg.get("yt_cookies_file") or "").strip()
@@ -291,18 +271,10 @@ def search_youtube_candidates(
         base_artist = artist_part
 
     added = {query}
-    # Front-load Topic/official-channel queries so we lock onto the
-    # canonical master before falling back to user uploads (see #58).
-    # yt-dlp has no native "ytmsearch:" shortcut, so to reach the
-    # YouTube Music index we pass the music.youtube.com search URL
-    # directly — its extractor returns the same dict shape as the
-    # ytsearch SearchInfoExtractor.
     import urllib.parse as _urlparse
 
     def _ytmusic_url(q):
-        # `sp=EgWKAQIIAWoKEAoQAxAEEAUQCQ%3D%3D` is the filter token for
-        # "Songs only" — restricts results to official song uploads,
-        # not user-made remixes/covers/playlists.
+        # sp= filter token restricts results to "Songs" (no user remixes/covers).
         return (
             "https://music.youtube.com/search?q="
             + _urlparse.quote(q)
@@ -376,11 +348,8 @@ def search_youtube_candidates(
                     )
                     view_count = entry.get("view_count", 0) or 0
 
-                    # Topic channels host masters Lidarr already trusts —
-                    # never reject them on a forbidden word. The album
-                    # being downloaded was selected by the user, so if
-                    # the canonical master is e.g. titled "Track (Remix)"
-                    # that's the version they want. (See #58.)
+                    # Topic channels host the canonical master, so the user's
+                    # chosen album wins over any forbidden-word filter.
                     is_topic = _is_topic_channel(channel, base_artist)
                     if not is_topic:
                         blocked = _check_forbidden(
@@ -481,13 +450,8 @@ def download_youtube_candidate(
     audio_format = config.get("audio_format", "mp3")
     audio_quality = str(config.get("audio_quality", "320"))
 
-    # Format-specific selector chain. Each entry is tried in order; if
-    # yt-dlp reports "Requested format is not available" we fall through
-    # to the next, broader selector. The final entry must always match
-    # something downloadable. (See issue #64.)
-    # The trailing "bestaudio*/best*" and bare "" entries broaden to
-    # any stream including ones missing abr metadata (HLS, live, etc.)
-    # and as a last resort let yt-dlp pick whatever it can find.
+    # Ordered from strictest to broadest. Trailing "" lets yt-dlp pick
+    # its default, covering HLS-only / live / unusual streams.
     if audio_format == "m4a":
         format_selectors = [
             "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]",
@@ -506,7 +470,7 @@ def download_youtube_candidate(
             "best",
             "",
         ]
-    else:  # mp3 always requires transcoding
+    else:
         format_selectors = [
             "bestaudio/best",
             "bestaudio",
@@ -519,21 +483,15 @@ def download_youtube_candidate(
     clients_to_try = []
     if first_client:
         clients_to_try.append(first_client)
-    # The android client often hides DASH audio-only formats, so we
-    # add web/ios/web_creator/tv_embedded which expose the 130k m4a
-    # and 139k opus streams. None means "let yt-dlp pick default."
     for alt in ["web", "ios", "web_creator", "tv_embedded"]:
         if alt != first_client:
             clients_to_try.append(alt)
     clients_to_try.append(None)
 
-    # Try every client with each strict selector before broadening.
-    # This is the inverse of the obvious order, but it matters: if
-    # ``android`` can only see the combined 360p mp4 (22k audio) but
-    # ``web`` exposes the 130k DASH m4a, the obvious order would
-    # download the 22k stream and never try ``web``. Selector-outer /
-    # client-inner picks the best stream the network is willing to
-    # serve. (See #58.)
+    # Selector-outer / client-inner: ``android`` often only sees the
+    # combined 360p mp4 (22k audio) while ``web`` exposes the 130k DASH
+    # m4a. The obvious "exhaust selectors per client" order would
+    # download the 22k stream from android and never try web.
     last_err = None
     any_403 = False
     format_unavailable_errors = 0
@@ -552,15 +510,10 @@ def download_youtube_candidate(
                 ],
                 "outtmpl": output_path,
             }
-            # An empty selector lets yt-dlp pick its default — the
-            # last-resort fallback for HLS-only / live / unusual
-            # streams. Otherwise pass the explicit selector.
             if selector:
                 ydl_opts_download["format"] = selector
-            # On the broader fallbacks drop format_sort: some
-            # transient streams have no abr/asr metadata and the
-            # sort can cause yt-dlp to reject otherwise-usable
-            # formats with "Requested format is not available".
+            # Streams without abr/asr metadata get rejected by
+            # format_sort, so drop it on the last two fallbacks.
             if sel_idx >= len(format_selectors) - 2:
                 ydl_opts_download.pop("format_sort", None)
             if progress_hook:
@@ -586,9 +539,6 @@ def download_youtube_candidate(
                         " ensure cookies are provided"
                         " (YT_COOKIES_FILE) and try again"
                     )
-                    # 403 won't be fixed by changing format selector,
-                    # but it might be fixed by a different client —
-                    # continue to next pc on the same selector.
                     continue
                 if (
                     "requested format is not available" in msg_low
@@ -605,7 +555,6 @@ def download_youtube_candidate(
                     f"   Failed with player_client={pc or 'default'}"
                     f" selector='{selector}'; {msg[:180]}"
                 )
-                # Unknown error: try next client on same selector.
                 continue
 
     if last_err:
