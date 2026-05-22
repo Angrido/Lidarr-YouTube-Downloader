@@ -277,11 +277,8 @@ def search_youtube_candidates(
     import urllib.parse as _urlparse
 
     def _ytmusic_url(q):
-        # sp= filter token restricts results to "Songs" (no user remixes/covers).
         return (
-            "https://music.youtube.com/search?q="
-            + _urlparse.quote(q)
-            + "&sp=EgWKAQIIAWoKEAoQAxAEEAUQCQ%3D%3D"
+            "https://music.youtube.com/search?q=" + _urlparse.quote(q)
         )
 
     search_queries = [
@@ -316,11 +313,10 @@ def search_youtube_candidates(
         if has_good:
             break
 
-        if qi > 0:
-            logger.info(
-                f"   Fallback search ({qi+1}/{len(search_queries)}) [{kind}]:"
-                f' "{sq}"'
-            )
+        logger.info(
+            f"   Search ({qi+1}/{len(search_queries)}) [{kind}]:"
+            f' "{sq}"'
+        )
         if kind == "ytmusic":
             search_target = sq
             search_limit = 10
@@ -340,6 +336,13 @@ def search_youtube_candidates(
                     search_results = {
                         "entries": list(search_results["entries"])[:search_limit]
                     }
+                entries_total = (
+                    len(search_results.get("entries", []) or [])
+                    if isinstance(search_results, dict) else 0
+                )
+                logger.info(
+                    f"   [{kind}] returned {entries_total} entries"
+                )
                 for entry in search_results.get("entries", []):
                     title = entry.get("title", "").lower()
                     url = entry.get("url")
