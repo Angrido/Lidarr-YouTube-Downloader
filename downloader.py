@@ -157,6 +157,9 @@ class _SilentYDLLogger:
     _SUPPRESS_SUBSTRINGS = (
         "requested format is not available",
         "no video formats found",
+        # android client commonly returns this even with valid cookies;
+        # music/web clients recover on the next attempt.
+        "please sign in",
     )
 
     def debug(self, msg):
@@ -484,16 +487,14 @@ def download_youtube_candidate(
     first_client = config.get("yt_player_client", "android")
     is_music = candidate.get("source") == "ytmusic"
     clients_to_try = []
-    if first_client:
-        clients_to_try.append(first_client)
-    # Music-specific clients reach the YouTube Music endpoint, which
-    # tends to expose higher-bitrate opus/m4a and honors cookies more
-    # reliably than the bare android client.
+    # Music clients hit the YouTube Music InnerTube endpoint, honor
+    # cookies more reliably than bare android, and expose higher-tier
+    # audio. For ytmusic-sourced candidates they take priority over
+    # the user-configured default.
     if is_music:
-        music_clients = ["web_music", "android_music", "ios_music"]
-        for c in music_clients:
-            if c not in clients_to_try:
-                clients_to_try.append(c)
+        clients_to_try.extend(["web_music", "android_music", "ios_music"])
+    if first_client and first_client not in clients_to_try:
+        clients_to_try.append(first_client)
     for alt in ["web", "ios", "web_creator", "tv_embedded"]:
         if alt not in clients_to_try:
             clients_to_try.append(alt)

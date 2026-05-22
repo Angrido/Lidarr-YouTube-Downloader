@@ -605,6 +605,41 @@ class TestMusicClientPriority:
 
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")
+    def test_music_clients_tried_before_user_default(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android",
+            "audio_format": "m4a",
+            "audio_quality": "320",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception("Please sign in")
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "ytmusic",
+        }
+        download_youtube_candidate(candidate, "/tmp/out")
+        called_clients = []
+        for call in mock_ydl_class.call_args_list:
+            opts = call.args[0] if call.args else call.kwargs
+            extractor_args = opts.get("extractor_args", {}) if isinstance(opts, dict) else {}
+            yt_args = extractor_args.get("youtube", {}) if isinstance(extractor_args, dict) else {}
+            pc = yt_args.get("player_client", [None])
+            called_clients.extend(pc if isinstance(pc, list) else [pc])
+        first_music = next(
+            (i for i, c in enumerate(called_clients) if c and "music" in str(c)),
+            -1,
+        )
+        first_android = next(
+            (i for i, c in enumerate(called_clients) if c == "android"),
+            -1,
+        )
+        assert first_music != -1
+        assert first_android == -1 or first_music < first_android
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
     def test_non_music_source_skips_music_clients(
         self, mock_config, mock_ydl_class,
     ):
