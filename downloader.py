@@ -398,20 +398,34 @@ def search_youtube_candidates(
                         )
                         continue
 
+                    # Hard requirement: the track title must actually
+                    # appear in the YouTube title (or cover ≥85% of it
+                    # by longest common substring, to allow tiny
+                    # punctuation/normalisation differences). Just
+                    # matching the artist name is the same-artist
+                    # wrong-song trap.
+                    yt_title_raw = entry.get("title", "")
+                    yt_norm = _normalize_dashes(yt_title_raw).lower()
+                    track_norm = _normalize_dashes(track_title_original).lower()
+                    if track_norm and track_norm not in yt_norm:
+                        match = SequenceMatcher(
+                            None, track_norm, yt_norm,
+                        ).find_longest_match(
+                            0, len(track_norm), 0, len(yt_norm),
+                        )
+                        coverage = match.size / max(len(track_norm), 1)
+                        if coverage < 0.85:
+                            logger.debug(
+                                f"   Rejected '{yt_title_raw}'"
+                                f" - track title not present"
+                                f" (coverage {coverage:.0%})"
+                            )
+                            continue
+
                     title_score = _title_similarity(
-                        entry.get("title", ""),
+                        yt_title_raw,
                         track_title_original, base_artist,
                     )
-                    # Hard floor on title match. Without this the ytmusic
-                    # "Topic-equivalent" bonus could push completely
-                    # unrelated tracks (same artist, different song) past
-                    # the score gate.
-                    if title_score < 0.5:
-                        logger.debug(
-                            f"   Rejected '{entry.get('title', '')}'"
-                            f" - title score {title_score:.2f} below 0.5"
-                        )
-                        continue
                     if kind == "ytmusic" or _is_topic_channel(channel, base_artist):
                         official_bonus = 0.45
                     elif _is_official_channel(channel, base_artist):
