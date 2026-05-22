@@ -304,7 +304,7 @@ def search_youtube_candidates(
             added.add(candidate_q)
             search_queries.append(("ytsearch", candidate_q))
 
-    seen_urls = set()
+    seen_ids = {}
     candidates = []
     GOOD_SCORE = 0.80
 
@@ -418,25 +418,36 @@ def search_youtube_candidates(
                         + certainty_bonus
                     )
 
-                    if url and url not in seen_urls:
-                        seen_urls.add(url)
-                        candidates.append({
-                            "url": url,
-                            "title": entry.get("title", ""),
-                            "duration": duration,
-                            "channel": channel,
-                            "score": total_score,
-                            "source": kind,
-                        })
-                        logger.debug(
-                            f"   Candidate '{entry.get('title', '')}'"
-                            f" -- score={total_score:.2f}"
-                            f" (dur={duration_score:.2f}"
-                            f" title={title_score:.2f}"
-                            f" official={official_bonus:.2f}"
-                            f" certainty={certainty_bonus:.2f}"
-                            f" views={view_score:.3f})"
-                        )
+                    if not url:
+                        continue
+                    video_id = _extract_video_id(url) or url
+                    if video_id in seen_ids:
+                        existing = candidates[seen_ids[video_id]]
+                        # Same video found by both ytmusic and ytsearch
+                        # passes — keep the ytmusic source so the UI
+                        # link reflects YouTube Music.
+                        if kind == "ytmusic" and existing.get("source") != "ytmusic":
+                            existing["source"] = "ytmusic"
+                            existing["url"] = url
+                        continue
+                    seen_ids[video_id] = len(candidates)
+                    candidates.append({
+                        "url": url,
+                        "title": entry.get("title", ""),
+                        "duration": duration,
+                        "channel": channel,
+                        "score": total_score,
+                        "source": kind,
+                    })
+                    logger.debug(
+                        f"   Candidate '{entry.get('title', '')}'"
+                        f" -- score={total_score:.2f}"
+                        f" (dur={duration_score:.2f}"
+                        f" title={title_score:.2f}"
+                        f" official={official_bonus:.2f}"
+                        f" certainty={certainty_bonus:.2f}"
+                        f" views={view_score:.3f})"
+                    )
         except Exception as e:
             logger.error(f'   Search failed for "{sq}": {e}')
 

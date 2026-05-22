@@ -715,6 +715,54 @@ class TestMusicClientPriority:
         assert not any("music" in str(c) for c in called_clients if c)
 
 
+class TestVideoIdDedup:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_same_video_from_ytmusic_and_ytsearch_keeps_ytmusic_source(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        ytmusic_entry = {
+            "title": "Pattern Index",
+            "url": "https://www.youtube.com/watch?v=v4GurmZYFwk",
+            "duration": 380,
+            "channel": "Max Cooper - Topic",
+            "view_count": 1000,
+        }
+        ytsearch_entry = {
+            "title": "Pattern Index",
+            "url": "v4GurmZYFwk",
+            "duration": 380,
+            "channel": "Max Cooper - Topic",
+            "view_count": 1000,
+        }
+        results = iter([
+            {"entries": [ytmusic_entry]},
+            {"entries": [ytmusic_entry]},
+            {"entries": [ytsearch_entry]},
+            {"entries": []},
+            {"entries": []},
+            {"entries": []},
+            {"entries": []},
+            {"entries": []},
+            {"entries": []},
+            {"entries": []},
+        ])
+        mock_ydl.extract_info.side_effect = lambda *a, **kw: next(results)
+        candidates = search_youtube_candidates(
+            "Max Cooper Pattern Index official audio", "Pattern Index",
+            expected_duration_ms=380000,
+        )
+        matching = [c for c in candidates if "v4GurmZYFwk" in c["url"]]
+        assert len(matching) == 1
+        assert matching[0]["source"] == "ytmusic"
+
+
 class TestYouTubeMusicSearch:
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")
