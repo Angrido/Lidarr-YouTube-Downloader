@@ -34,7 +34,12 @@ from notifications import (
     md2_escape,
     send_notifications,
 )
-from utils import sanitize_filename, set_permissions, makedirs_safe
+from utils import (
+    BaseNotMountedError,
+    makedirs_safe,
+    sanitize_filename,
+    set_permissions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -307,6 +312,17 @@ def process_album_download(album_id, force=False):
         album_path = os.path.join(artist_path, album_folder_name)
         try:
             makedirs_safe(album_path, [DOWNLOAD_DIR])
+        except BaseNotMountedError as exc:
+            logger.error(
+                "DOWNLOAD_PATH (%s) is not mounted inside the container: %s",
+                DOWNLOAD_DIR, exc,
+            )
+            return {
+                "error": (
+                    f"DOWNLOAD_PATH '{DOWNLOAD_DIR}' is not mounted. "
+                    "Add a volume mount in docker-compose.yml or correct the path in settings."
+                )
+            }
         except PermissionError as exc:
             puid = os.getenv("PUID", "?")
             logger.error(
@@ -318,7 +334,7 @@ def process_album_download(album_id, force=False):
             return {
                 "error": (
                     f"Permission denied: cannot create {album_path}. "
-                    f"Check that DOWNLOAD_PATH is writable by PUID={puid}."
+                    f"{exc}"
                 )
             }
 

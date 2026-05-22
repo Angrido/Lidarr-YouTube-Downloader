@@ -496,3 +496,121 @@ class TestDownloadYoutubeCandidate:
             candidate, "/tmp/output", skip_check=lambda: True
         )
         assert result.get("skipped") is True
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_format_unavailable_falls_through_chain(
+        self, mock_config, mock_ydl_class,
+    ):
+        """Exhausting the selector chain across clients still returns a
+        clear error rather than retrying the first selector forever.
+        (Issue #64.)"""
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "ERROR: Requested format is not available"
+        )
+        candidate = {
+            "url": "u", "title": "t", "duration": 200, "score": 0.9,
+        }
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result["success"] is False
+        assert "format" in result["error_message"].lower() \
+            or "no downloadable" in result["error_message"].lower()
+
+
+class TestTopicChannelForbiddenExemption:
+    """Topic channels are canonical masters — exempt them from
+    forbidden-word filtering. (Issue #58.)"""
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_topic_channel_track_with_remix_word_still_accepted(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": ["remix"],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Calling (Remix)",
+                    "url": "topic_url",
+                    "duration": 200,
+                    "channel": "Some Artist - Topic",
+                    "view_count": 100000,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Some Artist Calling official audio", "Calling",
+            expected_duration_ms=200000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "topic_url" in urls
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_non_topic_remix_still_blocked(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": ["remix"],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                {
+                    "title": "Calling (Some DJ Remix)",
+                    "url": "remix_url",
+                    "duration": 200,
+                    "channel": "RandomDJ",
+                    "view_count": 50000,
+                },
+            ]
+        }
+        candidates = search_youtube_candidates(
+            "Some Artist Calling official audio", "Calling",
+            expected_duration_ms=200000,
+        )
+        urls = [c["url"] for c in candidates]
+        assert "remix_url" not in urls
+
+
+class TestYouTubeMusicSearch:
+    """ytmsearch query is issued before plain ytsearch. (Issue #58.)"""
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_ytmsearch_used_before_ytsearch(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "forbidden_words": [],
+            "duration_tolerance": 15,
+            "yt_player_client": "android",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {"entries": []}
+        search_youtube_candidates(
+            "Artist Track official audio", "Track",
+            expected_duration_ms=200000,
+        )
+        called_prefixes = [
+            call.args[0].split(":", 1)[0]
+            for call in mock_ydl.extract_info.call_args_list
+            if call.args
+        ]
+        assert "ytmsearch15" in called_prefixes
+        # ytmsearch should appear before any ytsearch call
+        first_ytmsearch = called_prefixes.index("ytmsearch15")
+        first_ytsearch_indices = [
+            i for i, p in enumerate(called_prefixes) if p == "ytsearch15"
+        ]
+        if first_ytsearch_indices:
+            assert first_ytmsearch < first_ytsearch_indices[0]

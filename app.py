@@ -45,7 +45,14 @@ from processing import (
 )
 from scheduler import run_scheduler, setup_scheduler
 import lidarr_sync
-from utils import check_rate_limit, format_bytes, sanitize_filename, set_permissions, makedirs_safe
+from utils import (
+    BaseNotMountedError,
+    check_rate_limit,
+    format_bytes,
+    makedirs_safe,
+    sanitize_filename,
+    set_permissions,
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(message)s", handlers=[logging.StreamHandler()]
@@ -57,7 +64,7 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 
-VERSION = "1.7.6"
+VERSION = "1.7.7"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -1232,7 +1239,21 @@ def api_download_manual():
     if not _validate_target_path(target_path, config):
         return jsonify({"success": False, "message": "Invalid target path"}), 400
 
-    makedirs_safe(target_path, [DOWNLOAD_DIR, lidarr_path])
+    try:
+        makedirs_safe(target_path, [DOWNLOAD_DIR, lidarr_path])
+    except BaseNotMountedError as exc:
+        return jsonify({
+            "success": False,
+            "message": (
+                f"Configured path '{exc.base_dir}' is not mounted inside the container. "
+                "Mount it as a volume or correct the path in settings."
+            ),
+        }), 400
+    except PermissionError as exc:
+        return jsonify({
+            "success": False,
+            "message": f"Permission denied creating {target_path}: {exc}",
+        }), 500
 
     return _execute_manual_download(
         youtube_url,
@@ -1523,7 +1544,14 @@ def _execute_manual_dl_with_progress(
         ]
 
     try:
-        makedirs_safe(target_path, [DOWNLOAD_DIR, config.get("lidarr_path", "")])
+        try:
+            makedirs_safe(target_path, [DOWNLOAD_DIR, config.get("lidarr_path", "")])
+        except (BaseNotMountedError, PermissionError) as exc:
+            logger.error("Manual download target unusable: %s", exc)
+            track_state = download_process["tracks"][0]
+            track_state["status"] = "failed"
+            track_state["error_message"] = str(exc)
+            return
         _do_manual_dl(
             youtube_url=youtube_url,
             track_title=track_title,
@@ -2436,7 +2464,14 @@ def _execute_playlist_download(
     total_size = 0
     success_count = 0
     try:
-        makedirs_safe(target_path, [DOWNLOAD_DIR, config.get("lidarr_path", "")])
+        try:
+            makedirs_safe(target_path, [DOWNLOAD_DIR, config.get("lidarr_path", "")])
+        except (BaseNotMountedError, PermissionError) as exc:
+            logger.error("Playlist target unusable: %s", exc)
+            for ts in download_process.get("tracks", []):
+                ts["status"] = "failed"
+                ts["error_message"] = str(exc)
+            return
 
         if thumbnail_url and _is_safe_stream_url(thumbnail_url):
             try:

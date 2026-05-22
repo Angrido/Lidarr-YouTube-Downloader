@@ -130,7 +130,8 @@ def _check_forbidden(yt_title_lower, track_title_lower, forbidden_list):
 
     Multi-word forbidden terms use substring matching. Single words
     use word-boundary regex. Terms present in the original track
-    title are allowed.
+    title are allowed (so a track called "Foo (Live)" still matches
+    "Foo (Live)" on YouTube).
 
     Returns:
         The matched forbidden word, or None if clean.
@@ -250,12 +251,16 @@ def search_youtube_candidates(
     added = {query}
     # Front-load Topic/official-channel queries so we lock onto the
     # canonical master before falling back to user uploads (see #58).
+    # YouTube Music ("ytmsearch") often returns the artist's "Topic"
+    # auto-channel even when plain YouTube search buries it.
     search_queries = [
-        f"{base_artist} - Topic {base_track}",
-        f'"{base_artist}" {base_track} official audio',
-        query,
+        ("ytmsearch", f"{base_artist} {base_track}"),
+        ("ytmsearch", f"{base_artist} {base_track} official audio"),
+        ("ytsearch", f"{base_artist} - Topic {base_track}"),
+        ("ytsearch", f'"{base_artist}" {base_track} official audio'),
+        ("ytsearch", query),
     ]
-    added.update(search_queries)
+    added.update(sq for _, sq in search_queries)
 
     for candidate_q in [
         f"{base_artist} - {base_track}",
@@ -266,13 +271,13 @@ def search_youtube_candidates(
     ]:
         if candidate_q not in added:
             added.add(candidate_q)
-            search_queries.append(candidate_q)
+            search_queries.append(("ytsearch", candidate_q))
 
     seen_urls = set()
     candidates = []
     GOOD_SCORE = 0.80
 
-    for qi, sq in enumerate(search_queries):
+    for qi, (prefix, sq) in enumerate(search_queries):
         if skip_check and skip_check():
             return []
 
@@ -282,13 +287,13 @@ def search_youtube_candidates(
 
         if qi > 0:
             logger.info(
-                f"   Fallback search ({qi+1}/{len(search_queries)}):"
+                f"   Fallback search ({qi+1}/{len(search_queries)}) [{prefix}]:"
                 f' "{sq}"'
             )
         try:
             with yt_dlp.YoutubeDL(ydl_opts_search) as ydl:
                 search_results = ydl.extract_info(
-                    f"ytsearch15:{sq}", download=False
+                    f"{prefix}15:{sq}", download=False
                 )
                 for entry in search_results.get("entries", []):
                     title = entry.get("title", "").lower()
@@ -301,15 +306,23 @@ def search_youtube_candidates(
                     )
                     view_count = entry.get("view_count", 0) or 0
 
-                    blocked = _check_forbidden(
-                        title, track_title_original.lower(), forbidden_words,
-                    )
-                    if blocked:
-                        logger.debug(
-                            f"   Rejected '{entry.get('title', '')}'"
-                            f" - forbidden word '{blocked}'"
+                    # Topic channels host masters Lidarr already trusts —
+                    # never reject them on a forbidden word. The album
+                    # being downloaded was selected by the user, so if
+                    # the canonical master is e.g. titled "Track (Remix)"
+                    # that's the version they want. (See #58.)
+                    is_topic = _is_topic_channel(channel, base_artist)
+                    if not is_topic:
+                        blocked = _check_forbidden(
+                            title, track_title_original.lower(),
+                            forbidden_words,
                         )
-                        continue
+                        if blocked:
+                            logger.debug(
+                                f"   Rejected '{entry.get('title', '')}'"
+                                f" - forbidden word '{blocked}'"
+                            )
+                            continue
 
                     if expected_duration_sec:
                         min_dur = max(
@@ -402,32 +415,43 @@ def download_youtube_candidate(
     # yt-dlp reports "Requested format is not available" we fall through
     # to the next, broader selector. The final entry must always match
     # something downloadable. (See issue #64.)
+    # The trailing "bestaudio*/best*" and bare "" entries broaden to
+    # any stream including ones missing abr metadata (HLS, live, etc.)
+    # and as a last resort let yt-dlp pick whatever it can find.
     if audio_format == "m4a":
         format_selectors = [
             "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]",
             "bestaudio",
             "bestaudio/best",
+            "bestaudio*[acodec!=none]/best*[acodec!=none]",
             "best",
+            "",
         ]
     elif audio_format == "opus":
         format_selectors = [
             "bestaudio[acodec=opus]/bestaudio[ext=webm]",
             "bestaudio",
             "bestaudio/best",
+            "bestaudio*[acodec!=none]/best*[acodec!=none]",
             "best",
+            "",
         ]
     else:  # mp3 always requires transcoding
         format_selectors = [
             "bestaudio/best",
             "bestaudio",
+            "bestaudio*[acodec!=none]/best*[acodec!=none]",
             "best",
+            "",
         ]
 
     first_client = config.get("yt_player_client", "android")
     clients_to_try = []
     if first_client:
         clients_to_try.append(first_client)
-    for alt in ["web", "ios"]:
+    # web_creator and tv_embedded sometimes expose audio formats that
+    # mobile clients hide behind sign-in. Try them before giving up.
+    for alt in ["web", "ios", "web_creator", "tv_embedded"]:
         if alt != first_client:
             clients_to_try.append(alt)
     clients_to_try.append(None)
@@ -444,7 +468,6 @@ def download_youtube_candidate(
                 return {"skipped": True}
             ydl_opts_download = {
                 **_build_common_opts(player_client=pc),
-                "format": selector,
                 "postprocessors": [
                     {
                         "key": "FFmpegExtractAudio",
@@ -454,11 +477,16 @@ def download_youtube_candidate(
                 ],
                 "outtmpl": output_path,
             }
-            # On the broadest fallback drop format_sort: some
+            # An empty selector lets yt-dlp pick its default — the
+            # last-resort fallback for HLS-only / live / unusual
+            # streams. Otherwise pass the explicit selector.
+            if selector:
+                ydl_opts_download["format"] = selector
+            # On the broader fallbacks drop format_sort: some
             # transient streams have no abr/asr metadata and the
             # sort can cause yt-dlp to reject otherwise-usable
             # formats with "Requested format is not available".
-            if sel_idx == len(format_selectors) - 1:
+            if sel_idx >= len(format_selectors) - 2:
                 ydl_opts_download.pop("format_sort", None)
             if progress_hook:
                 ydl_opts_download["progress_hooks"] = [progress_hook]
