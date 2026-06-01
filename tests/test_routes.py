@@ -47,6 +47,19 @@ def _add_track(models, **overrides):
     models.add_track_download(**defaults)
 
 
+class TestHealthRoute:
+    def test_health_ok(self, client):
+        resp = client.get("/api/health")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["status"] == "ok"
+        assert data["db"] is True
+        assert data["version"]
+
+    def test_health_alias(self, client):
+        assert client.get("/health").status_code == 200
+
+
 class TestHistoryRoutes:
     def test_get_history_empty(self, client):
         resp = client.get("/api/download/history")

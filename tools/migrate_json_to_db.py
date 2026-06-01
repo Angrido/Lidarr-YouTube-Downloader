@@ -170,7 +170,7 @@ def main():
             rename_migrated(path)
         except Exception as e:
             print(f"ERROR: Failed to migrate {label} from {path}: {e}")
-            print(f"  File NOT renamed — fix the issue and retry.")
+            print("  File NOT renamed — fix the issue and retry.")
 
     db.close_db()
     print("Migration complete.")

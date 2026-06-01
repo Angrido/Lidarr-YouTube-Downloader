@@ -64,7 +64,7 @@ log.setLevel(logging.ERROR)
 app = Flask(__name__)
 app.register_blueprint(download_client.bp)
 
-VERSION = "1.7.9"
+VERSION = "1.8.0"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -110,6 +110,21 @@ def favicon():
         "favicon.svg",
         mimetype="image/svg+xml",
     )
+
+
+@app.route("/api/health")
+@app.route("/health")
+def api_health():
+    """Lightweight liveness/readiness probe (no external calls)."""
+    try:
+        db.get_db().execute("SELECT 1")
+        db_ok = True
+    except Exception:
+        db_ok = False
+    status = "ok" if db_ok else "degraded"
+    return jsonify(
+        {"status": status, "version": VERSION, "db": db_ok}
+    ), (200 if db_ok else 503)
 
 
 @app.route("/api/config", methods=["GET", "POST"])
@@ -232,6 +247,38 @@ def api_download_client_generate_key():
     cfg["download_client_api_key"] = new_key
     save_config(cfg)
     return jsonify({"success": True, "api_key": new_key})
+
+
+@app.route("/api/pot-provider/test", methods=["POST"])
+def api_pot_provider_test():
+    import requests as http_requests
+
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"pot_test:{client_ip}", rate_limit_store, window=5, max_requests=3
+    ):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
+    payload = request.get_json(silent=True) or {}
+    url = (payload.get("url") or load_config().get("yt_pot_provider_url", "")).strip()
+    if not url:
+        return jsonify({"success": False, "message": "No provider URL set"})
+    if not url.startswith(("http://", "https://")):
+        return jsonify(
+            {"success": False, "message": "URL must start with http:// or https://"}
+        )
+    base = url.rstrip("/")
+    for path in ("/ping", ""):
+        try:
+            resp = http_requests.get(base + path, timeout=5)
+            return jsonify(
+                {
+                    "success": True,
+                    "message": f"Provider reachable (HTTP {resp.status_code})",
+                }
+            )
+        except http_requests.RequestException:
+            continue
+    return jsonify({"success": False, "message": "Provider not reachable"})
 
 
 @app.route("/api/test-connection")

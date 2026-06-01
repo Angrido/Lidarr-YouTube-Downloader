@@ -167,7 +167,7 @@ Standalone scripts not part of the main app:
 
 ## Version Updates
 
-The version string is defined in `app.py`: `VERSION = "1.7.9"`. The README badge also references it and must be updated manually.
+The version string is defined in `app.py`: `VERSION = "1.8.0"`. The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 

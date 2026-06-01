@@ -1,8 +1,5 @@
-import json
 import threading
 import time
-
-import pytest
 
 from fingerprint import (
     _extract_best_match,

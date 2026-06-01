@@ -859,7 +859,13 @@
                     PO Token Provider URL
                     <div class="label-description">Optional, recommended over a manual token: URL of a <a href="https://github.com/Brainicism/bgutil-ytdlp-pot-provider" target="_blank" rel="noopener">bgutil PO token provider</a> run as a sidecar (e.g. <code>http://bgutil-provider:4416</code>). yt-dlp fetches tokens automatically when needed. See the bundled docker-compose.</div>
                 </label>
-                <input type="text" id="ytPotProviderUrl" placeholder="http://bgutil-provider:4416">
+                <div style="display:flex; gap:.5rem; align-items:center;">
+                    <input type="text" id="ytPotProviderUrl" placeholder="http://bgutil-provider:4416" style="flex:1 1 auto; min-width:0;">
+                    <button class="btn" type="button" onclick="testPotProvider()" style="white-space:nowrap; flex:0 0 auto; width:auto; padding:.45rem .7rem; font-size:.85rem;">
+                        <i class="fa-solid fa-plug"></i> Test
+                    </button>
+                </div>
+                <div id="potProviderTestResult" style="font-size:.8rem; margin-top:.4rem;"></div>
             </div>
         </div>
 
@@ -1469,6 +1475,26 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             const res = await fetch('/api/cover_art/toggle', { method: 'POST' });
             const data = await res.json();
             updateCoverArtBtn(data.enabled);
+        }
+
+        async function testPotProvider() {
+            const result = document.getElementById('potProviderTestResult');
+            const url = (document.getElementById('ytPotProviderUrl').value || '').trim();
+            result.textContent = 'Testing…';
+            result.style.color = 'var(--text-dim)';
+            try {
+                const res = await fetch('/api/pot-provider/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url }),
+                });
+                const data = await res.json();
+                result.textContent = data.message || (data.success ? 'OK' : 'Failed');
+                result.style.color = data.success ? '#22c55e' : '#ef4444';
+            } catch (e) {
+                result.textContent = 'Test failed';
+                result.style.color = '#ef4444';
+            }
         }
 
         function updateAudioNormalizeBtn(enabled) {

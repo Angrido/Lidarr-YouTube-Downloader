@@ -258,6 +258,18 @@ def process_album_download(album_id, force=False):
         from download_client import is_client_album
         client_grab = is_client_album(album_id)
 
+        if not DOWNLOAD_DIR:
+            logger.error(
+                "DOWNLOAD_PATH is not set; cannot download. Set the"
+                " DOWNLOAD_PATH env var / Download Path in settings."
+            )
+            return {
+                "error": (
+                    "DOWNLOAD_PATH is not set. Configure the Download Path"
+                    " (env DOWNLOAD_PATH) and restart."
+                )
+            }
+
         tracks = album.get("tracks", [])
         if not tracks:
             tracks_res = lidarr_request(f"track?albumId={album_id}")
@@ -471,10 +483,14 @@ def process_album_download(album_id, force=False):
                     "command",
                     data={"name": "RefreshArtist", "artistId": artist_id},
                 )
+            # Nothing was downloaded. Only report a storage path to Lidarr
+            # if the folder actually holds audio, so the download client
+            # doesn't ask Lidarr to import an empty directory.
+            skip_path = album_path if _dir_has_audio(album_path) else ""
             return {
                 "success": True,
                 "message": "Skipped",
-                "album_path": album_path,
+                "album_path": skip_path,
             }
 
         logger.info(f"Total tracks to download: {len(tracks_to_download)}")
@@ -632,6 +648,19 @@ def process_album_download(album_id, force=False):
             download_process["artist_name"] = ""
             download_process["cover_url"] = ""
             download_process["ytmusic_album"] = None
+
+
+_AUDIO_EXTS = (".mp3", ".m4a", ".opus", ".flac", ".aac", ".ogg")
+
+
+def _dir_has_audio(path):
+    """True if the directory exists and contains at least one audio file."""
+    try:
+        return any(
+            f.lower().endswith(_AUDIO_EXTS) for f in os.listdir(path)
+        )
+    except OSError:
+        return False
 
 
 def _filter_tracks(tracks, force, album_path):
