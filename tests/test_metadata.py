@@ -1,9 +1,6 @@
 """Tests for metadata module — ID3 tagging, XML metadata, and iTunes API."""
 
-import os
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 import metadata
 
@@ -453,8 +450,6 @@ class TestTagAudioFileDispatch:
 
 def _create_minimal_mp3(path):
     """Create a minimal valid MP3 file for testing."""
-    from mutagen.mp3 import MP3
-
     # Minimal MP3 frame: MPEG1 Layer3, 128kbps, 44100Hz, stereo
     # Frame header + enough padding for mutagen to accept it
     frame_header = bytes(

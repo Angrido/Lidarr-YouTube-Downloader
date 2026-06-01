@@ -24,21 +24,20 @@ from flask import (
     request,
     send_from_directory,
 )
-from werkzeug.utils import secure_filename as werkzeug_secure_filename
 
 import db
+import download_client
 import models
 from config import ALLOWED_CONFIG_KEYS, load_config, save_config
 from downloader import get_ytdlp_version
 from fingerprint import fingerprint_track
 from lidarr import get_missing_albums, lidarr_request
-from metadata import create_xml_metadata, get_itunes_tracks, tag_mp3, tag_audio_file
+from metadata import create_xml_metadata, get_itunes_tracks, tag_audio_file
 from notifications import send_notifications
 from processing import (
     TrackSkippedException,
     download_process,
     get_download_status,
-    process_album_download,
     process_download_queue,
     queue_lock,
     stop_download,
@@ -63,8 +62,9 @@ log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
+app.register_blueprint(download_client.bp)
 
-VERSION = "1.7.8"
+VERSION = "1.8.0"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -110,6 +110,21 @@ def favicon():
         "favicon.svg",
         mimetype="image/svg+xml",
     )
+
+
+@app.route("/api/health")
+@app.route("/health")
+def api_health():
+    """Lightweight liveness/readiness probe (no external calls)."""
+    try:
+        db.get_db().execute("SELECT 1")
+        db_ok = True
+    except Exception:
+        db_ok = False
+    status = "ok" if db_ok else "degraded"
+    return jsonify(
+        {"status": status, "version": VERSION, "db": db_ok}
+    ), (200 if db_ok else 503)
 
 
 @app.route("/api/config", methods=["GET", "POST"])
@@ -183,6 +198,87 @@ def api_config_import():
             ),
         }
     )
+
+
+@app.route("/api/download-client/info")
+def api_download_client_info():
+    """Connection details for configuring this app inside Lidarr."""
+    cfg = load_config()
+    return jsonify(
+        {
+            "enabled": bool(cfg.get("download_client_enabled")),
+            "api_key": cfg.get("download_client_api_key", ""),
+            "category": cfg.get("download_client_category", "music"),
+            "newznab_path": "/api/newznab/api",
+            "sabnzbd_path": "/api/sabnzbd/api",
+            "port": int(os.environ.get("FLASK_PORT", "5000")),
+        }
+    )
+
+
+@app.route("/api/download-client/toggle", methods=["POST"])
+def api_download_client_toggle():
+    config = load_config()
+    config["download_client_enabled"] = not config.get(
+        "download_client_enabled", False
+    )
+    if config["download_client_enabled"] and not config.get(
+        "download_client_api_key"
+    ):
+        config["download_client_api_key"] = uuid.uuid4().hex
+    save_config(config)
+    return jsonify(
+        {
+            "enabled": config["download_client_enabled"],
+            "api_key": config.get("download_client_api_key", ""),
+        }
+    )
+
+
+@app.route("/api/download-client/generate-key", methods=["POST"])
+def api_download_client_generate_key():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"dc_key:{client_ip}", rate_limit_store, window=5, max_requests=3
+    ):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
+    new_key = uuid.uuid4().hex
+    cfg = load_config()
+    cfg["download_client_api_key"] = new_key
+    save_config(cfg)
+    return jsonify({"success": True, "api_key": new_key})
+
+
+@app.route("/api/pot-provider/test", methods=["POST"])
+def api_pot_provider_test():
+    import requests as http_requests
+
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"pot_test:{client_ip}", rate_limit_store, window=5, max_requests=3
+    ):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
+    payload = request.get_json(silent=True) or {}
+    url = (payload.get("url") or load_config().get("yt_pot_provider_url", "")).strip()
+    if not url:
+        return jsonify({"success": False, "message": "No provider URL set"})
+    if not url.startswith(("http://", "https://")):
+        return jsonify(
+            {"success": False, "message": "URL must start with http:// or https://"}
+        )
+    base = url.rstrip("/")
+    for path in ("/ping", ""):
+        try:
+            resp = http_requests.get(base + path, timeout=5)
+            return jsonify(
+                {
+                    "success": True,
+                    "message": f"Provider reachable (HTTP {resp.status_code})",
+                }
+            )
+        except http_requests.RequestException:
+            continue
+    return jsonify({"success": False, "message": "Provider not reachable"})
 
 
 @app.route("/api/test-connection")
@@ -419,9 +515,13 @@ def api_cookies_test():
 @app.route("/api/album/<int:album_id>")
 def api_album_details(album_id):
     album = lidarr_request(f"album/{album_id}")
+    if not isinstance(album, dict) or "error" in album:
+        return jsonify(album if isinstance(album, dict) else {"error": "Invalid response"}), 502
     if not album.get("tracks"):
-        album["tracks"] = get_itunes_tracks(
-            album["artist"]["artistName"], album["title"]
+        artist = (album.get("artist") or {}).get("artistName", "")
+        title = album.get("title", "")
+        album["tracks"] = (
+            get_itunes_tracks(artist, title) if artist and title else []
         )
     return jsonify(album)
 
@@ -575,64 +675,67 @@ def api_download_stream():
             while True:
                 if time.time() - start_time > sse_timeout:
                     break
-                with queue_lock:
-                    queue_rows = models.get_queue()
-                    queue_data = []
-                    for row in queue_rows:
-                        album = _get_album_cached(row["album_id"])
-                        if "error" not in album:
-                            cover_url = ""
-                            for img in album.get("images", []):
-                                if img.get("coverType") == "cover":
-                                    cover_url = img.get("remoteUrl", "")
-                                    break
-                            queue_data.append(
-                                {
-                                    "id": row["album_id"],
-                                    "title": album.get("title", ""),
-                                    "artist": album.get("artist", {}).get(
-                                        "artistName", ""
-                                    ),
-                                    "cover_url": cover_url,
-                                    "track_count": album.get("statistics", {}).get(
-                                        "trackCount", 0
-                                    ),
-                                }
-                            )
-                    status = dict(download_process)
-                    tracks = status.get("tracks", [])
-                    total = len(tracks)
-                    done_count = sum(
-                        1 for t in tracks
-                        if t.get("status") in ("done", "failed", "skipped")
+                # Queue + Lidarr lookups run WITHOUT queue_lock: they do
+                # blocking network I/O and must never stall the download
+                # worker, stop or skip-track (which hold queue_lock).
+                queue_data = []
+                for row in models.get_queue():
+                    album = _get_album_cached(row["album_id"])
+                    if "error" in album:
+                        continue
+                    cover_url = ""
+                    for img in album.get("images", []):
+                        if img.get("coverType") == "cover":
+                            cover_url = img.get("remoteUrl", "")
+                            break
+                    queue_data.append(
+                        {
+                            "id": row["album_id"],
+                            "title": album.get("title", ""),
+                            "artist": album.get("artist", {}).get(
+                                "artistName", ""
+                            ),
+                            "cover_url": cover_url,
+                            "track_count": album.get("statistics", {}).get(
+                                "trackCount", 0
+                            ),
+                        }
                     )
-                    downloading = [
-                        t for t in tracks if t.get("status") == "downloading"
-                    ]
-                    active_track = downloading[0] if downloading else None
-                    if active_track is None:
-                        idx = status.get("current_track_index", -1)
-                        if 0 <= idx < total:
-                            active_track = tracks[idx]
-                    status["current_track_title"] = (
-                        active_track.get("track_title", "") if active_track else ""
-                    )
-                    overall_percent = (
-                        round(done_count / total * 100) if total > 0 else 0
-                    )
-                    status["progress"] = {
-                        "current": done_count + (1 if active_track else 0),
-                        "total": total,
-                        "overall_percent": overall_percent,
-                        "percent": (
-                            active_track.get("progress_percent", "")
-                            if active_track else ""
-                        ),
-                        "speed": (
-                            active_track.get("progress_speed", "")
-                            if active_track else ""
-                        ),
-                    }
+                # Deep-copied snapshot of the live download state.
+                status = get_download_status()
+                tracks = status.get("tracks", [])
+                total = len(tracks)
+                done_count = sum(
+                    1 for t in tracks
+                    if t.get("status") in ("done", "failed", "skipped")
+                )
+                downloading = [
+                    t for t in tracks if t.get("status") == "downloading"
+                ]
+                active_track = downloading[0] if downloading else None
+                if active_track is None:
+                    idx = status.get("current_track_index", -1)
+                    if 0 <= idx < total:
+                        active_track = tracks[idx]
+                status["current_track_title"] = (
+                    active_track.get("track_title", "") if active_track else ""
+                )
+                overall_percent = (
+                    round(done_count / total * 100) if total > 0 else 0
+                )
+                status["progress"] = {
+                    "current": done_count + (1 if active_track else 0),
+                    "total": total,
+                    "overall_percent": overall_percent,
+                    "percent": (
+                        active_track.get("progress_percent", "")
+                        if active_track else ""
+                    ),
+                    "speed": (
+                        active_track.get("progress_speed", "")
+                        if active_track else ""
+                    ),
+                }
                 data = {
                     "status": status,
                     "queue": queue_data,
@@ -709,6 +812,10 @@ def api_queue_tracks(album_id):
 @app.route("/api/download/queue", methods=["POST"])
 def api_add_to_queue():
     album_id = (request.json or {}).get("album_id")
+    if not isinstance(album_id, int):
+        return jsonify(
+            {"success": False, "message": "album_id must be an integer"}
+        ), 400
     with queue_lock:
         current_id = download_process.get("album_id")
     if current_id != album_id:
@@ -761,7 +868,7 @@ def api_clear_queue():
 
 @app.route("/api/download/queue/reorder", methods=["PUT"])
 def api_reorder_queue():
-    new_order = request.json.get("queue", [])
+    new_order = (request.get_json(silent=True) or {}).get("queue", [])
     if not isinstance(new_order, list):
         return jsonify({"success": False, "message": "queue must be a list"}), 400
     models.reorder_queue(new_order)
@@ -855,6 +962,12 @@ def api_get_banned_urls():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 50, type=int)
     return jsonify(models.get_banned_urls(page, per_page))
+
+
+@app.route("/api/banned-urls/clear", methods=["POST"])
+def api_clear_banned_urls():
+    removed = models.clear_banned_urls()
+    return jsonify({"success": True, "removed": removed})
 
 
 @app.route("/api/banned-urls/<int:ban_id>", methods=["DELETE"])
@@ -1111,8 +1224,6 @@ class _YtdlpSilentLogger:
 
 @app.route("/api/youtube/stream", methods=["GET"])
 def api_youtube_stream():
-    import requests as http_requests
-
     client_ip = request.remote_addr or "unknown"
     if not check_rate_limit(
         f"yt_stream:{client_ip}", rate_limit_store, window=5, max_requests=6
@@ -1135,7 +1246,7 @@ def api_youtube_stream():
         http_headers = cached["http_headers"]
         if not _is_safe_stream_url(audio_url):
             logger.error("Cached stream URL failed safety check: %s", audio_url[:100])
-            del _audio_stream_cache[url]
+            _audio_stream_cache.pop(url, None)
             return "Unsafe audio stream URL", 403
     else:
         config = load_config()
@@ -1182,12 +1293,12 @@ def api_youtube_stream():
                 "http_headers": http_headers,
                 "ts": now,
             }
-            for k in list(_audio_stream_cache):
-                if now - _audio_stream_cache[k]["ts"] > 600:
-                    del _audio_stream_cache[k]
+            for k, v in list(_audio_stream_cache.items()):
+                if now - v["ts"] > 600:
+                    _audio_stream_cache.pop(k, None)
             if len(_audio_stream_cache) > 200:
                 oldest = min(_audio_stream_cache, key=lambda k: _audio_stream_cache[k]["ts"])
-                del _audio_stream_cache[oldest]
+                _audio_stream_cache.pop(oldest, None)
         except Exception as e:
             logger.warning("Stream extraction failed: %s", e)
             return str(e)[:200], 500
@@ -1541,7 +1652,6 @@ def api_manual_track_download(album_id):
 
     artist_name = album_data.get("artist", {}).get("artistName", "Unknown")
     album_title = album_data.get("title", "Unknown")
-    album_type = album_data.get("albumType", "Album")
 
     config = load_config()
     target_path, makedirs_bases, lidarr_import_path = _build_album_paths(
@@ -1597,14 +1707,28 @@ def _build_ydl_opts(config, temp_file):
         "outtmpl": temp_file,
         "noplaylist": True,
     }
+    if config.get("audio_normalize", False):
+        opts["postprocessor_args"] = ["-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]
     cookies_path = (config.get("yt_cookies_file") or "").strip()
     if cookies_path and os.path.exists(cookies_path):
         opts["cookiefile"] = cookies_path
     if config.get("yt_force_ipv4", True):
         opts["source_address"] = "0.0.0.0"
+    extractor_args = {}
+    yt_args = {}
     pc = config.get("yt_player_client", "android")
     if pc:
-        opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
+        yt_args["player_client"] = [pc]
+    po_token = (config.get("yt_po_token") or "").strip()
+    if po_token:
+        yt_args["po_token"] = [t.strip() for t in po_token.split(",") if t.strip()]
+    if yt_args:
+        extractor_args["youtube"] = yt_args
+    pot_url = (config.get("yt_pot_provider_url") or "").strip()
+    if pot_url:
+        extractor_args["youtubepot-bgutilhttp"] = {"base_url": [pot_url]}
+    if extractor_args:
+        opts["extractor_args"] = extractor_args
     return opts
 
 
@@ -1648,6 +1772,12 @@ def _execute_manual_dl_with_progress(
         return
 
     with queue_lock:
+        if download_process["active"]:
+            logger.warning(
+                "Manual download aborted: another download became active: %s",
+                track_title,
+            )
+            return
         download_process["active"] = True
         download_process["stop"] = False
         download_process["album_id"] = album_id
@@ -2547,6 +2677,12 @@ def _execute_playlist_download(
         return
 
     with queue_lock:
+        if download_process["active"]:
+            logger.warning(
+                "Playlist download aborted: another download became active: %s",
+                album_title,
+            )
+            return
         download_process["active"] = True
         download_process["stop"] = False
         download_process["album_id"] = 0
@@ -3052,6 +3188,7 @@ def _startup_ytdlp_update():
 if __name__ == "__main__":
     db.init_db()
     models.reset_downloading_to_queued()
+    download_client.restore_jobs()
     logger.info("Starting Lidarr YouTube Downloader...")
     logger.info("Version: %s", VERSION)
     logger.info(

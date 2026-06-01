@@ -75,7 +75,7 @@ def _lookup_acoustid(api_key, duration, fingerprint):
         "client": api_key,
         "duration": int(duration),
         "fingerprint": fingerprint,
-        "meta": "recordings recordingmeta",
+        "meta": "recordings recordingmeta releasegroups",
     }
     try:
         _throttle()
@@ -143,6 +143,7 @@ def _extract_best_match(results):
 
 def verify_fingerprint(
     filepath, expected_recording_id, acoustid_api_key, threshold=0.85,
+    expected_release_group_id=None,
 ):
     """Verify a downloaded file matches the expected MusicBrainz recording.
 
@@ -151,6 +152,11 @@ def verify_fingerprint(
         expected_recording_id: Expected MusicBrainz recording ID.
         acoustid_api_key: AcoustID API key string.
         threshold: Minimum score for a match (default 0.85).
+        expected_release_group_id: Optional MusicBrainz release-group MBID
+            (Lidarr's album id). When the exact recording id isn't matched,
+            a high-score AcoustID recording belonging to this release group
+            is accepted — the same song often has several recording ids
+            across releases, which would otherwise be rejected as a mismatch.
 
     Returns:
         Dict with "status" ("verified", "mismatch", "unverified"),
@@ -205,6 +211,33 @@ def verify_fingerprint(
                     "fp_data": fp_data,
                     "matched_id": expected_recording_id,
                 }
+
+    # Exact recording id not matched: fall back to release-group match.
+    # AcoustID often maps the audio to a different recording id than the
+    # one Lidarr holds, even though it's the same song on the same album.
+    if expected_release_group_id:
+        for result in results:
+            score = result.get("score", 0.0)
+            if score < threshold:
+                continue
+            for recording in result.get("recordings", []):
+                rgs = recording.get("releasegroups") or []
+                if any(
+                    rg.get("id") == expected_release_group_id for rg in rgs
+                ):
+                    fp_data = {
+                        "acoustid_fingerprint_id": result.get("id"),
+                        "acoustid_score": round(score, 4),
+                        "acoustid_recording_id": recording.get("id") or "",
+                        "acoustid_recording_title": (
+                            recording.get("title") or ""
+                        ),
+                    }
+                    return {
+                        "status": "verified",
+                        "fp_data": fp_data,
+                        "matched_id": recording.get("id"),
+                    }
 
     # Expected ID not found — extract best match for reporting
     best = _extract_best_match(results)

@@ -9,7 +9,7 @@ import time
 logger = logging.getLogger(__name__)
 
 DB_PATH = "/config/lidarr-downloader.db"
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _local = threading.local()
 
@@ -199,6 +199,18 @@ def _ensure_current_tables(conn):
             current_run_id INTEGER DEFAULT 0
         );
         INSERT OR IGNORE INTO sync_state (id, status) VALUES (1, 'idle');
+        CREATE TABLE IF NOT EXISTS download_client_jobs (
+            nzo_id TEXT PRIMARY KEY,
+            album_id INTEGER NOT NULL,
+            name TEXT DEFAULT '',
+            category TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'queued',
+            storage TEXT DEFAULT '',
+            size INTEGER DEFAULT 0,
+            error TEXT DEFAULT '',
+            added_ts REAL DEFAULT 0,
+            completed_ts REAL
+        );
     """)
     conn.commit()
 
@@ -359,9 +371,14 @@ def _migrate_v4_to_v5(conn):
 
 
 def _migrate_v5_to_v6(conn):
-    """Add missing_albums_cache and sync_state tables."""
+    """Add missing_albums_cache and sync_state tables.
+
+    Uses IF NOT EXISTS / OR IGNORE so the migration is idempotent and
+    cannot fail on a v5 DB that already has these tables (e.g. a partial
+    prior run or a restored copy), which would otherwise block startup.
+    """
     conn.execute("""
-        CREATE TABLE missing_albums_cache (
+        CREATE TABLE IF NOT EXISTS missing_albums_cache (
             album_id INTEGER PRIMARY KEY,
             foreign_album_id TEXT DEFAULT '',
             title TEXT NOT NULL DEFAULT '',
@@ -377,15 +394,15 @@ def _migrate_v5_to_v6(conn):
         )
     """)
     conn.execute(
-        "CREATE INDEX idx_missing_release_date"
+        "CREATE INDEX IF NOT EXISTS idx_missing_release_date"
         " ON missing_albums_cache(release_date DESC)"
     )
     conn.execute(
-        "CREATE INDEX idx_missing_sync_run"
+        "CREATE INDEX IF NOT EXISTS idx_missing_sync_run"
         " ON missing_albums_cache(sync_run_id)"
     )
     conn.execute("""
-        CREATE TABLE sync_state (
+        CREATE TABLE IF NOT EXISTS sync_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             status TEXT NOT NULL DEFAULT 'idle',
             last_full_sync_at REAL DEFAULT 0,
@@ -399,8 +416,26 @@ def _migrate_v5_to_v6(conn):
         )
     """)
     conn.execute(
-        "INSERT INTO sync_state (id, status) VALUES (1, 'idle')"
+        "INSERT OR IGNORE INTO sync_state (id, status) VALUES (1, 'idle')"
     )
+
+
+def _migrate_v6_to_v7(conn):
+    """Add download_client_jobs so SABnzbd-bridge jobs survive restarts."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS download_client_jobs (
+            nzo_id TEXT PRIMARY KEY,
+            album_id INTEGER NOT NULL,
+            name TEXT DEFAULT '',
+            category TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'queued',
+            storage TEXT DEFAULT '',
+            size INTEGER DEFAULT 0,
+            error TEXT DEFAULT '',
+            added_ts REAL DEFAULT 0,
+            completed_ts REAL
+        )
+    """)
 
 
 def _run_migrations(conn, current_version):
@@ -411,6 +446,7 @@ def _run_migrations(conn, current_version):
         4: _migrate_v3_to_v4,
         5: _migrate_v4_to_v5,
         6: _migrate_v5_to_v6,
+        7: _migrate_v6_to_v7,
     }
     for version in sorted(migrations):
         if current_version < version:

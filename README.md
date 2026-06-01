@@ -2,7 +2,7 @@
 
 # 🎵 Lidarr YouTube Downloader
 
-![Version](https://img.shields.io/badge/version-1.7.8-blue.svg?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-1.8.0-blue.svg?style=for-the-badge)
 ![Python Slim](https://img.shields.io/badge/python-3--slim-yellow.svg?style=for-the-badge&logo=python&logoColor=white)
 ![Docker](https://img.shields.io/badge/docker-ready-blue.svg?style=for-the-badge&logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)
@@ -21,13 +21,14 @@ A free, open-source bridge between **[Lidarr](https://lidarr.audio/)** and **You
 - 🎯 **AcoustID fingerprinting** — optional chromaprint verification rejects mismatched audio before import
 - 🏷️ **Full metadata tagging** — MP3 / M4A / Opus with MusicBrainz IDs, iTunes 3000×3000 cover art, year, track numbers, and optional XML sidecars for Lidarr re-import
 - 📦 **Native Lidarr integration** — copies tagged files into your Lidarr library path and triggers `RefreshArtist`; background paginated sync of `wanted/missing` for instant UI
+- 🔌 **Lidarr download client** — optionally registers in Lidarr as a **Newznab indexer + SABnzbd download client**, so Lidarr searches, grabs and imports automatically (see [Use as a Lidarr download client](#-use-as-a-lidarr-download-client))
 - ⚡ **Parallel downloads** — configurable concurrent tracks (1–5) with mid-download skip, per-track progress, speed, and ETA
 - 🚫 **Banned URLs & candidate retries** — per-track YouTube blacklist; tries up to 15 candidates before giving up
 - 📥 **Manual YouTube URL & playlist import** — paste any YouTube or YouTube Music URL (single track or full playlist) with album-art preview
 - 🎵 **Audio streaming preview** — listen to candidates and playlist items in the browser before queuing
 - ⏱️ **Built-in scheduler** — auto-discover and auto-download new missing albums at a configurable interval with per-run album limits
 - 🔔 **Telegram & Discord notifications** — per-channel filters for success, partial success, errors, and manual events
-- 🛠️ **yt-dlp tuning UI** — cookies file, player client, retries, sleep intervals, IPv4 force, and one-click yt-dlp upgrade
+- 🛠️ **yt-dlp tuning UI** — cookies file, player client, retries, sleep intervals, IPv4 force, one-click yt-dlp upgrade, loudness normalization, and automatic PO tokens via a bundled [bgutil provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider) sidecar (fixes "Sign in to confirm you're not a bot")
 - 📊 **Stats dashboard & logs** — success rate, average match score, total downloaded size, per-album logs with retry
 - 🌓 **Modern dark/light web UI** — responsive design, drag-to-reorder queue, structured logs
 - 🐳 **Docker-first** — single container, Compose-ready, works on NAS, home server, Unraid, Synology, or any VPS
@@ -42,6 +43,43 @@ A free, open-source bridge between **[Lidarr](https://lidarr.audio/)** and **You
 4. **Verify** — If AcoustID is enabled, the downloaded file is fingerprinted with `fpcalc` and matched against the expected MusicBrainz recording ID before acceptance.
 5. **Tag** — Mutagen writes ID3 tags (title, artist, album, track #, year, MusicBrainz IDs) and embeds an iTunes 3000×3000 cover.
 6. **Import** — Files are copied into your Lidarr music path, then a `RefreshArtist` command is sent so Lidarr scans and picks up the new tracks.
+
+---
+
+## 🔌 Use as a Lidarr download client
+
+Instead of pushing finished files into Lidarr, you can register this app **inside Lidarr** as a native download path. Lidarr then drives the whole flow — search, grab, monitor and import — exactly like it would with a real Usenet indexer + SABnzbd client.
+
+It works by exposing two emulated protocols:
+
+| Surface | Emulates | Endpoint |
+|---------|----------|----------|
+| Indexer | Newznab | `/api/newznab/api` |
+| Download client | SABnzbd | `/api/sabnzbd` |
+
+When Lidarr searches for a wanted album, the indexer matches it against the locally-synced missing-albums cache and returns one "release" pointing back at this app. Lidarr grabs it and hands it to the SABnzbd client, which enqueues the album in the normal download engine, downloads from YouTube into the download folder, and reports completion so Lidarr imports the files itself.
+
+### Setup
+
+1. In **this app → Settings → Lidarr Download Client**, toggle **Enable Download Client**, click **Generate** to create an API key, set a **Category** (default `music`), and **Save**.
+2. In **Lidarr → Settings → Indexers → ➕ → Newznab** (custom):
+   - **URL**: `http://<this-app-host>:<port>` (e.g. `http://192.168.1.x:5005`)
+   - **API Path**: `/api/newznab/api`
+   - **API Key**: the key generated above
+   - Test → Save.
+3. In **Lidarr → Settings → Download Clients → ➕ → SABnzbd**:
+   - **Host** / **Port**: this app's host and port
+   - **URL Base**: `/api/sabnzbd`
+   - **API Key**: the same key
+   - **Category**: the same category (`music`)
+   - Test → Save.
+4. In **Lidarr → Settings → Media Management**, enable **Completed Download Handling** so Lidarr imports finished downloads.
+
+> **Note:** In this mode the app leaves downloaded files in the download folder (under the category) for Lidarr to import — it does **not** copy to the Lidarr music path or send `RefreshArtist` itself. Make sure the download folder is visible to Lidarr at the same path (or via a remote path mapping). Job state is kept in memory, so a restart mid-download will look "removed" to Lidarr, which will simply re-search.
+
+> **Indexer feed & RSS:** When Lidarr queries the indexer with no search terms (its connection **Test** and periodic **RSS sync**), the feed returns your currently-synced *missing* albums (newest first). This is what makes the indexer Test pass — so let the missing-albums sync finish first (the dashboard should list missing albums). With RSS sync enabled, Lidarr will then grab missing albums automatically; the feed shrinks as albums stop being missing. If you only want downloads on explicit/automatic search, disable **Enable RSS** on the indexer in Lidarr.
+
+> **No retry loops:** An album that was just attempted (and a download currently in progress) is held back from the indexer feed and from new grabs for a cooldown window — controlled by **`scheduler_retry_after_hours`** (default 24h) — so a failing album is not re-grabbed and re-downloaded endlessly. After the cooldown it is offered again (with a fresh release id) so transient failures still get retried. Set the value to `0` only if you want no cooldown.
 
 ---
 

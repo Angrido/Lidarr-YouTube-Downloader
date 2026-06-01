@@ -47,6 +47,19 @@ def _add_track(models, **overrides):
     models.add_track_download(**defaults)
 
 
+class TestHealthRoute:
+    def test_health_ok(self, client):
+        resp = client.get("/api/health")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["status"] == "ok"
+        assert data["db"] is True
+        assert data["version"]
+
+    def test_health_alias(self, client):
+        assert client.get("/health").status_code == 200
+
+
 class TestHistoryRoutes:
     def test_get_history_empty(self, client):
         resp = client.get("/api/download/history")
@@ -311,12 +324,14 @@ class TestQueueRoutes:
         assert resp.status_code == 400
 
     def test_add_to_queue_null_json(self, client):
+        # Missing/invalid album_id is a client error, not a silent no-op
+        # (previously this inserted a NULL album_id row).
         resp = client.post(
             "/api/download/queue",
             json={},
             content_type="application/json",
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 400
 
     def test_bulk_add_empty_json(self, client):
         resp = client.post(
@@ -792,6 +807,26 @@ class TestBannedUrlsRoutes:
     def test_remove_banned_url_not_found(self, client):
         resp = client.delete("/api/banned-urls/9999")
         assert resp.status_code == 404
+
+    def test_clear_banned_urls(self, client):
+        import models
+        for i in range(3):
+            models.add_banned_url(
+                youtube_url=f"https://yt/{i}", youtube_title="vid",
+                album_id=1, album_title="A", artist_name="A",
+                track_title=f"T{i}", track_number=i,
+            )
+        resp = client.post("/api/banned-urls/clear")
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["success"] is True
+        assert body["removed"] == 3
+        assert models.get_banned_urls(page=1, per_page=50)["total"] == 0
+
+    def test_clear_banned_urls_empty(self, client):
+        resp = client.post("/api/banned-urls/clear")
+        assert resp.status_code == 200
+        assert resp.get_json()["removed"] == 0
 
 
 class TestQueueTracksExtendedFields:

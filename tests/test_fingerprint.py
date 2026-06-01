@@ -1,8 +1,5 @@
-import json
 import threading
 import time
-
-import pytest
 
 from fingerprint import (
     _extract_best_match,
@@ -131,6 +128,48 @@ def test_fingerprint_track_success(monkeypatch):
     assert result["acoustid_score"] == 0.92
     assert result["acoustid_recording_id"] == "rec-xyz"
     assert result["acoustid_recording_title"] == "My Song"
+
+
+def _verify_setup(monkeypatch, results):
+    monkeypatch.setattr("fingerprint.is_fpcalc_available", lambda: True)
+    monkeypatch.setattr("fingerprint._run_fpcalc", lambda f: (200, "AQAA..."))
+    monkeypatch.setattr(
+        "fingerprint._lookup_acoustid", lambda k, d, fp: results
+    )
+
+
+def test_verify_fingerprint_release_group_accept(monkeypatch):
+    # Exact recording id not present, but a high-score recording belongs
+    # to the expected release group -> accepted.
+    _verify_setup(monkeypatch, [{
+        "id": "fp-1", "score": 0.97,
+        "recordings": [{
+            "id": "other-rec", "title": "My Song",
+            "releasegroups": [{"id": "rg-expected"}],
+        }],
+    }])
+    res = verify_fingerprint(
+        "/f.mp3", "expected-rec", "key",
+        expected_release_group_id="rg-expected",
+    )
+    assert res["status"] == "verified"
+    assert res["matched_id"] == "other-rec"
+
+
+def test_verify_fingerprint_release_group_mismatch(monkeypatch):
+    # Different release group -> still a mismatch.
+    _verify_setup(monkeypatch, [{
+        "id": "fp-1", "score": 0.97,
+        "recordings": [{
+            "id": "other-rec", "title": "My Song",
+            "releasegroups": [{"id": "rg-different"}],
+        }],
+    }])
+    res = verify_fingerprint(
+        "/f.mp3", "expected-rec", "key",
+        expected_release_group_id="rg-expected",
+    )
+    assert res["status"] == "mismatch"
 
 
 def test_throttle_is_thread_safe():

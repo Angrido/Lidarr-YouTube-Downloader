@@ -28,6 +28,9 @@ ALLOWED_CONFIG_KEYS = {
     "min_match_score", "audio_format", "audio_quality",
     "lidarr_rename_after_import", "save_cover_art_file",
     "scheduler_retry_after_hours",
+    "download_client_enabled", "download_client_api_key",
+    "download_client_category",
+    "yt_po_token", "audio_normalize", "yt_pot_provider_url",
 }
 
 MIN_MATCH_SCORE_DEFAULT = 0.8
@@ -102,6 +105,11 @@ def load_config():
             os.getenv("YT_FORCE_IPV4", "true").lower() == "true"
         ),
         "yt_player_client": os.getenv("YT_PLAYER_CLIENT", "android"),
+        "yt_po_token": os.getenv("YT_PO_TOKEN", ""),
+        "yt_pot_provider_url": os.getenv("YT_POT_PROVIDER_URL", ""),
+        "audio_normalize": (
+            os.getenv("AUDIO_NORMALIZE", "false").lower() == "true"
+        ),
         "yt_retries": int(os.getenv("YT_RETRIES", "10")),
         "yt_fragment_retries": int(os.getenv("YT_FRAGMENT_RETRIES", "10")),
         "yt_sleep_requests": int(os.getenv("YT_SLEEP_REQUESTS", "1")),
@@ -134,30 +142,58 @@ def load_config():
         "save_cover_art_file": (
             os.getenv("SAVE_COVER_ART_FILE", "true").lower() == "true"
         ),
+        "download_client_enabled": (
+            os.getenv("DOWNLOAD_CLIENT_ENABLED", "false").lower() == "true"
+        ),
+        "download_client_api_key": os.getenv("DOWNLOAD_CLIENT_API_KEY", ""),
+        "download_client_category": os.getenv(
+            "DOWNLOAD_CLIENT_CATEGORY", "music"
+        ),
         "path_conflict": False,
     }
 
     if os.path.exists(CONFIG_FILE):
+        # Keep the env-derived defaults so a malformed value in config.json
+        # falls back instead of propagating a string into code that does
+        # int(...) on it (e.g. the scheduler / yt-dlp options).
+        env_defaults = dict(config)
         try:
             with open(CONFIG_FILE, "r") as f:
                 file_config = json.load(f)
-                for key in config.keys():
-                    if key in file_config:
-                        config[key] = file_config[key]
-            if "scheduler_interval" in config:
-                config["scheduler_interval"] = int(
-                    config["scheduler_interval"]
-                )
-            if "duration_tolerance" in config:
-                config["duration_tolerance"] = int(
-                    config["duration_tolerance"]
-                )
-            if "min_match_score" in config:
-                config["min_match_score"] = _parse_min_match_score(
-                    config["min_match_score"]
-                )
-        except (json.JSONDecodeError, OSError, ValueError) as e:
+            for key in config.keys():
+                if key in file_config:
+                    config[key] = file_config[key]
+        except (json.JSONDecodeError, OSError) as e:
             logger.warning("Failed to load config file %s: %s", CONFIG_FILE, e)
+
+        _int_keys = (
+            "scheduler_interval", "duration_tolerance", "scheduler_max_albums",
+            "concurrent_tracks", "yt_retries", "yt_fragment_retries",
+            "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
+        )
+        for _k in _int_keys:
+            if _k in config:
+                try:
+                    config[_k] = int(config[_k])
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Invalid %s=%r in config.json; using %r",
+                        _k, config[_k], env_defaults.get(_k),
+                    )
+                    config[_k] = env_defaults.get(_k)
+        if "scheduler_retry_after_hours" in config:
+            try:
+                config["scheduler_retry_after_hours"] = float(
+                    config["scheduler_retry_after_hours"]
+                )
+            except (TypeError, ValueError):
+                config["scheduler_retry_after_hours"] = env_defaults.get(
+                    "scheduler_retry_after_hours", 24.0
+                )
+        if "min_match_score" in config:
+            config["min_match_score"] = _parse_min_match_score(
+                config["min_match_score"]
+            )
 
     def norm(p):
         return (

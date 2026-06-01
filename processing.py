@@ -42,6 +42,7 @@ from notifications import (
 from utils import (
     BaseNotMountedError,
     makedirs_safe,
+    relax_dir_permissions,
     sanitize_filename,
     set_permissions,
 )
@@ -250,6 +251,25 @@ def process_album_download(album_id, force=False):
             f" - {album.get('artist', {}).get('artistName', 'Unknown')}"
         )
 
+        # When Lidarr grabbed this album through the download-client
+        # bridge, Lidarr imports the finished files itself. We must then
+        # leave them in place and skip the copy-to-library / RefreshArtist
+        # steps to avoid a double import.
+        from download_client import is_client_album
+        client_grab = is_client_album(album_id)
+
+        if not DOWNLOAD_DIR:
+            logger.error(
+                "DOWNLOAD_PATH is not set; cannot download. Set the"
+                " DOWNLOAD_PATH env var / Download Path in settings."
+            )
+            return {
+                "error": (
+                    "DOWNLOAD_PATH is not set. Configure the Download Path"
+                    " (env DOWNLOAD_PATH) and restart."
+                )
+            }
+
         tracks = album.get("tracks", [])
         if not tracks:
             tracks_res = lidarr_request(f"track?albumId={album_id}")
@@ -277,7 +297,6 @@ def process_album_download(album_id, force=False):
         artist_mbid = album["artist"].get("foreignArtistId", "")
         album_title = album["title"]
         release_year = str(album.get("releaseDate", ""))[:4]
-        album_type = album.get("albumType", "Album")
 
         download_process["album_title"] = album_title
         download_process["artist_name"] = artist_name
@@ -365,6 +384,11 @@ def process_album_download(album_id, force=False):
         else:
             album_folder_name = sanitized_album
         album_path = os.path.join(artist_path, album_folder_name)
+        # A pre-existing artist folder (e.g. created by Lidarr/root) can
+        # block creating the new album subfolder. Best-effort relax it to
+        # group-writable first (no-op unless we own it). (Issue #66.)
+        if os.path.isdir(artist_path):
+            relax_dir_permissions(artist_path)
         try:
             makedirs_safe(album_path, [DOWNLOAD_DIR])
         except BaseNotMountedError as exc:
@@ -454,11 +478,20 @@ def process_album_download(album_id, force=False):
         )
 
         if len(tracks_to_download) == 0:
-            lidarr_request_with_retry(
-                "command",
-                data={"name": "RefreshArtist", "artistId": artist_id},
-            )
-            return {"success": True, "message": "Skipped"}
+            if not client_grab:
+                lidarr_request_with_retry(
+                    "command",
+                    data={"name": "RefreshArtist", "artistId": artist_id},
+                )
+            # Nothing was downloaded. Only report a storage path to Lidarr
+            # if the folder actually holds audio, so the download client
+            # doesn't ask Lidarr to import an empty directory.
+            skip_path = album_path if _dir_has_audio(album_path) else ""
+            return {
+                "success": True,
+                "message": "Skipped",
+                "album_path": skip_path,
+            }
 
         logger.info(f"Total tracks to download: {len(tracks_to_download)}")
 
@@ -513,6 +546,22 @@ def process_album_download(album_id, force=False):
         if result is not None:
             return result
 
+        # Lidarr-grabbed albums: leave files in the download folder and
+        # let Lidarr's completed-download handling import them. Skip the
+        # copy-to-library, RefreshArtist, rename and cleanup steps.
+        if client_grab:
+            logger.info(
+                "Album downloaded successfully (Lidarr will import):"
+                " %s - %s", artist_name, album_title,
+            )
+            _log_import_result(
+                failed_tracks, album_id, album_title, artist_name,
+                total_downloaded_size,
+                album_mbid=album_mbid,
+                cover_url=download_process.get("cover_url", ""),
+            )
+            return {"success": True, "album_path": album_path}
+
         config = load_config()
         lidarr_path = config.get("lidarr_path", "")
         import_path, lidarr_album_path, copy_succeeded = _copy_to_lidarr(
@@ -562,7 +611,7 @@ def process_album_download(album_id, force=False):
                     f"Failed to cleanup download folder: {e}"
                 )
 
-        return {"success": True}
+        return {"success": True, "album_path": lidarr_album_path or album_path}
 
     except Exception as e:
         logger.error("Error during album download: %s", e, exc_info=True)
@@ -599,6 +648,19 @@ def process_album_download(album_id, force=False):
             download_process["artist_name"] = ""
             download_process["cover_url"] = ""
             download_process["ytmusic_album"] = None
+
+
+_AUDIO_EXTS = (".mp3", ".m4a", ".opus", ".flac", ".aac", ".ogg")
+
+
+def _dir_has_audio(path):
+    """True if the directory exists and contains at least one audio file."""
+    try:
+        return any(
+            f.lower().endswith(_AUDIO_EXTS) for f in os.listdir(path)
+        )
+    except OSError:
+        return False
 
 
 def _filter_tracks(tracks, force, album_path):
@@ -978,6 +1040,12 @@ def _download_tracks(
                 album_candidate["title"],
                 ytm_album.get("playlist_url", ""),
             )
+            # Coming from the artist's official YT Music album playlist,
+            # the song mapping is already canonical. AcoustID's job here
+            # is only to catch wrong/garbage uploads, so a recording-id
+            # mismatch (same song, different MusicBrainz recording) must
+            # not reject it. (Issue #58.)
+            album_candidate["from_official_album"] = True
             candidates = [album_candidate]
         else:
             if ytm_album:
@@ -1118,6 +1186,7 @@ def _download_tracks(
                     actual_file,
                     expected_recording_id,
                     cfg["acoustid_api_key"],
+                    expected_release_group_id=album_ctx.get("album_mbid"),
                 )
 
                 if vresult is None:
@@ -1139,6 +1208,28 @@ def _download_tracks(
                         ].append(
                             float(fp_data.get("acoustid_score", 0.0))
                         )
+                elif (
+                    vresult["status"] == "mismatch"
+                    and candidate.get("from_official_album")
+                ):
+                    # Official album-playlist track: keep it despite the
+                    # recording-id mismatch, recording the fingerprint as
+                    # metadata. (Issue #58.)
+                    fp_data = vresult["fp_data"]
+                    candidate_attempts_buf.append(
+                        _build_candidate_attempt(
+                            candidate,
+                            CandidateOutcome.ACCEPTED_NO_VERIFY,
+                            expected_recording_id,
+                            fp_data=fp_data,
+                        )
+                    )
+                    logger.info(
+                        "AcoustID recording-id mismatch for '%s' accepted"
+                        " (official album playlist, score=%.2f)",
+                        track_title,
+                        fp_data.get("acoustid_score", 0.0),
+                    )
                 elif vresult["status"] == "mismatch":
                     mismatch_fp = vresult["fp_data"]
                     with _results_lock:
@@ -1816,7 +1907,32 @@ def _copy_to_lidarr(
         )
 
         try:
-            os.makedirs(lidarr_album_path, exist_ok=True)
+            try:
+                makedirs_safe(lidarr_album_path, [lidarr_path])
+            except BaseNotMountedError as exc:
+                logger.error(
+                    "LIDARR_PATH (%s) is not mounted/writable inside the"
+                    " container: %s", lidarr_path, exc,
+                )
+                send_notifications(
+                    f"Copy to Lidarr failed: '{lidarr_path}' is not mounted "
+                    "inside the container. Add the volume mount or correct "
+                    "the Lidarr Music Path in settings.",
+                    log_type="album_error",
+                )
+                return album_path, lidarr_album_path, False
+            except PermissionError as exc:
+                puid = os.getenv("PUID", "?")
+                logger.error(
+                    "Permission denied creating %s: %s. Ensure LIDARR_PATH "
+                    "(%s) is owned by uid=%s (align PUID/PGID/UMASK with "
+                    "Lidarr).", lidarr_album_path, exc, lidarr_path, puid,
+                )
+                send_notifications(
+                    f"Copy to Lidarr failed (permission denied): {exc}",
+                    log_type="album_error",
+                )
+                return album_path, lidarr_album_path, False
             for item in os.listdir(album_path):
                 src = os.path.join(album_path, item)
                 dst = os.path.join(lidarr_album_path, item)
@@ -1870,7 +1986,7 @@ def _log_import_result(
                 "inline": True,
             }],
             extra_md2_lines=[
-                f"_Refreshing in Lidarr_",
+                "_Refreshing in Lidarr_",
                 f"*Missing tracks:* {md2_escape(len(failed_tracks))}",
             ],
         )
@@ -1908,8 +2024,13 @@ def process_download_queue():
             if not download_process["active"]:
                 next_album_id = models.pop_next_from_queue()
                 if next_album_id is not None:
+                    import download_client
+                    if download_client.is_client_album(next_album_id):
+                        target = download_client.run_album_job
+                    else:
+                        target = process_album_download
                     threading.Thread(
-                        target=process_album_download,
+                        target=target,
                         args=(next_album_id, False),
                         daemon=True,
                     ).start()

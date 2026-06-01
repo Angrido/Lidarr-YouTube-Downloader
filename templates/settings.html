@@ -840,6 +840,33 @@
                     <option value="320">320</option>
                 </select>
             </div>
+            <div class="input-group">
+                <label>
+                    Loudness Normalization
+                    <div class="label-description">Apply EBU R128 loudness normalization (−14 LUFS) so volume is consistent across tracks. Forces a re-encode (M4A/Opus won't stream-copy when enabled).</div>
+                </label>
+                <button class="toggle-btn" id="audioNormalizeBtn" onclick="toggleAudioNormalize()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    YouTube PO Token
+                    <div class="label-description">Optional. Helps with "Sign in to confirm you're not a bot" / format-unavailable errors. Paste one or more <code>po_token</code> values (comma-separated) from yt-dlp. Leave empty unless you hit those errors.</div>
+                </label>
+                <input type="text" id="ytPoToken" placeholder="e.g. web.gvs+XXXX...">
+            </div>
+            <div class="input-group">
+                <label>
+                    PO Token Provider URL
+                    <div class="label-description">Optional, recommended over a manual token: URL of a <a href="https://github.com/Brainicism/bgutil-ytdlp-pot-provider" target="_blank" rel="noopener">bgutil PO token provider</a> run as a sidecar (e.g. <code>http://bgutil-provider:4416</code>). yt-dlp fetches tokens automatically when needed. See the bundled docker-compose.</div>
+                </label>
+                <div style="display:flex; gap:.5rem; align-items:center;">
+                    <input type="text" id="ytPotProviderUrl" placeholder="http://bgutil-provider:4416" style="flex:1 1 auto; min-width:0;">
+                    <button class="btn" type="button" onclick="testPotProvider()" style="white-space:nowrap; flex:0 0 auto; width:auto; padding:.45rem .7rem; font-size:.85rem;">
+                        <i class="fa-solid fa-plug"></i> Test
+                    </button>
+                </div>
+                <div id="potProviderTestResult" style="font-size:.8rem; margin-top:.4rem;"></div>
+            </div>
         </div>
 
         <div class="settings-section">
@@ -1140,6 +1167,59 @@
 
         <div class="settings-section">
             <div class="section-header">
+                <i class="fa-solid fa-plug"></i>
+                <h2>Lidarr Download Client</h2>
+            </div>
+            <div
+                style="background: rgba(59, 130, 246, 0.1); border-left: 4px solid #3b82f6; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                <p style="margin: 0 0 .5rem; color: var(--text); font-size: 0.9rem;">
+                    Expose this app to Lidarr as a native <strong>Newznab indexer</strong> + <strong>SABnzbd download
+                    client</strong>. Lidarr then searches, grabs and imports automatically — no need to push from here.
+                </p>
+                <p style="margin: 0; color: var(--text); font-size: 0.85rem; opacity: .85;">
+                    In Lidarr add a <strong>Newznab</strong> indexer and a <strong>SABnzbd</strong> download client, both
+                    pointing at this app's host/port, using the API key below. Enable
+                    <em>Completed Download Handling</em>.
+                </p>
+            </div>
+            <div class="input-group">
+                <label>
+                    Enable Download Client
+                    <div class="label-description">Turn on the Newznab + SABnzbd endpoints so Lidarr can use this app.</div>
+                </label>
+                <button class="toggle-btn" id="downloadClientBtn" onclick="toggleDownloadClient()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    API Key
+                    <div class="label-description">Use this same key for both the Newznab indexer and the SABnzbd client in Lidarr.</div>
+                </label>
+                <div style="display:flex; gap:.5rem; align-items:center;">
+                    <input type="text" id="downloadClientApiKey" placeholder="Generate or paste a key" style="flex:1 1 auto; min-width:0;">
+                    <button class="btn" type="button" onclick="generateDownloadClientKey()" title="Generate API key" style="white-space:nowrap; flex:0 0 auto; width:auto; padding:.45rem .7rem; font-size:.85rem;">
+                        <i class="fa-solid fa-rotate"></i> Generate
+                    </button>
+                </div>
+            </div>
+            <div class="input-group">
+                <label>
+                    Category
+                    <div class="label-description">SABnzbd category Lidarr should target (must match the category set on the Lidarr download client).</div>
+                </label>
+                <input type="text" id="downloadClientCategory" placeholder="music">
+            </div>
+            <div class="input-group">
+                <label>
+                    Connection details
+                    <div class="label-description">Paths to enter in Lidarr (host and port are this app's).</div>
+                </label>
+                <pre id="downloadClientHelp" style="background: var(--bg-alt, rgba(0,0,0,.15)); padding:.75rem; border-radius:8px; font-size:.8rem; overflow:auto; margin:0;">Newznab indexer  → API Path:  /api/newznab/api
+SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="section-header">
                 <i class="fa-solid fa-folder-open"></i>
                 <h2>Environment Variables</h2>
             </div>
@@ -1279,6 +1359,9 @@
             document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
             document.getElementById('audioFormatSelect').value = conf.audio_format || 'mp3';
             document.getElementById('audioQualitySelect').value = String(conf.audio_quality || '320');
+            updateAudioNormalizeBtn(conf.audio_normalize === true);
+            document.getElementById('ytPoToken').value = conf.yt_po_token || '';
+            document.getElementById('ytPotProviderUrl').value = conf.yt_pot_provider_url || '';
             const ytCookiesInput = document.getElementById('ytCookiesFile');
             if (ytCookiesInput) ytCookiesInput.value = conf.yt_cookies_file || '';
             refreshCookiesStatus();
@@ -1301,6 +1384,9 @@
             document.getElementById('acoustidApiKey').value = conf.acoustid_api_key || '';
             updateLidarrRenameBtn(conf.lidarr_rename_after_import === true);
             updateCoverArtBtn(conf.save_cover_art_file !== false);
+            updateDownloadClientBtn(conf.download_client_enabled === true);
+            document.getElementById('downloadClientApiKey').value = conf.download_client_api_key || '';
+            document.getElementById('downloadClientCategory').value = conf.download_client_category || 'music';
             document.getElementById('schedulerRetryAfterHours').value = (
                 conf.scheduler_retry_after_hours != null
                     ? conf.scheduler_retry_after_hours
@@ -1389,6 +1475,65 @@
             const res = await fetch('/api/cover_art/toggle', { method: 'POST' });
             const data = await res.json();
             updateCoverArtBtn(data.enabled);
+        }
+
+        async function testPotProvider() {
+            const result = document.getElementById('potProviderTestResult');
+            const url = (document.getElementById('ytPotProviderUrl').value || '').trim();
+            result.textContent = 'Testing…';
+            result.style.color = 'var(--text-dim)';
+            try {
+                const res = await fetch('/api/pot-provider/test', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url }),
+                });
+                const data = await res.json();
+                result.textContent = data.message || (data.success ? 'OK' : 'Failed');
+                result.style.color = data.success ? '#22c55e' : '#ef4444';
+            } catch (e) {
+                result.textContent = 'Test failed';
+                result.style.color = '#ef4444';
+            }
+        }
+
+        function updateAudioNormalizeBtn(enabled) {
+            const btn = document.getElementById('audioNormalizeBtn');
+            btn.dataset.enabled = enabled ? '1' : '0';
+            btn.innerText = enabled ? '✓ Normalization ON' : 'Normalization OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        function toggleAudioNormalize() {
+            const btn = document.getElementById('audioNormalizeBtn');
+            updateAudioNormalizeBtn(btn.dataset.enabled !== '1');
+            markSettingsDirty();
+        }
+
+        function updateDownloadClientBtn(enabled) {
+            const btn = document.getElementById('downloadClientBtn');
+            btn.innerText = enabled ? '✓ Download Client ON' : 'Download Client OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        async function toggleDownloadClient() {
+            const res = await fetch('/api/download-client/toggle', { method: 'POST' });
+            const data = await res.json();
+            updateDownloadClientBtn(data.enabled);
+            if (data.api_key) {
+                document.getElementById('downloadClientApiKey').value = data.api_key;
+            }
+        }
+
+        async function generateDownloadClientKey() {
+            const res = await fetch('/api/download-client/generate-key', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('downloadClientApiKey').value = data.api_key;
+                showToast('success', 'API Key Generated', 'Save settings, then use this key in Lidarr.');
+            } else {
+                showToast('error', 'Error', data.message || 'Could not generate key');
+            }
         }
 
         async function loadYtdlpVersion() {
@@ -1624,8 +1769,13 @@
                     concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
                     audio_format: document.getElementById('audioFormatSelect').value || 'mp3',
                     audio_quality: document.getElementById('audioQualitySelect').value || '320',
+                    audio_normalize: document.getElementById('audioNormalizeBtn').dataset.enabled === '1',
+                    yt_po_token: (document.getElementById('ytPoToken').value || '').trim(),
+                    yt_pot_provider_url: (document.getElementById('ytPotProviderUrl').value || '').trim(),
                     yt_cookies_file: (document.getElementById('ytCookiesFile').value || '').trim(),
-                    acoustid_api_key: document.getElementById('acoustidApiKey').value
+                    acoustid_api_key: document.getElementById('acoustidApiKey').value,
+                    download_client_api_key: (document.getElementById('downloadClientApiKey').value || '').trim(),
+                    download_client_category: (document.getElementById('downloadClientCategory').value || 'music').trim()
                 })
             });
             clearSettingsDirty();

@@ -67,7 +67,7 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
         audio.tags.add(
             TDRC(
                 encoding=3,
-                text=str(album_info.get("releaseDate", "")[:4]),
+                text=str(album_info.get("releaseDate") or "")[:4],
             )
         )
 
@@ -76,7 +76,7 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
             audio.tags.add(
                 TRCK(
                     encoding=3,
-                    text=f"{t_num}/{album_info.get('trackCount', 0)}",
+                    text=f"{t_num}/{album_info.get('trackCount') or 0}",
                 )
             )
         except (ValueError, KeyError):
@@ -119,11 +119,11 @@ def tag_opus(file_path, track_info, album_info, cover_data):
         audio["artist"] = [album_info["artist"]["artistName"]]
         audio["albumartist"] = [album_info["artist"]["artistName"]]
         audio["album"] = [album_info["title"]]
-        audio["date"] = [str(album_info.get("releaseDate", "")[:4])]
+        audio["date"] = [str(album_info.get("releaseDate") or "")[:4]]
 
         try:
             t_num = int(track_info["trackNumber"])
-            total = album_info.get("trackCount", 0)
+            total = album_info.get("trackCount") or 0
             audio["tracknumber"] = [f"{t_num}/{total}"]
         except (ValueError, KeyError):
             pass
@@ -171,11 +171,11 @@ def tag_m4a(file_path, track_info, album_info, cover_data):
         audio["\xa9ART"] = [album_info["artist"]["artistName"]]
         audio["aART"] = [album_info["artist"]["artistName"]]
         audio["\xa9alb"] = [album_info["title"]]
-        audio["\xa9day"] = [str(album_info.get("releaseDate", "")[:4])]
+        audio["\xa9day"] = [str(album_info.get("releaseDate") or "")[:4]]
 
         try:
             t_num = int(track_info["trackNumber"])
-            total = album_info.get("trackCount", 0)
+            total = album_info.get("trackCount") or 0
             audio["trkn"] = [(t_num, total)]
         except (ValueError, KeyError):
             pass

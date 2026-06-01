@@ -19,7 +19,6 @@ Environment variables (or use --lidarr-url and --lidarr-api-key):
 """
 
 import argparse
-import json
 import os
 import re
 import sys
@@ -584,7 +583,7 @@ def main():
             print(f"  {status} {album_info['artist']} - {album_info['album']}: {files}/{total} tracks")
 
             if not is_complete and args.force_manual_import:
-                print(f"    Attempting manual import...")
+                print("    Attempting manual import...")
                 # Manual import would go here if needed
 
     # Print summary
