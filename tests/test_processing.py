@@ -587,6 +587,76 @@ class TestVerifyRetryLoop:
 
         self._teardown_download_process()
 
+    @patch("processing.match_album_track")
+    @patch("processing.search_youtube_candidates")
+    @patch("processing.download_youtube_candidate")
+    @patch("processing.tag_audio_file")
+    @patch("processing.verify_fingerprint")
+    @patch("processing.load_config", return_value={
+        "xml_metadata_enabled": False,
+        "acoustid_enabled": True,
+        "acoustid_api_key": "test-key",
+    })
+    def test_official_album_mismatch_accepted(
+        self, mock_config, mock_verify, mock_tag,
+        mock_dl_candidate, mock_search, mock_match_album, tmp_path,
+    ):
+        """Official album-playlist track is kept despite recording-id
+        mismatch and is not banned. (Issue #58.)"""
+        from processing import _download_tracks
+
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+
+        track = {
+            "title": "Song",
+            "trackNumber": 1,
+            "duration": 200000,
+            "foreignRecordingId": "expected-rec",
+        }
+        self._setup_download_process(track)
+
+        mock_match_album.return_value = {
+            "url": "url_official", "title": "Song", "duration": 200,
+            "score": 0.95, "channel": "Artist",
+        }
+
+        def fake_download(candidate, output_path, **kwargs):
+            open(output_path + ".mp3", "w").close()
+            return {
+                "success": True,
+                "youtube_url": candidate["url"],
+                "youtube_title": candidate["title"],
+                "match_score": candidate["score"],
+                "duration_seconds": candidate["duration"],
+            }
+        mock_dl_candidate.side_effect = fake_download
+
+        mock_verify.return_value = {
+            "status": "mismatch",
+            "fp_data": {"acoustid_score": 0.99},
+            "matched_id": "other-rec",
+        }
+
+        ctx = _make_album_ctx(
+            ytmusic_album={
+                "entries": [{"title": "Song"}],
+                "playlist_url": "http://pl",
+            },
+        )
+        failed, succeeded, size, _stats = _download_tracks(
+            [track], album_path, {"tracks": [track]}, ctx,
+        )
+
+        assert len(failed) == 0
+        assert len(succeeded) == 1
+        # not banned despite the recording-id mismatch
+        assert models.get_banned_urls_for_track(42, "Song") == set() \
+            or len(models.get_banned_urls_for_track(42, "Song")) == 0
+        mock_search.assert_not_called()
+
+        self._teardown_download_process()
+
     @patch("processing.search_youtube_candidates")
     @patch("processing.download_youtube_candidate")
     @patch("processing.tag_audio_file")

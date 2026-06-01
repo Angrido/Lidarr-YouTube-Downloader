@@ -79,6 +79,17 @@ def _try_relax_dir(path):
         pass
 
 
+def relax_dir_permissions(path):
+    """Best-effort: make an existing directory group-writable.
+
+    Used before creating a subfolder inside a pre-existing artist
+    directory that may have been created by another service (e.g. Lidarr
+    or root) with restrictive permissions. Only succeeds when the current
+    user owns the directory; otherwise it is a no-op.
+    """
+    _try_relax_dir(path)
+
+
 def makedirs_within(base_dir, target_path):
     if not os.path.isdir(base_dir):
         try:

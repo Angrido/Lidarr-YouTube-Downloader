@@ -1175,12 +1175,14 @@ def download_youtube_candidate(
                 " - try providing/refreshing YouTube cookies"
             ),
         }
-    if format_unavailable_errors and "requested format" in last_error_msg.lower():
+    if format_unavailable_errors:
         return {
             "success": False,
             "error_message": (
                 "No downloadable audio format available for this video."
-                " YouTube may require cookies — set yt_cookies_file in settings."
+                " YouTube is likely gating formats behind sign-in — upload a"
+                " cookies.txt (Settings → YouTube cookies) and keep yt-dlp"
+                " updated."
             ),
         }
     return {

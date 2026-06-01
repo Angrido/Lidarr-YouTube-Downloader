@@ -42,6 +42,7 @@ from notifications import (
 from utils import (
     BaseNotMountedError,
     makedirs_safe,
+    relax_dir_permissions,
     sanitize_filename,
     set_permissions,
 )
@@ -372,6 +373,11 @@ def process_album_download(album_id, force=False):
         else:
             album_folder_name = sanitized_album
         album_path = os.path.join(artist_path, album_folder_name)
+        # A pre-existing artist folder (e.g. created by Lidarr/root) can
+        # block creating the new album subfolder. Best-effort relax it to
+        # group-writable first (no-op unless we own it). (Issue #66.)
+        if os.path.isdir(artist_path):
+            relax_dir_permissions(artist_path)
         try:
             makedirs_safe(album_path, [DOWNLOAD_DIR])
         except BaseNotMountedError as exc:
@@ -1006,6 +1012,12 @@ def _download_tracks(
                 album_candidate["title"],
                 ytm_album.get("playlist_url", ""),
             )
+            # Coming from the artist's official YT Music album playlist,
+            # the song mapping is already canonical. AcoustID's job here
+            # is only to catch wrong/garbage uploads, so a recording-id
+            # mismatch (same song, different MusicBrainz recording) must
+            # not reject it. (Issue #58.)
+            album_candidate["from_official_album"] = True
             candidates = [album_candidate]
         else:
             if ytm_album:
@@ -1167,6 +1179,28 @@ def _download_tracks(
                         ].append(
                             float(fp_data.get("acoustid_score", 0.0))
                         )
+                elif (
+                    vresult["status"] == "mismatch"
+                    and candidate.get("from_official_album")
+                ):
+                    # Official album-playlist track: keep it despite the
+                    # recording-id mismatch, recording the fingerprint as
+                    # metadata. (Issue #58.)
+                    fp_data = vresult["fp_data"]
+                    candidate_attempts_buf.append(
+                        _build_candidate_attempt(
+                            candidate,
+                            CandidateOutcome.ACCEPTED_NO_VERIFY,
+                            expected_recording_id,
+                            fp_data=fp_data,
+                        )
+                    )
+                    logger.info(
+                        "AcoustID recording-id mismatch for '%s' accepted"
+                        " (official album playlist, score=%.2f)",
+                        track_title,
+                        fp_data.get("acoustid_score", 0.0),
+                    )
                 elif vresult["status"] == "mismatch":
                     mismatch_fp = vresult["fp_data"]
                     with _results_lock:
@@ -1844,7 +1878,32 @@ def _copy_to_lidarr(
         )
 
         try:
-            os.makedirs(lidarr_album_path, exist_ok=True)
+            try:
+                makedirs_safe(lidarr_album_path, [lidarr_path])
+            except BaseNotMountedError as exc:
+                logger.error(
+                    "LIDARR_PATH (%s) is not mounted/writable inside the"
+                    " container: %s", lidarr_path, exc,
+                )
+                send_notifications(
+                    f"Copy to Lidarr failed: '{lidarr_path}' is not mounted "
+                    "inside the container. Add the volume mount or correct "
+                    "the Lidarr Music Path in settings.",
+                    log_type="album_error",
+                )
+                return album_path, lidarr_album_path, False
+            except PermissionError as exc:
+                puid = os.getenv("PUID", "?")
+                logger.error(
+                    "Permission denied creating %s: %s. Ensure LIDARR_PATH "
+                    "(%s) is owned by uid=%s (align PUID/PGID/UMASK with "
+                    "Lidarr).", lidarr_album_path, exc, lidarr_path, puid,
+                )
+                send_notifications(
+                    f"Copy to Lidarr failed (permission denied): {exc}",
+                    log_type="album_error",
+                )
+                return album_path, lidarr_album_path, False
             for item in os.listdir(album_path):
                 src = os.path.join(album_path, item)
                 dst = os.path.join(lidarr_album_path, item)
