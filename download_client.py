@@ -51,10 +51,7 @@ bp = Blueprint("download_client", __name__)
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
-# Nominal per-album size (bytes) reported to Lidarr while downloading.
-# We do not know the true size up front; Lidarr drives its progress bar
-# from size/sizeleft, so a stable nominal value plus a real percentage
-# is enough for display and stall detection.
+# Placeholder size reported to Lidarr (true size is unknown up front).
 _NOMINAL_ALBUM_SIZE = 100 * 1024 * 1024
 
 # --- Job registry -----------------------------------------------------
@@ -398,7 +395,6 @@ def _newznab_error(code, description):
 
 
 def _caps_xml():
-    cfg = load_config()
     server_title = "Lidarr YouTube Downloader"
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'

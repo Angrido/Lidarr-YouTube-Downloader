@@ -24,7 +24,6 @@ from flask import (
     request,
     send_from_directory,
 )
-from werkzeug.utils import secure_filename as werkzeug_secure_filename
 
 import db
 import download_client
@@ -33,13 +32,12 @@ from config import ALLOWED_CONFIG_KEYS, load_config, save_config
 from downloader import get_ytdlp_version
 from fingerprint import fingerprint_track
 from lidarr import get_missing_albums, lidarr_request
-from metadata import create_xml_metadata, get_itunes_tracks, tag_mp3, tag_audio_file
+from metadata import create_xml_metadata, get_itunes_tracks, tag_audio_file
 from notifications import send_notifications
 from processing import (
     TrackSkippedException,
     download_process,
     get_download_status,
-    process_album_download,
     process_download_queue,
     queue_lock,
     stop_download,
@@ -1162,8 +1160,6 @@ class _YtdlpSilentLogger:
 
 @app.route("/api/youtube/stream", methods=["GET"])
 def api_youtube_stream():
-    import requests as http_requests
-
     client_ip = request.remote_addr or "unknown"
     if not check_rate_limit(
         f"yt_stream:{client_ip}", rate_limit_store, window=5, max_requests=6
@@ -1592,7 +1588,6 @@ def api_manual_track_download(album_id):
 
     artist_name = album_data.get("artist", {}).get("artistName", "Unknown")
     album_title = album_data.get("title", "Unknown")
-    album_type = album_data.get("albumType", "Album")
 
     config = load_config()
     target_path, makedirs_bases, lidarr_import_path = _build_album_paths(

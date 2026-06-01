@@ -285,7 +285,6 @@ def process_album_download(album_id, force=False):
         artist_mbid = album["artist"].get("foreignArtistId", "")
         album_title = album["title"]
         release_year = str(album.get("releaseDate", ""))[:4]
-        album_type = album.get("albumType", "Album")
 
         download_process["album_title"] = album_title
         download_process["artist_name"] = artist_name
@@ -1957,7 +1956,7 @@ def _log_import_result(
                 "inline": True,
             }],
             extra_md2_lines=[
-                f"_Refreshing in Lidarr_",
+                "_Refreshing in Lidarr_",
                 f"*Missing tracks:* {md2_escape(len(failed_tracks))}",
             ],
         )
