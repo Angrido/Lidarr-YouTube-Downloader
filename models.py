@@ -756,6 +756,51 @@ def count_cached_missing_albums():
     return row[0] if row else 0
 
 
+# --- Download-client jobs (SABnzbd bridge) ---
+
+_CLIENT_JOB_COLS = (
+    "nzo_id", "album_id", "name", "category", "status",
+    "storage", "size", "error", "added_ts", "completed_ts",
+)
+
+
+def upsert_client_job(job):
+    """Insert or replace a download-client job row from a job dict."""
+    conn = db.get_db()
+    conn.execute(
+        "INSERT OR REPLACE INTO download_client_jobs"
+        " (nzo_id, album_id, name, category, status, storage, size,"
+        "  error, added_ts, completed_ts)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            job["nzo_id"], int(job["album_id"]), job.get("name", ""),
+            job.get("category", ""), job.get("status", "queued"),
+            job.get("storage", ""), int(job.get("size") or 0),
+            job.get("error", ""), float(job.get("added_ts") or 0),
+            job.get("completed_ts"),
+        ),
+    )
+    conn.commit()
+
+
+def get_all_client_jobs():
+    """Return all persisted download-client jobs as dicts."""
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT * FROM download_client_jobs ORDER BY added_ts"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def delete_client_job(nzo_id):
+    """Delete a download-client job by nzo_id."""
+    conn = db.get_db()
+    conn.execute(
+        "DELETE FROM download_client_jobs WHERE nzo_id = ?", (nzo_id,)
+    )
+    conn.commit()
+
+
 def get_cached_album_index():
     """Return a lightweight index of cached albums for search matching.
 

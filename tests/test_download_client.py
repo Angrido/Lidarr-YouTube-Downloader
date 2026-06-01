@@ -270,6 +270,65 @@ def test_is_client_album_only_while_active():
     assert not download_client.is_client_album(5)
 
 
+def test_job_is_persisted(client):
+    nzo = download_client.register_grab(42, "Daft Punk - Discovery", "music")
+    rows = models.get_all_client_jobs()
+    assert len(rows) == 1
+    assert rows[0]["nzo_id"] == nzo
+    assert rows[0]["album_id"] == 42
+    assert rows[0]["status"] == "queued"
+
+
+def test_completed_job_persisted(client):
+    download_client.register_grab(42, "X", "music")
+    download_client.mark_completed(42, "/downloads/X")
+    rows = models.get_all_client_jobs()
+    assert rows[0]["status"] == "completed"
+    assert rows[0]["storage"] == "/downloads/X"
+
+
+def test_restore_resumes_interrupted_download(client):
+    # Simulate a job left mid-download by a restart.
+    models.upsert_client_job({
+        "nzo_id": "SABnzbd_nzo_old", "album_id": 42, "name": "X",
+        "category": "music", "status": "downloading", "storage": "",
+        "size": 100, "error": "", "added_ts": 1.0, "completed_ts": None,
+    })
+    download_client._jobs.clear()
+    download_client._album_to_nzo.clear()
+
+    download_client.restore_jobs()
+
+    assert "SABnzbd_nzo_old" in download_client._jobs
+    # interrupted download is reset to queued and re-enqueued for retry
+    assert download_client.is_client_album(42)
+    assert models.get_queue_length() == 1
+    assert models.get_all_client_jobs()[0]["status"] == "queued"
+
+
+def test_restore_keeps_completed_in_history(client):
+    models.upsert_client_job({
+        "nzo_id": "SABnzbd_nzo_done", "album_id": 7, "name": "Y",
+        "category": "music", "status": "completed", "storage": "/d/Y",
+        "size": 100, "error": "", "added_ts": 1.0, "completed_ts": 2.0,
+    })
+    download_client._jobs.clear()
+    download_client._album_to_nzo.clear()
+
+    download_client.restore_jobs()
+
+    assert not download_client.is_client_album(7)
+    h = client.get("/api/sabnzbd/api?mode=history&apikey=secret").get_json()
+    assert h["history"]["noofslots"] == 1
+    assert h["history"]["slots"][0]["storage"] == "/d/Y"
+
+
+def test_remove_job_deletes_from_db(client):
+    nzo = download_client.register_grab(42, "X", "music")
+    download_client.remove_job(nzo)
+    assert models.get_all_client_jobs() == []
+
+
 def test_nzb_round_trip_meta_and_subject():
     nzb = download_client._build_nzb(123, "Art - Alb", "music")
     assert download_client._parse_album_id_from_nzb(nzb) == 123

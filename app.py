@@ -3129,6 +3129,7 @@ def _startup_ytdlp_update():
 if __name__ == "__main__":
     db.init_db()
     models.reset_downloading_to_queued()
+    download_client.restore_jobs()
     logger.info("Starting Lidarr YouTube Downloader...")
     logger.info("Version: %s", VERSION)
     logger.info(

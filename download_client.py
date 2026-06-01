@@ -72,6 +72,17 @@ def _new_nzo_id():
     return "SABnzbd_nzo_" + uuid.uuid4().hex[:12]
 
 
+def _persist(job):
+    """Write a job through to SQLite so it survives a restart."""
+    try:
+        models.upsert_client_job(job)
+    except Exception:
+        logger.warning(
+            "Failed to persist download-client job %s",
+            job.get("nzo_id"), exc_info=True,
+        )
+
+
 def register_grab(album_id, name, category):
     """Register a grabbed release and enqueue it for download.
 
@@ -98,6 +109,7 @@ def register_grab(album_id, name, category):
             "completed_ts": None,
         }
         _album_to_nzo[album_id] = nzo_id
+        _persist(_jobs[nzo_id])
         _prune_history()
     models.enqueue_album(album_id)
     logger.info(
@@ -123,6 +135,7 @@ def mark_downloading(album_id):
         job = _active_job(album_id)
         if job:
             job["status"] = _STATUS_DOWNLOADING
+            _persist(job)
 
 
 def mark_completed(album_id, storage, size=None):
@@ -136,6 +149,7 @@ def mark_completed(album_id, storage, size=None):
             job["size"] = int(size)
         job["completed_ts"] = time.time()
         _album_to_nzo.pop(int(album_id), None)
+        _persist(job)
 
 
 def mark_failed(album_id, error):
@@ -147,6 +161,7 @@ def mark_failed(album_id, error):
         job["error"] = (error or "")[:500]
         job["completed_ts"] = time.time()
         _album_to_nzo.pop(int(album_id), None)
+        _persist(job)
 
 
 def _active_job(album_id):
@@ -166,6 +181,13 @@ def _prune_history():
     while len(_jobs) > _HISTORY_LIMIT and terminal:
         victim = terminal.pop(0)
         _jobs.pop(victim["nzo_id"], None)
+        try:
+            models.delete_client_job(victim["nzo_id"])
+        except Exception:
+            logger.warning(
+                "Failed to delete pruned job %s", victim["nzo_id"],
+                exc_info=True,
+            )
 
 
 def remove_job(nzo_id, delete_files=False):
@@ -175,6 +197,12 @@ def remove_job(nzo_id, delete_files=False):
         if not job:
             return False
         _album_to_nzo.pop(job["album_id"], None)
+    try:
+        models.delete_client_job(nzo_id)
+    except Exception:
+        logger.warning(
+            "Failed to delete job %s from DB", nzo_id, exc_info=True,
+        )
     if job["status"] in (_STATUS_QUEUED, _STATUS_DOWNLOADING):
         try:
             models.dequeue_album(job["album_id"])
@@ -196,6 +224,45 @@ def _safe_rmtree(path):
             shutil.rmtree(real, ignore_errors=True)
     except OSError:
         logger.warning("Failed to remove %s", path, exc_info=True)
+
+
+def restore_jobs():
+    """Reload persisted jobs at startup and resume interrupted ones.
+
+    Without this, an in-memory job lost on restart leaves an orphaned
+    partial download and Lidarr's poll would see the grab vanish. Jobs
+    that were mid-download are reset to 'queued' and re-enqueued so the
+    queue processor picks them up again; completed/failed jobs stay in
+    history so Lidarr can still import / see them.
+    """
+    try:
+        rows = models.get_all_client_jobs()
+    except Exception:
+        logger.warning("Failed to restore download-client jobs", exc_info=True)
+        return
+    with _lock:
+        for job in rows:
+            if job.get("status") == _STATUS_DOWNLOADING:
+                job["status"] = _STATUS_QUEUED  # interrupted: retry
+            _jobs[job["nzo_id"]] = job
+            if job["status"] == _STATUS_QUEUED:
+                _album_to_nzo[int(job["album_id"])] = job["nzo_id"]
+        to_resume = [
+            j for j in _jobs.values() if j["status"] == _STATUS_QUEUED
+        ]
+    for job in to_resume:
+        try:
+            models.enqueue_album(int(job["album_id"]))
+            _persist(job)
+        except Exception:
+            logger.warning(
+                "Failed to resume job %s", job["nzo_id"], exc_info=True,
+            )
+    if _jobs:
+        logger.info(
+            "Restored %d download-client job(s); resumed %d",
+            len(_jobs), len(to_resume),
+        )
 
 
 def run_album_job(album_id, force=False):

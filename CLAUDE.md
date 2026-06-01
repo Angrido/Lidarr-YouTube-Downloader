@@ -98,14 +98,15 @@ docker run -p 5005:5000 \
 
 ### Database
 
-State is stored in SQLite at `/config/lidarr-downloader.db`. Tables: `schema_version`, `track_downloads`, `download_logs`, `download_queue`, `banned_urls`, `candidate_attempts`, `missing_albums_cache`, `sync_state`.
+State is stored in SQLite at `/config/lidarr-downloader.db`. Tables: `schema_version`, `track_downloads`, `download_logs`, `download_queue`, `banned_urls`, `candidate_attempts`, `missing_albums_cache`, `sync_state`, `download_client_jobs`.
 
-Current schema version: **6**. Migrations:
+Current schema version: **7**. Migrations:
 - V1→V2: Replaced `download_history` + `failed_tracks` with `track_downloads` (per-track download records with YouTube URL, match score, duration, album/track metadata).
 - V2→V3: Added AcoustID fingerprint columns to `track_downloads` (`acoustid_fingerprint_id`, `acoustid_score`, `acoustid_recording_id`, `acoustid_recording_title`).
 - V3→V4: Added `banned_urls` table for tracking banned YouTube URLs per album/track.
 - V4→V5: Added `candidate_attempts` table for per-candidate verification data. Added `track_title`, `track_number`, `track_download_id` columns to `download_logs`.
 - V5→V6: Added `missing_albums_cache` and `sync_state` tables for paginated background sync of Lidarr's missing-albums list.
+- V6→V7: Added `download_client_jobs` table so the Lidarr download-client bridge (SABnzbd `nzo_id` jobs) survives restarts; `download_client.restore_jobs()` reloads them at startup and re-queues interrupted downloads.
 
 Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
@@ -124,7 +125,7 @@ Loaded from env vars + `/config/config.json`. File config overrides env vars. Sa
 
 ### Lidarr download-client bridge (`download_client.py`)
 
-Optional feature letting Lidarr use this app as a native download path. A Flask blueprint exposes a **Newznab indexer** (`/api/newznab/api`: `t=caps`, `t=music`/`t=search`, `t=get`) and a **SABnzbd download client** (`/api/sabnzbd/api`: `version`, `get_config`, `fullstatus`, `queue`, `history`, `addfile`, `addurl`). A search is matched against `missing_albums_cache` to resolve a Lidarr `album_id`; the served NZB embeds that id; on `addfile` the id is parsed back out and enqueued via `models.enqueue_album()`. An in-memory job registry (keyed by SABnzbd `nzo_id`) tracks queued→downloading→completed/failed so Lidarr polls `queue`/`history` and imports the finished files itself. Grabbed albums are detected in `processing.process_album_download()` via `download_client.is_client_album()`, which skips the copy-to-library / `RefreshArtist` / cleanup steps; the queue processor routes them through `download_client.run_album_job()`. Both surfaces require `download_client_enabled` plus a matching `apikey`. To avoid infinite re-grab loops, in-flight albums and albums attempted within the retry cooldown (`scheduler_retry_after_hours`) are excluded from the indexer feed/search and refused at grab time; release `guid`s are time-bucketed on that window so retries are still possible after the cooldown.
+Optional feature letting Lidarr use this app as a native download path. A Flask blueprint exposes a **Newznab indexer** (`/api/newznab/api`: `t=caps`, `t=music`/`t=search`, `t=get`) and a **SABnzbd download client** (`/api/sabnzbd/api`: `version`, `get_config`, `fullstatus`, `queue`, `history`, `addfile`, `addurl`). A search is matched against `missing_albums_cache` to resolve a Lidarr `album_id`; the served NZB embeds that id; on `addfile` the id is parsed back out and enqueued via `models.enqueue_album()`. A job registry (keyed by SABnzbd `nzo_id`, in-memory write-through cache backed by the `download_client_jobs` table) tracks queued→downloading→completed/failed so Lidarr polls `queue`/`history` and imports the finished files itself; `restore_jobs()` reloads it at startup so a restart doesn't orphan a download. Grabbed albums are detected in `processing.process_album_download()` via `download_client.is_client_album()`, which skips the copy-to-library / `RefreshArtist` / cleanup steps; the queue processor routes them through `download_client.run_album_job()`. Both surfaces require `download_client_enabled` plus a matching `apikey`. To avoid infinite re-grab loops, in-flight albums and albums attempted within the retry cooldown (`scheduler_retry_after_hours`) are excluded from the indexer feed/search and refused at grab time; release `guid`s are time-bucketed on that window so retries are still possible after the cooldown.
 
 ### Threading
 
