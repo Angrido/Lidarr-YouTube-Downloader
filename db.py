@@ -359,9 +359,14 @@ def _migrate_v4_to_v5(conn):
 
 
 def _migrate_v5_to_v6(conn):
-    """Add missing_albums_cache and sync_state tables."""
+    """Add missing_albums_cache and sync_state tables.
+
+    Uses IF NOT EXISTS / OR IGNORE so the migration is idempotent and
+    cannot fail on a v5 DB that already has these tables (e.g. a partial
+    prior run or a restored copy), which would otherwise block startup.
+    """
     conn.execute("""
-        CREATE TABLE missing_albums_cache (
+        CREATE TABLE IF NOT EXISTS missing_albums_cache (
             album_id INTEGER PRIMARY KEY,
             foreign_album_id TEXT DEFAULT '',
             title TEXT NOT NULL DEFAULT '',
@@ -377,15 +382,15 @@ def _migrate_v5_to_v6(conn):
         )
     """)
     conn.execute(
-        "CREATE INDEX idx_missing_release_date"
+        "CREATE INDEX IF NOT EXISTS idx_missing_release_date"
         " ON missing_albums_cache(release_date DESC)"
     )
     conn.execute(
-        "CREATE INDEX idx_missing_sync_run"
+        "CREATE INDEX IF NOT EXISTS idx_missing_sync_run"
         " ON missing_albums_cache(sync_run_id)"
     )
     conn.execute("""
-        CREATE TABLE sync_state (
+        CREATE TABLE IF NOT EXISTS sync_state (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             status TEXT NOT NULL DEFAULT 'idle',
             last_full_sync_at REAL DEFAULT 0,
@@ -399,7 +404,7 @@ def _migrate_v5_to_v6(conn):
         )
     """)
     conn.execute(
-        "INSERT INTO sync_state (id, status) VALUES (1, 'idle')"
+        "INSERT OR IGNORE INTO sync_state (id, status) VALUES (1, 'idle')"
     )
 
 

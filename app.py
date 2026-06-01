@@ -468,9 +468,13 @@ def api_cookies_test():
 @app.route("/api/album/<int:album_id>")
 def api_album_details(album_id):
     album = lidarr_request(f"album/{album_id}")
+    if not isinstance(album, dict) or "error" in album:
+        return jsonify(album if isinstance(album, dict) else {"error": "Invalid response"}), 502
     if not album.get("tracks"):
-        album["tracks"] = get_itunes_tracks(
-            album["artist"]["artistName"], album["title"]
+        artist = (album.get("artist") or {}).get("artistName", "")
+        title = album.get("title", "")
+        album["tracks"] = (
+            get_itunes_tracks(artist, title) if artist and title else []
         )
     return jsonify(album)
 
@@ -624,64 +628,67 @@ def api_download_stream():
             while True:
                 if time.time() - start_time > sse_timeout:
                     break
-                with queue_lock:
-                    queue_rows = models.get_queue()
-                    queue_data = []
-                    for row in queue_rows:
-                        album = _get_album_cached(row["album_id"])
-                        if "error" not in album:
-                            cover_url = ""
-                            for img in album.get("images", []):
-                                if img.get("coverType") == "cover":
-                                    cover_url = img.get("remoteUrl", "")
-                                    break
-                            queue_data.append(
-                                {
-                                    "id": row["album_id"],
-                                    "title": album.get("title", ""),
-                                    "artist": album.get("artist", {}).get(
-                                        "artistName", ""
-                                    ),
-                                    "cover_url": cover_url,
-                                    "track_count": album.get("statistics", {}).get(
-                                        "trackCount", 0
-                                    ),
-                                }
-                            )
-                    status = dict(download_process)
-                    tracks = status.get("tracks", [])
-                    total = len(tracks)
-                    done_count = sum(
-                        1 for t in tracks
-                        if t.get("status") in ("done", "failed", "skipped")
+                # Queue + Lidarr lookups run WITHOUT queue_lock: they do
+                # blocking network I/O and must never stall the download
+                # worker, stop or skip-track (which hold queue_lock).
+                queue_data = []
+                for row in models.get_queue():
+                    album = _get_album_cached(row["album_id"])
+                    if "error" in album:
+                        continue
+                    cover_url = ""
+                    for img in album.get("images", []):
+                        if img.get("coverType") == "cover":
+                            cover_url = img.get("remoteUrl", "")
+                            break
+                    queue_data.append(
+                        {
+                            "id": row["album_id"],
+                            "title": album.get("title", ""),
+                            "artist": album.get("artist", {}).get(
+                                "artistName", ""
+                            ),
+                            "cover_url": cover_url,
+                            "track_count": album.get("statistics", {}).get(
+                                "trackCount", 0
+                            ),
+                        }
                     )
-                    downloading = [
-                        t for t in tracks if t.get("status") == "downloading"
-                    ]
-                    active_track = downloading[0] if downloading else None
-                    if active_track is None:
-                        idx = status.get("current_track_index", -1)
-                        if 0 <= idx < total:
-                            active_track = tracks[idx]
-                    status["current_track_title"] = (
-                        active_track.get("track_title", "") if active_track else ""
-                    )
-                    overall_percent = (
-                        round(done_count / total * 100) if total > 0 else 0
-                    )
-                    status["progress"] = {
-                        "current": done_count + (1 if active_track else 0),
-                        "total": total,
-                        "overall_percent": overall_percent,
-                        "percent": (
-                            active_track.get("progress_percent", "")
-                            if active_track else ""
-                        ),
-                        "speed": (
-                            active_track.get("progress_speed", "")
-                            if active_track else ""
-                        ),
-                    }
+                # Deep-copied snapshot of the live download state.
+                status = get_download_status()
+                tracks = status.get("tracks", [])
+                total = len(tracks)
+                done_count = sum(
+                    1 for t in tracks
+                    if t.get("status") in ("done", "failed", "skipped")
+                )
+                downloading = [
+                    t for t in tracks if t.get("status") == "downloading"
+                ]
+                active_track = downloading[0] if downloading else None
+                if active_track is None:
+                    idx = status.get("current_track_index", -1)
+                    if 0 <= idx < total:
+                        active_track = tracks[idx]
+                status["current_track_title"] = (
+                    active_track.get("track_title", "") if active_track else ""
+                )
+                overall_percent = (
+                    round(done_count / total * 100) if total > 0 else 0
+                )
+                status["progress"] = {
+                    "current": done_count + (1 if active_track else 0),
+                    "total": total,
+                    "overall_percent": overall_percent,
+                    "percent": (
+                        active_track.get("progress_percent", "")
+                        if active_track else ""
+                    ),
+                    "speed": (
+                        active_track.get("progress_speed", "")
+                        if active_track else ""
+                    ),
+                }
                 data = {
                     "status": status,
                     "queue": queue_data,
@@ -758,6 +765,10 @@ def api_queue_tracks(album_id):
 @app.route("/api/download/queue", methods=["POST"])
 def api_add_to_queue():
     album_id = (request.json or {}).get("album_id")
+    if not isinstance(album_id, int):
+        return jsonify(
+            {"success": False, "message": "album_id must be an integer"}
+        ), 400
     with queue_lock:
         current_id = download_process.get("album_id")
     if current_id != album_id:
@@ -810,7 +821,7 @@ def api_clear_queue():
 
 @app.route("/api/download/queue/reorder", methods=["PUT"])
 def api_reorder_queue():
-    new_order = request.json.get("queue", [])
+    new_order = (request.get_json(silent=True) or {}).get("queue", [])
     if not isinstance(new_order, list):
         return jsonify({"success": False, "message": "queue must be a list"}), 400
     models.reorder_queue(new_order)
@@ -1182,7 +1193,7 @@ def api_youtube_stream():
         http_headers = cached["http_headers"]
         if not _is_safe_stream_url(audio_url):
             logger.error("Cached stream URL failed safety check: %s", audio_url[:100])
-            del _audio_stream_cache[url]
+            _audio_stream_cache.pop(url, None)
             return "Unsafe audio stream URL", 403
     else:
         config = load_config()
@@ -1229,12 +1240,12 @@ def api_youtube_stream():
                 "http_headers": http_headers,
                 "ts": now,
             }
-            for k in list(_audio_stream_cache):
-                if now - _audio_stream_cache[k]["ts"] > 600:
-                    del _audio_stream_cache[k]
+            for k, v in list(_audio_stream_cache.items()):
+                if now - v["ts"] > 600:
+                    _audio_stream_cache.pop(k, None)
             if len(_audio_stream_cache) > 200:
                 oldest = min(_audio_stream_cache, key=lambda k: _audio_stream_cache[k]["ts"])
-                del _audio_stream_cache[oldest]
+                _audio_stream_cache.pop(oldest, None)
         except Exception as e:
             logger.warning("Stream extraction failed: %s", e)
             return str(e)[:200], 500
@@ -1694,6 +1705,12 @@ def _execute_manual_dl_with_progress(
         return
 
     with queue_lock:
+        if download_process["active"]:
+            logger.warning(
+                "Manual download aborted: another download became active: %s",
+                track_title,
+            )
+            return
         download_process["active"] = True
         download_process["stop"] = False
         download_process["album_id"] = album_id
@@ -2593,6 +2610,12 @@ def _execute_playlist_download(
         return
 
     with queue_lock:
+        if download_process["active"]:
+            logger.warning(
+                "Playlist download aborted: another download became active: %s",
+                album_title,
+            )
+            return
         download_process["active"] = True
         download_process["stop"] = False
         download_process["album_id"] = 0

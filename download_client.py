@@ -218,6 +218,11 @@ def run_album_job(album_id, force=False):
         return
     if result.get("success"):
         mark_completed(album_id, result.get("album_path", ""))
+    elif result.get("error") == "Busy":
+        # The engine was already running another album: don't fail the
+        # grab (Lidarr would blocklist it). Re-queue and leave the job
+        # in 'downloading' so the queue processor retries it shortly.
+        models.enqueue_album(album_id)
     else:
         mark_failed(album_id, result.get("error", "Download failed"))
 

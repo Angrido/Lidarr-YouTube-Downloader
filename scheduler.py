@@ -52,7 +52,8 @@ def scheduled_check():
             now - retry_after_hours * 3600
         )
 
-    current_download_id = download_process.get("album_id")
+    with queue_lock:
+        current_download_id = download_process.get("album_id")
 
     queued_ids = {row["album_id"] for row in models.get_queue()}
 

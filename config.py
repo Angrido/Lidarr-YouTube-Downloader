@@ -147,26 +147,47 @@ def load_config():
     }
 
     if os.path.exists(CONFIG_FILE):
+        # Keep the env-derived defaults so a malformed value in config.json
+        # falls back instead of propagating a string into code that does
+        # int(...) on it (e.g. the scheduler / yt-dlp options).
+        env_defaults = dict(config)
         try:
             with open(CONFIG_FILE, "r") as f:
                 file_config = json.load(f)
-                for key in config.keys():
-                    if key in file_config:
-                        config[key] = file_config[key]
-            if "scheduler_interval" in config:
-                config["scheduler_interval"] = int(
-                    config["scheduler_interval"]
-                )
-            if "duration_tolerance" in config:
-                config["duration_tolerance"] = int(
-                    config["duration_tolerance"]
-                )
-            if "min_match_score" in config:
-                config["min_match_score"] = _parse_min_match_score(
-                    config["min_match_score"]
-                )
-        except (json.JSONDecodeError, OSError, ValueError) as e:
+            for key in config.keys():
+                if key in file_config:
+                    config[key] = file_config[key]
+        except (json.JSONDecodeError, OSError) as e:
             logger.warning("Failed to load config file %s: %s", CONFIG_FILE, e)
+
+        _int_keys = (
+            "scheduler_interval", "duration_tolerance", "scheduler_max_albums",
+            "concurrent_tracks", "yt_retries", "yt_fragment_retries",
+            "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
+        )
+        for _k in _int_keys:
+            if _k in config:
+                try:
+                    config[_k] = int(config[_k])
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Invalid %s=%r in config.json; using %r",
+                        _k, config[_k], env_defaults.get(_k),
+                    )
+                    config[_k] = env_defaults.get(_k)
+        if "scheduler_retry_after_hours" in config:
+            try:
+                config["scheduler_retry_after_hours"] = float(
+                    config["scheduler_retry_after_hours"]
+                )
+            except (TypeError, ValueError):
+                config["scheduler_retry_after_hours"] = env_defaults.get(
+                    "scheduler_retry_after_hours", 24.0
+                )
+        if "min_match_score" in config:
+            config["min_match_score"] = _parse_min_match_score(
+                config["min_match_score"]
+            )
 
     def norm(p):
         return (

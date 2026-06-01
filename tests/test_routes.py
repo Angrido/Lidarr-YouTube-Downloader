@@ -311,12 +311,14 @@ class TestQueueRoutes:
         assert resp.status_code == 400
 
     def test_add_to_queue_null_json(self, client):
+        # Missing/invalid album_id is a client error, not a silent no-op
+        # (previously this inserted a NULL album_id row).
         resp = client.post(
             "/api/download/queue",
             json={},
             content_type="application/json",
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 400
 
     def test_bulk_add_empty_json(self, client):
         resp = client.post(

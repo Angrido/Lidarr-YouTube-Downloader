@@ -132,6 +132,12 @@ def trigger_sync():
             except Exception:
                 pass
         finally:
+            # Each runner thread opens its own thread-local SQLite
+            # connection; close it so we don't leak a WAL handle per sync.
+            try:
+                db.close_db()
+            except Exception:
+                pass
             _sync_lock.release()
 
     threading.Thread(target=runner, daemon=True).start()
