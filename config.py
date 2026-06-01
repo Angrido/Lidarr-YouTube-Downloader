@@ -30,7 +30,7 @@ ALLOWED_CONFIG_KEYS = {
     "scheduler_retry_after_hours",
     "download_client_enabled", "download_client_api_key",
     "download_client_category",
-    "yt_po_token", "audio_normalize",
+    "yt_po_token", "audio_normalize", "yt_pot_provider_url",
 }
 
 MIN_MATCH_SCORE_DEFAULT = 0.8
@@ -106,6 +106,7 @@ def load_config():
         ),
         "yt_player_client": os.getenv("YT_PLAYER_CLIENT", "android"),
         "yt_po_token": os.getenv("YT_PO_TOKEN", ""),
+        "yt_pot_provider_url": os.getenv("YT_POT_PROVIDER_URL", ""),
         "audio_normalize": (
             os.getenv("AUDIO_NORMALIZE", "false").lower() == "true"
         ),

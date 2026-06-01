@@ -1,6 +1,7 @@
 Flask
 requests
 yt-dlp[default]
+bgutil-ytdlp-pot-provider
 ytmusicapi
 mutagen
 schedule

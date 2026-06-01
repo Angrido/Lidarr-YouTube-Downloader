@@ -28,7 +28,7 @@ A free, open-source bridge between **[Lidarr](https://lidarr.audio/)** and **You
 - 🎵 **Audio streaming preview** — listen to candidates and playlist items in the browser before queuing
 - ⏱️ **Built-in scheduler** — auto-discover and auto-download new missing albums at a configurable interval with per-run album limits
 - 🔔 **Telegram & Discord notifications** — per-channel filters for success, partial success, errors, and manual events
-- 🛠️ **yt-dlp tuning UI** — cookies file, player client, retries, sleep intervals, IPv4 force, and one-click yt-dlp upgrade
+- 🛠️ **yt-dlp tuning UI** — cookies file, player client, retries, sleep intervals, IPv4 force, one-click yt-dlp upgrade, loudness normalization, and automatic PO tokens via a bundled [bgutil provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider) sidecar (fixes "Sign in to confirm you're not a bot")
 - 📊 **Stats dashboard & logs** — success rate, average match score, total downloaded size, per-album logs with retry
 - 🌓 **Modern dark/light web UI** — responsive design, drag-to-reorder queue, structured logs
 - 🐳 **Docker-first** — single container, Compose-ready, works on NAS, home server, Unraid, Synology, or any VPS

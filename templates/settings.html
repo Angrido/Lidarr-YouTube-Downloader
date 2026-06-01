@@ -854,6 +854,13 @@
                 </label>
                 <input type="text" id="ytPoToken" placeholder="e.g. web.gvs+XXXX...">
             </div>
+            <div class="input-group">
+                <label>
+                    PO Token Provider URL
+                    <div class="label-description">Optional, recommended over a manual token: URL of a <a href="https://github.com/Brainicism/bgutil-ytdlp-pot-provider" target="_blank" rel="noopener">bgutil PO token provider</a> run as a sidecar (e.g. <code>http://bgutil-provider:4416</code>). yt-dlp fetches tokens automatically when needed. See the bundled docker-compose.</div>
+                </label>
+                <input type="text" id="ytPotProviderUrl" placeholder="http://bgutil-provider:4416">
+            </div>
         </div>
 
         <div class="settings-section">
@@ -1348,6 +1355,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             document.getElementById('audioQualitySelect').value = String(conf.audio_quality || '320');
             updateAudioNormalizeBtn(conf.audio_normalize === true);
             document.getElementById('ytPoToken').value = conf.yt_po_token || '';
+            document.getElementById('ytPotProviderUrl').value = conf.yt_pot_provider_url || '';
             const ytCookiesInput = document.getElementById('ytCookiesFile');
             if (ytCookiesInput) ytCookiesInput.value = conf.yt_cookies_file || '';
             refreshCookiesStatus();
@@ -1737,6 +1745,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     audio_quality: document.getElementById('audioQualitySelect').value || '320',
                     audio_normalize: document.getElementById('audioNormalizeBtn').dataset.enabled === '1',
                     yt_po_token: (document.getElementById('ytPoToken').value || '').trim(),
+                    yt_pot_provider_url: (document.getElementById('ytPotProviderUrl').value || '').trim(),
                     yt_cookies_file: (document.getElementById('ytCookiesFile').value || '').trim(),
                     acoustid_api_key: document.getElementById('acoustidApiKey').value,
                     download_client_api_key: (document.getElementById('downloadClientApiKey').value || '').trim(),

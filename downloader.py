@@ -217,19 +217,25 @@ def _build_common_opts(player_client=None):
         logger.warning(f"YT_COOKIES_FILE not found: {cookies_path}")
     if cfg.get("yt_force_ipv4", True):
         opts["source_address"] = "0.0.0.0"
+    extractor_args = {}
     yt_args = {}
     if player_client:
         yt_args["player_client"] = [player_client]
     # Manual PO token(s) for users hitting "Sign in to confirm you're not a
-    # bot" / format-unavailable. yt-dlp also auto-uses a bgutil PO-token
-    # provider if one is reachable; this is the no-server fallback.
+    # bot" / format-unavailable.
     po_token = (cfg.get("yt_po_token") or "").strip()
     if po_token:
         yt_args["po_token"] = [
             t.strip() for t in po_token.split(",") if t.strip()
         ]
     if yt_args:
-        opts["extractor_args"] = {"youtube": yt_args}
+        extractor_args["youtube"] = yt_args
+    # Automatic PO tokens via a bgutil provider server (run as a sidecar).
+    pot_url = (cfg.get("yt_pot_provider_url") or "").strip()
+    if pot_url:
+        extractor_args["youtubepot-bgutilhttp"] = {"base_url": [pot_url]}
+    if extractor_args:
+        opts["extractor_args"] = extractor_args
     return opts
 
 

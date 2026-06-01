@@ -48,6 +48,20 @@ def test_build_common_opts_no_po_token():
     assert "extractor_args" not in opts
 
 
+def test_build_common_opts_pot_provider_url():
+    cfg = {
+        "yt_retries": 3, "yt_fragment_retries": 3, "yt_sleep_requests": 0,
+        "yt_sleep_interval": 0, "yt_max_sleep_interval": 1,
+        "yt_force_ipv4": False,
+        "yt_pot_provider_url": "http://bgutil-provider:4416",
+    }
+    with patch("downloader.load_config", return_value=cfg):
+        opts = _build_common_opts()
+    assert opts["extractor_args"]["youtubepot-bgutilhttp"]["base_url"] == [
+        "http://bgutil-provider:4416"
+    ]
+
+
 class TestTitleSimilarity:
     def test_exact_match(self):
         score = _title_similarity("Artist Track", "Track", "Artist")

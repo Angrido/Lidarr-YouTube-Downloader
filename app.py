@@ -1667,6 +1667,7 @@ def _build_ydl_opts(config, temp_file):
         opts["cookiefile"] = cookies_path
     if config.get("yt_force_ipv4", True):
         opts["source_address"] = "0.0.0.0"
+    extractor_args = {}
     yt_args = {}
     pc = config.get("yt_player_client", "android")
     if pc:
@@ -1675,7 +1676,12 @@ def _build_ydl_opts(config, temp_file):
     if po_token:
         yt_args["po_token"] = [t.strip() for t in po_token.split(",") if t.strip()]
     if yt_args:
-        opts["extractor_args"] = {"youtube": yt_args}
+        extractor_args["youtube"] = yt_args
+    pot_url = (config.get("yt_pot_provider_url") or "").strip()
+    if pot_url:
+        extractor_args["youtubepot-bgutilhttp"] = {"base_url": [pot_url]}
+    if extractor_args:
+        opts["extractor_args"] = extractor_args
     return opts
 
 
