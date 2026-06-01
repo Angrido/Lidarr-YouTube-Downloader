@@ -839,6 +839,10 @@
                 <i class="fas fa-trash"></i>
                 Clear All Logs
             </button>
+            <button class="btn btn-danger" id="unbanAllBtn" style="display:none;" onclick="unbanAll()">
+                <i class="fas fa-ban"></i>
+                Unban All
+            </button>
         </div>
 
         <div id="logsFileSize" style="text-align:center;color:var(--text-dim);font-size:0.8rem;margin-bottom:1rem;display:none;">
@@ -1320,7 +1324,36 @@
         function filterLogs() {
             currentFilter = document.getElementById('filterType').value;
             logsCurrentPage = 1;
+            updateUnbanAllVisibility();
             fetchLogs();
+        }
+
+        function updateUnbanAllVisibility() {
+            var btn = document.getElementById('unbanAllBtn');
+            if (btn) {
+                btn.style.display =
+                    currentFilter === 'url_banned' ? '' : 'none';
+            }
+        }
+
+        async function unbanAll() {
+            if (!confirm('Unban all banned URLs? This cannot be undone.')) {
+                return;
+            }
+            try {
+                var res = await fetch('/api/banned-urls/clear', {
+                    method: 'POST',
+                });
+                if (res.ok) {
+                    logsCurrentPage = 1;
+                    fetchLogs();
+                } else {
+                    alert('Failed to unban URLs');
+                }
+            } catch (e) {
+                console.error('Unban all error:', e);
+                alert('Failed to unban URLs');
+            }
         }
 
         function getExpandedIds() {

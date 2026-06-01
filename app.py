@@ -917,6 +917,12 @@ def api_get_banned_urls():
     return jsonify(models.get_banned_urls(page, per_page))
 
 
+@app.route("/api/banned-urls/clear", methods=["POST"])
+def api_clear_banned_urls():
+    removed = models.clear_banned_urls()
+    return jsonify({"success": True, "removed": removed})
+
+
 @app.route("/api/banned-urls/<int:ban_id>", methods=["DELETE"])
 def api_remove_banned_url(ban_id):
     deleted = models.remove_banned_url(ban_id)

@@ -795,6 +795,26 @@ class TestBannedUrlsRoutes:
         resp = client.delete("/api/banned-urls/9999")
         assert resp.status_code == 404
 
+    def test_clear_banned_urls(self, client):
+        import models
+        for i in range(3):
+            models.add_banned_url(
+                youtube_url=f"https://yt/{i}", youtube_title="vid",
+                album_id=1, album_title="A", artist_name="A",
+                track_title=f"T{i}", track_number=i,
+            )
+        resp = client.post("/api/banned-urls/clear")
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body["success"] is True
+        assert body["removed"] == 3
+        assert models.get_banned_urls(page=1, per_page=50)["total"] == 0
+
+    def test_clear_banned_urls_empty(self, client):
+        resp = client.post("/api/banned-urls/clear")
+        assert resp.status_code == 200
+        assert resp.get_json()["removed"] == 0
+
 
 class TestQueueTracksExtendedFields:
     """Track endpoint returns foreign_recording_id and duration_ms."""

@@ -307,6 +307,14 @@ def remove_banned_url(ban_id):
     return cursor.rowcount > 0
 
 
+def clear_banned_urls():
+    """Delete all banned URLs. Returns the number removed."""
+    conn = db.get_db()
+    cursor = conn.execute("DELETE FROM banned_urls")
+    conn.commit()
+    return cursor.rowcount
+
+
 def mark_track_deleted(track_id):
     """Set deleted=1 on a track download. Returns the row dict or None."""
     conn = db.get_db()
