@@ -79,6 +79,8 @@ When Lidarr searches for a wanted album, the indexer matches it against the loca
 
 > **Indexer feed & RSS:** When Lidarr queries the indexer with no search terms (its connection **Test** and periodic **RSS sync**), the feed returns your currently-synced *missing* albums (newest first). This is what makes the indexer Test pass — so let the missing-albums sync finish first (the dashboard should list missing albums). With RSS sync enabled, Lidarr will then grab missing albums automatically; the feed shrinks as albums stop being missing. If you only want downloads on explicit/automatic search, disable **Enable RSS** on the indexer in Lidarr.
 
+> **No retry loops:** An album that was just attempted (and a download currently in progress) is held back from the indexer feed and from new grabs for a cooldown window — controlled by **`scheduler_retry_after_hours`** (default 24h) — so a failing album is not re-grabbed and re-downloaded endlessly. After the cooldown it is offered again (with a fresh release id) so transient failures still get retried. Set the value to `0` only if you want no cooldown.
+
 ---
 
 ## 🚀 Quick Start

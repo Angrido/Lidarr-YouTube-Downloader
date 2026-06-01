@@ -284,7 +284,45 @@ def _norm(text):
     return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
 
 
-def _match_album(artist, album):
+def _retry_cooldown_seconds():
+    """Seconds to wait before re-offering a tried album (0 = disabled)."""
+    try:
+        hours = float(load_config().get("scheduler_retry_after_hours", 24))
+    except (TypeError, ValueError):
+        hours = 24.0
+    return hours * 3600 if hours > 0 else 0
+
+
+def _active_album_ids():
+    with _lock:
+        return set(_album_to_nzo.keys())
+
+
+def _recently_attempted_ids():
+    """Album ids tried within the retry cooldown window."""
+    cooldown = _retry_cooldown_seconds()
+    if not cooldown:
+        return set()
+    try:
+        return models.get_attempted_album_ids_since(time.time() - cooldown)
+    except Exception:
+        logger.warning("attempted-ids lookup failed", exc_info=True)
+        return set()
+
+
+def _excluded_album_ids():
+    """Albums Lidarr must not (re)grab now.
+
+    Combines albums with an in-flight job and albums attempted within the
+    retry cooldown. This breaks the infinite re-grab loop where a failing
+    album stays "missing", gets re-offered, re-grabbed and re-fails. After
+    the cooldown the album is offered again (with a fresh release guid) so
+    transient failures still get retried.
+    """
+    return _active_album_ids() | _recently_attempted_ids()
+
+
+def _match_album(artist, album, excluded=None):
     """Resolve a search to the best matching cached album dict, or None."""
     n_artist = _norm(artist)
     n_album = _norm(album)
@@ -318,6 +356,8 @@ def _match_album(artist, album):
         if score > best_score:
             best_score = score
             best = row
+    if best and excluded and int(best.get("album_id") or 0) in excluded:
+        return None
     return best
 
 
@@ -384,6 +424,12 @@ def _caps_xml():
 
 def _search_xml(albums, cfg, base_url):
     api_key = _configured_key()
+    # Time-bucketed guid so that, once the retry cooldown elapses, a
+    # failed (and Lidarr-blocklisted) release is re-offered with a fresh
+    # guid and can be retried, while staying stable within one window so
+    # repeated RSS polls don't trigger duplicate grabs.
+    window = _retry_cooldown_seconds() or 86400
+    bucket = int(time.time() // window)
     items = []
     for album in albums:
         album_id = album.get("album_id")
@@ -397,7 +443,7 @@ def _search_xml(albums, cfg, base_url):
         pub = formatdate(
             _release_pubdate(album.get("release_date")), usegmt=True,
         )
-        guid = f"lidarr-yt-{album_id}"
+        guid = f"lidarr-yt-{album_id}-{bucket}"
         items.append(
             "    <item>\n"
             f"      <title>{xml_escape(title)}</title>\n"
@@ -509,6 +555,7 @@ def newznab_api():
         artist = request.args.get("artist", "")
         album = request.args.get("album", "")
         q = request.args.get("q", "")
+        excluded = _excluded_album_ids()
         if not artist and not album and not q:
             # No search terms: this is Lidarr's indexer Test / RSS sync.
             # Expose the cached missing-albums list as the feed so the
@@ -518,24 +565,34 @@ def newznab_api():
             limit = request.args.get("limit", type=int) or 100
             offset = request.args.get("offset", type=int) or 0
             return _search_xml(
-                _recent_missing(limit, offset), cfg, request.host_url,
+                _recent_missing(limit, offset, excluded),
+                cfg, request.host_url,
             )
         if q and not (artist or album):
             artist, album = _split_query(q)
-        match = _match_album(artist, album)
+        match = _match_album(artist, album, excluded)
         return _search_xml(
             [match] if match else [], cfg, request.host_url,
         )
     return _newznab_error(202, f"No such function: {t}")
 
 
-def _recent_missing(limit=100, offset=0):
-    """Cached missing albums as release dicts, newest first, paged."""
+def _recent_missing(limit=100, offset=0, excluded=None):
+    """Cached missing albums as release dicts, newest first, paged.
+
+    Albums in ``excluded`` (in-flight or recently attempted) are dropped
+    so Lidarr does not re-grab a failing album every sync.
+    """
     try:
         index = models.get_cached_album_index()
     except Exception:
         logger.warning("Album index lookup failed", exc_info=True)
         return []
+    if excluded:
+        index = [
+            r for r in index
+            if int(r.get("album_id") or 0) not in excluded
+        ]
     index.sort(key=lambda r: str(r.get("release_date") or ""), reverse=True)
     limit = max(1, min(int(limit), 500))
     offset = max(0, int(offset))
@@ -743,6 +800,10 @@ def _sab_addfile():
     album_id = _parse_album_id_from_nzb(data) if data else None
     if not album_id:
         return _sab_error("Could not parse album id from NZB")
+    if _grab_blocked(album_id):
+        return _sab_error(
+            "Album attempted recently; skipping to avoid a retry loop"
+        )
     nzo_id = register_grab(album_id, _grab_name(album_id), category)
     return jsonify({"status": True, "nzo_ids": [nzo_id]})
 
@@ -757,8 +818,21 @@ def _sab_addurl():
     if not m:
         return _sab_error("Could not parse album id from URL")
     album_id = int(m.group(1))
+    if _grab_blocked(album_id):
+        return _sab_error(
+            "Album attempted recently; skipping to avoid a retry loop"
+        )
     nzo_id = register_grab(album_id, _grab_name(album_id), category)
     return jsonify({"status": True, "nzo_ids": [nzo_id]})
+
+
+def _grab_blocked(album_id):
+    """True if a grab should be refused: recently attempted and not the
+    same in-flight job (register_grab is idempotent for active albums)."""
+    album_id = int(album_id)
+    if is_client_album(album_id):
+        return False
+    return album_id in _recently_attempted_ids()
 
 
 def _grab_name(album_id):

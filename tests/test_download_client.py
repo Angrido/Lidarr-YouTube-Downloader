@@ -126,6 +126,52 @@ def test_rss_feed_empty_when_no_cache(client):
     assert "<item>" not in resp.get_data(as_text=True)
 
 
+def _log_attempt(album_id=42, artist="Daft Punk", title="Discovery"):
+    models.add_log(
+        log_type="album_error", album_id=album_id,
+        album_title=title, artist_name=artist, details="fail",
+    )
+
+
+def test_rss_feed_excludes_recently_attempted(client):
+    _seed_album(album_id=42)
+    _log_attempt(42)
+    resp = client.get("/api/newznab/api?t=search&apikey=secret")
+    assert "id=42" not in resp.get_data(as_text=True)
+
+
+def test_targeted_search_excludes_recently_attempted(client):
+    _seed_album(album_id=42, artist="Daft Punk", title="Discovery")
+    _log_attempt(42)
+    resp = client.get(
+        "/api/newznab/api?t=music&artist=Daft+Punk&album=Discovery"
+        "&apikey=secret"
+    )
+    assert "<item>" not in resp.get_data(as_text=True)
+
+
+def test_rss_feed_excludes_active_job(client):
+    _seed_album(album_id=42)
+    download_client.register_grab(42, "x", "music")
+    resp = client.get("/api/newznab/api?t=search&apikey=secret")
+    assert "id=42" not in resp.get_data(as_text=True)
+
+
+def test_addfile_blocked_after_recent_attempt(client):
+    _seed_album(album_id=42)
+    _log_attempt(42)
+    nzb = download_client._build_nzb(42, "Daft Punk - Discovery", "music")
+    data = {"name": (io.BytesIO(nzb.encode()), "release.nzb")}
+    resp = client.post(
+        "/api/sabnzbd/api?mode=addfile&apikey=secret&cat=music",
+        data=data,
+        content_type="multipart/form-data",
+    )
+    assert resp.get_json()["status"] is False
+    assert models.get_queue_length() == 0
+    assert not download_client.is_client_album(42)
+
+
 def test_nzb_download_embeds_album_id(client):
     _seed_album(album_id=99)
     resp = client.get("/api/newznab/api?t=get&id=99&apikey=secret")
