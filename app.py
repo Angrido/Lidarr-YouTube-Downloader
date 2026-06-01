@@ -1654,14 +1654,22 @@ def _build_ydl_opts(config, temp_file):
         "outtmpl": temp_file,
         "noplaylist": True,
     }
+    if config.get("audio_normalize", False):
+        opts["postprocessor_args"] = ["-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]
     cookies_path = (config.get("yt_cookies_file") or "").strip()
     if cookies_path and os.path.exists(cookies_path):
         opts["cookiefile"] = cookies_path
     if config.get("yt_force_ipv4", True):
         opts["source_address"] = "0.0.0.0"
+    yt_args = {}
     pc = config.get("yt_player_client", "android")
     if pc:
-        opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
+        yt_args["player_client"] = [pc]
+    po_token = (config.get("yt_po_token") or "").strip()
+    if po_token:
+        yt_args["po_token"] = [t.strip() for t in po_token.split(",") if t.strip()]
+    if yt_args:
+        opts["extractor_args"] = {"youtube": yt_args}
     return opts
 
 

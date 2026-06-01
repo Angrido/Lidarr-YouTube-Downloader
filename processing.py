@@ -1157,6 +1157,7 @@ def _download_tracks(
                     actual_file,
                     expected_recording_id,
                     cfg["acoustid_api_key"],
+                    expected_release_group_id=album_ctx.get("album_mbid"),
                 )
 
                 if vresult is None:

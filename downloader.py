@@ -110,6 +110,18 @@ def _is_official_channel(channel_name, artist_name):
     return False
 
 
+_MUSIC_VIDEO_HINT = re.compile(
+    r"\b(?:music\s*video|official\s*video|video\s*oficial"
+    r"|clip\s*officiel|m/?v)\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_music_video(title):
+    """Heuristic: title advertises a music video rather than the audio."""
+    return bool(title) and bool(_MUSIC_VIDEO_HINT.search(title))
+
+
 def _is_topic_channel(channel_name, artist_name):
     """True for YouTube's auto-generated "<Artist> - Topic" channels.
 
@@ -205,10 +217,19 @@ def _build_common_opts(player_client=None):
         logger.warning(f"YT_COOKIES_FILE not found: {cookies_path}")
     if cfg.get("yt_force_ipv4", True):
         opts["source_address"] = "0.0.0.0"
+    yt_args = {}
     if player_client:
-        opts["extractor_args"] = {
-            "youtube": {"player_client": [player_client]}
-        }
+        yt_args["player_client"] = [player_client]
+    # Manual PO token(s) for users hitting "Sign in to confirm you're not a
+    # bot" / format-unavailable. yt-dlp also auto-uses a bgutil PO-token
+    # provider if one is reachable; this is the no-server fallback.
+    po_token = (cfg.get("yt_po_token") or "").strip()
+    if po_token:
+        yt_args["po_token"] = [
+            t.strip() for t in po_token.split(",") if t.strip()
+        ]
+    if yt_args:
+        opts["extractor_args"] = {"youtube": yt_args}
     return opts
 
 
@@ -954,6 +975,13 @@ def search_youtube_candidates(
                         else:
                             view_score = 0.0
                         certainty_bonus = 0.15 if title_score >= 1.0 else 0.0
+                        # Nudge toward the audio version when a title looks
+                        # like a music video (videos are often louder/longer
+                        # and lower audio quality than the Topic/audio upload).
+                        video_penalty = (
+                            0.12 if _looks_like_music_video(yt_title_raw)
+                            else 0.0
+                        )
                         total_score = (
                             (duration_score * 0.25)
                             + (title_score * 0.50)
@@ -961,6 +989,7 @@ def search_youtube_candidates(
                             + view_score
                             + certainty_bonus
                             - artist_mismatch_penalty
+                            - video_penalty
                         )
 
                         if not url:
@@ -1037,6 +1066,7 @@ def download_youtube_candidate(
     config = load_config()
     audio_format = config.get("audio_format", "mp3")
     audio_quality = str(config.get("audio_quality", "320"))
+    normalize_audio = bool(config.get("audio_normalize", False))
     download_url = candidate["url"]
     display_url = _candidate_display_url(candidate)
 
@@ -1113,6 +1143,15 @@ def download_youtube_candidate(
                 }
                 if postprocessors:
                     ydl_opts_download["postprocessors"] = postprocessors
+                    if normalize_audio:
+                        # EBU R128 loudness normalization on the ffmpeg
+                        # extract step (forces a re-encode; only when the
+                        # user opts in). Targets the streaming-loudness
+                        # standard of -14 LUFS.
+                        ydl_opts_download["postprocessor_args"] = [
+                            "-af",
+                            "loudnorm=I=-14:TP=-1.5:LRA=11",
+                        ]
                 if selector:
                     ydl_opts_download["format"] = selector
                 # Streams without abr/asr metadata get rejected by

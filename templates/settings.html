@@ -840,6 +840,20 @@
                     <option value="320">320</option>
                 </select>
             </div>
+            <div class="input-group">
+                <label>
+                    Loudness Normalization
+                    <div class="label-description">Apply EBU R128 loudness normalization (−14 LUFS) so volume is consistent across tracks. Forces a re-encode (M4A/Opus won't stream-copy when enabled).</div>
+                </label>
+                <button class="toggle-btn" id="audioNormalizeBtn" onclick="toggleAudioNormalize()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    YouTube PO Token
+                    <div class="label-description">Optional. Helps with "Sign in to confirm you're not a bot" / format-unavailable errors. Paste one or more <code>po_token</code> values (comma-separated) from yt-dlp. Leave empty unless you hit those errors.</div>
+                </label>
+                <input type="text" id="ytPoToken" placeholder="e.g. web.gvs+XXXX...">
+            </div>
         </div>
 
         <div class="settings-section">
@@ -1332,6 +1346,8 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
             document.getElementById('audioFormatSelect').value = conf.audio_format || 'mp3';
             document.getElementById('audioQualitySelect').value = String(conf.audio_quality || '320');
+            updateAudioNormalizeBtn(conf.audio_normalize === true);
+            document.getElementById('ytPoToken').value = conf.yt_po_token || '';
             const ytCookiesInput = document.getElementById('ytCookiesFile');
             if (ytCookiesInput) ytCookiesInput.value = conf.yt_cookies_file || '';
             refreshCookiesStatus();
@@ -1445,6 +1461,19 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             const res = await fetch('/api/cover_art/toggle', { method: 'POST' });
             const data = await res.json();
             updateCoverArtBtn(data.enabled);
+        }
+
+        function updateAudioNormalizeBtn(enabled) {
+            const btn = document.getElementById('audioNormalizeBtn');
+            btn.dataset.enabled = enabled ? '1' : '0';
+            btn.innerText = enabled ? '✓ Normalization ON' : 'Normalization OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        function toggleAudioNormalize() {
+            const btn = document.getElementById('audioNormalizeBtn');
+            updateAudioNormalizeBtn(btn.dataset.enabled !== '1');
+            markSettingsDirty();
         }
 
         function updateDownloadClientBtn(enabled) {
@@ -1706,6 +1735,8 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
                     audio_format: document.getElementById('audioFormatSelect').value || 'mp3',
                     audio_quality: document.getElementById('audioQualitySelect').value || '320',
+                    audio_normalize: document.getElementById('audioNormalizeBtn').dataset.enabled === '1',
+                    yt_po_token: (document.getElementById('ytPoToken').value || '').trim(),
                     yt_cookies_file: (document.getElementById('ytCookiesFile').value || '').trim(),
                     acoustid_api_key: document.getElementById('acoustidApiKey').value,
                     download_client_api_key: (document.getElementById('downloadClientApiKey').value || '').trim(),

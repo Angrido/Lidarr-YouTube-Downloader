@@ -1,9 +1,11 @@
 from unittest.mock import MagicMock, patch
 
 from downloader import (
+    _build_common_opts,
     _candidate_display_url,
     _check_forbidden,
     _is_official_channel,
+    _looks_like_music_video,
     _title_similarity,
     download_track_youtube,
     download_youtube_candidate,
@@ -11,6 +13,39 @@ from downloader import (
     match_album_track,
     search_youtube_candidates,
 )
+
+
+def test_looks_like_music_video():
+    assert _looks_like_music_video("Artist - Song (Official Video)")
+    assert _looks_like_music_video("Artist - Song [Music Video]")
+    assert _looks_like_music_video("Artist - Song MV")
+    assert not _looks_like_music_video("Artist - Song (Official Audio)")
+    assert not _looks_like_music_video("Artist - Song")
+    assert not _looks_like_music_video("")
+
+
+def test_build_common_opts_po_token():
+    cfg = {
+        "yt_retries": 3, "yt_fragment_retries": 3, "yt_sleep_requests": 0,
+        "yt_sleep_interval": 0, "yt_max_sleep_interval": 1,
+        "yt_force_ipv4": False, "yt_po_token": "web.gvs+ABC, web.player+DEF",
+    }
+    with patch("downloader.load_config", return_value=cfg):
+        opts = _build_common_opts(player_client="web")
+    yt = opts["extractor_args"]["youtube"]
+    assert yt["player_client"] == ["web"]
+    assert yt["po_token"] == ["web.gvs+ABC", "web.player+DEF"]
+
+
+def test_build_common_opts_no_po_token():
+    cfg = {
+        "yt_retries": 3, "yt_fragment_retries": 3, "yt_sleep_requests": 0,
+        "yt_sleep_interval": 0, "yt_max_sleep_interval": 1,
+        "yt_force_ipv4": False,
+    }
+    with patch("downloader.load_config", return_value=cfg):
+        opts = _build_common_opts()
+    assert "extractor_args" not in opts
 
 
 class TestTitleSimilarity:
