@@ -250,6 +250,13 @@ def process_album_download(album_id, force=False):
             f" - {album.get('artist', {}).get('artistName', 'Unknown')}"
         )
 
+        # When Lidarr grabbed this album through the download-client
+        # bridge, Lidarr imports the finished files itself. We must then
+        # leave them in place and skip the copy-to-library / RefreshArtist
+        # steps to avoid a double import.
+        from download_client import is_client_album
+        client_grab = is_client_album(album_id)
+
         tracks = album.get("tracks", [])
         if not tracks:
             tracks_res = lidarr_request(f"track?albumId={album_id}")
@@ -454,11 +461,16 @@ def process_album_download(album_id, force=False):
         )
 
         if len(tracks_to_download) == 0:
-            lidarr_request_with_retry(
-                "command",
-                data={"name": "RefreshArtist", "artistId": artist_id},
-            )
-            return {"success": True, "message": "Skipped"}
+            if not client_grab:
+                lidarr_request_with_retry(
+                    "command",
+                    data={"name": "RefreshArtist", "artistId": artist_id},
+                )
+            return {
+                "success": True,
+                "message": "Skipped",
+                "album_path": album_path,
+            }
 
         logger.info(f"Total tracks to download: {len(tracks_to_download)}")
 
@@ -513,6 +525,22 @@ def process_album_download(album_id, force=False):
         if result is not None:
             return result
 
+        # Lidarr-grabbed albums: leave files in the download folder and
+        # let Lidarr's completed-download handling import them. Skip the
+        # copy-to-library, RefreshArtist, rename and cleanup steps.
+        if client_grab:
+            logger.info(
+                "Album downloaded successfully (Lidarr will import):"
+                " %s - %s", artist_name, album_title,
+            )
+            _log_import_result(
+                failed_tracks, album_id, album_title, artist_name,
+                total_downloaded_size,
+                album_mbid=album_mbid,
+                cover_url=download_process.get("cover_url", ""),
+            )
+            return {"success": True, "album_path": album_path}
+
         config = load_config()
         lidarr_path = config.get("lidarr_path", "")
         import_path, lidarr_album_path, copy_succeeded = _copy_to_lidarr(
@@ -562,7 +590,7 @@ def process_album_download(album_id, force=False):
                     f"Failed to cleanup download folder: {e}"
                 )
 
-        return {"success": True}
+        return {"success": True, "album_path": lidarr_album_path or album_path}
 
     except Exception as e:
         logger.error("Error during album download: %s", e, exc_info=True)
@@ -1908,8 +1936,13 @@ def process_download_queue():
             if not download_process["active"]:
                 next_album_id = models.pop_next_from_queue()
                 if next_album_id is not None:
+                    import download_client
+                    if download_client.is_client_album(next_album_id):
+                        target = download_client.run_album_job
+                    else:
+                        target = process_album_download
                     threading.Thread(
-                        target=process_album_download,
+                        target=target,
                         args=(next_album_id, False),
                         daemon=True,
                     ).start()

@@ -1140,6 +1140,59 @@
 
         <div class="settings-section">
             <div class="section-header">
+                <i class="fa-solid fa-plug"></i>
+                <h2>Lidarr Download Client</h2>
+            </div>
+            <div
+                style="background: rgba(59, 130, 246, 0.1); border-left: 4px solid #3b82f6; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                <p style="margin: 0 0 .5rem; color: var(--text); font-size: 0.9rem;">
+                    Expose this app to Lidarr as a native <strong>Newznab indexer</strong> + <strong>SABnzbd download
+                    client</strong>. Lidarr then searches, grabs and imports automatically — no need to push from here.
+                </p>
+                <p style="margin: 0; color: var(--text); font-size: 0.85rem; opacity: .85;">
+                    In Lidarr add a <strong>Newznab</strong> indexer and a <strong>SABnzbd</strong> download client, both
+                    pointing at this app's host/port, using the API key below. Enable
+                    <em>Completed Download Handling</em>.
+                </p>
+            </div>
+            <div class="input-group">
+                <label>
+                    Enable Download Client
+                    <div class="label-description">Turn on the Newznab + SABnzbd endpoints so Lidarr can use this app.</div>
+                </label>
+                <button class="toggle-btn" id="downloadClientBtn" onclick="toggleDownloadClient()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    API Key
+                    <div class="label-description">Use this same key for both the Newznab indexer and the SABnzbd client in Lidarr.</div>
+                </label>
+                <div style="display:flex; gap:.5rem; align-items:center;">
+                    <input type="text" id="downloadClientApiKey" placeholder="Generate or paste a key" style="flex:1;">
+                    <button class="btn" type="button" onclick="generateDownloadClientKey()" style="white-space:nowrap;">
+                        <i class="fa-solid fa-rotate"></i> Generate
+                    </button>
+                </div>
+            </div>
+            <div class="input-group">
+                <label>
+                    Category
+                    <div class="label-description">SABnzbd category Lidarr should target (must match the category set on the Lidarr download client).</div>
+                </label>
+                <input type="text" id="downloadClientCategory" placeholder="music">
+            </div>
+            <div class="input-group">
+                <label>
+                    Connection details
+                    <div class="label-description">Paths to enter in Lidarr (host and port are this app's).</div>
+                </label>
+                <pre id="downloadClientHelp" style="background: var(--bg-alt, rgba(0,0,0,.15)); padding:.75rem; border-radius:8px; font-size:.8rem; overflow:auto; margin:0;">Newznab API path:  /api/newznab/api
+SABnzbd API path:  /api/sabnzbd/api</pre>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="section-header">
                 <i class="fa-solid fa-folder-open"></i>
                 <h2>Environment Variables</h2>
             </div>
@@ -1301,6 +1354,9 @@
             document.getElementById('acoustidApiKey').value = conf.acoustid_api_key || '';
             updateLidarrRenameBtn(conf.lidarr_rename_after_import === true);
             updateCoverArtBtn(conf.save_cover_art_file !== false);
+            updateDownloadClientBtn(conf.download_client_enabled === true);
+            document.getElementById('downloadClientApiKey').value = conf.download_client_api_key || '';
+            document.getElementById('downloadClientCategory').value = conf.download_client_category || 'music';
             document.getElementById('schedulerRetryAfterHours').value = (
                 conf.scheduler_retry_after_hours != null
                     ? conf.scheduler_retry_after_hours
@@ -1389,6 +1445,32 @@
             const res = await fetch('/api/cover_art/toggle', { method: 'POST' });
             const data = await res.json();
             updateCoverArtBtn(data.enabled);
+        }
+
+        function updateDownloadClientBtn(enabled) {
+            const btn = document.getElementById('downloadClientBtn');
+            btn.innerText = enabled ? '✓ Download Client ON' : 'Download Client OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        async function toggleDownloadClient() {
+            const res = await fetch('/api/download-client/toggle', { method: 'POST' });
+            const data = await res.json();
+            updateDownloadClientBtn(data.enabled);
+            if (data.api_key) {
+                document.getElementById('downloadClientApiKey').value = data.api_key;
+            }
+        }
+
+        async function generateDownloadClientKey() {
+            const res = await fetch('/api/download-client/generate-key', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('downloadClientApiKey').value = data.api_key;
+                showToast('success', 'API Key Generated', 'Save settings, then use this key in Lidarr.');
+            } else {
+                showToast('error', 'Error', data.message || 'Could not generate key');
+            }
         }
 
         async function loadYtdlpVersion() {
@@ -1625,7 +1707,9 @@
                     audio_format: document.getElementById('audioFormatSelect').value || 'mp3',
                     audio_quality: document.getElementById('audioQualitySelect').value || '320',
                     yt_cookies_file: (document.getElementById('ytCookiesFile').value || '').trim(),
-                    acoustid_api_key: document.getElementById('acoustidApiKey').value
+                    acoustid_api_key: document.getElementById('acoustidApiKey').value,
+                    download_client_api_key: (document.getElementById('downloadClientApiKey').value || '').trim(),
+                    download_client_category: (document.getElementById('downloadClientCategory').value || 'music').trim()
                 })
             });
             clearSettingsDirty();

@@ -27,6 +27,7 @@ from flask import (
 from werkzeug.utils import secure_filename as werkzeug_secure_filename
 
 import db
+import download_client
 import models
 from config import ALLOWED_CONFIG_KEYS, load_config, save_config
 from downloader import get_ytdlp_version
@@ -63,8 +64,9 @@ log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
+app.register_blueprint(download_client.bp)
 
-VERSION = "1.7.8"
+VERSION = "1.7.9"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -183,6 +185,55 @@ def api_config_import():
             ),
         }
     )
+
+
+@app.route("/api/download-client/info")
+def api_download_client_info():
+    """Connection details for configuring this app inside Lidarr."""
+    cfg = load_config()
+    return jsonify(
+        {
+            "enabled": bool(cfg.get("download_client_enabled")),
+            "api_key": cfg.get("download_client_api_key", ""),
+            "category": cfg.get("download_client_category", "music"),
+            "newznab_path": "/api/newznab/api",
+            "sabnzbd_path": "/api/sabnzbd/api",
+            "port": int(os.environ.get("FLASK_PORT", "5000")),
+        }
+    )
+
+
+@app.route("/api/download-client/toggle", methods=["POST"])
+def api_download_client_toggle():
+    config = load_config()
+    config["download_client_enabled"] = not config.get(
+        "download_client_enabled", False
+    )
+    if config["download_client_enabled"] and not config.get(
+        "download_client_api_key"
+    ):
+        config["download_client_api_key"] = uuid.uuid4().hex
+    save_config(config)
+    return jsonify(
+        {
+            "enabled": config["download_client_enabled"],
+            "api_key": config.get("download_client_api_key", ""),
+        }
+    )
+
+
+@app.route("/api/download-client/generate-key", methods=["POST"])
+def api_download_client_generate_key():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"dc_key:{client_ip}", rate_limit_store, window=5, max_requests=3
+    ):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
+    new_key = uuid.uuid4().hex
+    cfg = load_config()
+    cfg["download_client_api_key"] = new_key
+    save_config(cfg)
+    return jsonify({"success": True, "api_key": new_key})
 
 
 @app.route("/api/test-connection")

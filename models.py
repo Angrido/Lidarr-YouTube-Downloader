@@ -754,3 +754,19 @@ def count_cached_missing_albums():
         "SELECT COUNT(*) FROM missing_albums_cache"
     ).fetchone()
     return row[0] if row else 0
+
+
+def get_cached_album_index():
+    """Return a lightweight index of cached albums for search matching.
+
+    Used by the Lidarr download-client bridge to resolve an incoming
+    Newznab search (artist/album strings) back to a Lidarr album_id
+    without deserializing every cached ``raw_json`` blob.
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT album_id, title, artist_name, release_date,"
+        " track_count, cover_url"
+        " FROM missing_albums_cache"
+    ).fetchall()
+    return [dict(row) for row in rows]

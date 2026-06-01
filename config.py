@@ -28,6 +28,8 @@ ALLOWED_CONFIG_KEYS = {
     "min_match_score", "audio_format", "audio_quality",
     "lidarr_rename_after_import", "save_cover_art_file",
     "scheduler_retry_after_hours",
+    "download_client_enabled", "download_client_api_key",
+    "download_client_category",
 }
 
 MIN_MATCH_SCORE_DEFAULT = 0.8
@@ -133,6 +135,13 @@ def load_config():
         ),
         "save_cover_art_file": (
             os.getenv("SAVE_COVER_ART_FILE", "true").lower() == "true"
+        ),
+        "download_client_enabled": (
+            os.getenv("DOWNLOAD_CLIENT_ENABLED", "false").lower() == "true"
+        ),
+        "download_client_api_key": os.getenv("DOWNLOAD_CLIENT_API_KEY", ""),
+        "download_client_category": os.getenv(
+            "DOWNLOAD_CLIENT_CATEGORY", "music"
         ),
         "path_conflict": False,
     }
