@@ -55,7 +55,7 @@ It works by exposing two emulated protocols:
 | Surface | Emulates | Endpoint |
 |---------|----------|----------|
 | Indexer | Newznab | `/api/newznab/api` |
-| Download client | SABnzbd | `/api/sabnzbd/api` |
+| Download client | SABnzbd | `/api/sabnzbd` |
 
 When Lidarr searches for a wanted album, the indexer matches it against the locally-synced missing-albums cache and returns one "release" pointing back at this app. Lidarr grabs it and hands it to the SABnzbd client, which enqueues the album in the normal download engine, downloads from YouTube into the download folder, and reports completion so Lidarr imports the files itself.
 
