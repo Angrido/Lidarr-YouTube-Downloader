@@ -510,9 +510,16 @@ def newznab_api():
         album = request.args.get("album", "")
         q = request.args.get("q", "")
         if not artist and not album and not q:
-            # RSS sync / empty probe — return nothing so Lidarr never
-            # auto-grabs the whole missing list on a sync.
-            return _search_xml([], cfg, request.host_url)
+            # No search terms: this is Lidarr's indexer Test / RSS sync.
+            # Expose the cached missing-albums list as the feed so the
+            # test returns results and Lidarr's RSS sync can auto-grab
+            # missing albums. The feed shrinks naturally as albums stop
+            # being missing.
+            limit = request.args.get("limit", type=int) or 100
+            offset = request.args.get("offset", type=int) or 0
+            return _search_xml(
+                _recent_missing(limit, offset), cfg, request.host_url,
+            )
         if q and not (artist or album):
             artist, album = _split_query(q)
         match = _match_album(artist, album)
@@ -520,6 +527,19 @@ def newznab_api():
             [match] if match else [], cfg, request.host_url,
         )
     return _newznab_error(202, f"No such function: {t}")
+
+
+def _recent_missing(limit=100, offset=0):
+    """Cached missing albums as release dicts, newest first, paged."""
+    try:
+        index = models.get_cached_album_index()
+    except Exception:
+        logger.warning("Album index lookup failed", exc_info=True)
+        return []
+    index.sort(key=lambda r: str(r.get("release_date") or ""), reverse=True)
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, int(offset))
+    return index[offset:offset + limit]
 
 
 def _split_query(q):

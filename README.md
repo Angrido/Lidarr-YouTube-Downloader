@@ -77,6 +77,8 @@ When Lidarr searches for a wanted album, the indexer matches it against the loca
 
 > **Note:** In this mode the app leaves downloaded files in the download folder (under the category) for Lidarr to import — it does **not** copy to the Lidarr music path or send `RefreshArtist` itself. Make sure the download folder is visible to Lidarr at the same path (or via a remote path mapping). Job state is kept in memory, so a restart mid-download will look "removed" to Lidarr, which will simply re-search.
 
+> **Indexer feed & RSS:** When Lidarr queries the indexer with no search terms (its connection **Test** and periodic **RSS sync**), the feed returns your currently-synced *missing* albums (newest first). This is what makes the indexer Test pass — so let the missing-albums sync finish first (the dashboard should list missing albums). With RSS sync enabled, Lidarr will then grab missing albums automatically; the feed shrinks as albums stop being missing. If you only want downloads on explicit/automatic search, disable **Enable RSS** on the indexer in Lidarr.
+
 ---
 
 ## 🚀 Quick Start

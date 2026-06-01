@@ -111,8 +111,17 @@ def test_search_no_match_returns_empty(client):
     assert "<item>" not in body
 
 
-def test_empty_rss_sync_returns_no_items(client):
-    _seed_album()
+def test_rss_feed_lists_missing_albums(client):
+    # No search terms = Lidarr indexer Test / RSS sync: must return the
+    # cached missing albums so the test passes and RSS can auto-grab.
+    _seed_album(album_id=42, artist="Daft Punk", title="Discovery")
+    resp = client.get("/api/newznab/api?t=search&apikey=secret")
+    body = resp.get_data(as_text=True)
+    assert "<item>" in body
+    assert "id=42" in body
+
+
+def test_rss_feed_empty_when_no_cache(client):
     resp = client.get("/api/newznab/api?t=search&apikey=secret")
     assert "<item>" not in resp.get_data(as_text=True)
 
