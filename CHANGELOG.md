@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.8.1
+
+### Fixed
+- **download-client grabs no longer get blocklisted by Lidarr**: a grab is
+  refused only after a recent *client-job* failure, not after any manual or
+  scheduler attempt; a user stop drops the job instead of reporting a
+  failure; an empty result is reported as failed rather than a Completed
+  job with no files.
+- **No double imports**: the queue processor's client-vs-normal routing
+  decision is now passed through explicitly, so it can't race the in-memory
+  job registry.
+- A failed enqueue during a grab now rolls the job back instead of leaving
+  the album mapped but never downloaded.
+- Newznab search falls back to the next-best match when the top match is
+  excluded; release titles no longer show a literal `(None)` year; release
+  dates are kept in UTC.
+- Constant-time download-client API-key comparison.
+- yt-dlp "format gated behind sign-in" hint is shown only when the final
+  attempt was actually a format error.
+
+### Changed
+- `load_config()` caches the parsed config (invalidated on save) to avoid
+  re-reading `config.json` on every Lidarr poll; cached album lookups use
+  an indexed primary-key query.
+
 ## 1.8.0
 
 ### Added
