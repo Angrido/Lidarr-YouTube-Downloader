@@ -541,9 +541,8 @@ def process_album_download(album_id, force=False, client_grab=None):
 
         set_permissions(artist_path)
 
-        # A user-initiated stop is neither a success nor a failure: signal
-        # it distinctly so the download-client wrapper doesn't report a
-        # 'Failed' grab to Lidarr (which would blocklist the release).
+        # A user stop is neither success nor failure: signal it so the
+        # client wrapper doesn't report a blocklist-worthy failure.
         if download_process.get("stop"):
             logger.info(
                 "Download stopped by user; aborting album %s", album_id,
@@ -2041,8 +2040,6 @@ def process_download_queue():
                 if next_album_id is not None:
                     import download_client
                     if download_client.is_client_album(next_album_id):
-                        # run_album_job wraps process_album_download and
-                        # passes client_grab=True itself.
                         threading.Thread(
                             target=download_client.run_album_job,
                             args=(next_album_id, False),

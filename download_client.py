@@ -116,10 +116,8 @@ def register_grab(album_id, name, category):
     try:
         models.enqueue_album(album_id)
     except Exception:
-        # The queue row is what the processor actually runs; if it can't
-        # be written, roll back the registry entry so the album isn't
-        # left mapped-but-unrunnable (is_client_album True forever, yet
-        # nothing downloads it until a restart).
+        # Without the queue row the album would be mapped but never run,
+        # so roll the job back to keep is_client_album honest.
         logger.error(
             "Failed to enqueue grabbed album %s; rolling back job %s",
             album_id, nzo_id, exc_info=True,
@@ -317,9 +315,7 @@ def run_album_job(album_id, force=False):
         mark_failed(album_id, str(exc))
         return
     if result.get("stopped"):
-        # User cancelled the download. Drop the job so Lidarr sees it
-        # vanish from the queue instead of reading a 'Failed' history
-        # slot (which it would blocklist).
+        # Drop the job on a user stop; a 'Failed' slot would be blocklisted.
         with _lock:
             nzo_id = _album_to_nzo.get(int(album_id))
         if nzo_id:
@@ -329,14 +325,11 @@ def run_album_job(album_id, force=False):
         if album_path:
             mark_completed(album_id, album_path)
         else:
-            # Nothing for Lidarr to import (no audio produced): report a
-            # failure rather than a Completed slot with an empty path.
+            # No files to import: fail rather than report an empty Completed.
             mark_failed(album_id, "No files available to import")
     elif result.get("error") == "Busy":
-        # The engine was already running another album: don't fail the
-        # grab (Lidarr would blocklist it). Reset to 'queued' and re-queue
-        # so the queue processor retries it without reporting a phantom
-        # 'Downloading' slot in the meantime.
+        # Engine busy with another album: requeue instead of failing
+        # (a failure would blocklist the grab).
         mark_queued(album_id)
         models.enqueue_album(album_id)
     else:
@@ -392,7 +385,6 @@ def _check_apikey():
     provided = request.values.get("apikey", "") or request.values.get(
         "r", "",
     )
-    # Constant-time compare so a wrong key can't be recovered by timing.
     return hmac.compare_digest(provided, key)
 
 
@@ -455,8 +447,7 @@ def _match_album(artist, album, excluded=None):
     best = None
     best_score = 0
     for row in index:
-        # Skip excluded albums while scoring so a higher-scoring but
-        # excluded album doesn't shadow a grabbable second-best match.
+        # Skip excluded albums so they don't shadow a grabbable match.
         if excluded and int(row.get("album_id") or 0) in excluded:
             continue
         r_artist = _norm(row.get("artist_name"))
@@ -501,8 +492,7 @@ def _quality_token(cfg):
 def _release_title(album, cfg):
     artist = album.get("artist_name", "")
     title = album.get("title", "")
-    # `or ""` guards an explicit None value (get default only covers a
-    # missing key) so the title never advertises a literal "(None)" year.
+    # `or ""` guards an explicit None (get default only covers a missing key).
     year = str(album.get("release_date") or "")[:4]
     parts = [f"{artist} - {title}"]
     if year:
@@ -598,9 +588,8 @@ def _release_pubdate(release_date):
     if release_date:
         for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d"):
             try:
-                # Lidarr release dates are UTC; calendar.timegm keeps them
-                # in UTC instead of shifting by the host's local offset
-                # (time.mktime interprets struct_time as local time).
+                # timegm keeps UTC dates in UTC; mktime would apply the
+                # host's local offset.
                 return calendar.timegm(time.strptime(release_date[:19], fmt))
             except (ValueError, TypeError):
                 continue
@@ -735,8 +724,6 @@ def _split_query(q):
 
 
 def _album_by_id(album_id):
-    # Indexed lookup by primary key instead of scanning the whole cache
-    # on every t=get / grab.
     try:
         return models.get_cached_album(int(album_id))
     except Exception:

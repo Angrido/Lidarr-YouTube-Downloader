@@ -180,9 +180,8 @@ def test_addfile_blocked_after_failed_client_job(client):
 
 def test_addfile_not_blocked_after_manual_attempt(client):
     _seed_album(album_id=42)
-    # A manual/scheduler attempt writes a generic download_logs row, but it
-    # must NOT block a Lidarr grab — only a recent client-job failure does.
-    # (Previously any log poisoned the grab and got the release blocklisted.)
+    # A generic download_logs row (manual/scheduler) must NOT block a grab;
+    # only a recent client-job failure does.
     _log_attempt(42)
     nzb = download_client._build_nzb(42, "Daft Punk - Discovery", "music")
     data = {"name": (io.BytesIO(nzb.encode()), "release.nzb")}

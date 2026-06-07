@@ -13,8 +13,8 @@ SCHEMA_VERSION = 7
 
 _local = threading.local()
 
-# Single source of truth for the download_client_jobs schema, shared by
-# fresh-install creation and the v6->v7 migration so they can't drift.
+# Shared by fresh-install creation and the v6->v7 migration so the
+# download_client_jobs schema can't drift between them.
 _DOWNLOAD_CLIENT_JOBS_DDL = """
         CREATE TABLE IF NOT EXISTS download_client_jobs (
             nzo_id TEXT PRIMARY KEY,

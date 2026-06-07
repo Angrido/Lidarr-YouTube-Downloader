@@ -15,9 +15,8 @@ CONFIG_FILE = "/config/config.json"
 
 _file_write_lock = threading.Lock()
 
-# load_config() is called many times per request on the download-client
-# polling path; cache the parsed result and only rebuild when config.json
-# changes (or save_config invalidates it). Keyed on path + mtime + size.
+# Cache the parsed config so the download-client polling path doesn't
+# re-read config.json on every call; rebuilt when the file changes.
 _config_cache = None
 _config_cache_key = None
 
@@ -88,8 +87,7 @@ def load_config():
     global _config_cache, _config_cache_key
     cache_key = _config_file_key()
     if _config_cache is not None and cache_key == _config_cache_key:
-        # Deep copy so callers can freely mutate the result (e.g. edit then
-        # save_config) without corrupting the cache.
+        # Deep copy so callers mutating the result can't corrupt the cache.
         return copy.deepcopy(_config_cache)
     config = {
         "lidarr_url": os.getenv("LIDARR_URL", ""),
@@ -258,5 +256,4 @@ def save_config(config):
     except OSError as e:
         logger.error("Failed to save config to %s: %s", CONFIG_FILE, e)
         raise
-    # Force the next load_config() to re-read the file we just wrote.
     invalidate_config_cache()
