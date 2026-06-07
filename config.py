@@ -3,6 +3,7 @@
 Loads defaults from environment variables, overlays with config.json.
 """
 
+import copy
 import json
 import logging
 import os
@@ -13,6 +14,28 @@ logger = logging.getLogger(__name__)
 CONFIG_FILE = "/config/config.json"
 
 _file_write_lock = threading.Lock()
+
+# load_config() is called many times per request on the download-client
+# polling path; cache the parsed result and only rebuild when config.json
+# changes (or save_config invalidates it). Keyed on path + mtime + size.
+_config_cache = None
+_config_cache_key = None
+
+
+def _config_file_key():
+    try:
+        st = os.stat(CONFIG_FILE)
+        return (CONFIG_FILE, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return (CONFIG_FILE, None, None)
+
+
+def invalidate_config_cache():
+    """Drop the cached config (call after writing config.json)."""
+    global _config_cache, _config_cache_key
+    _config_cache = None
+    _config_cache_key = None
+
 
 ALLOWED_CONFIG_KEYS = {
     "scheduler_interval", "telegram_bot_token", "telegram_chat_id",
@@ -62,6 +85,12 @@ def _parse_min_match_score(value):
 
 def load_config():
     """Load config with env var defaults, overlaid by config.json."""
+    global _config_cache, _config_cache_key
+    cache_key = _config_file_key()
+    if _config_cache is not None and cache_key == _config_cache_key:
+        # Deep copy so callers can freely mutate the result (e.g. edit then
+        # save_config) without corrupting the cache.
+        return copy.deepcopy(_config_cache)
     config = {
         "lidarr_url": os.getenv("LIDARR_URL", ""),
         "lidarr_api_key": os.getenv("LIDARR_API_KEY", ""),
@@ -210,6 +239,8 @@ def load_config():
     if config["path_conflict"]:
         logger.warning(f"Path Conflict Detected: {l_path}")
 
+    _config_cache = copy.deepcopy(config)
+    _config_cache_key = cache_key
     return config
 
 
@@ -227,3 +258,5 @@ def save_config(config):
     except OSError as e:
         logger.error("Failed to save config to %s: %s", CONFIG_FILE, e)
         raise
+    # Force the next load_config() to re-read the file we just wrote.
+    invalidate_config_cache()

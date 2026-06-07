@@ -1220,7 +1220,13 @@ def download_youtube_candidate(
                 " - try providing/refreshing YouTube cookies"
             ),
         }
-    if format_unavailable_errors:
+    # Only attribute the failure to format gating when the *final* attempt
+    # was itself a format error; otherwise an early format hiccup followed
+    # by an unrelated last failure would mis-report the cause.
+    if format_unavailable_errors and (
+        "requested format is not available" in last_error_msg.lower()
+        or "no video formats" in last_error_msg.lower()
+    ):
         return {
             "success": False,
             "error_message": (

@@ -203,12 +203,17 @@ def stop_download():
         models.clear_queue()
 
 
-def process_album_download(album_id, force=False):
+def process_album_download(album_id, force=False, client_grab=None):
     """Download all tracks for an album and import into Lidarr.
 
     Args:
         album_id: Lidarr album ID to download.
         force: If True, re-download tracks that already exist.
+        client_grab: Whether this is a Lidarr download-client grab (skip
+            copy-to-library so Lidarr imports the files itself). When None
+            it is derived via ``is_client_album``; callers that already
+            decided the routing pass it explicitly so the decision is made
+            once and can't race the in-memory job registry.
 
     Returns:
         Dict with "success", "error", or "stopped" key.
@@ -255,8 +260,9 @@ def process_album_download(album_id, force=False):
         # bridge, Lidarr imports the finished files itself. We must then
         # leave them in place and skip the copy-to-library / RefreshArtist
         # steps to avoid a double import.
-        from download_client import is_client_album
-        client_grab = is_client_album(album_id)
+        if client_grab is None:
+            from download_client import is_client_album
+            client_grab = is_client_album(album_id)
 
         if not DOWNLOAD_DIR:
             logger.error(
@@ -534,6 +540,15 @@ def process_album_download(album_id, force=False):
         )
 
         set_permissions(artist_path)
+
+        # A user-initiated stop is neither a success nor a failure: signal
+        # it distinctly so the download-client wrapper doesn't report a
+        # 'Failed' grab to Lidarr (which would blocklist the release).
+        if download_process.get("stop"):
+            logger.info(
+                "Download stopped by user; aborting album %s", album_id,
+            )
+            return {"stopped": True}
 
         result = _handle_post_download(
             failed_tracks, succeeded_tracks,
@@ -2026,14 +2041,19 @@ def process_download_queue():
                 if next_album_id is not None:
                     import download_client
                     if download_client.is_client_album(next_album_id):
-                        target = download_client.run_album_job
+                        # run_album_job wraps process_album_download and
+                        # passes client_grab=True itself.
+                        threading.Thread(
+                            target=download_client.run_album_job,
+                            args=(next_album_id, False),
+                            daemon=True,
+                        ).start()
                     else:
-                        target = process_album_download
-                    threading.Thread(
-                        target=target,
-                        args=(next_album_id, False),
-                        daemon=True,
-                    ).start()
+                        threading.Thread(
+                            target=process_album_download,
+                            args=(next_album_id, False, False),
+                            daemon=True,
+                        ).start()
         except Exception as e:
             logger.warning(f"Queue processor error: {e}")
         time.sleep(2)

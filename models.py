@@ -809,6 +809,22 @@ def delete_client_job(nzo_id):
     conn.commit()
 
 
+def get_failed_client_album_ids_since(since_timestamp):
+    """Album ids whose download-client job failed since ``since_timestamp``.
+
+    Used to refuse a Lidarr re-grab only when this client previously
+    failed the same album within the retry cooldown (breaking the
+    grab -> fail -> re-grab loop) without blocking manual/scheduler runs.
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT DISTINCT album_id FROM download_client_jobs"
+        " WHERE status = 'failed' AND COALESCE(completed_ts, 0) >= ?",
+        (since_timestamp,),
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
 def get_cached_album_index():
     """Return a lightweight index of cached albums for search matching.
 
@@ -823,3 +839,19 @@ def get_cached_album_index():
         " FROM missing_albums_cache"
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_cached_album(album_id):
+    """Return a single cached album dict by id (primary-key lookup), or None.
+
+    Indexed counterpart to ``get_cached_album_index`` for the download
+    client's ``t=get`` / grab paths, which only need one album.
+    """
+    conn = db.get_db()
+    row = conn.execute(
+        "SELECT album_id, title, artist_name, release_date,"
+        " track_count, cover_url"
+        " FROM missing_albums_cache WHERE album_id = ?",
+        (int(album_id),),
+    ).fetchone()
+    return dict(row) if row else None

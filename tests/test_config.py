@@ -208,3 +208,20 @@ def test_save_config_creates_directory(tmp_path, monkeypatch):
     cfg = config.load_config()
     config.save_config(cfg)
     assert os.path.exists(nested)
+
+
+def test_load_config_cache_invalidated_on_save(temp_config):
+    """save_config must invalidate the cache so the next load sees changes."""
+    cfg = config.load_config()
+    assert cfg["lidarr_url"] == ""
+    cfg["lidarr_url"] = "http://changed:8686"
+    config.save_config(cfg)
+    assert config.load_config()["lidarr_url"] == "http://changed:8686"
+
+
+def test_load_config_returns_independent_copies(temp_config):
+    """Mutating a returned config must not corrupt the cached value."""
+    first = config.load_config()
+    first["forbidden_words"].append("__mutation__")
+    second = config.load_config()
+    assert "__mutation__" not in second["forbidden_words"]
