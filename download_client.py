@@ -425,28 +425,36 @@ def _active_album_ids():
         return set(_album_to_nzo.keys())
 
 
-def _recently_attempted_ids():
-    """Album ids tried within the retry cooldown window."""
+def _recently_client_handled_ids():
+    """Album ids the client finished (success or failure) within the cooldown.
+
+    Only the client's own jobs hide an album from the feed — a manual or
+    scheduler attempt must not, or the feed (and Lidarr's indexer test)
+    would go empty whenever something was downloaded outside the client.
+    """
     cooldown = _retry_cooldown_seconds()
     if not cooldown:
         return set()
     try:
-        return models.get_attempted_album_ids_since(time.time() - cooldown)
+        return models.get_recent_client_album_ids_since(time.time() - cooldown)
     except Exception:
-        logger.warning("attempted-ids lookup failed", exc_info=True)
+        logger.warning("client-handled-ids lookup failed", exc_info=True)
         return set()
 
 
 def _excluded_album_ids():
     """Albums Lidarr must not (re)grab now.
 
-    Combines albums with an in-flight job and albums attempted within the
-    retry cooldown. This breaks the infinite re-grab loop where a failing
-    album stays "missing", gets re-offered, re-grabbed and re-fails. After
-    the cooldown the album is offered again (with a fresh release guid) so
-    transient failures still get retried.
+    Combines albums with an in-flight job and albums the client finished
+    within the retry cooldown. This breaks the infinite re-grab loop where a
+    failing album stays "missing", gets re-offered, re-grabbed and re-fails,
+    and avoids re-grabbing a just-completed album before the next sync drops
+    it. Albums merely attempted by a manual/scheduler run are NOT hidden, so
+    the feed stays populated for Lidarr's indexer test. After the cooldown
+    the album is offered again (with a fresh release guid) so transient
+    failures still get retried.
     """
-    return _active_album_ids() | _recently_attempted_ids()
+    return _active_album_ids() | _recently_client_handled_ids()
 
 
 def _match_album(artist, album, excluded=None):

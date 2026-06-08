@@ -3,6 +3,10 @@
 ## 1.8.1
 
 ### Fixed
+- **Indexer feed no longer goes empty after a manual/scheduler download**:
+  the Newznab feed now only hides albums the download client itself handled
+  within the retry cooldown (plus in-flight ones), not every album with a
+  recent log, so Lidarr's indexer test keeps returning still-missing albums.
 - **Lidarr no longer rejects RSS grabs as "larger than maximum allowed
   size"**: the Newznab feed now estimates release size from the real output
   bitrate (and a conservative track length) instead of a flat 8 MB/track,

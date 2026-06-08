@@ -833,6 +833,22 @@ def get_failed_client_album_ids_since(since_timestamp):
     return {row[0] for row in rows}
 
 
+def get_recent_client_album_ids_since(since_timestamp):
+    """Album ids the download client finished (any status) since a time.
+
+    Used to hide albums the client has just handled from the indexer feed
+    without hiding albums merely touched by manual/scheduler runs (which
+    would needlessly empty the feed and fail Lidarr's indexer test).
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT DISTINCT album_id FROM download_client_jobs"
+        " WHERE COALESCE(completed_ts, 0) >= ?",
+        (since_timestamp,),
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
 def get_cached_album_index():
     """Return a lightweight index of cached albums for search matching.
 

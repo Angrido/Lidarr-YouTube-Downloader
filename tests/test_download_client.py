@@ -134,16 +134,32 @@ def _log_attempt(album_id=42, artist="Daft Punk", title="Discovery"):
     )
 
 
-def test_rss_feed_excludes_recently_attempted(client):
+def _client_handled(album_id=42, status="completed"):
+    models.upsert_client_job({
+        "nzo_id": f"job-{album_id}", "album_id": album_id, "status": status,
+        "added_ts": time.time(), "completed_ts": time.time(),
+    })
+
+
+def test_rss_feed_excludes_client_handled_album(client):
     _seed_album(album_id=42)
-    _log_attempt(42)
+    _client_handled(42)
     resp = client.get("/api/newznab/api?t=search&apikey=secret")
     assert "id=42" not in resp.get_data(as_text=True)
 
 
-def test_targeted_search_excludes_recently_attempted(client):
-    _seed_album(album_id=42, artist="Daft Punk", title="Discovery")
+def test_rss_feed_includes_manually_attempted_album(client):
+    # A manual/scheduler attempt (a download_logs row, no client job) must
+    # NOT empty the feed, or Lidarr's indexer test reports "no results".
+    _seed_album(album_id=42)
     _log_attempt(42)
+    resp = client.get("/api/newznab/api?t=search&apikey=secret")
+    assert "id=42" in resp.get_data(as_text=True)
+
+
+def test_targeted_search_excludes_client_handled(client):
+    _seed_album(album_id=42, artist="Daft Punk", title="Discovery")
+    _client_handled(42)
     resp = client.get(
         "/api/newznab/api?t=music&artist=Daft+Punk&album=Discovery"
         "&apikey=secret"
