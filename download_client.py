@@ -327,7 +327,11 @@ def run_album_job(album_id, force=False):
     elif result.get("success"):
         album_path = result.get("album_path", "")
         if album_path:
-            mark_completed(album_id, album_path)
+            # Report the real downloaded size (not the nominal placeholder)
+            # so Lidarr's size checks see the actual album.
+            mark_completed(
+                album_id, album_path, size=result.get("total_size"),
+            )
         else:
             # No files to import: fail rather than report an empty Completed.
             mark_failed(album_id, "No files available to import")

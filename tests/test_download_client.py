@@ -487,3 +487,19 @@ def test_failed_then_succeeded_album_not_blocked(client):
         "added_ts": now, "completed_ts": now,
     })
     assert 42 not in models.get_failed_client_album_ids_since(now - 3600)
+
+
+def test_run_album_job_reports_real_size(client, monkeypatch):
+    # The completed history must carry the real downloaded size, not the
+    # nominal placeholder, so Lidarr's size checks see the actual album.
+    nzo = download_client.register_grab(42, "X", "music")
+    monkeypatch.setattr(
+        "processing.process_album_download",
+        lambda *a, **kw: {
+            "success": True, "album_path": "/d/x", "total_size": 7_340_032,
+        },
+    )
+    download_client.run_album_job(42)
+    job = download_client._jobs[nzo]
+    assert job["status"] == "completed"
+    assert job["size"] == 7_340_032

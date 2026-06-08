@@ -551,7 +551,11 @@ def process_album_download(album_id, force=False, client_grab=None):
                 album_mbid=album_mbid,
                 cover_url=download_process.get("cover_url", ""),
             )
-            return {"success": True, "album_path": album_path}
+            return {
+                "success": True,
+                "album_path": album_path,
+                "total_size": total_downloaded_size,
+            }
 
         config = load_config()
         lidarr_path = config.get("lidarr_path", "")
