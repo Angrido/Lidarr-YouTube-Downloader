@@ -503,3 +503,20 @@ def test_run_album_job_reports_real_size(client, monkeypatch):
     job = download_client._jobs[nzo]
     assert job["status"] == "completed"
     assert job["size"] == 7_340_032
+
+
+def test_estimated_release_size_tracks_bitrate():
+    # AAC (~256 kbps): the implied MB/min of the advertised size stays close
+    # to the real codec bitrate, so Lidarr's quality size limits accept it.
+    size = download_client._estimated_release_size(10, {"audio_format": "m4a"})
+    mb_per_min = size / (10 * (download_client._AVG_TRACK_SECONDS / 60))
+    mb_per_min /= 1024 * 1024
+    assert 1.4 < mb_per_min < 2.3
+    # Scales linearly with track count and stays below the old flat 8 MB.
+    assert download_client._estimated_release_size(20, {"audio_format": "m4a"}) == 2 * size
+    assert size / 10 < 8 * 1024 * 1024
+
+
+def test_estimated_release_size_handles_missing_count():
+    size = download_client._estimated_release_size(None, {})
+    assert size > 0

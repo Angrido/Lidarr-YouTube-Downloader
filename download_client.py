@@ -505,6 +505,41 @@ def _quality_token(cfg):
     return "MP3 320"
 
 
+# Conservative average track length used only to estimate the advertised
+# release size. Kept short so the implied MB/min stays below Lidarr's
+# per-quality maximum even for albums of short tracks (issue: Lidarr
+# rejecting RSS grabs as "larger than maximum allowed size").
+_AVG_TRACK_SECONDS = 120
+
+
+def _estimated_bitrate_kbps(cfg):
+    """Approximate audio bitrate (kbps) of the configured output format."""
+    fmt = (cfg.get("audio_format") or "mp3").lower()
+    if fmt == "flac":
+        return 1000
+    if fmt in ("m4a", "aac"):
+        return 256
+    if fmt == "opus":
+        return 160
+    if fmt == "ogg":
+        return 256
+    try:
+        return int(str(cfg.get("audio_quality") or "320"))
+    except (TypeError, ValueError):
+        return 320
+
+
+def _estimated_release_size(track_count, cfg):
+    """Advertised release size, derived from the real output bitrate.
+
+    Anchoring on the codec bitrate (rather than a flat per-track guess)
+    keeps the implied MB/min close to what the downloaded files actually
+    are, so Lidarr's quality size limits don't reject the grab.
+    """
+    per_track = int(_estimated_bitrate_kbps(cfg) * 1000 / 8 * _AVG_TRACK_SECONDS)
+    return max(int(track_count or 0), 1) * per_track
+
+
 def _release_title(album, cfg):
     artist = album.get("artist_name", "")
     title = album.get("title", "")
@@ -563,7 +598,7 @@ def _search_xml(albums, cfg, base_url):
         album_id = album.get("album_id")
         title = _release_title(album, cfg)
         track_count = int(album.get("track_count") or 10) or 10
-        size = max(track_count, 1) * 8 * 1024 * 1024
+        size = _estimated_release_size(track_count, cfg)
         dl_url = (
             f"{base_url}api/newznab/api?t=get&id={album_id}"
             f"&apikey={api_key}"

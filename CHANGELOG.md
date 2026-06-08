@@ -3,6 +3,11 @@
 ## 1.8.1
 
 ### Fixed
+- **Lidarr no longer rejects RSS grabs as "larger than maximum allowed
+  size"**: the Newznab feed now estimates release size from the real output
+  bitrate (and a conservative track length) instead of a flat 8 MB/track,
+  and completed downloads report their actual size to the SABnzbd history
+  instead of a 100 MB placeholder.
 - **Cover art / library writes to an unmounted LIDARR_PATH** now report one
   clear "not mounted — fix it in Settings" error and are skipped, instead of
   a confusing raw `Errno 13` while trying to create a host path (#71).
