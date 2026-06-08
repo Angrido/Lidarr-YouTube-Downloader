@@ -817,9 +817,17 @@ def get_failed_client_album_ids_since(since_timestamp):
     grab -> fail -> re-grab loop) without blocking manual/scheduler runs.
     """
     conn = db.get_db()
+    # Only block when the album's *most recent* client job is the failure,
+    # so a later successful re-grab clears the block even if the old failed
+    # row is still inside the cooldown window.
     rows = conn.execute(
-        "SELECT DISTINCT album_id FROM download_client_jobs"
-        " WHERE status = 'failed' AND COALESCE(completed_ts, 0) >= ?",
+        "SELECT album_id FROM download_client_jobs j1"
+        " WHERE status = 'failed' AND COALESCE(completed_ts, 0) >= ?"
+        " AND NOT EXISTS ("
+        "   SELECT 1 FROM download_client_jobs j2"
+        "   WHERE j2.album_id = j1.album_id"
+        "     AND COALESCE(j2.completed_ts, 0) > COALESCE(j1.completed_ts, 0)"
+        " )",
         (since_timestamp,),
     ).fetchall()
     return {row[0] for row in rows}

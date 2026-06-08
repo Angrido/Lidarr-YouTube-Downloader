@@ -22,11 +22,14 @@ _config_cache_key = None
 
 
 def _config_file_key():
+    # Return None when there is no file to cache against: in env-only mode
+    # (no config.json) we rebuild from os.environ every call so runtime env
+    # changes are picked up, and there's no disk read to amortise anyway.
     try:
         st = os.stat(CONFIG_FILE)
-        return (CONFIG_FILE, st.st_mtime_ns, st.st_size)
     except OSError:
-        return (CONFIG_FILE, None, None)
+        return None
+    return (CONFIG_FILE, st.st_mtime_ns, st.st_size)
 
 
 def invalidate_config_cache():
@@ -86,7 +89,9 @@ def load_config():
     """Load config with env var defaults, overlaid by config.json."""
     global _config_cache, _config_cache_key
     cache_key = _config_file_key()
-    if _config_cache is not None and cache_key == _config_cache_key:
+    if cache_key is not None and _config_cache is not None and (
+        cache_key == _config_cache_key
+    ):
         # Deep copy so callers mutating the result can't corrupt the cache.
         return copy.deepcopy(_config_cache)
     config = {
@@ -237,8 +242,9 @@ def load_config():
     if config["path_conflict"]:
         logger.warning(f"Path Conflict Detected: {l_path}")
 
-    _config_cache = copy.deepcopy(config)
-    _config_cache_key = cache_key
+    if cache_key is not None:
+        _config_cache = copy.deepcopy(config)
+        _config_cache_key = cache_key
     return config
 
 

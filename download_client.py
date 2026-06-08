@@ -302,24 +302,28 @@ def run_album_job(album_id, force=False):
     """
     import processing  # lazy to avoid an import cycle
 
+    def _stopped():
+        return bool(processing.download_process.get("stop"))
+
     mark_downloading(album_id)
     try:
         result = processing.process_album_download(
             album_id, force, client_grab=True,
         )
     except Exception as exc:  # pragma: no cover - defensive
+        if _stopped():
+            _drop_job(album_id)
+            return
         logger.error(
             "Download job for album %s crashed: %s",
             album_id, exc, exc_info=True,
         )
         mark_failed(album_id, str(exc))
         return
-    if result.get("stopped"):
-        # Drop the job on a user stop; a 'Failed' slot would be blocklisted.
-        with _lock:
-            nzo_id = _album_to_nzo.get(int(album_id))
-        if nzo_id:
-            remove_job(nzo_id)
+    if result.get("stopped") or _stopped():
+        # Drop the job on a user stop (any stage); a 'Failed' slot would be
+        # blocklisted by Lidarr.
+        _drop_job(album_id)
     elif result.get("success"):
         album_path = result.get("album_path", "")
         if album_path:
@@ -334,6 +338,14 @@ def run_album_job(album_id, force=False):
         models.enqueue_album(album_id)
     else:
         mark_failed(album_id, result.get("error", "Download failed"))
+
+
+def _drop_job(album_id):
+    """Remove the active job for an album (used when a grab is cancelled)."""
+    with _lock:
+        nzo_id = _album_to_nzo.get(int(album_id))
+    if nzo_id:
+        remove_job(nzo_id)
 
 
 def _snapshot_jobs():
@@ -586,13 +598,14 @@ def _search_xml(albums, cfg, base_url):
 
 def _release_pubdate(release_date):
     if release_date:
-        for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d"):
-            try:
-                # timegm keeps UTC dates in UTC; mktime would apply the
-                # host's local offset.
-                return calendar.timegm(time.strptime(release_date[:19], fmt))
-            except (ValueError, TypeError):
-                continue
+        try:
+            # Parse the date portion only: handles both 'YYYY-MM-DD' and a
+            # full ISO 'YYYY-MM-DDTHH:MM:SSZ' (slicing to [:19] would strip
+            # the trailing 'Z' and break the datetime format). timegm keeps
+            # the result in UTC; mktime would apply the host's local offset.
+            return calendar.timegm(time.strptime(release_date[:10], "%Y-%m-%d"))
+        except (ValueError, TypeError):
+            pass
     return time.time()
 
 

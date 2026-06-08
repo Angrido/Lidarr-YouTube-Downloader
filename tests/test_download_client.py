@@ -447,5 +447,43 @@ def test_get_cached_album_returns_single_row():
 def test_release_pubdate_is_utc():
     # 2001-03-12 parsed as UTC midnight, independent of host TZ.
     import calendar
-    ts = download_client._release_pubdate("2001-03-12")
-    assert ts == calendar.timegm((2001, 3, 12, 0, 0, 0, 0, 0, 0))
+    expected = calendar.timegm((2001, 3, 12, 0, 0, 0, 0, 0, 0))
+    assert download_client._release_pubdate("2001-03-12") == expected
+    # Full ISO datetime (what real Lidarr returns) must parse too, not fall
+    # back to "today" — the trailing 'Z' must not break parsing.
+    assert download_client._release_pubdate("2001-03-12T00:00:00Z") == expected
+
+
+def test_run_album_job_stop_flag_drops_job_on_error(client, monkeypatch):
+    # A stop can arrive on a path that returns an error/exception rather than
+    # {"stopped": True}; the stop flag must still drop the job (no blocklist).
+    nzo = download_client.register_grab(42, "X", "music")
+
+    def fake(*a, **kw):
+        import processing
+        processing.download_process["stop"] = True
+        return {"error": "All tracks failed to download"}
+
+    monkeypatch.setattr("processing.process_album_download", fake)
+    try:
+        download_client.run_album_job(42)
+    finally:
+        import processing
+        processing.download_process["stop"] = False
+    assert download_client._jobs.get(nzo) is None
+    assert not download_client.is_client_album(42)
+
+
+def test_failed_then_succeeded_album_not_blocked(client):
+    # An older failed client job must not block a grab once a newer job for
+    # the same album has succeeded.
+    now = time.time()
+    models.upsert_client_job({
+        "nzo_id": "old", "album_id": 42, "status": "failed",
+        "added_ts": now - 10, "completed_ts": now - 10,
+    })
+    models.upsert_client_job({
+        "nzo_id": "new", "album_id": 42, "status": "completed",
+        "added_ts": now, "completed_ts": now,
+    })
+    assert 42 not in models.get_failed_client_album_ids_since(now - 3600)

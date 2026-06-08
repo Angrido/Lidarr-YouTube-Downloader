@@ -225,3 +225,11 @@ def test_load_config_returns_independent_copies(temp_config):
     first["forbidden_words"].append("__mutation__")
     second = config.load_config()
     assert "__mutation__" not in second["forbidden_words"]
+
+
+def test_env_only_mode_not_cached(temp_config, monkeypatch):
+    """With no config.json, env changes are reflected on the next load."""
+    monkeypatch.setenv("LIDARR_URL", "http://first:8686")
+    assert config.load_config()["lidarr_url"] == "http://first:8686"
+    monkeypatch.setenv("LIDARR_URL", "http://second:8686")
+    assert config.load_config()["lidarr_url"] == "http://second:8686"
