@@ -2,57 +2,67 @@
 
 ## 1.8.1
 
-### Fixed
-- **Cookies "Test" now detects a signed-in session**: age-restricted
-  ("Sign in to confirm your age") videos need cookies from a logged-in
-  YouTube account, so the test now reports whether the cookies contain a
-  login session instead of just counting formats on a public video (which
-  passed even for logged-out cookies).
-- **PO-token provider "Test" button now does a real check**: it queries the
-  bgutil provider's `/ping`, verifies the response is actually a bgutil POT
-  provider and reports its version, instead of reporting success for any
-  HTTP response (even a 404 or an unrelated server).
-- **Indexer feed no longer goes empty after a manual/scheduler download**:
-  the Newznab feed now only hides albums the download client itself handled
-  within the retry cooldown (plus in-flight ones), not every album with a
-  recent log, so Lidarr's indexer test keeps returning still-missing albums.
-- **Lidarr no longer rejects RSS grabs as "larger than maximum allowed
-  size"**: the Newznab feed now estimates release size from the real output
-  bitrate (and a conservative track length) instead of a flat 8 MB/track,
-  and completed downloads report their actual size to the SABnzbd history
-  instead of a 100 MB placeholder.
-- **Cover art / library writes to an unmounted LIDARR_PATH** now report one
-  clear "not mounted — fix it in Settings" error and are skipped, instead of
-  a confusing raw `Errno 13` while trying to create a host path (#71).
-- **AcoustID no longer over-rejects good audio**: a near-perfect acoustic
-  score (configurable `acoustid_accept_score`, default 0.98) is accepted
-  even when the recording MBID differs (same track, different release),
-  instead of being discarded as a mismatch (#58).
-- **"Format not available" troubleshooting (#64)**: web-family clients
-  (which actually consume PO tokens) are now tried before the default
-  client when a PO token / bgutil provider is configured, and downloads
-  log which player_client was used and the PO-token state on failure.
-- **download-client grabs no longer get blocklisted by Lidarr**: a grab is
-  refused only after a recent *client-job* failure, not after any manual or
-  scheduler attempt; a user stop drops the job instead of reporting a
-  failure; an empty result is reported as failed rather than a Completed
-  job with no files.
-- **No double imports**: the queue processor's client-vs-normal routing
-  decision is now passed through explicitly, so it can't race the in-memory
-  job registry.
+### Fixed — Lidarr download-client bridge
+- **RSS grabs are no longer rejected as "larger than maximum allowed
+  size"**: the Newznab feed estimates release size from the configured
+  output bitrate and a conservative track length instead of a flat
+  8 MB/track, and finished downloads report their real size to the SABnzbd
+  history instead of a 100 MB placeholder.
+- **The indexer feed no longer goes empty after a manual/scheduler
+  download**, which made Lidarr's indexer test report "no results in the
+  configured categories": the feed now hides only albums the download
+  client itself handled within the retry cooldown (plus in-flight ones),
+  not every album with a recent log.
+- **Grabs no longer get blocklisted by Lidarr**: a grab is refused only
+  after a recent *client-job* failure (not a manual/scheduler attempt); a
+  user stop on any stage drops the job instead of reporting a failure; an
+  empty result is reported as failed rather than a "Completed" job with no
+  files.
+- **No more double imports**: the queue processor passes its
+  client-vs-normal routing decision through explicitly, so it can't race
+  the in-memory job registry.
 - A failed enqueue during a grab now rolls the job back instead of leaving
   the album mapped but never downloaded.
 - Newznab search falls back to the next-best match when the top match is
   excluded; release titles no longer show a literal `(None)` year; release
-  dates are kept in UTC.
-- Constant-time download-client API-key comparison.
-- yt-dlp "format gated behind sign-in" hint is shown only when the final
-  attempt was actually a format error.
+  dates parse full ISO timestamps and stay in UTC.
+- Constant-time comparison for the download-client / indexer API key.
+
+### Fixed — YouTube downloads & authentication
+- **Cookies "Test" now verifies a real YouTube login**: it requires a
+  `LOGIN_INFO` cookie scoped to `youtube.com` (a google.com-only export is
+  treated as logged out by YouTube) and tells you to re-export from a
+  youtube.com tab when it's missing — so age-restricted ("Sign in to
+  confirm your age") tracks can actually be downloaded.
+- **PO-token provider "Test" now does a real check**: it queries the bgutil
+  provider's `/ping`, confirms the response is genuinely a bgutil provider
+  and reports its version, instead of reporting success for any HTTP
+  response (even a 404 or an unrelated server).
+- **Better PO-token handling for "format not available" (#64)**: web-family
+  clients (the only ones that consume PO tokens) are tried before the
+  default client when a manual token or bgutil provider is configured, and
+  downloads log which `player_client` succeeded plus the PO-token state on
+  failure.
+- The "format gated behind sign-in" hint is shown only when the final
+  attempt actually was a format error.
+
+### Fixed — audio quality
+- **AcoustID no longer over-rejects good audio**: a near-perfect acoustic
+  score (configurable `acoustid_accept_score`, default 0.98) is accepted
+  even when the recording MBID differs (same track, different
+  release/edition), instead of being discarded as a mismatch (#58).
+
+### Fixed — library & paths
+- **Cover art / library writes to an unmounted `LIDARR_PATH`** now report
+  one clear "not mounted — fix it in Settings" error and are skipped,
+  instead of a confusing raw `Errno 13` from trying to create a host path
+  (#71).
 
 ### Changed
-- `load_config()` caches the parsed config (invalidated on save) to avoid
-  re-reading `config.json` on every Lidarr poll; cached album lookups use
-  an indexed primary-key query.
+- `load_config()` caches the parsed config (invalidated on save, and not
+  cached in env-only mode) to avoid re-reading `config.json` on every
+  Lidarr poll; single-album lookups use an indexed primary-key query.
+- New configurable keys: `acoustid_accept_score`.
 
 ## 1.8.0
 
