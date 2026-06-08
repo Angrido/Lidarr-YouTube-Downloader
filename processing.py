@@ -424,34 +424,11 @@ def process_album_download(album_id, force=False, client_grab=None):
             }
 
         cfg = load_config()
-        save_cover_file = cfg.get("save_cover_art_file", True)
-        if cover_data and save_cover_file:
-            # Write upfront to both DOWNLOAD_DIR and (if distinct)
-            # LIDARR_PATH so the artwork lands in the music library
-            # even when every track fails and _copy_to_lidarr is
-            # skipped. (Issue #68.)
-            cover_targets = [album_path]
-            lidarr_path_cfg = cfg.get("lidarr_path", "") or ""
-            if lidarr_path_cfg:
-                try:
-                    lidarr_target = os.path.join(
-                        lidarr_path_cfg, sanitized_artist, album_folder_name,
-                    )
-                    if os.path.abspath(lidarr_target) != os.path.abspath(album_path):
-                        cover_targets.append(lidarr_target)
-                except (OSError, ValueError) as exc:
-                    logger.debug(
-                        "Skipping early lidarr cover copy: %s", exc,
-                    )
-            for target in cover_targets:
-                try:
-                    os.makedirs(target, exist_ok=True)
-                    with open(os.path.join(target, "cover.jpg"), "wb") as f:
-                        f.write(cover_data)
-                except OSError as exc:
-                    logger.warning(
-                        "Failed to write cover.jpg to %s: %s", target, exc,
-                    )
+        if cover_data and cfg.get("save_cover_art_file", True):
+            _write_cover_art(
+                cover_data, album_path, cfg.get("lidarr_path", "") or "",
+                sanitized_artist, album_folder_name,
+            )
         cover_url = download_process.get("cover_url", "")
 
         models.add_log(
@@ -1201,6 +1178,9 @@ def _download_tracks(
                     expected_recording_id,
                     cfg["acoustid_api_key"],
                     expected_release_group_id=album_ctx.get("album_mbid"),
+                    accept_score_threshold=cfg.get(
+                        "acoustid_accept_score", 0.98,
+                    ),
                 )
 
                 if vresult is None:
@@ -1888,6 +1868,36 @@ def _handle_post_download(
             )
 
     return None
+
+
+def _write_cover_art(
+    cover_data, album_path, lidarr_path, sanitized_artist, album_folder_name,
+):
+    """Write cover.jpg into the download folder and, if distinct, the Lidarr
+    library folder.
+
+    Writing upfront to both targets means the artwork lands in the library
+    even when every track fails and _copy_to_lidarr is skipped (issue #68).
+    Each target goes through makedirs_safe with its mounted base so an
+    unmounted/misconfigured LIDARR_PATH yields one clear error and is
+    skipped, instead of a raw Errno 13 from creating a host path (issue #71).
+    """
+    targets = [(album_path, DOWNLOAD_DIR)]
+    if lidarr_path:
+        lidarr_target = os.path.join(
+            lidarr_path, sanitized_artist, album_folder_name,
+        )
+        if os.path.abspath(lidarr_target) != os.path.abspath(album_path):
+            targets.append((lidarr_target, lidarr_path))
+    for target, base in targets:
+        try:
+            makedirs_safe(target, [base])
+            with open(os.path.join(target, "cover.jpg"), "wb") as f:
+                f.write(cover_data)
+        except BaseNotMountedError as exc:
+            logger.error("Skipping cover art for %s: %s", target, exc)
+        except OSError as exc:
+            logger.warning("Failed to write cover.jpg to %s: %s", target, exc)
 
 
 def _copy_to_lidarr(

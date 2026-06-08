@@ -3,6 +3,17 @@
 ## 1.8.1
 
 ### Fixed
+- **Cover art / library writes to an unmounted LIDARR_PATH** now report one
+  clear "not mounted — fix it in Settings" error and are skipped, instead of
+  a confusing raw `Errno 13` while trying to create a host path (#71).
+- **AcoustID no longer over-rejects good audio**: a near-perfect acoustic
+  score (configurable `acoustid_accept_score`, default 0.98) is accepted
+  even when the recording MBID differs (same track, different release),
+  instead of being discarded as a mismatch (#58).
+- **"Format not available" troubleshooting (#64)**: web-family clients
+  (which actually consume PO tokens) are now tried before the default
+  client when a PO token / bgutil provider is configured, and downloads
+  log which player_client was used and the PO-token state on failure.
 - **download-client grabs no longer get blocklisted by Lidarr**: a grab is
   refused only after a recent *client-job* failure, not after any manual or
   scheduler attempt; a user stop drops the job instead of reporting a

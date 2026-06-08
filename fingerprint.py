@@ -143,7 +143,7 @@ def _extract_best_match(results):
 
 def verify_fingerprint(
     filepath, expected_recording_id, acoustid_api_key, threshold=0.85,
-    expected_release_group_id=None,
+    expected_release_group_id=None, accept_score_threshold=0.98,
 ):
     """Verify a downloaded file matches the expected MusicBrainz recording.
 
@@ -157,6 +157,10 @@ def verify_fingerprint(
             a high-score AcoustID recording belonging to this release group
             is accepted — the same song often has several recording ids
             across releases, which would otherwise be rejected as a mismatch.
+        accept_score_threshold: A near-perfect acoustic score is accepted
+            even when neither the recording id nor the release group match
+            (same track on a different release/edition). Kept strict so
+            genuinely wrong tracks, which fingerprint far lower, still fail.
 
     Returns:
         Dict with "status" ("verified", "mismatch", "unverified"),
@@ -239,8 +243,23 @@ def verify_fingerprint(
                         "matched_id": recording.get("id"),
                     }
 
-    # Expected ID not found — extract best match for reporting
+    # Neither the recording id nor the release group matched. A near-perfect
+    # acoustic score is still almost always the same track on another
+    # release, so accept it above a strict threshold rather than discarding
+    # good audio over an MBID mismatch (issue #58).
     best = _extract_best_match(results)
+    if best and best.get("acoustid_score", 0.0) >= accept_score_threshold:
+        logger.info(
+            "AcoustID accepted on score %.2f despite MBID mismatch (%s)",
+            best.get("acoustid_score", 0.0),
+            best.get("acoustid_recording_id", ""),
+        )
+        return {
+            "status": "verified",
+            "fp_data": best,
+            "matched_id": best.get("acoustid_recording_id"),
+        }
+
     matched_id = best["acoustid_recording_id"] if best else None
     return {
         "status": "mismatch",

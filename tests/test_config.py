@@ -233,3 +233,20 @@ def test_env_only_mode_not_cached(temp_config, monkeypatch):
     assert config.load_config()["lidarr_url"] == "http://first:8686"
     monkeypatch.setenv("LIDARR_URL", "http://second:8686")
     assert config.load_config()["lidarr_url"] == "http://second:8686"
+
+
+def test_acoustid_accept_score_default(temp_config):
+    assert config.load_config()["acoustid_accept_score"] == 0.98
+
+
+def test_acoustid_accept_score_from_file_clamped(temp_config):
+    with open(temp_config, "w") as f:
+        json.dump({"acoustid_accept_score": "1.5"}, f)
+    # Out-of-range value falls back to the default.
+    assert config.load_config()["acoustid_accept_score"] == 0.98
+
+
+def test_acoustid_accept_score_from_file_valid(temp_config):
+    with open(temp_config, "w") as f:
+        json.dump({"acoustid_accept_score": 0.95}, f)
+    assert config.load_config()["acoustid_accept_score"] == 0.95

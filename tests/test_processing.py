@@ -2053,3 +2053,37 @@ class TestVerifyStatsAccumulation:
             "mismatch_count": 0,
             "best_rejected_score": 0.0,
         }
+
+
+# --- Cover art writing (issues #68 / #71) ---------------------------------
+
+
+def test_write_cover_art_skips_unmounted_lidarr_path(tmp_path, monkeypatch):
+    import processing
+    download_dir = tmp_path / "downloads"
+    album_path = download_dir / "Artist" / "Album (2024)"
+    monkeypatch.setattr(processing, "DOWNLOAD_DIR", str(download_dir))
+    # Unmounted LIDARR_PATH (host path not present in the container): must be
+    # skipped with a clear error, not crash with a raw Errno 13.
+    processing._write_cover_art(
+        b"JPEGDATA", str(album_path), "/proc/self/nonexistent-vol",
+        "Artist", "Album (2024)",
+    )
+    # The download-folder cover still lands.
+    assert (album_path / "cover.jpg").read_bytes() == b"JPEGDATA"
+
+
+def test_write_cover_art_writes_to_valid_lidarr_path(tmp_path, monkeypatch):
+    import processing
+    download_dir = tmp_path / "downloads"
+    lidarr_dir = tmp_path / "music"
+    album_path = download_dir / "Artist" / "Album (2024)"
+    monkeypatch.setattr(processing, "DOWNLOAD_DIR", str(download_dir))
+    processing._write_cover_art(
+        b"JPEGDATA", str(album_path), str(lidarr_dir),
+        "Artist", "Album (2024)",
+    )
+    assert (album_path / "cover.jpg").read_bytes() == b"JPEGDATA"
+    assert (
+        lidarr_dir / "Artist" / "Album (2024)" / "cover.jpg"
+    ).read_bytes() == b"JPEGDATA"

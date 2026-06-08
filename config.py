@@ -49,7 +49,7 @@ ALLOWED_CONFIG_KEYS = {
     "yt_player_client", "yt_retries", "yt_fragment_retries",
     "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
     "discord_enabled", "discord_webhook_url", "discord_log_types",
-    "acoustid_enabled", "acoustid_api_key",
+    "acoustid_enabled", "acoustid_api_key", "acoustid_accept_score",
     "min_match_score", "audio_format", "audio_quality",
     "lidarr_rename_after_import", "save_cover_art_file",
     "scheduler_retry_after_hours",
@@ -61,28 +61,29 @@ ALLOWED_CONFIG_KEYS = {
 MIN_MATCH_SCORE_DEFAULT = 0.8
 
 
-def _parse_min_match_score(value):
-    """Parse min_match_score from any input, falling back to default with a warning.
+def _parse_unit_float(value, name, default):
+    """Coerce a value to a float in [0.0, 1.0], falling back with a warning.
 
-    Accepts strings, numbers, or anything float-coercible. Logs a warning if
-    the value is invalid or out of the [0.0, 1.0] range.
+    Accepts strings, numbers, or anything float-coercible; out-of-range or
+    invalid input logs a warning and returns ``default``.
     """
     try:
         parsed = float(value)
     except (TypeError, ValueError):
-        logger.warning(
-            "Invalid min_match_score=%r; using default %.2f",
-            value, MIN_MATCH_SCORE_DEFAULT,
-        )
-        return MIN_MATCH_SCORE_DEFAULT
+        logger.warning("Invalid %s=%r; using default %.2f", name, value, default)
+        return default
     if not 0.0 <= parsed <= 1.0:
         logger.warning(
-            "min_match_score=%.2f out of range [0.0, 1.0];"
-            " using default %.2f",
-            parsed, MIN_MATCH_SCORE_DEFAULT,
+            "%s=%.2f out of range [0.0, 1.0]; using default %.2f",
+            name, parsed, default,
         )
-        return MIN_MATCH_SCORE_DEFAULT
+        return default
     return parsed
+
+
+def _parse_min_match_score(value):
+    """Parse min_match_score to a float in [0.0, 1.0] (default 0.8)."""
+    return _parse_unit_float(value, "min_match_score", MIN_MATCH_SCORE_DEFAULT)
 
 
 def load_config():
@@ -163,6 +164,10 @@ def load_config():
             os.getenv("ACOUSTID_ENABLED", "true").lower() == "true"
         ),
         "acoustid_api_key": os.getenv("ACOUSTID_API_KEY", ""),
+        "acoustid_accept_score": _parse_unit_float(
+            os.getenv("ACOUSTID_ACCEPT_SCORE", "0.98"),
+            "acoustid_accept_score", 0.98,
+        ),
         "min_match_score": _parse_min_match_score(
             os.getenv("MIN_MATCH_SCORE", "0.8"),
         ),
@@ -225,6 +230,11 @@ def load_config():
         if "min_match_score" in config:
             config["min_match_score"] = _parse_min_match_score(
                 config["min_match_score"]
+            )
+        if "acoustid_accept_score" in config:
+            config["acoustid_accept_score"] = _parse_unit_float(
+                config["acoustid_accept_score"], "acoustid_accept_score",
+                env_defaults.get("acoustid_accept_score", 0.98),
             )
 
     def norm(p):
