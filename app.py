@@ -502,16 +502,23 @@ def api_cookies_test():
         return jsonify(
             {"success": False, "message": f"Cookies file not found: {path}"}
         )
-    # A logged-in YouTube session sets these cookies; without them yt-dlp
-    # cannot pass the age gate no matter which player client it uses.
-    auth_markers = (
-        "LOGIN_INFO", "SAPISID", "__Secure-3PSID", "__Secure-1PSID",
-    )
+    # YouTube marks a logged-in session with the LOGIN_INFO cookie on the
+    # youtube.com domain. The Google-domain auth cookies (SAPISID/SID on
+    # .google.com) are NOT sent to youtube.com, so on their own they don't
+    # pass the age gate — LOGIN_INFO is the marker that actually matters.
     signed_in = False
     try:
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             cookie_text = f.read()
-        signed_in = any(marker in cookie_text for marker in auth_markers)
+        for line in cookie_text.splitlines():
+            if line.startswith("#") or "\t" not in line:
+                continue
+            fields = line.split("\t")
+            if len(fields) >= 6:
+                domain, name = fields[0], fields[5]
+                if "youtube.com" in domain and name == "LOGIN_INFO":
+                    signed_in = True
+                    break
     except OSError as e:
         return jsonify(
             {"success": False, "message": f"Cannot read cookies file: {e}"}
@@ -548,9 +555,10 @@ def api_cookies_test():
             "success": False,
             "message": (
                 f"Cookies work for public videos ({len(formats)} formats)"
-                " but contain NO signed-in YouTube session, so"
+                " but have no youtube.com LOGIN_INFO cookie, so"
                 " age-restricted ('Sign in to confirm your age') tracks"
-                " will fail. Re-export cookies while logged in to YouTube."
+                " will fail. Export cookies from a youtube.com tab while"
+                " logged in to YouTube (a google.com export isn't enough)."
             ),
         })
     except Exception as e:

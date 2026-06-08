@@ -1754,7 +1754,27 @@ def test_cookies_test_not_signed_in_warns(client, tmp_path, monkeypatch):
     monkeypatch.setattr(yt_dlp, "YoutubeDL", _mock_ydl_with_formats(14))
     data = client.post("/api/cookies/test").get_json()
     assert data["success"] is False
-    assert "no signed-in" in data["message"].lower()
+    assert "login_info" in data["message"].lower()
+
+
+def test_cookies_test_google_only_not_signed_in(client, tmp_path, monkeypatch):
+    # Google-domain auth cookies but no youtube.com LOGIN_INFO: must NOT be
+    # reported as signed in (these don't pass YouTube's age gate).
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text(
+        "# Netscape\n"
+        ".google.com\tTRUE\t/\tTRUE\t0\tSAPISID\tabc\n"
+        ".google.com\tTRUE\t/\tTRUE\t0\t__Secure-3PSID\tdef\n"
+        ".youtube.com\tTRUE\t/\tTRUE\t0\tVISITOR_INFO1_LIVE\tx\n"
+    )
+    monkeypatch.setattr(
+        "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
+    )
+    import yt_dlp
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _mock_ydl_with_formats(14))
+    data = client.post("/api/cookies/test").get_json()
+    assert data["success"] is False
+    assert "login_info" in data["message"].lower()
 
 
 def test_cookies_test_no_file(client, monkeypatch):
