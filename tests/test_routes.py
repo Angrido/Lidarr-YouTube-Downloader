@@ -1670,3 +1670,50 @@ class TestNotifyManualDownload:
         embed = kwargs["embed_data"]
         assert "url" not in embed
         assert not [f for f in embed["fields"] if f["name"] == "YouTube"]
+
+
+class _FakeResp:
+    def __init__(self, status_code, payload):
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self):
+        if self._payload is None:
+            raise ValueError("no json")
+        return self._payload
+
+
+def test_pot_provider_test_valid_bgutil(client, monkeypatch):
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    resp = _FakeResp(200, {"version": "1.2.3", "server_uptime": 10})
+    with patch("requests.get", return_value=resp):
+        r = client.post(
+            "/api/pot-provider/test", json={"url": "http://prov:4416"},
+        )
+    data = r.get_json()
+    assert data["success"] is True
+    assert "1.2.3" in data["message"]
+
+
+def test_pot_provider_test_reachable_but_not_bgutil(client, monkeypatch):
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    resp = _FakeResp(200, {"hello": "world"})
+    with patch("requests.get", return_value=resp):
+        r = client.post(
+            "/api/pot-provider/test", json={"url": "http://nginx:80"},
+        )
+    data = r.get_json()
+    assert data["success"] is False
+    assert "not a bgutil" in data["message"].lower()
+
+
+def test_pot_provider_test_unreachable(client, monkeypatch):
+    import requests
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    with patch("requests.get", side_effect=requests.RequestException("boom")):
+        r = client.post(
+            "/api/pot-provider/test", json={"url": "http://down:4416"},
+        )
+    data = r.get_json()
+    assert data["success"] is False
+    assert "not reachable" in data["message"].lower()

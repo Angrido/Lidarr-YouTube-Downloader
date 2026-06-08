@@ -3,6 +3,10 @@
 ## 1.8.1
 
 ### Fixed
+- **PO-token provider "Test" button now does a real check**: it queries the
+  bgutil provider's `/ping`, verifies the response is actually a bgutil POT
+  provider and reports its version, instead of reporting success for any
+  HTTP response (even a 404 or an unrelated server).
 - **Indexer feed no longer goes empty after a manual/scheduler download**:
   the Newznab feed now only hides albums the download client itself handled
   within the retry cooldown (plus in-flight ones), not every album with a

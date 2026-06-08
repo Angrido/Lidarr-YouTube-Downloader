@@ -267,18 +267,38 @@ def api_pot_provider_test():
             {"success": False, "message": "URL must start with http:// or https://"}
         )
     base = url.rstrip("/")
-    for path in ("/ping", ""):
-        try:
-            resp = http_requests.get(base + path, timeout=5)
-            return jsonify(
-                {
-                    "success": True,
-                    "message": f"Provider reachable (HTTP {resp.status_code})",
-                }
-            )
-        except http_requests.RequestException:
-            continue
-    return jsonify({"success": False, "message": "Provider not reachable"})
+    try:
+        resp = http_requests.get(base + "/ping", timeout=5)
+    except http_requests.RequestException as exc:
+        return jsonify(
+            {"success": False, "message": f"Provider not reachable: {exc}"}
+        )
+    if resp.status_code != 200:
+        return jsonify({
+            "success": False,
+            "message": f"Provider returned HTTP {resp.status_code} on /ping",
+        })
+    try:
+        info = resp.json()
+    except ValueError:
+        info = None
+    # A bgutil POT provider's /ping returns JSON describing the server; any
+    # other 200 (a reverse proxy, a different service) is not a usable
+    # provider even though it is "reachable".
+    bgutil_keys = ("version", "server_uptime", "token_ttl_hours")
+    if not isinstance(info, dict) or not any(k in info for k in bgutil_keys):
+        return jsonify({
+            "success": False,
+            "message": (
+                "Reachable, but the response is not a bgutil POT provider"
+                " (unexpected /ping payload). Check the URL and port."
+            ),
+        })
+    version = info.get("version", "unknown")
+    return jsonify({
+        "success": True,
+        "message": f"bgutil POT provider OK (version {version})",
+    })
 
 
 @app.route("/api/test-connection")
