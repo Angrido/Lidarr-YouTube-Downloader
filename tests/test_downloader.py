@@ -1497,3 +1497,89 @@ class TestFindAlbumOnYtmusic:
             result = find_album_on_ytmusic("A", "B")
             assert result is not None
             assert result["playlist_id"] == "OLAK5uy_fb"
+
+
+def _called_clients(mock_ydl_class):
+    """Flatten the player_client used in each YoutubeDL(...) construction."""
+    clients = []
+    for call in mock_ydl_class.call_args_list:
+        opts = call.args[0] if call.args else call.kwargs
+        if not isinstance(opts, dict):
+            continue
+        yt_args = opts.get("extractor_args", {}).get("youtube", {})
+        pc = yt_args.get("player_client", [None])
+        clients.extend(pc if isinstance(pc, list) else [pc])
+    return clients
+
+
+class TestPoTokenClientPriority:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_web_client_prioritized_when_po_token_set(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "m4a",
+            "audio_quality": "320", "yt_po_token": "TOKEN123",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception("requested format is not available")
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "youtube",
+        }
+        download_youtube_candidate(candidate, "/tmp/out")
+        clients = _called_clients(mock_ydl_class)
+        web_idx = next((i for i, c in enumerate(clients) if c == "web"), -1)
+        android_idx = next(
+            (i for i, c in enumerate(clients) if c == "android"), -1
+        )
+        assert web_idx != -1
+        assert android_idx == -1 or web_idx < android_idx
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_client_order_unchanged_without_po_token(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "m4a",
+            "audio_quality": "320",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception("requested format is not available")
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "youtube",
+        }
+        download_youtube_candidate(candidate, "/tmp/out")
+        clients = _called_clients(mock_ydl_class)
+        web_idx = next((i for i, c in enumerate(clients) if c == "web"), -1)
+        android_idx = next(
+            (i for i, c in enumerate(clients) if c == "android"), -1
+        )
+        # Default order: the configured default (android) comes before web.
+        assert android_idx != -1 and android_idx < web_idx
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_success_logs_player_client(
+        self, mock_config, mock_ydl_class, caplog,
+    ):
+        import logging
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "m4a",
+            "audio_quality": "320",
+        }
+        mock_ydl_class.return_value.__enter__.return_value.download.return_value = None
+        candidate = {
+            "url": "abc12345678", "title": "MyTrack", "duration": 200,
+            "score": 0.9, "source": "youtube",
+        }
+        with caplog.at_level(logging.INFO, logger="downloader"):
+            result = download_youtube_candidate(candidate, "/tmp/out")
+        assert result["success"] is True
+        assert any(
+            "player_client" in r.message and "MyTrack" in r.message
+            for r in caplog.records
+        )

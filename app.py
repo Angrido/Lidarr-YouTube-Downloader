@@ -64,7 +64,7 @@ log.setLevel(logging.ERROR)
 app = Flask(__name__)
 app.register_blueprint(download_client.bp)
 
-VERSION = "1.8.0"
+VERSION = "1.8.1"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -267,18 +267,38 @@ def api_pot_provider_test():
             {"success": False, "message": "URL must start with http:// or https://"}
         )
     base = url.rstrip("/")
-    for path in ("/ping", ""):
-        try:
-            resp = http_requests.get(base + path, timeout=5)
-            return jsonify(
-                {
-                    "success": True,
-                    "message": f"Provider reachable (HTTP {resp.status_code})",
-                }
-            )
-        except http_requests.RequestException:
-            continue
-    return jsonify({"success": False, "message": "Provider not reachable"})
+    try:
+        resp = http_requests.get(base + "/ping", timeout=5)
+    except http_requests.RequestException as exc:
+        return jsonify(
+            {"success": False, "message": f"Provider not reachable: {exc}"}
+        )
+    if resp.status_code != 200:
+        return jsonify({
+            "success": False,
+            "message": f"Provider returned HTTP {resp.status_code} on /ping",
+        })
+    try:
+        info = resp.json()
+    except ValueError:
+        info = None
+    # A bgutil POT provider's /ping returns JSON describing the server; any
+    # other 200 (a reverse proxy, a different service) is not a usable
+    # provider even though it is "reachable".
+    bgutil_keys = ("version", "server_uptime", "token_ttl_hours")
+    if not isinstance(info, dict) or not any(k in info for k in bgutil_keys):
+        return jsonify({
+            "success": False,
+            "message": (
+                "Reachable, but the response is not a bgutil POT provider"
+                " (unexpected /ping payload). Check the URL and port."
+            ),
+        })
+    version = info.get("version", "unknown")
+    return jsonify({
+        "success": True,
+        "message": f"bgutil POT provider OK (version {version})",
+    })
 
 
 @app.route("/api/test-connection")
@@ -470,8 +490,9 @@ def api_cookies_test():
     """Probe YouTube with the configured cookies file.
 
     Resolves a known video so we can tell whether yt-dlp can extract
-    media (200 OK with formats) vs. is being blocked (403, cookies
-    invalid, login required, etc.).
+    media at all, and inspects the cookies for a signed-in YouTube
+    session — which is what age-restricted ("Sign in to confirm your
+    age") videos require.
     """
     cfg = load_config()
     path = (cfg.get("yt_cookies_file") or "").strip()
@@ -480,6 +501,27 @@ def api_cookies_test():
     if not os.path.exists(path):
         return jsonify(
             {"success": False, "message": f"Cookies file not found: {path}"}
+        )
+    # YouTube marks a logged-in session with the LOGIN_INFO cookie on the
+    # youtube.com domain. The Google-domain auth cookies (SAPISID/SID on
+    # .google.com) are NOT sent to youtube.com, so on their own they don't
+    # pass the age gate — LOGIN_INFO is the marker that actually matters.
+    signed_in = False
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            cookie_text = f.read()
+        for line in cookie_text.splitlines():
+            if line.startswith("#") or "\t" not in line:
+                continue
+            fields = line.split("\t")
+            if len(fields) >= 6:
+                domain, name = fields[0], fields[5]
+                if "youtube.com" in domain and name == "LOGIN_INFO":
+                    signed_in = True
+                    break
+    except OSError as e:
+        return jsonify(
+            {"success": False, "message": f"Cannot read cookies file: {e}"}
         )
     try:
         import yt_dlp
@@ -501,12 +543,24 @@ def api_cookies_test():
             return jsonify(
                 {"success": False, "message": "yt-dlp returned no formats"}
             )
-        return jsonify(
-            {
+        if signed_in:
+            return jsonify({
                 "success": True,
-                "message": f"OK ({len(formats)} formats available)",
-            }
-        )
+                "message": (
+                    f"OK — signed in to YouTube ({len(formats)} formats)."
+                    " Age-restricted videos should work."
+                ),
+            })
+        return jsonify({
+            "success": False,
+            "message": (
+                f"Cookies work for public videos ({len(formats)} formats)"
+                " but have no youtube.com LOGIN_INFO cookie, so"
+                " age-restricted ('Sign in to confirm your age') tracks"
+                " will fail. Export cookies from a youtube.com tab while"
+                " logged in to YouTube (a google.com export isn't enough)."
+            ),
+        })
     except Exception as e:
         msg = str(e)
         return jsonify({"success": False, "message": msg[:240]})

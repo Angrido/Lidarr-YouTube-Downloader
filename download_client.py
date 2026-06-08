@@ -30,6 +30,8 @@ a small in-memory job registry tracks each grab through
 queued -> downloading -> completed/failed.
 """
 
+import calendar
+import hmac
 import logging
 import os
 import re
@@ -111,7 +113,25 @@ def register_grab(album_id, name, category):
         _album_to_nzo[album_id] = nzo_id
         _persist(_jobs[nzo_id])
         _prune_history()
-    models.enqueue_album(album_id)
+    try:
+        models.enqueue_album(album_id)
+    except Exception:
+        # Without the queue row the album would be mapped but never run,
+        # so roll the job back to keep is_client_album honest.
+        logger.error(
+            "Failed to enqueue grabbed album %s; rolling back job %s",
+            album_id, nzo_id, exc_info=True,
+        )
+        with _lock:
+            _jobs.pop(nzo_id, None)
+            _album_to_nzo.pop(album_id, None)
+        try:
+            models.delete_client_job(nzo_id)
+        except Exception:
+            logger.warning(
+                "Failed to delete rolled-back job %s", nzo_id, exc_info=True,
+            )
+        raise
     logger.info(
         "Lidarr grabbed album %s (%s) -> %s", album_id, name, nzo_id,
     )
@@ -135,6 +155,15 @@ def mark_downloading(album_id):
         job = _active_job(album_id)
         if job:
             job["status"] = _STATUS_DOWNLOADING
+            _persist(job)
+
+
+def mark_queued(album_id):
+    """Reset an active job back to queued (e.g. a deferred 'Busy' retry)."""
+    with _lock:
+        job = _active_job(album_id)
+        if job:
+            job["status"] = _STATUS_QUEUED
             _persist(job)
 
 
@@ -273,25 +302,54 @@ def run_album_job(album_id, force=False):
     """
     import processing  # lazy to avoid an import cycle
 
+    def _stopped():
+        return bool(processing.download_process.get("stop"))
+
     mark_downloading(album_id)
     try:
-        result = processing.process_album_download(album_id, force)
+        result = processing.process_album_download(
+            album_id, force, client_grab=True,
+        )
     except Exception as exc:  # pragma: no cover - defensive
+        if _stopped():
+            _drop_job(album_id)
+            return
         logger.error(
             "Download job for album %s crashed: %s",
             album_id, exc, exc_info=True,
         )
         mark_failed(album_id, str(exc))
         return
-    if result.get("success"):
-        mark_completed(album_id, result.get("album_path", ""))
+    if result.get("stopped") or _stopped():
+        # Drop the job on a user stop (any stage); a 'Failed' slot would be
+        # blocklisted by Lidarr.
+        _drop_job(album_id)
+    elif result.get("success"):
+        album_path = result.get("album_path", "")
+        if album_path:
+            # Report the real downloaded size (not the nominal placeholder)
+            # so Lidarr's size checks see the actual album.
+            mark_completed(
+                album_id, album_path, size=result.get("total_size"),
+            )
+        else:
+            # No files to import: fail rather than report an empty Completed.
+            mark_failed(album_id, "No files available to import")
     elif result.get("error") == "Busy":
-        # The engine was already running another album: don't fail the
-        # grab (Lidarr would blocklist it). Re-queue and leave the job
-        # in 'downloading' so the queue processor retries it shortly.
+        # Engine busy with another album: requeue instead of failing
+        # (a failure would blocklist the grab).
+        mark_queued(album_id)
         models.enqueue_album(album_id)
     else:
         mark_failed(album_id, result.get("error", "Download failed"))
+
+
+def _drop_job(album_id):
+    """Remove the active job for an album (used when a grab is cancelled)."""
+    with _lock:
+        nzo_id = _album_to_nzo.get(int(album_id))
+    if nzo_id:
+        remove_job(nzo_id)
 
 
 def _snapshot_jobs():
@@ -343,7 +401,7 @@ def _check_apikey():
     provided = request.values.get("apikey", "") or request.values.get(
         "r", "",
     )
-    return provided == key
+    return hmac.compare_digest(provided, key)
 
 
 # --- Newznab indexer ------------------------------------------------------
@@ -367,28 +425,36 @@ def _active_album_ids():
         return set(_album_to_nzo.keys())
 
 
-def _recently_attempted_ids():
-    """Album ids tried within the retry cooldown window."""
+def _recently_client_handled_ids():
+    """Album ids the client finished (success or failure) within the cooldown.
+
+    Only the client's own jobs hide an album from the feed — a manual or
+    scheduler attempt must not, or the feed (and Lidarr's indexer test)
+    would go empty whenever something was downloaded outside the client.
+    """
     cooldown = _retry_cooldown_seconds()
     if not cooldown:
         return set()
     try:
-        return models.get_attempted_album_ids_since(time.time() - cooldown)
+        return models.get_recent_client_album_ids_since(time.time() - cooldown)
     except Exception:
-        logger.warning("attempted-ids lookup failed", exc_info=True)
+        logger.warning("client-handled-ids lookup failed", exc_info=True)
         return set()
 
 
 def _excluded_album_ids():
     """Albums Lidarr must not (re)grab now.
 
-    Combines albums with an in-flight job and albums attempted within the
-    retry cooldown. This breaks the infinite re-grab loop where a failing
-    album stays "missing", gets re-offered, re-grabbed and re-fails. After
-    the cooldown the album is offered again (with a fresh release guid) so
-    transient failures still get retried.
+    Combines albums with an in-flight job and albums the client finished
+    within the retry cooldown. This breaks the infinite re-grab loop where a
+    failing album stays "missing", gets re-offered, re-grabbed and re-fails,
+    and avoids re-grabbing a just-completed album before the next sync drops
+    it. Albums merely attempted by a manual/scheduler run are NOT hidden, so
+    the feed stays populated for Lidarr's indexer test. After the cooldown
+    the album is offered again (with a fresh release guid) so transient
+    failures still get retried.
     """
-    return _active_album_ids() | _recently_attempted_ids()
+    return _active_album_ids() | _recently_client_handled_ids()
 
 
 def _match_album(artist, album, excluded=None):
@@ -405,6 +471,9 @@ def _match_album(artist, album, excluded=None):
     best = None
     best_score = 0
     for row in index:
+        # Skip excluded albums so they don't shadow a grabbable match.
+        if excluded and int(row.get("album_id") or 0) in excluded:
+            continue
         r_artist = _norm(row.get("artist_name"))
         r_album = _norm(row.get("title"))
         score = 0
@@ -425,8 +494,6 @@ def _match_album(artist, album, excluded=None):
         if score > best_score:
             best_score = score
             best = row
-    if best and excluded and int(best.get("album_id") or 0) in excluded:
-        return None
     return best
 
 
@@ -446,10 +513,46 @@ def _quality_token(cfg):
     return "MP3 320"
 
 
+# Conservative average track length used only to estimate the advertised
+# release size. Kept short so the implied MB/min stays below Lidarr's
+# per-quality maximum even for albums of short tracks (issue: Lidarr
+# rejecting RSS grabs as "larger than maximum allowed size").
+_AVG_TRACK_SECONDS = 120
+
+
+def _estimated_bitrate_kbps(cfg):
+    """Approximate audio bitrate (kbps) of the configured output format."""
+    fmt = (cfg.get("audio_format") or "mp3").lower()
+    if fmt == "flac":
+        return 1000
+    if fmt in ("m4a", "aac"):
+        return 256
+    if fmt == "opus":
+        return 160
+    if fmt == "ogg":
+        return 256
+    try:
+        return int(str(cfg.get("audio_quality") or "320"))
+    except (TypeError, ValueError):
+        return 320
+
+
+def _estimated_release_size(track_count, cfg):
+    """Advertised release size, derived from the real output bitrate.
+
+    Anchoring on the codec bitrate (rather than a flat per-track guess)
+    keeps the implied MB/min close to what the downloaded files actually
+    are, so Lidarr's quality size limits don't reject the grab.
+    """
+    per_track = int(_estimated_bitrate_kbps(cfg) * 1000 / 8 * _AVG_TRACK_SECONDS)
+    return max(int(track_count or 0), 1) * per_track
+
+
 def _release_title(album, cfg):
     artist = album.get("artist_name", "")
     title = album.get("title", "")
-    year = str(album.get("release_date", ""))[:4]
+    # `or ""` guards an explicit None (get default only covers a missing key).
+    year = str(album.get("release_date") or "")[:4]
     parts = [f"{artist} - {title}"]
     if year:
         parts.append(f"({year})")
@@ -503,7 +606,7 @@ def _search_xml(albums, cfg, base_url):
         album_id = album.get("album_id")
         title = _release_title(album, cfg)
         track_count = int(album.get("track_count") or 10) or 10
-        size = max(track_count, 1) * 8 * 1024 * 1024
+        size = _estimated_release_size(track_count, cfg)
         dl_url = (
             f"{base_url}api/newznab/api?t=get&id={album_id}"
             f"&apikey={api_key}"
@@ -542,11 +645,14 @@ def _search_xml(albums, cfg, base_url):
 
 def _release_pubdate(release_date):
     if release_date:
-        for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d"):
-            try:
-                return time.mktime(time.strptime(release_date[:19], fmt))
-            except (ValueError, TypeError):
-                continue
+        try:
+            # Parse the date portion only: handles both 'YYYY-MM-DD' and a
+            # full ISO 'YYYY-MM-DDTHH:MM:SSZ' (slicing to [:19] would strip
+            # the trailing 'Z' and break the datetime format). timegm keeps
+            # the result in UTC; mktime would apply the host's local offset.
+            return calendar.timegm(time.strptime(release_date[:10], "%Y-%m-%d"))
+        except (ValueError, TypeError):
+            pass
     return time.time()
 
 
@@ -678,10 +784,11 @@ def _split_query(q):
 
 
 def _album_by_id(album_id):
-    for row in models.get_cached_album_index():
-        if int(row.get("album_id") or 0) == int(album_id):
-            return row
-    return None
+    try:
+        return models.get_cached_album(int(album_id))
+    except Exception:
+        logger.warning("Album lookup failed for %s", album_id, exc_info=True)
+        return None
 
 
 # --- SABnzbd download client ---------------------------------------------
@@ -894,13 +1001,33 @@ def _sab_addurl():
     return jsonify({"status": True, "nzo_ids": [nzo_id]})
 
 
+def _recently_failed_client_ids():
+    """Album ids whose *client* job failed within the retry cooldown.
+
+    The infinite re-grab loop is between Lidarr and this client, so only
+    a recent client-job failure should refuse a fresh grab. Manual or
+    scheduler attempts (any ``download_logs`` row) must not block Lidarr
+    from grabbing — that previously caused legitimate grabs to be refused
+    and blocklisted.
+    """
+    cooldown = _retry_cooldown_seconds()
+    if not cooldown:
+        return set()
+    try:
+        return models.get_failed_client_album_ids_since(time.time() - cooldown)
+    except Exception:
+        logger.warning("failed-client-ids lookup failed", exc_info=True)
+        return set()
+
+
 def _grab_blocked(album_id):
-    """True if a grab should be refused: recently attempted and not the
-    same in-flight job (register_grab is idempotent for active albums)."""
+    """True if a grab should be refused: the album's client job failed
+    within the cooldown and there's no active in-flight job (register_grab
+    is idempotent for active albums)."""
     album_id = int(album_id)
     if is_client_album(album_id):
         return False
-    return album_id in _recently_attempted_ids()
+    return album_id in _recently_failed_client_ids()
 
 
 def _grab_name(album_id):

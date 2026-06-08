@@ -1,6 +1,7 @@
 """Tests for the Lidarr download-client bridge (Newznab + SABnzbd)."""
 
 import io
+import time
 
 import pytest
 
@@ -133,16 +134,32 @@ def _log_attempt(album_id=42, artist="Daft Punk", title="Discovery"):
     )
 
 
-def test_rss_feed_excludes_recently_attempted(client):
+def _client_handled(album_id=42, status="completed"):
+    models.upsert_client_job({
+        "nzo_id": f"job-{album_id}", "album_id": album_id, "status": status,
+        "added_ts": time.time(), "completed_ts": time.time(),
+    })
+
+
+def test_rss_feed_excludes_client_handled_album(client):
     _seed_album(album_id=42)
-    _log_attempt(42)
+    _client_handled(42)
     resp = client.get("/api/newznab/api?t=search&apikey=secret")
     assert "id=42" not in resp.get_data(as_text=True)
 
 
-def test_targeted_search_excludes_recently_attempted(client):
-    _seed_album(album_id=42, artist="Daft Punk", title="Discovery")
+def test_rss_feed_includes_manually_attempted_album(client):
+    # A manual/scheduler attempt (a download_logs row, no client job) must
+    # NOT empty the feed, or Lidarr's indexer test reports "no results".
+    _seed_album(album_id=42)
     _log_attempt(42)
+    resp = client.get("/api/newznab/api?t=search&apikey=secret")
+    assert "id=42" in resp.get_data(as_text=True)
+
+
+def test_targeted_search_excludes_client_handled(client):
+    _seed_album(album_id=42, artist="Daft Punk", title="Discovery")
+    _client_handled(42)
     resp = client.get(
         "/api/newznab/api?t=music&artist=Daft+Punk&album=Discovery"
         "&apikey=secret"
@@ -157,9 +174,14 @@ def test_rss_feed_excludes_active_job(client):
     assert "id=42" not in resp.get_data(as_text=True)
 
 
-def test_addfile_blocked_after_recent_attempt(client):
+def test_addfile_blocked_after_failed_client_job(client):
     _seed_album(album_id=42)
-    _log_attempt(42)
+    # A recent *client* job failure should refuse a re-grab (this is the
+    # grab -> fail -> re-grab loop we guard against).
+    models.upsert_client_job({
+        "nzo_id": "old", "album_id": 42, "status": "failed",
+        "added_ts": time.time(), "completed_ts": time.time(),
+    })
     nzb = download_client._build_nzb(42, "Daft Punk - Discovery", "music")
     data = {"name": (io.BytesIO(nzb.encode()), "release.nzb")}
     resp = client.post(
@@ -170,6 +192,23 @@ def test_addfile_blocked_after_recent_attempt(client):
     assert resp.get_json()["status"] is False
     assert models.get_queue_length() == 0
     assert not download_client.is_client_album(42)
+
+
+def test_addfile_not_blocked_after_manual_attempt(client):
+    _seed_album(album_id=42)
+    # A generic download_logs row (manual/scheduler) must NOT block a grab;
+    # only a recent client-job failure does.
+    _log_attempt(42)
+    nzb = download_client._build_nzb(42, "Daft Punk - Discovery", "music")
+    data = {"name": (io.BytesIO(nzb.encode()), "release.nzb")}
+    resp = client.post(
+        "/api/sabnzbd/api?mode=addfile&apikey=secret&cat=music",
+        data=data,
+        content_type="multipart/form-data",
+    )
+    assert resp.get_json()["status"] is True
+    assert models.get_queue_length() == 1
+    assert download_client.is_client_album(42)
 
 
 def test_nzb_download_embeds_album_id(client):
@@ -336,3 +375,164 @@ def test_nzb_round_trip_meta_and_subject():
     assert download_client._parse_album_id_from_nzb(
         "junk lidarr_album_id=777 more"
     ) == 777
+
+
+# --- Regression tests for review fixes ------------------------------------
+
+
+def test_release_title_handles_none_release_date():
+    # An explicit None release_date must not render a literal "(None)" year.
+    title = download_client._release_title(
+        {"artist_name": "A", "title": "B", "release_date": None},
+        {"audio_format": "mp3", "audio_quality": "320"},
+    )
+    assert "(None)" not in title
+    assert title.startswith("A - B")
+
+
+def test_match_album_falls_back_to_next_best_when_top_excluded(client):
+    # Higher-scoring album is excluded; a second matching album must still
+    # be returned instead of None.
+    _seed_album(album_id=1, artist="The Beatles", title="Help")
+    _seed_album(album_id=2, artist="The Beatles", title="Help Deluxe")
+    match = download_client._match_album(
+        "The Beatles", "Help", excluded={1},
+    )
+    assert match is not None
+    assert match["album_id"] == 2
+
+
+def test_run_album_job_stopped_removes_job(client, monkeypatch):
+    nzo = download_client.register_grab(42, "X", "music")
+    monkeypatch.setattr(
+        "processing.process_album_download",
+        lambda *a, **kw: {"stopped": True},
+    )
+    download_client.run_album_job(42)
+    # A user stop drops the job entirely (no 'Failed' slot for Lidarr to
+    # blocklist).
+    assert download_client._jobs.get(nzo) is None
+    assert not download_client.is_client_album(42)
+
+
+def test_run_album_job_empty_path_marks_failed(client, monkeypatch):
+    download_client.register_grab(42, "X", "music")
+    monkeypatch.setattr(
+        "processing.process_album_download",
+        lambda *a, **kw: {"success": True, "album_path": ""},
+    )
+    download_client.run_album_job(42)
+    jobs = models.get_all_client_jobs()
+    assert len(jobs) == 1
+    assert jobs[0]["status"] == "failed"
+
+
+def test_run_album_job_busy_resets_to_queued(client, monkeypatch):
+    nzo = download_client.register_grab(42, "X", "music")
+    monkeypatch.setattr(
+        "processing.process_album_download",
+        lambda *a, **kw: {"error": "Busy"},
+    )
+    download_client.run_album_job(42)
+    # Job stays active but is reset to queued (no phantom 'downloading').
+    assert download_client._jobs[nzo]["status"] == "queued"
+    assert download_client.is_client_album(42)
+
+
+def test_register_grab_rolls_back_on_enqueue_failure(client, monkeypatch):
+    def boom(_album_id):
+        raise RuntimeError("db locked")
+
+    monkeypatch.setattr("models.enqueue_album", boom)
+    with pytest.raises(RuntimeError):
+        download_client.register_grab(42, "X", "music")
+    # Nothing left mapped/persisted, so the album can be grabbed later.
+    assert not download_client.is_client_album(42)
+    assert models.get_all_client_jobs() == []
+
+
+def test_get_cached_album_returns_single_row():
+    _seed_album(album_id=55, artist="Air", title="Moon Safari")
+    row = models.get_cached_album(55)
+    assert row is not None
+    assert row["album_id"] == 55
+    assert row["title"] == "Moon Safari"
+    assert models.get_cached_album(99999) is None
+
+
+def test_release_pubdate_is_utc():
+    # 2001-03-12 parsed as UTC midnight, independent of host TZ.
+    import calendar
+    expected = calendar.timegm((2001, 3, 12, 0, 0, 0, 0, 0, 0))
+    assert download_client._release_pubdate("2001-03-12") == expected
+    # Full ISO datetime (what real Lidarr returns) must parse too, not fall
+    # back to "today" — the trailing 'Z' must not break parsing.
+    assert download_client._release_pubdate("2001-03-12T00:00:00Z") == expected
+
+
+def test_run_album_job_stop_flag_drops_job_on_error(client, monkeypatch):
+    # A stop can arrive on a path that returns an error/exception rather than
+    # {"stopped": True}; the stop flag must still drop the job (no blocklist).
+    nzo = download_client.register_grab(42, "X", "music")
+
+    def fake(*a, **kw):
+        import processing
+        processing.download_process["stop"] = True
+        return {"error": "All tracks failed to download"}
+
+    monkeypatch.setattr("processing.process_album_download", fake)
+    try:
+        download_client.run_album_job(42)
+    finally:
+        import processing
+        processing.download_process["stop"] = False
+    assert download_client._jobs.get(nzo) is None
+    assert not download_client.is_client_album(42)
+
+
+def test_failed_then_succeeded_album_not_blocked(client):
+    # An older failed client job must not block a grab once a newer job for
+    # the same album has succeeded.
+    now = time.time()
+    models.upsert_client_job({
+        "nzo_id": "old", "album_id": 42, "status": "failed",
+        "added_ts": now - 10, "completed_ts": now - 10,
+    })
+    models.upsert_client_job({
+        "nzo_id": "new", "album_id": 42, "status": "completed",
+        "added_ts": now, "completed_ts": now,
+    })
+    assert 42 not in models.get_failed_client_album_ids_since(now - 3600)
+
+
+def test_run_album_job_reports_real_size(client, monkeypatch):
+    # The completed history must carry the real downloaded size, not the
+    # nominal placeholder, so Lidarr's size checks see the actual album.
+    nzo = download_client.register_grab(42, "X", "music")
+    monkeypatch.setattr(
+        "processing.process_album_download",
+        lambda *a, **kw: {
+            "success": True, "album_path": "/d/x", "total_size": 7_340_032,
+        },
+    )
+    download_client.run_album_job(42)
+    job = download_client._jobs[nzo]
+    assert job["status"] == "completed"
+    assert job["size"] == 7_340_032
+
+
+def test_estimated_release_size_tracks_bitrate():
+    # AAC (~256 kbps): the implied MB/min of the advertised size stays close
+    # to the real codec bitrate, so Lidarr's quality size limits accept it.
+    size = download_client._estimated_release_size(10, {"audio_format": "m4a"})
+    mb_per_min = size / (10 * (download_client._AVG_TRACK_SECONDS / 60))
+    mb_per_min /= 1024 * 1024
+    assert 1.4 < mb_per_min < 2.3
+    # Scales linearly with track count and stays below the old flat 8 MB.
+    assert download_client._estimated_release_size(20, {"audio_format": "m4a"}) == 2 * size
+    assert size / 10 < 8 * 1024 * 1024
+
+
+def test_estimated_release_size_handles_missing_count():
+    size = download_client._estimated_release_size(None, {})
+    assert size > 0

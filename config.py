@@ -3,6 +3,7 @@
 Loads defaults from environment variables, overlays with config.json.
 """
 
+import copy
 import json
 import logging
 import os
@@ -14,6 +15,30 @@ CONFIG_FILE = "/config/config.json"
 
 _file_write_lock = threading.Lock()
 
+# Cache the parsed config so the download-client polling path doesn't
+# re-read config.json on every call; rebuilt when the file changes.
+_config_cache = None
+_config_cache_key = None
+
+
+def _config_file_key():
+    # Return None when there is no file to cache against: in env-only mode
+    # (no config.json) we rebuild from os.environ every call so runtime env
+    # changes are picked up, and there's no disk read to amortise anyway.
+    try:
+        st = os.stat(CONFIG_FILE)
+    except OSError:
+        return None
+    return (CONFIG_FILE, st.st_mtime_ns, st.st_size)
+
+
+def invalidate_config_cache():
+    """Drop the cached config (call after writing config.json)."""
+    global _config_cache, _config_cache_key
+    _config_cache = None
+    _config_cache_key = None
+
+
 ALLOWED_CONFIG_KEYS = {
     "scheduler_interval", "telegram_bot_token", "telegram_chat_id",
     "telegram_enabled", "telegram_log_types", "download_path",
@@ -24,7 +49,7 @@ ALLOWED_CONFIG_KEYS = {
     "yt_player_client", "yt_retries", "yt_fragment_retries",
     "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
     "discord_enabled", "discord_webhook_url", "discord_log_types",
-    "acoustid_enabled", "acoustid_api_key",
+    "acoustid_enabled", "acoustid_api_key", "acoustid_accept_score",
     "min_match_score", "audio_format", "audio_quality",
     "lidarr_rename_after_import", "save_cover_art_file",
     "scheduler_retry_after_hours",
@@ -36,32 +61,40 @@ ALLOWED_CONFIG_KEYS = {
 MIN_MATCH_SCORE_DEFAULT = 0.8
 
 
-def _parse_min_match_score(value):
-    """Parse min_match_score from any input, falling back to default with a warning.
+def _parse_unit_float(value, name, default):
+    """Coerce a value to a float in [0.0, 1.0], falling back with a warning.
 
-    Accepts strings, numbers, or anything float-coercible. Logs a warning if
-    the value is invalid or out of the [0.0, 1.0] range.
+    Accepts strings, numbers, or anything float-coercible; out-of-range or
+    invalid input logs a warning and returns ``default``.
     """
     try:
         parsed = float(value)
     except (TypeError, ValueError):
-        logger.warning(
-            "Invalid min_match_score=%r; using default %.2f",
-            value, MIN_MATCH_SCORE_DEFAULT,
-        )
-        return MIN_MATCH_SCORE_DEFAULT
+        logger.warning("Invalid %s=%r; using default %.2f", name, value, default)
+        return default
     if not 0.0 <= parsed <= 1.0:
         logger.warning(
-            "min_match_score=%.2f out of range [0.0, 1.0];"
-            " using default %.2f",
-            parsed, MIN_MATCH_SCORE_DEFAULT,
+            "%s=%.2f out of range [0.0, 1.0]; using default %.2f",
+            name, parsed, default,
         )
-        return MIN_MATCH_SCORE_DEFAULT
+        return default
     return parsed
+
+
+def _parse_min_match_score(value):
+    """Parse min_match_score to a float in [0.0, 1.0] (default 0.8)."""
+    return _parse_unit_float(value, "min_match_score", MIN_MATCH_SCORE_DEFAULT)
 
 
 def load_config():
     """Load config with env var defaults, overlaid by config.json."""
+    global _config_cache, _config_cache_key
+    cache_key = _config_file_key()
+    if cache_key is not None and _config_cache is not None and (
+        cache_key == _config_cache_key
+    ):
+        # Deep copy so callers mutating the result can't corrupt the cache.
+        return copy.deepcopy(_config_cache)
     config = {
         "lidarr_url": os.getenv("LIDARR_URL", ""),
         "lidarr_api_key": os.getenv("LIDARR_API_KEY", ""),
@@ -131,6 +164,10 @@ def load_config():
             os.getenv("ACOUSTID_ENABLED", "true").lower() == "true"
         ),
         "acoustid_api_key": os.getenv("ACOUSTID_API_KEY", ""),
+        "acoustid_accept_score": _parse_unit_float(
+            os.getenv("ACOUSTID_ACCEPT_SCORE", "0.98"),
+            "acoustid_accept_score", 0.98,
+        ),
         "min_match_score": _parse_min_match_score(
             os.getenv("MIN_MATCH_SCORE", "0.8"),
         ),
@@ -194,6 +231,11 @@ def load_config():
             config["min_match_score"] = _parse_min_match_score(
                 config["min_match_score"]
             )
+        if "acoustid_accept_score" in config:
+            config["acoustid_accept_score"] = _parse_unit_float(
+                config["acoustid_accept_score"], "acoustid_accept_score",
+                env_defaults.get("acoustid_accept_score", 0.98),
+            )
 
     def norm(p):
         return (
@@ -210,6 +252,9 @@ def load_config():
     if config["path_conflict"]:
         logger.warning(f"Path Conflict Detected: {l_path}")
 
+    if cache_key is not None:
+        _config_cache = copy.deepcopy(config)
+        _config_cache_key = cache_key
     return config
 
 
@@ -227,3 +272,4 @@ def save_config(config):
     except OSError as e:
         logger.error("Failed to save config to %s: %s", CONFIG_FILE, e)
         raise
+    invalidate_config_cache()

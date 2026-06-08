@@ -1,7 +1,7 @@
 """Tests for Flask route handlers in app.py."""
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -1670,3 +1670,114 @@ class TestNotifyManualDownload:
         embed = kwargs["embed_data"]
         assert "url" not in embed
         assert not [f for f in embed["fields"] if f["name"] == "YouTube"]
+
+
+class _FakeResp:
+    def __init__(self, status_code, payload):
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self):
+        if self._payload is None:
+            raise ValueError("no json")
+        return self._payload
+
+
+def test_pot_provider_test_valid_bgutil(client, monkeypatch):
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    resp = _FakeResp(200, {"version": "1.2.3", "server_uptime": 10})
+    with patch("requests.get", return_value=resp):
+        r = client.post(
+            "/api/pot-provider/test", json={"url": "http://prov:4416"},
+        )
+    data = r.get_json()
+    assert data["success"] is True
+    assert "1.2.3" in data["message"]
+
+
+def test_pot_provider_test_reachable_but_not_bgutil(client, monkeypatch):
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    resp = _FakeResp(200, {"hello": "world"})
+    with patch("requests.get", return_value=resp):
+        r = client.post(
+            "/api/pot-provider/test", json={"url": "http://nginx:80"},
+        )
+    data = r.get_json()
+    assert data["success"] is False
+    assert "not a bgutil" in data["message"].lower()
+
+
+def test_pot_provider_test_unreachable(client, monkeypatch):
+    import requests
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    with patch("requests.get", side_effect=requests.RequestException("boom")):
+        r = client.post(
+            "/api/pot-provider/test", json={"url": "http://down:4416"},
+        )
+    data = r.get_json()
+    assert data["success"] is False
+    assert "not reachable" in data["message"].lower()
+
+
+def _mock_ydl_with_formats(n):
+    m = MagicMock()
+    m.return_value.__enter__.return_value.extract_info.return_value = {
+        "formats": [{} for _ in range(n)]
+    }
+    return m
+
+
+def test_cookies_test_signed_in(client, tmp_path, monkeypatch):
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text(
+        "# Netscape\n.youtube.com\tTRUE\t/\tTRUE\t0\tLOGIN_INFO\tabc\n"
+    )
+    monkeypatch.setattr(
+        "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
+    )
+    import yt_dlp
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _mock_ydl_with_formats(14))
+    data = client.post("/api/cookies/test").get_json()
+    assert data["success"] is True
+    assert "signed in" in data["message"].lower()
+
+
+def test_cookies_test_not_signed_in_warns(client, tmp_path, monkeypatch):
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text(
+        "# Netscape\n.youtube.com\tTRUE\t/\tTRUE\t0\tVISITOR_INFO1_LIVE\tx\n"
+    )
+    monkeypatch.setattr(
+        "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
+    )
+    import yt_dlp
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _mock_ydl_with_formats(14))
+    data = client.post("/api/cookies/test").get_json()
+    assert data["success"] is False
+    assert "login_info" in data["message"].lower()
+
+
+def test_cookies_test_google_only_not_signed_in(client, tmp_path, monkeypatch):
+    # Google-domain auth cookies but no youtube.com LOGIN_INFO: must NOT be
+    # reported as signed in (these don't pass YouTube's age gate).
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text(
+        "# Netscape\n"
+        ".google.com\tTRUE\t/\tTRUE\t0\tSAPISID\tabc\n"
+        ".google.com\tTRUE\t/\tTRUE\t0\t__Secure-3PSID\tdef\n"
+        ".youtube.com\tTRUE\t/\tTRUE\t0\tVISITOR_INFO1_LIVE\tx\n"
+    )
+    monkeypatch.setattr(
+        "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
+    )
+    import yt_dlp
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _mock_ydl_with_formats(14))
+    data = client.post("/api/cookies/test").get_json()
+    assert data["success"] is False
+    assert "login_info" in data["message"].lower()
+
+
+def test_cookies_test_no_file(client, monkeypatch):
+    monkeypatch.setattr("app.load_config", lambda: {"yt_cookies_file": ""})
+    data = client.post("/api/cookies/test").get_json()
+    assert data["success"] is False

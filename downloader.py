@@ -1107,6 +1107,10 @@ def download_youtube_candidate(
 
     first_client = config.get("yt_player_client", "android")
     is_music = candidate.get("source") == "ytmusic"
+    has_po_token = bool(
+        (config.get("yt_po_token") or "").strip()
+        or (config.get("yt_pot_provider_url") or "").strip()
+    )
     clients_to_try = []
     # Music clients hit the YouTube Music InnerTube endpoint, honor
     # cookies more reliably than bare android, and expose higher-tier
@@ -1114,6 +1118,14 @@ def download_youtube_candidate(
     # the user-configured default.
     if is_music:
         clients_to_try.extend(["web_music", "android_music", "ios_music"])
+    # PO tokens (manual or via the bgutil provider) are only honored by the
+    # web-family clients, so when one is configured try web before the
+    # default (e.g. android) — otherwise the first attempt, on a client that
+    # ignores the token, just wastes it and reports "format not available".
+    if has_po_token:
+        for c in ("web", "web_music"):
+            if c not in clients_to_try:
+                clients_to_try.append(c)
     if first_client and first_client not in clients_to_try:
         clients_to_try.append(first_client)
     for alt in ["web", "ios", "web_creator", "tv_embedded"]:
@@ -1169,6 +1181,10 @@ def download_youtube_candidate(
                 try:
                     with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
                         ydl_dl.download([download_url])
+                    logger.info(
+                        "Downloaded '%s' via player_client=%s",
+                        candidate["title"], pc or "default",
+                    )
                     return {
                         "success": True,
                         "youtube_url": display_url,
@@ -1206,9 +1222,16 @@ def download_youtube_candidate(
                     continue
 
     if last_err:
-        logger.debug(
-            f"   Failed to download '{candidate['title']}'"
-            " after trying multiple client profiles."
+        # Surface PO-token state on failure so users can tell whether a
+        # configured token/provider was actually in play (issue #64).
+        logger.info(
+            "Failed to download '%s' after trying clients %s"
+            " (po_token=%s, %d format-unavailable, %s403)",
+            candidate["title"],
+            [c or "default" for c in clients_to_try],
+            "yes" if has_po_token else "no",
+            format_unavailable_errors,
+            "" if any_403 else "no ",
         )
 
     last_error_msg = str(last_err)[:120] if last_err else "Unknown error"
@@ -1220,7 +1243,12 @@ def download_youtube_candidate(
                 " - try providing/refreshing YouTube cookies"
             ),
         }
-    if format_unavailable_errors:
+    # Only blame format gating when the *final* attempt was a format error,
+    # so an earlier hiccup doesn't mis-report an unrelated last failure.
+    if format_unavailable_errors and (
+        "requested format is not available" in last_error_msg.lower()
+        or "no video formats" in last_error_msg.lower()
+    ):
         return {
             "success": False,
             "error_message": (

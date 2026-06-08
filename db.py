@@ -13,6 +13,23 @@ SCHEMA_VERSION = 7
 
 _local = threading.local()
 
+# Shared by fresh-install creation and the v6->v7 migration so the
+# download_client_jobs schema can't drift between them.
+_DOWNLOAD_CLIENT_JOBS_DDL = """
+        CREATE TABLE IF NOT EXISTS download_client_jobs (
+            nzo_id TEXT PRIMARY KEY,
+            album_id INTEGER NOT NULL,
+            name TEXT DEFAULT '',
+            category TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'queued',
+            storage TEXT DEFAULT '',
+            size INTEGER DEFAULT 0,
+            error TEXT DEFAULT '',
+            added_ts REAL DEFAULT 0,
+            completed_ts REAL
+        )
+"""
+
 
 def get_db():
     """Return a thread-local SQLite connection, creating one if needed."""
@@ -199,19 +216,8 @@ def _ensure_current_tables(conn):
             current_run_id INTEGER DEFAULT 0
         );
         INSERT OR IGNORE INTO sync_state (id, status) VALUES (1, 'idle');
-        CREATE TABLE IF NOT EXISTS download_client_jobs (
-            nzo_id TEXT PRIMARY KEY,
-            album_id INTEGER NOT NULL,
-            name TEXT DEFAULT '',
-            category TEXT DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'queued',
-            storage TEXT DEFAULT '',
-            size INTEGER DEFAULT 0,
-            error TEXT DEFAULT '',
-            added_ts REAL DEFAULT 0,
-            completed_ts REAL
-        );
     """)
+    conn.execute(_DOWNLOAD_CLIENT_JOBS_DDL)
     conn.commit()
 
 
@@ -422,20 +428,7 @@ def _migrate_v5_to_v6(conn):
 
 def _migrate_v6_to_v7(conn):
     """Add download_client_jobs so SABnzbd-bridge jobs survive restarts."""
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS download_client_jobs (
-            nzo_id TEXT PRIMARY KEY,
-            album_id INTEGER NOT NULL,
-            name TEXT DEFAULT '',
-            category TEXT DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'queued',
-            storage TEXT DEFAULT '',
-            size INTEGER DEFAULT 0,
-            error TEXT DEFAULT '',
-            added_ts REAL DEFAULT 0,
-            completed_ts REAL
-        )
-    """)
+    conn.execute(_DOWNLOAD_CLIENT_JOBS_DDL)
 
 
 def _run_migrations(conn, current_version):

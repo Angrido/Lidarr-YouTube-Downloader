@@ -342,3 +342,43 @@ class TestVerifyFingerprint:
             "/file.mp3", "expected-rec", "test-key",
         )
         assert result["status"] == "verified"
+
+
+def test_verify_fingerprint_accepts_high_acoustic_score(monkeypatch):
+    # Different recording id, no matching release group, but a near-perfect
+    # acoustic score -> accepted (same track, different release). Issue #58.
+    _verify_setup(monkeypatch, [{
+        "id": "fp-1", "score": 0.99,
+        "recordings": [{
+            "id": "other-rec", "title": "My Song",
+            "releasegroups": [{"id": "rg-different"}],
+        }],
+    }])
+    res = verify_fingerprint(
+        "/f.mp3", "expected-rec", "key",
+        expected_release_group_id="rg-expected",
+    )
+    assert res["status"] == "verified"
+    assert res["matched_id"] == "other-rec"
+
+
+def test_verify_fingerprint_high_score_below_accept_threshold(monkeypatch):
+    # A different recording just under the strict accept threshold stays a
+    # mismatch, so genuinely wrong tracks aren't waved through.
+    _verify_setup(monkeypatch, [{
+        "id": "fp-1", "score": 0.90,
+        "recordings": [{"id": "other-rec", "title": "My Song"}],
+    }])
+    res = verify_fingerprint("/f.mp3", "expected-rec", "key")
+    assert res["status"] == "mismatch"
+
+
+def test_verify_fingerprint_accept_threshold_is_configurable(monkeypatch):
+    _verify_setup(monkeypatch, [{
+        "id": "fp-1", "score": 0.94,
+        "recordings": [{"id": "other-rec", "title": "My Song"}],
+    }])
+    res = verify_fingerprint(
+        "/f.mp3", "expected-rec", "key", accept_score_threshold=0.93,
+    )
+    assert res["status"] == "verified"
