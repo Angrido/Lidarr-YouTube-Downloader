@@ -490,8 +490,9 @@ def api_cookies_test():
     """Probe YouTube with the configured cookies file.
 
     Resolves a known video so we can tell whether yt-dlp can extract
-    media (200 OK with formats) vs. is being blocked (403, cookies
-    invalid, login required, etc.).
+    media at all, and inspects the cookies for a signed-in YouTube
+    session — which is what age-restricted ("Sign in to confirm your
+    age") videos require.
     """
     cfg = load_config()
     path = (cfg.get("yt_cookies_file") or "").strip()
@@ -500,6 +501,20 @@ def api_cookies_test():
     if not os.path.exists(path):
         return jsonify(
             {"success": False, "message": f"Cookies file not found: {path}"}
+        )
+    # A logged-in YouTube session sets these cookies; without them yt-dlp
+    # cannot pass the age gate no matter which player client it uses.
+    auth_markers = (
+        "LOGIN_INFO", "SAPISID", "__Secure-3PSID", "__Secure-1PSID",
+    )
+    signed_in = False
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            cookie_text = f.read()
+        signed_in = any(marker in cookie_text for marker in auth_markers)
+    except OSError as e:
+        return jsonify(
+            {"success": False, "message": f"Cannot read cookies file: {e}"}
         )
     try:
         import yt_dlp
@@ -521,12 +536,23 @@ def api_cookies_test():
             return jsonify(
                 {"success": False, "message": "yt-dlp returned no formats"}
             )
-        return jsonify(
-            {
+        if signed_in:
+            return jsonify({
                 "success": True,
-                "message": f"OK ({len(formats)} formats available)",
-            }
-        )
+                "message": (
+                    f"OK — signed in to YouTube ({len(formats)} formats)."
+                    " Age-restricted videos should work."
+                ),
+            })
+        return jsonify({
+            "success": False,
+            "message": (
+                f"Cookies work for public videos ({len(formats)} formats)"
+                " but contain NO signed-in YouTube session, so"
+                " age-restricted ('Sign in to confirm your age') tracks"
+                " will fail. Re-export cookies while logged in to YouTube."
+            ),
+        })
     except Exception as e:
         msg = str(e)
         return jsonify({"success": False, "message": msg[:240]})

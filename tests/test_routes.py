@@ -1,7 +1,7 @@
 """Tests for Flask route handlers in app.py."""
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -1717,3 +1717,47 @@ def test_pot_provider_test_unreachable(client, monkeypatch):
     data = r.get_json()
     assert data["success"] is False
     assert "not reachable" in data["message"].lower()
+
+
+def _mock_ydl_with_formats(n):
+    m = MagicMock()
+    m.return_value.__enter__.return_value.extract_info.return_value = {
+        "formats": [{} for _ in range(n)]
+    }
+    return m
+
+
+def test_cookies_test_signed_in(client, tmp_path, monkeypatch):
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text(
+        "# Netscape\n.youtube.com\tTRUE\t/\tTRUE\t0\tLOGIN_INFO\tabc\n"
+    )
+    monkeypatch.setattr(
+        "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
+    )
+    import yt_dlp
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _mock_ydl_with_formats(14))
+    data = client.post("/api/cookies/test").get_json()
+    assert data["success"] is True
+    assert "signed in" in data["message"].lower()
+
+
+def test_cookies_test_not_signed_in_warns(client, tmp_path, monkeypatch):
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text(
+        "# Netscape\n.youtube.com\tTRUE\t/\tTRUE\t0\tVISITOR_INFO1_LIVE\tx\n"
+    )
+    monkeypatch.setattr(
+        "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
+    )
+    import yt_dlp
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _mock_ydl_with_formats(14))
+    data = client.post("/api/cookies/test").get_json()
+    assert data["success"] is False
+    assert "no signed-in" in data["message"].lower()
+
+
+def test_cookies_test_no_file(client, monkeypatch):
+    monkeypatch.setattr("app.load_config", lambda: {"yt_cookies_file": ""})
+    data = client.post("/api/cookies/test").get_json()
+    assert data["success"] is False

@@ -3,6 +3,11 @@
 ## 1.8.1
 
 ### Fixed
+- **Cookies "Test" now detects a signed-in session**: age-restricted
+  ("Sign in to confirm your age") videos need cookies from a logged-in
+  YouTube account, so the test now reports whether the cookies contain a
+  login session instead of just counting formats on a public video (which
+  passed even for logged-out cookies).
 - **PO-token provider "Test" button now does a real check**: it queries the
   bgutil provider's `/ping`, verifies the response is actually a bgutil POT
   provider and reports its version, instead of reporting success for any
