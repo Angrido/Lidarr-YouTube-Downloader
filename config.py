@@ -60,6 +60,15 @@ ALLOWED_CONFIG_KEYS = {
 
 MIN_MATCH_SCORE_DEFAULT = 0.8
 
+# Default forbidden words filtered out of YouTube search results. Single
+# source of truth shared by the config defaults and the downloader's
+# effective-list builder, and mirrored by the Settings UI checkboxes.
+DEFAULT_FORBIDDEN_WORDS = [
+    "remix", "cover", "mashup", "bootleg", "live", "dj mix",
+    "karaoke", "slowed", "reverb", "nightcore", "sped up",
+    "instrumental", "acapella", "tribute", "reaction", "8d audio",
+]
+
 
 def _parse_unit_float(value, name, default):
     """Coerce a value to a float in [0.0, 1.0], falling back with a warning.
@@ -125,11 +134,7 @@ def load_config():
         "xml_metadata_enabled": (
             os.getenv("XML_METADATA_ENABLED", "true").lower() == "true"
         ),
-        "forbidden_words": [
-            "remix", "cover", "mashup", "bootleg", "live", "dj mix",
-            "karaoke", "slowed", "reverb", "nightcore", "sped up",
-            "instrumental", "acapella", "tribute", "8d audio",
-        ],
+        "forbidden_words": list(DEFAULT_FORBIDDEN_WORDS),
         "forbidden_words_custom": [],
         "duration_tolerance": int(os.getenv("DURATION_TOLERANCE", "10")),
         "concurrent_tracks": int(os.getenv("CONCURRENT_TRACKS", "2")),

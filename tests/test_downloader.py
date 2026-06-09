@@ -10,6 +10,7 @@ from downloader import (
     download_track_youtube,
     download_youtube_candidate,
     find_album_on_ytmusic,
+    get_effective_forbidden_words,
     match_album_track,
     search_youtube_candidates,
 )
@@ -180,6 +181,55 @@ class TestCheckForbidden:
     def test_empty_forbidden_list(self):
         result = _check_forbidden("any title", "any title", [])
         assert result is None
+
+
+class TestEffectiveForbiddenWords:
+    def test_merges_builtin_and_custom(self):
+        words = get_effective_forbidden_words({
+            "forbidden_words": ["remix", "live"],
+            "forbidden_words_custom": ["8d audio", "speed up"],
+        })
+        assert words == ["remix", "live", "8d audio", "speed up"]
+
+    def test_normalizes_case_and_whitespace(self):
+        # User-configured words with stray casing/whitespace must still match
+        # the lower-cased YouTube titles the filter is applied to.
+        words = get_effective_forbidden_words({
+            "forbidden_words": ["  ReMix ", "LIVE"],
+            "forbidden_words_custom": ["  Nightcore"],
+        })
+        assert words == ["remix", "live", "nightcore"]
+
+    def test_dedupes_across_lists(self):
+        words = get_effective_forbidden_words({
+            "forbidden_words": ["remix", "cover"],
+            "forbidden_words_custom": ["remix", "Cover", "bootleg"],
+        })
+        assert words == ["remix", "cover", "bootleg"]
+
+    def test_missing_builtin_falls_back_to_default(self):
+        words = get_effective_forbidden_words(
+            {"forbidden_words_custom": ["foo"]}
+        )
+        assert "remix" in words and "foo" in words
+
+    def test_non_list_values_are_tolerated(self):
+        # A null/garbage value must not crash the search path.
+        words = get_effective_forbidden_words({
+            "forbidden_words": None,
+            "forbidden_words_custom": None,
+        })
+        assert "remix" in words
+
+    def test_custom_word_is_applied_by_check_forbidden(self):
+        # End-to-end: a custom word makes _check_forbidden reject a title.
+        words = get_effective_forbidden_words({
+            "forbidden_words": [],
+            "forbidden_words_custom": ["hardstyle"],
+        })
+        assert _check_forbidden(
+            "track hardstyle edit", "track", words
+        ) == "hardstyle"
 
 
 class TestDownloadTrackYoutubeReturnType:

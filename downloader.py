@@ -18,7 +18,7 @@ from difflib import SequenceMatcher
 
 import yt_dlp
 
-from config import load_config
+from config import DEFAULT_FORBIDDEN_WORDS, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +135,32 @@ def _is_topic_channel(channel_name, artist_name):
     if not ar:
         return False
     return ch.endswith("- topic") and ar in ch
+
+
+def get_effective_forbidden_words(config):
+    """Build the normalized forbidden-word list (built-in + custom).
+
+    Both the built-in selection (``forbidden_words``) and the user's
+    additions (``forbidden_words_custom``) are stripped, lower-cased and
+    de-duplicated, so matching is case-insensitive and a word configured in
+    either list — even via the API/env with stray casing or whitespace — is
+    honored. Falls back to ``DEFAULT_FORBIDDEN_WORDS`` only when the
+    built-in key is missing or not a list.
+    """
+    builtin = config.get("forbidden_words")
+    if not isinstance(builtin, (list, tuple)):
+        builtin = DEFAULT_FORBIDDEN_WORDS
+    custom = config.get("forbidden_words_custom")
+    if not isinstance(custom, (list, tuple)):
+        custom = []
+    merged = []
+    seen = set()
+    for raw in list(builtin) + list(custom):
+        word = raw.strip().lower() if isinstance(raw, str) else ""
+        if word and word not in seen:
+            seen.add(word)
+            merged.append(word)
+    return merged
 
 
 def _check_forbidden(yt_title_lower, track_title_lower, forbidden_list):
@@ -685,15 +711,7 @@ def search_youtube_candidates(
         "extract_flat": True,
     }
 
-    forbidden_words = list(config.get("forbidden_words", [
-        "remix", "cover", "mashup", "bootleg", "live", "dj mix",
-        "karaoke", "slowed", "reverb", "nightcore", "sped up",
-        "instrumental", "acapella", "tribute", "8d audio",
-    ]))
-    for extra in config.get("forbidden_words_custom", []) or []:
-        word = (extra or "").strip().lower()
-        if word and word not in forbidden_words:
-            forbidden_words.append(word)
+    forbidden_words = get_effective_forbidden_words(config)
     duration_tolerance = config.get("duration_tolerance", 15)
 
     expected_duration_sec = None
