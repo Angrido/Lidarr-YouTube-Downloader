@@ -1269,6 +1269,41 @@ class TestListVideoFormats:
 
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")
+    def test_lists_without_format_selection(
+        self, mock_config, mock_ydl_class,
+    ):
+        # Must use process=False so a video that only exposes split DASH
+        # streams lists its formats instead of raising "Requested format is
+        # not available".
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "title": "x",
+            "formats": [{"format_id": "140", "ext": "m4a", "vcodec": "none",
+                         "acodec": "mp4a", "abr": 128}],
+        }
+        list_video_formats("abcdefghijk")
+        assert mock_ydl.extract_info.call_args.kwargs.get("process") is False
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_falls_back_to_next_client_when_no_formats(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.side_effect = [
+            {"title": "x", "formats": []},  # default client: nothing usable
+            {"title": "x", "formats": [  # next client succeeds
+                {"format_id": "140", "ext": "m4a", "vcodec": "none",
+                 "acodec": "mp4a", "abr": 128}]},
+        ]
+        res = list_video_formats("abcdefghijk")
+        assert [f["format_id"] for f in res["formats"]] == ["140"]
+        assert mock_ydl.extract_info.call_count == 2
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
     def test_playlist_uses_first_entry(self, mock_config, mock_ydl_class):
         mock_config.return_value = {"yt_player_client": "android"}
         mock_ydl = mock_ydl_class.return_value.__enter__.return_value

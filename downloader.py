@@ -1100,17 +1100,42 @@ def list_video_formats(url):
         f"https://www.youtube.com/watch?v={video_id}" if video_id else url
     )
     cfg = load_config()
-    player_client = cfg.get("yt_player_client", "android") or None
-    opts = {
-        **_build_common_opts(player_client=player_client),
-        "skip_download": True,
-        "extract_flat": False,
-    }
-    with yt_dlp.YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(target, download=False) or {}
-    if info.get("entries"):  # playlist/search: use the first real entry
-        entries = [e for e in info["entries"] if e]
-        info = entries[0] if entries else {}
+    # ``process=False`` lists formats WITHOUT running format selection, so a
+    # video whose default selector can't be satisfied (e.g. only DASH audio,
+    # no muxed stream) still returns its full format list instead of raising
+    # "Requested format is not available". The android client (the usual
+    # default) often returns limited/no formats without a PO token, so fall
+    # back through the web-family clients like the download path does.
+    configured = cfg.get("yt_player_client", "android") or "android"
+    clients = [configured]
+    for c in ("web", "web_music", "ios", "tv_embedded"):
+        if c not in clients:
+            clients.append(c)
+    info = {}
+    last_err = None
+    for pc in clients:
+        opts = {
+            **_build_common_opts(player_client=pc),
+            "skip_download": True,
+            "extract_flat": False,
+        }
+        opts.pop("format_sort", None)  # irrelevant when only listing
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(
+                    target, download=False, process=False,
+                ) or {}
+        except Exception as exc:
+            last_err = exc
+            info = {}
+            continue
+        if info.get("entries"):  # playlist/search: use the first real entry
+            entries = [e for e in info["entries"] if e]
+            info = entries[0] if entries else {}
+        if info.get("formats"):
+            break
+    if not info.get("formats") and last_err is not None:
+        raise last_err
     out = []
     for f in info.get("formats") or []:
         if (f.get("acodec") or "none") == "none":
