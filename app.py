@@ -29,7 +29,7 @@ import db
 import download_client
 import models
 from config import ALLOWED_CONFIG_KEYS, load_config, save_config
-from downloader import get_ytdlp_version
+from downloader import get_ytdlp_version, list_video_formats
 from fingerprint import fingerprint_track
 from lidarr import get_missing_albums, lidarr_request
 from metadata import create_xml_metadata, get_itunes_tracks, tag_audio_file
@@ -64,7 +64,7 @@ log.setLevel(logging.ERROR)
 app = Flask(__name__)
 app.register_blueprint(download_client.bp)
 
-VERSION = "1.8.1"
+VERSION = "1.8.2"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -564,6 +564,34 @@ def api_cookies_test():
     except Exception as e:
         msg = str(e)
         return jsonify({"success": False, "message": msg[:240]})
+
+
+@app.route("/api/ytdlp/formats", methods=["POST"])
+def api_ytdlp_formats():
+    """List the audio formats yt-dlp exposes for a user-supplied video.
+
+    Lets the Settings "yt-dlp Format Override" tester show the available
+    format IDs (e.g. 141) for a pasted YouTube URL/ID.
+    """
+    payload = request.get_json(silent=True) or {}
+    url = (payload.get("url") or "").strip()
+    if not url:
+        return jsonify(
+            {"success": False, "message": "Enter a YouTube video URL or ID"}
+        )
+    try:
+        result = list_video_formats(url)
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)[:240]})
+    if not result.get("formats"):
+        return jsonify(
+            {"success": False, "message": "No audio formats found for this video"}
+        )
+    return jsonify({
+        "success": True,
+        "title": result.get("title", ""),
+        "formats": result["formats"],
+    })
 
 
 @app.route("/api/album/<int:album_id>")

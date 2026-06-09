@@ -10,6 +10,8 @@ from downloader import (
     download_track_youtube,
     download_youtube_candidate,
     find_album_on_ytmusic,
+    get_effective_forbidden_words,
+    list_video_formats,
     match_album_track,
     search_youtube_candidates,
 )
@@ -180,6 +182,55 @@ class TestCheckForbidden:
     def test_empty_forbidden_list(self):
         result = _check_forbidden("any title", "any title", [])
         assert result is None
+
+
+class TestEffectiveForbiddenWords:
+    def test_merges_builtin_and_custom(self):
+        words = get_effective_forbidden_words({
+            "forbidden_words": ["remix", "live"],
+            "forbidden_words_custom": ["8d audio", "speed up"],
+        })
+        assert words == ["remix", "live", "8d audio", "speed up"]
+
+    def test_normalizes_case_and_whitespace(self):
+        # User-configured words with stray casing/whitespace must still match
+        # the lower-cased YouTube titles the filter is applied to.
+        words = get_effective_forbidden_words({
+            "forbidden_words": ["  ReMix ", "LIVE"],
+            "forbidden_words_custom": ["  Nightcore"],
+        })
+        assert words == ["remix", "live", "nightcore"]
+
+    def test_dedupes_across_lists(self):
+        words = get_effective_forbidden_words({
+            "forbidden_words": ["remix", "cover"],
+            "forbidden_words_custom": ["remix", "Cover", "bootleg"],
+        })
+        assert words == ["remix", "cover", "bootleg"]
+
+    def test_missing_builtin_falls_back_to_default(self):
+        words = get_effective_forbidden_words(
+            {"forbidden_words_custom": ["foo"]}
+        )
+        assert "remix" in words and "foo" in words
+
+    def test_non_list_values_are_tolerated(self):
+        # A null/garbage value must not crash the search path.
+        words = get_effective_forbidden_words({
+            "forbidden_words": None,
+            "forbidden_words_custom": None,
+        })
+        assert "remix" in words
+
+    def test_custom_word_is_applied_by_check_forbidden(self):
+        # End-to-end: a custom word makes _check_forbidden reject a title.
+        words = get_effective_forbidden_words({
+            "forbidden_words": [],
+            "forbidden_words_custom": ["hardstyle"],
+        })
+        assert _check_forbidden(
+            "track hardstyle edit", "track", words
+        ) == "hardstyle"
 
 
 class TestDownloadTrackYoutubeReturnType:
@@ -1111,6 +1162,183 @@ class TestMusicClientPriority:
             pc = yt_args.get("player_client", [None])
             called_clients.extend(pc if isinstance(pc, list) else [pc])
         assert not any("music" in str(c) for c in called_clients if c)
+
+
+class TestYtdlpFormatOverride:
+    @staticmethod
+    def _formats_tried(mock_ydl_class):
+        formats = []
+        for call in mock_ydl_class.call_args_list:
+            opts = call.args[0] if call.args else call.kwargs
+            if isinstance(opts, dict) and "format" in opts:
+                formats.append(opts["format"])
+        return formats
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_custom_format_tried_first(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {
+            "yt_player_client": "android",
+            "audio_format": "m4a",
+            "audio_quality": "320",
+            "ytdlp_format": "141",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "requested format is not available"
+        )
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "ytsearch",
+        }
+        download_youtube_candidate(candidate, "/tmp/out")
+        formats = self._formats_tried(mock_ydl_class)
+        assert formats, "expected at least one format selector to be tried"
+        # The override is attempted first, before the built-in fallbacks.
+        assert formats[0] == "141"
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_no_override_uses_builtin_selectors(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android",
+            "audio_format": "mp3",
+            "audio_quality": "320",
+            "ytdlp_format": "",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "requested format is not available"
+        )
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "ytsearch",
+        }
+        download_youtube_candidate(candidate, "/tmp/out")
+        formats = self._formats_tried(mock_ydl_class)
+        assert "141" not in formats
+        assert formats[0] == "bestaudio/best"
+
+
+class TestListVideoFormats:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_filters_video_only_and_sorts(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "title": "Some Song",
+            "formats": [
+                {"format_id": "137", "ext": "mp4",
+                 "vcodec": "avc1", "acodec": "none"},  # video-only -> dropped
+                {"format_id": "140", "ext": "m4a", "vcodec": "none",
+                 "acodec": "mp4a.40.2", "abr": 128, "filesize": 1048576},
+                {"format_id": "141", "ext": "m4a", "vcodec": "none",
+                 "acodec": "mp4a.40.2", "abr": 256},
+                {"format_id": "18", "ext": "mp4", "vcodec": "avc1",
+                 "acodec": "mp4a.40.2", "abr": 96},  # muxed audio+video
+            ],
+        }
+        res = list_video_formats(
+            "https://www.youtube.com/watch?v=abcdefghijk"
+        )
+        ids = [f["format_id"] for f in res["formats"]]
+        # Video-only 137 dropped; audio-only first (141, 140 by bitrate),
+        # then the muxed audio+video stream.
+        assert ids == ["141", "140", "18"]
+        assert res["title"] == "Some Song"
+        assert res["formats"][0]["audio_only"] is True
+        assert res["formats"][0]["abr"] == 256
+        assert res["formats"][2]["audio_only"] is False
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_bare_id_becomes_watch_url(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "title": "x",
+            "formats": [{"format_id": "140", "ext": "m4a",
+                         "vcodec": "none", "acodec": "mp4a", "abr": 128}],
+        }
+        list_video_formats("abcdefghijk")
+        called = mock_ydl.extract_info.call_args[0][0]
+        assert called == "https://www.youtube.com/watch?v=abcdefghijk"
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_lists_without_format_selection_error(
+        self, mock_config, mock_ydl_class,
+    ):
+        # Must set ignore_no_formats_error so a video that only exposes split
+        # DASH streams lists its formats (full processing, like `yt-dlp -F`)
+        # instead of raising "Requested format is not available".
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "title": "x",
+            "formats": [{"format_id": "140", "ext": "m4a", "vcodec": "none",
+                         "acodec": "mp4a", "abr": 128}],
+        }
+        list_video_formats("abcdefghijk")
+        opts = mock_ydl_class.call_args.args[0]
+        assert opts.get("ignore_no_formats_error") is True
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_tries_default_clients_first(self, mock_config, mock_ydl_class):
+        # The first attempt forces no player_client, so yt-dlp uses its own
+        # defaults (what `yt-dlp -F` does) rather than the format-starved
+        # android client.
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "title": "x",
+            "formats": [{"format_id": "140", "ext": "m4a", "vcodec": "none",
+                         "acodec": "mp4a", "abr": 128}],
+        }
+        list_video_formats("abcdefghijk")
+        first_opts = mock_ydl_class.call_args_list[0].args[0]
+        extractor_args = first_opts.get("extractor_args", {})
+        assert "youtube" not in extractor_args or (
+            "player_client" not in extractor_args.get("youtube", {})
+        )
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_falls_back_to_next_client_when_no_formats(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.side_effect = [
+            {"title": "x", "formats": []},  # default client: nothing usable
+            {"title": "x", "formats": [  # next client succeeds
+                {"format_id": "140", "ext": "m4a", "vcodec": "none",
+                 "acodec": "mp4a", "abr": 128}]},
+        ]
+        res = list_video_formats("abcdefghijk")
+        assert [f["format_id"] for f in res["formats"]] == ["140"]
+        assert mock_ydl.extract_info.call_count == 2
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_playlist_uses_first_entry(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                None,
+                {"title": "first", "formats": [
+                    {"format_id": "140", "ext": "m4a", "vcodec": "none",
+                     "acodec": "mp4a", "abr": 128}]},
+            ],
+        }
+        res = list_video_formats("https://youtube.com/playlist?list=PL")
+        assert res["title"] == "first"
+        assert [f["format_id"] for f in res["formats"]] == ["140"]
 
 
 class TestVideoIdDedup:

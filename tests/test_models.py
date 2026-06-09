@@ -363,6 +363,18 @@ def test_dequeue_album():
     assert queue[0]["album_id"] == 20
 
 
+def test_peek_next_from_queue_does_not_remove():
+    assert models.peek_next_from_queue() is None
+    models.enqueue_album(10)
+    models.enqueue_album(20)
+    # Peek returns the head without removing it (FIFO by position).
+    assert models.peek_next_from_queue() == 10
+    assert models.peek_next_from_queue() == 10
+    assert models.get_queue_length() == 2
+    assert models.pop_next_from_queue() == 10
+    assert models.peek_next_from_queue() == 20
+
+
 def test_set_queue_status():
     models.enqueue_album(10)
     models.set_queue_status(10, models.QUEUE_STATUS_DOWNLOADING)

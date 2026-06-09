@@ -18,7 +18,7 @@ from difflib import SequenceMatcher
 
 import yt_dlp
 
-from config import load_config
+from config import DEFAULT_FORBIDDEN_WORDS, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +135,32 @@ def _is_topic_channel(channel_name, artist_name):
     if not ar:
         return False
     return ch.endswith("- topic") and ar in ch
+
+
+def get_effective_forbidden_words(config):
+    """Build the normalized forbidden-word list (built-in + custom).
+
+    Both the built-in selection (``forbidden_words``) and the user's
+    additions (``forbidden_words_custom``) are stripped, lower-cased and
+    de-duplicated, so matching is case-insensitive and a word configured in
+    either list — even via the API/env with stray casing or whitespace — is
+    honored. Falls back to ``DEFAULT_FORBIDDEN_WORDS`` only when the
+    built-in key is missing or not a list.
+    """
+    builtin = config.get("forbidden_words")
+    if not isinstance(builtin, (list, tuple)):
+        builtin = DEFAULT_FORBIDDEN_WORDS
+    custom = config.get("forbidden_words_custom")
+    if not isinstance(custom, (list, tuple)):
+        custom = []
+    merged = []
+    seen = set()
+    for raw in list(builtin) + list(custom):
+        word = raw.strip().lower() if isinstance(raw, str) else ""
+        if word and word not in seen:
+            seen.add(word)
+            merged.append(word)
+    return merged
 
 
 def _check_forbidden(yt_title_lower, track_title_lower, forbidden_list):
@@ -685,15 +711,7 @@ def search_youtube_candidates(
         "extract_flat": True,
     }
 
-    forbidden_words = list(config.get("forbidden_words", [
-        "remix", "cover", "mashup", "bootleg", "live", "dj mix",
-        "karaoke", "slowed", "reverb", "nightcore", "sped up",
-        "instrumental", "acapella", "tribute", "8d audio",
-    ]))
-    for extra in config.get("forbidden_words_custom", []) or []:
-        word = (extra or "").strip().lower()
-        if word and word not in forbidden_words:
-            forbidden_words.append(word)
+    forbidden_words = get_effective_forbidden_words(config)
     duration_tolerance = config.get("duration_tolerance", 15)
 
     expected_duration_sec = None
@@ -1063,6 +1081,82 @@ def _candidate_display_url(candidate):
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
+def list_video_formats(url):
+    """List the audio-capable formats for a YouTube video URL or ID.
+
+    Powers the Settings "yt-dlp Format Override" tester: paste a video and
+    see which format IDs it exposes (e.g. ``141`` = 256 kbps AAC) so you
+    know what to put in the override. Uses the configured cookies / PO token
+    and mirrors ``yt-dlp -F`` (default clients first, full processing).
+    Video-only streams are omitted (this is an audio app).
+
+    Returns:
+        dict ``{"title": str, "formats": [{format_id, ext, acodec, abr,
+        filesize, audio_only, note}, ...]}`` sorted audio-only first then by
+        bitrate descending.
+    """
+    raw = (url or "").strip()
+    # Pass full URLs (incl. music.youtube.com) through unchanged so this
+    # matches what `yt-dlp -F <url>` does; only a bare 11-char id is expanded.
+    if re.fullmatch(r"[0-9A-Za-z_-]{11}", raw):
+        target = f"https://www.youtube.com/watch?v={raw}"
+    else:
+        target = raw or url
+    cfg = load_config()
+    # ``ignore_no_formats_error`` keeps full processing (so acodec/abr are
+    # populated like `yt-dlp -F`) while not raising "Requested format is not
+    # available" when the default selector can't pick a stream. We try
+    # yt-dlp's own default clients first (what `-F` uses), then fall back
+    # through specific clients — the configured one often is ``android``,
+    # which returns few/no formats without a PO token.
+    configured = (cfg.get("yt_player_client") or "").strip()
+    clients = [None]  # None = yt-dlp default clients (matches `-F`)
+    for c in (configured, "web", "web_music", "ios", "tv_embedded"):
+        if c and c not in clients:
+            clients.append(c)
+    info = {}
+    last_err = None
+    for pc in clients:
+        opts = {
+            **_build_common_opts(player_client=pc),
+            "skip_download": True,
+            "extract_flat": False,
+            "ignore_no_formats_error": True,
+        }
+        opts.pop("format_sort", None)  # irrelevant when only listing
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(target, download=False) or {}
+        except Exception as exc:
+            last_err = exc
+            info = {}
+            continue
+        if info.get("entries"):  # playlist/search: use the first real entry
+            entries = [e for e in info["entries"] if e]
+            info = entries[0] if entries else {}
+        if info.get("formats"):
+            break
+    if not info.get("formats") and last_err is not None:
+        raise last_err
+    out = []
+    for f in info.get("formats") or []:
+        if (f.get("acodec") or "none") == "none":
+            continue  # skip video-only streams
+        out.append({
+            "format_id": str(f.get("format_id", "")),
+            "ext": f.get("ext", "") or "",
+            "acodec": f.get("acodec", "") or "",
+            "abr": round(f.get("abr") or 0),
+            "filesize": int(
+                f.get("filesize") or f.get("filesize_approx") or 0
+            ),
+            "audio_only": (f.get("vcodec") or "none") == "none",
+            "note": f.get("format_note", "") or "",
+        })
+    out.sort(key=lambda x: (not x["audio_only"], -(x["abr"] or 0)))
+    return {"title": info.get("title", "") or "", "formats": out}
+
+
 def download_youtube_candidate(
     candidate, output_path, progress_hook=None, skip_check=None,
 ):
@@ -1104,6 +1198,14 @@ def download_youtube_candidate(
             "best",
             "",
         ]
+
+    # Optional user override (e.g. "141" for the 256 kbps AAC stream on
+    # Premium accounts — issue #58). Tried first, then the built-in
+    # selectors as a fallback so a download still succeeds when the
+    # requested format isn't available for a given video.
+    custom_format = (config.get("ytdlp_format") or "").strip()
+    if custom_format and custom_format not in format_selectors:
+        format_selectors = [custom_format] + format_selectors
 
     first_client = config.get("yt_player_client", "android")
     is_music = candidate.get("source") == "ytmusic"

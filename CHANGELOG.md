@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.8.2
+
+### Added
+- **Configurable yt-dlp format** (Settings → "yt-dlp Format Override", env
+  `YTDLP_FORMAT`): force a specific stream such as `141` (256 kbps AAC) for
+  higher-quality audio with a YouTube Premium account, instead of the
+  default best-audio selection. The override is tried first and the
+  built-in smart selectors remain as a fallback when the requested format
+  isn't available for a video (#58, building on Gazz1e's `supportformat141`
+  fork). A "List formats" tester sits next to the field: paste a YouTube
+  URL/ID and it shows that video's available audio format IDs (codec,
+  bitrate, size); click one to drop it into the override.
+- **Concurrent album downloads in Download Client mode** (Settings → Lidarr
+  Download Client → "Concurrent Album Downloads", env
+  `DOWNLOAD_CLIENT_CONCURRENT_ALBUMS`, default 1): download several
+  Lidarr-grabbed albums at once (1–5). Each job tracks its own per-track
+  progress so concurrent downloads don't collide, and Lidarr's SABnzbd
+  queue still reports per-album status.
+
+### Changed
+- **Library auto-refresh on indexer activity**: when Lidarr RSS-syncs or
+  searches the Newznab indexer — which happens right after a new artist or
+  album is added — a background missing-albums sync is triggered
+  (debounced, and only when Lidarr is configured) so newly-added albums
+  show up in the app and the indexer feed without waiting for the periodic
+  sync loop.
+
+### Fixed
+- **Forbidden-word filtering is now robust and case-insensitive**: built-in
+  and custom words are merged, stripped, lower-cased and de-duplicated
+  through a single helper, so a built-in/API/env word with stray casing or
+  whitespace is honored (and a null value no longer risks breaking the
+  search path). The default list is consolidated into one constant and
+  aligned with the Settings UI (now includes "reaction").
+
 ## 1.8.1
 
 ### Fixed — Lidarr download-client bridge

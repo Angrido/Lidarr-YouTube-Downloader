@@ -50,15 +50,24 @@ ALLOWED_CONFIG_KEYS = {
     "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
     "discord_enabled", "discord_webhook_url", "discord_log_types",
     "acoustid_enabled", "acoustid_api_key", "acoustid_accept_score",
-    "min_match_score", "audio_format", "audio_quality",
+    "min_match_score", "audio_format", "audio_quality", "ytdlp_format",
     "lidarr_rename_after_import", "save_cover_art_file",
     "scheduler_retry_after_hours",
     "download_client_enabled", "download_client_api_key",
-    "download_client_category",
+    "download_client_category", "download_client_concurrent_albums",
     "yt_po_token", "audio_normalize", "yt_pot_provider_url",
 }
 
 MIN_MATCH_SCORE_DEFAULT = 0.8
+
+# Default forbidden words filtered out of YouTube search results. Single
+# source of truth shared by the config defaults and the downloader's
+# effective-list builder, and mirrored by the Settings UI checkboxes.
+DEFAULT_FORBIDDEN_WORDS = [
+    "remix", "cover", "mashup", "bootleg", "live", "dj mix",
+    "karaoke", "slowed", "reverb", "nightcore", "sped up",
+    "instrumental", "acapella", "tribute", "reaction", "8d audio",
+]
 
 
 def _parse_unit_float(value, name, default):
@@ -125,11 +134,7 @@ def load_config():
         "xml_metadata_enabled": (
             os.getenv("XML_METADATA_ENABLED", "true").lower() == "true"
         ),
-        "forbidden_words": [
-            "remix", "cover", "mashup", "bootleg", "live", "dj mix",
-            "karaoke", "slowed", "reverb", "nightcore", "sped up",
-            "instrumental", "acapella", "tribute", "8d audio",
-        ],
+        "forbidden_words": list(DEFAULT_FORBIDDEN_WORDS),
         "forbidden_words_custom": [],
         "duration_tolerance": int(os.getenv("DURATION_TOLERANCE", "10")),
         "concurrent_tracks": int(os.getenv("CONCURRENT_TRACKS", "2")),
@@ -173,6 +178,9 @@ def load_config():
         ),
         "audio_format": os.getenv("AUDIO_FORMAT", "mp3"),
         "audio_quality": os.getenv("AUDIO_QUALITY", "320"),
+        # Optional yt-dlp format selector override (e.g. "141" for 256 kbps
+        # AAC on Premium accounts). Empty = use the built-in smart selectors.
+        "ytdlp_format": os.getenv("YTDLP_FORMAT", ""),
         "lidarr_rename_after_import": (
             os.getenv("LIDARR_RENAME_AFTER_IMPORT", "false").lower() == "true"
         ),
@@ -185,6 +193,9 @@ def load_config():
         "download_client_api_key": os.getenv("DOWNLOAD_CLIENT_API_KEY", ""),
         "download_client_category": os.getenv(
             "DOWNLOAD_CLIENT_CATEGORY", "music"
+        ),
+        "download_client_concurrent_albums": int(
+            os.getenv("DOWNLOAD_CLIENT_CONCURRENT_ALBUMS", "1")
         ),
         "path_conflict": False,
     }
@@ -207,6 +218,7 @@ def load_config():
             "scheduler_interval", "duration_tolerance", "scheduler_max_albums",
             "concurrent_tracks", "yt_retries", "yt_fragment_retries",
             "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
+            "download_client_concurrent_albums",
         )
         for _k in _int_keys:
             if _k in config:
