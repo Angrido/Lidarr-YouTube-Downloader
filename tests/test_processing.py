@@ -2087,3 +2087,186 @@ def test_write_cover_art_writes_to_valid_lidarr_path(tmp_path, monkeypatch):
     assert (
         lidarr_dir / "Artist" / "Album (2024)" / "cover.jpg"
     ).read_bytes() == b"JPEGDATA"
+
+
+# --- Download-client concurrency / queue dispatch -------------------------
+
+
+class _FakeThread:
+    """Captures Thread(target=..., kwargs=...) without running it."""
+
+    def __init__(self, target=None, args=(), kwargs=None, daemon=None):
+        self.target = target
+        self.args = args
+        self.kwargs = kwargs or {}
+
+    def start(self):
+        pass
+
+
+class TestQueueDispatch:
+    @pytest.fixture(autouse=True)
+    def reset_state(self):
+        import processing
+        processing.download_process["active"] = False
+        processing._active_states.clear()
+        yield
+        processing.download_process["active"] = False
+        processing._active_states.clear()
+
+    @staticmethod
+    def _patch_queue(monkeypatch, ids):
+        monkeypatch.setattr(
+            "models.peek_next_from_queue",
+            lambda: ids[0] if ids else None,
+        )
+        monkeypatch.setattr(
+            "models.pop_next_from_queue",
+            lambda: ids.pop(0) if ids else None,
+        )
+
+    @staticmethod
+    def _capture_threads(monkeypatch):
+        import processing
+        started = []
+        orig_start = _FakeThread.start
+
+        def record_start(self):
+            started.append(self)
+            orig_start(self)
+
+        monkeypatch.setattr(_FakeThread, "start", record_start)
+        monkeypatch.setattr(processing.threading, "Thread", _FakeThread)
+        return started
+
+    def _patch_limit(self, monkeypatch, limit):
+        import processing
+        monkeypatch.setattr(
+            processing, "load_config",
+            lambda: {"download_client_concurrent_albums": limit},
+        )
+
+    def test_non_client_uses_foreground_when_free(self, monkeypatch):
+        import processing
+        import download_client
+        self._patch_queue(monkeypatch, [42])
+        monkeypatch.setattr(download_client, "is_client_album", lambda a: False)
+        started = self._capture_threads(monkeypatch)
+        processing._dispatch_next_from_queue()
+        assert len(started) == 1
+        assert started[0].target is processing.process_album_download
+        assert started[0].kwargs.get("state") is processing.download_process
+
+    def test_non_client_waits_when_foreground_busy(self, monkeypatch):
+        import processing
+        import download_client
+        ids = [42]
+        self._patch_queue(monkeypatch, ids)
+        monkeypatch.setattr(download_client, "is_client_album", lambda a: False)
+        processing.download_process["active"] = True
+        started = self._capture_threads(monkeypatch)
+        processing._dispatch_next_from_queue()
+        assert started == []
+        assert ids == [42]  # not popped — keeps its place in the queue
+
+    def test_client_uses_foreground_when_free(self, monkeypatch):
+        import processing
+        import download_client
+        self._patch_queue(monkeypatch, [42])
+        monkeypatch.setattr(download_client, "is_client_album", lambda a: True)
+        self._patch_limit(monkeypatch, 2)
+        started = self._capture_threads(monkeypatch)
+        processing._dispatch_next_from_queue()
+        assert len(started) == 1
+        assert started[0].target is download_client.run_album_job
+        assert started[0].kwargs.get("state") is processing.download_process
+
+    def test_client_uses_background_when_foreground_busy(self, monkeypatch):
+        import processing
+        import download_client
+        self._patch_queue(monkeypatch, [42])
+        monkeypatch.setattr(download_client, "is_client_album", lambda a: True)
+        self._patch_limit(monkeypatch, 2)
+        processing.download_process["active"] = True
+        started = self._capture_threads(monkeypatch)
+        processing._dispatch_next_from_queue()
+        assert len(started) == 1
+        state = started[0].kwargs.get("state")
+        assert state is not None
+        assert state is not processing.download_process
+
+    def test_client_blocked_at_concurrency_limit(self, monkeypatch):
+        import processing
+        import download_client
+        ids = [42]
+        self._patch_queue(monkeypatch, ids)
+        monkeypatch.setattr(download_client, "is_client_album", lambda a: True)
+        self._patch_limit(monkeypatch, 1)
+        # One client job already in flight occupies the only slot.
+        processing._active_states[99] = {"is_client": True}
+        started = self._capture_threads(monkeypatch)
+        processing._dispatch_next_from_queue()
+        assert started == []
+        assert ids == [42]  # left queued until a slot frees up
+
+    def test_duplicate_active_album_is_dropped(self, monkeypatch):
+        import processing
+        import download_client
+        ids = [42]
+        self._patch_queue(monkeypatch, ids)
+        processing._active_states[42] = {"is_client": True}
+        monkeypatch.setattr(download_client, "is_client_album", lambda a: True)
+        started = self._capture_threads(monkeypatch)
+        processing._dispatch_next_from_queue()
+        assert started == []
+        assert ids == []  # duplicate popped and discarded
+
+
+class TestConcurrencyHelpers:
+    @pytest.fixture(autouse=True)
+    def reset_state(self):
+        import processing
+        processing._active_states.clear()
+        yield
+        processing._active_states.clear()
+
+    def test_client_concurrency_limit_clamped(self, monkeypatch):
+        import processing
+        monkeypatch.setattr(
+            processing, "load_config",
+            lambda: {"download_client_concurrent_albums": 99},
+        )
+        assert processing._client_concurrency_limit() == 5
+        monkeypatch.setattr(
+            processing, "load_config",
+            lambda: {"download_client_concurrent_albums": 0},
+        )
+        assert processing._client_concurrency_limit() == 1
+        monkeypatch.setattr(
+            processing, "load_config",
+            lambda: {"download_client_concurrent_albums": "bad"},
+        )
+        assert processing._client_concurrency_limit() == 1
+
+    def test_active_client_album_count_and_is_active(self):
+        import processing
+        processing._active_states[1] = {"is_client": True}
+        processing._active_states[2] = {"is_client": False}
+        assert processing.active_client_album_count() == 1
+        assert processing.is_album_active(1) is True
+        assert processing.is_album_active(3) is False
+
+    def test_status_for_album_snapshot(self):
+        import processing
+        processing._active_states[7] = {
+            "active": True, "album_id": 7,
+            "tracks": [{"status": "downloading"}],
+        }
+        snap = processing.get_download_status_for_album(7)
+        assert snap["album_id"] == 7
+        # Deep-copied: mutating the snapshot can't corrupt live state.
+        snap["tracks"][0]["status"] = "done"
+        assert processing._active_states[7]["tracks"][0]["status"] == (
+            "downloading"
+        )
+        assert processing.get_download_status_for_album(123) is None

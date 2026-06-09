@@ -1216,6 +1216,19 @@
                 <input type="text" id="downloadClientCategory" placeholder="music">
             </div>
             <div class="input-group">
+                <label for="downloadClientConcurrentAlbums">
+                    Concurrent Album Downloads
+                    <div class="label-description">How many albums grabbed by Lidarr download simultaneously. Higher values finish a batch faster but multiply the load on YouTube (each album also downloads its tracks in parallel per "Concurrent Track Downloads"). Recommended: 1.</div>
+                </label>
+                <select id="downloadClientConcurrentAlbums" style="max-width:120px;">
+                    <option value="1">1 (default)</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5 (risky)</option>
+                </select>
+            </div>
+            <div class="input-group">
                 <label>
                     Connection details
                     <div class="label-description">Paths to enter in Lidarr (host and port are this app's).</div>
@@ -1395,6 +1408,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             updateDownloadClientBtn(conf.download_client_enabled === true);
             document.getElementById('downloadClientApiKey').value = conf.download_client_api_key || '';
             document.getElementById('downloadClientCategory').value = conf.download_client_category || 'music';
+            document.getElementById('downloadClientConcurrentAlbums').value = String(conf.download_client_concurrent_albums || 1);
             document.getElementById('schedulerRetryAfterHours').value = (
                 conf.scheduler_retry_after_hours != null
                     ? conf.scheduler_retry_after_hours
@@ -1784,7 +1798,8 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     yt_cookies_file: (document.getElementById('ytCookiesFile').value || '').trim(),
                     acoustid_api_key: document.getElementById('acoustidApiKey').value,
                     download_client_api_key: (document.getElementById('downloadClientApiKey').value || '').trim(),
-                    download_client_category: (document.getElementById('downloadClientCategory').value || 'music').trim()
+                    download_client_category: (document.getElementById('downloadClientCategory').value || 'music').trim(),
+                    download_client_concurrent_albums: parseInt(document.getElementById('downloadClientConcurrentAlbums').value) || 1
                 })
             });
             clearSettingsDirty();

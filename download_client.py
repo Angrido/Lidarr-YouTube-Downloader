@@ -300,21 +300,25 @@ def restore_jobs():
         )
 
 
-def run_album_job(album_id, force=False):
+def run_album_job(album_id, force=False, state=None):
     """Queue-processor entry point for a Lidarr-grabbed album.
 
     Wraps ``processing.process_album_download`` so the in-memory job
-    transitions to completed/failed once the engine finishes.
+    transitions to completed/failed once the engine finishes. ``state`` is
+    the per-download state container to use (the foreground state or a
+    dedicated one for a concurrent background job); when None the engine
+    uses the foreground ``download_process``.
     """
     import processing  # lazy to avoid an import cycle
 
     def _stopped():
-        return bool(processing.download_process.get("stop"))
+        active = state if state is not None else processing.download_process
+        return bool(active.get("stop"))
 
     mark_downloading(album_id)
     try:
         result = processing.process_album_download(
-            album_id, force, client_grab=True,
+            album_id, force, client_grab=True, state=state,
         )
     except Exception as exc:  # pragma: no cover - defensive
         if _stopped():
@@ -370,10 +374,10 @@ def _album_percentage(album_id):
     """Best-effort completion percentage for the active download."""
     try:
         import processing
-        snap = processing.get_download_status()
+        snap = processing.get_download_status_for_album(album_id)
     except Exception:
         return 0
-    if not snap.get("active") or snap.get("album_id") != album_id:
+    if not snap or not snap.get("active"):
         return 0
     tracks = snap.get("tracks") or []
     if not tracks:

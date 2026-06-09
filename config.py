@@ -54,7 +54,7 @@ ALLOWED_CONFIG_KEYS = {
     "lidarr_rename_after_import", "save_cover_art_file",
     "scheduler_retry_after_hours",
     "download_client_enabled", "download_client_api_key",
-    "download_client_category",
+    "download_client_category", "download_client_concurrent_albums",
     "yt_po_token", "audio_normalize", "yt_pot_provider_url",
 }
 
@@ -194,6 +194,9 @@ def load_config():
         "download_client_category": os.getenv(
             "DOWNLOAD_CLIENT_CATEGORY", "music"
         ),
+        "download_client_concurrent_albums": int(
+            os.getenv("DOWNLOAD_CLIENT_CONCURRENT_ALBUMS", "1")
+        ),
         "path_conflict": False,
     }
 
@@ -215,6 +218,7 @@ def load_config():
             "scheduler_interval", "duration_tolerance", "scheduler_max_albums",
             "concurrent_tracks", "yt_retries", "yt_fragment_retries",
             "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
+            "download_client_concurrent_albums",
         )
         for _k in _int_keys:
             if _k in config:

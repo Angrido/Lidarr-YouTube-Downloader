@@ -51,18 +51,36 @@ logger = logging.getLogger(__name__)
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
-download_process = {
-    "active": False,
-    "stop": False,
-    "album_id": None,
-    "album_title": "",
-    "artist_name": "",
-    "cover_url": "",
-    "tracks": [],
-    "current_track_index": -1,
-}
+def _make_download_state():
+    """Create a fresh per-download state container.
+
+    The module-level ``download_process`` is the foreground/primary state
+    that manual single-track downloads, the dashboard and the scheduler
+    read. Concurrent Lidarr download-client album jobs each get their own
+    state from this factory so their per-track progress doesn't collide.
+    """
+    return {
+        "active": False,
+        "stop": False,
+        "album_id": None,
+        "album_title": "",
+        "artist_name": "",
+        "cover_url": "",
+        "tracks": [],
+        "current_track_index": -1,
+        "is_client": False,
+    }
+
+
+download_process = _make_download_state()
 
 queue_lock = threading.Lock()
+
+# Every in-flight album download (the foreground one plus any background
+# download-client jobs), keyed by album_id and guarded by queue_lock. Lets
+# the SABnzbd queue report per-album progress and stop_download() reach
+# every running download.
+_active_states = {}
 
 
 def _new_verify_stats():
@@ -159,13 +177,15 @@ class TrackSkippedException(Exception):
     """Raised from yt-dlp progress hook when track skip is requested."""
 
 
-def _make_progress_hook(idx):
-    """Create a yt-dlp progress hook bound to a specific track index."""
+def _make_progress_hook(idx, state=None):
+    """Create a yt-dlp progress hook bound to a track index and state."""
+    if state is None:
+        state = download_process
 
     def hook(d):
         if d["status"] == "downloading":
-            if 0 <= idx < len(download_process["tracks"]):
-                track = download_process["tracks"][idx]
+            if 0 <= idx < len(state["tracks"]):
+                track = state["tracks"][idx]
                 track["status"] = "downloading"
                 track["progress_percent"] = (
                     d.get("_percent_str", "0%").strip()
@@ -184,26 +204,57 @@ def _make_progress_hook(idx):
 
 
 def get_download_status():
-    """Return a snapshot of the current download process state."""
+    """Return a snapshot of the foreground (primary) download state."""
     with queue_lock:
         snapshot = dict(download_process)
         snapshot["tracks"] = copy.deepcopy(download_process["tracks"])
         return snapshot
 
 
-def stop_download():
-    """Signal the active download to stop and clear the queue."""
+def get_download_status_for_album(album_id):
+    """Return a snapshot of the in-flight download for ``album_id``, or None.
+
+    Covers background download-client jobs that aren't the foreground state,
+    so the SABnzbd queue can report their per-album progress.
+    """
     with queue_lock:
-        download_process["stop"] = True
-        for track in download_process.get("tracks", []):
-            if track.get("status") in (
-                "pending", "searching", "downloading", "verifying",
-            ):
-                track["skip"] = True
+        state = _active_states.get(album_id)
+        if state is None:
+            return None
+        snapshot = dict(state)
+        snapshot["tracks"] = copy.deepcopy(state["tracks"])
+        return snapshot
+
+
+def is_album_active(album_id):
+    """True if the album is currently being downloaded (any slot)."""
+    with queue_lock:
+        return album_id in _active_states
+
+
+def active_client_album_count():
+    """Number of in-flight download-client album jobs."""
+    with queue_lock:
+        return sum(1 for s in _active_states.values() if s.get("is_client"))
+
+
+def stop_download():
+    """Signal every active download to stop and clear the queue."""
+    with queue_lock:
+        states = [download_process] + [
+            s for s in _active_states.values() if s is not download_process
+        ]
+        for state in states:
+            state["stop"] = True
+            for track in state.get("tracks", []):
+                if track.get("status") in (
+                    "pending", "searching", "downloading", "verifying",
+                ):
+                    track["skip"] = True
         models.clear_queue()
 
 
-def process_album_download(album_id, force=False, client_grab=None):
+def process_album_download(album_id, force=False, client_grab=None, state=None):
     """Download all tracks for an album and import into Lidarr.
 
     Args:
@@ -214,23 +265,30 @@ def process_album_download(album_id, force=False, client_grab=None):
             it is derived via ``is_client_album``; callers that already
             decided the routing pass it explicitly so the decision is made
             once and can't race the in-memory job registry.
+        state: Per-download state container. Defaults to the foreground
+            ``download_process``; concurrent download-client jobs pass their
+            own state so their progress doesn't collide.
 
     Returns:
         Dict with "success", "error", or "stopped" key.
     """
+    if state is None:
+        state = download_process
     with queue_lock:
-        if download_process["active"]:
+        if state["active"]:
             return {"error": "Busy"}
-        download_process["active"] = True
-        download_process["stop"] = False
-        download_process["result_success"] = True
-        download_process["result_partial"] = False
-        download_process["tracks"] = []
-        download_process["current_track_index"] = -1
-        download_process["album_id"] = album_id
-        download_process["album_title"] = ""
-        download_process["artist_name"] = ""
-        download_process["cover_url"] = ""
+        state["active"] = True
+        state["stop"] = False
+        state["result_success"] = True
+        state["result_partial"] = False
+        state["tracks"] = []
+        state["current_track_index"] = -1
+        state["album_id"] = album_id
+        state["album_title"] = ""
+        state["artist_name"] = ""
+        state["cover_url"] = ""
+        state["is_client"] = bool(client_grab)
+        _active_states[album_id] = state
 
     failed_tracks = []
     album = {}
@@ -263,6 +321,7 @@ def process_album_download(album_id, force=False, client_grab=None):
         if client_grab is None:
             from download_client import is_client_album
             client_grab = is_client_album(album_id)
+            state["is_client"] = bool(client_grab)
 
         if not DOWNLOAD_DIR:
             logger.error(
@@ -304,9 +363,9 @@ def process_album_download(album_id, force=False, client_grab=None):
         album_title = album["title"]
         release_year = str(album.get("releaseDate", ""))[:4]
 
-        download_process["album_title"] = album_title
-        download_process["artist_name"] = artist_name
-        download_process["cover_url"] = next(
+        state["album_title"] = album_title
+        state["artist_name"] = artist_name
+        state["cover_url"] = next(
             (
                 img["remoteUrl"]
                 for img in album.get("images", [])
@@ -329,11 +388,11 @@ def process_album_download(album_id, force=False, client_grab=None):
                 artist_name, album_title,
             )),
         ]
-        if download_process.get("cover_url"):
+        if state.get("cover_url"):
             cover_sources.append((
                 "Lidarr cover URL",
                 lambda: get_artwork_from_url(
-                    download_process["cover_url"],
+                    state["cover_url"],
                 ),
             ))
         cover_data = None
@@ -363,7 +422,7 @@ def process_album_download(album_id, force=False, client_grab=None):
             ytmusic_album = find_album_on_ytmusic(artist_name, album_title)
         except Exception as exc:
             logger.debug("YT Music album discovery raised: %s", exc)
-        download_process["ytmusic_album"] = ytmusic_album
+        state["ytmusic_album"] = ytmusic_album
 
         release_id = get_valid_release_id(album)
         if release_id == 0:
@@ -429,7 +488,7 @@ def process_album_download(album_id, force=False, client_grab=None):
                 cover_data, album_path, cfg.get("lidarr_path", "") or "",
                 sanitized_artist, album_folder_name,
             )
-        cover_url = download_process.get("cover_url", "")
+        cover_url = state.get("cover_url", "")
 
         models.add_log(
             log_type="download_started",
@@ -485,7 +544,7 @@ def process_album_download(album_id, force=False, client_grab=None):
             "album_mbid": album_mbid,
             "artist_mbid": artist_mbid,
             "cover_data": cover_data,
-            "cover_url": download_process.get("cover_url", ""),
+            "cover_url": state.get("cover_url", ""),
             "lidarr_album_path": lidarr_album_path,
             "ytmusic_album": ytmusic_album,
         }
@@ -495,7 +554,7 @@ def process_album_download(album_id, force=False, client_grab=None):
             except (ValueError, TypeError):
                 return fallback
 
-        download_process["tracks"] = [
+        state["tracks"] = [
             {
                 "track_title": t["title"],
                 "track_number": _parse_track_num(t.get("trackNumber"), i + 1),
@@ -513,14 +572,14 @@ def process_album_download(album_id, force=False, client_grab=None):
             failed_tracks, succeeded_tracks, total_downloaded_size,
             verify_stats,
         ) = _download_tracks(
-            tracks_to_download, album_path, album, album_ctx,
+            tracks_to_download, album_path, album, album_ctx, state,
         )
 
         set_permissions(artist_path)
 
         # A user stop is neither success nor failure: signal it so the
         # client wrapper doesn't report a blocklist-worthy failure.
-        if download_process.get("stop"):
+        if state.get("stop"):
             logger.info(
                 "Download stopped by user; aborting album %s", album_id,
             )
@@ -532,7 +591,8 @@ def process_album_download(album_id, force=False, client_grab=None):
             album_title, artist_name, total_downloaded_size,
             verify_stats=verify_stats,
             album_mbid=album_mbid,
-            cover_url=download_process.get("cover_url", ""),
+            cover_url=state.get("cover_url", ""),
+            state=state,
         )
         if result is not None:
             return result
@@ -549,7 +609,7 @@ def process_album_download(album_id, force=False, client_grab=None):
                 failed_tracks, album_id, album_title, artist_name,
                 total_downloaded_size,
                 album_mbid=album_mbid,
-                cover_url=download_process.get("cover_url", ""),
+                cover_url=state.get("cover_url", ""),
             )
             return {
                 "success": True,
@@ -573,7 +633,7 @@ def process_album_download(album_id, force=False, client_grab=None):
             failed_tracks, album_id, album_title, artist_name,
             total_downloaded_size,
             album_mbid=album_mbid,
-            cover_url=download_process.get("cover_url", ""),
+            cover_url=state.get("cover_url", ""),
         )
 
         lidarr_request_with_retry(
@@ -610,8 +670,8 @@ def process_album_download(album_id, force=False, client_grab=None):
 
     except Exception as e:
         logger.error("Error during album download: %s", e, exc_info=True)
-        _artist = download_process.get("artist_name", "Unknown")
-        _album = download_process.get("album_title", "Unknown")
+        _artist = state.get("artist_name", "Unknown")
+        _album = state.get("album_title", "Unknown")
         _send_album_notification(
             log_type="album_error",
             title="Download Failed",
@@ -619,7 +679,7 @@ def process_album_download(album_id, force=False, client_grab=None):
             artist_name=_artist,
             album_title=_album,
             album_mbid=album_mbid,
-            cover_url=download_process.get("cover_url", ""),
+            cover_url=state.get("cover_url", ""),
             extra_md2_lines=[
                 f"_Error:_ {md2_escape(str(e))}",
             ],
@@ -631,18 +691,20 @@ def process_album_download(album_id, force=False, client_grab=None):
             artist_name=artist_name,
             details=f"Error: {e}",
         )
-        download_process["result_success"] = False
+        state["result_success"] = False
         return {"error": str(e)}
     finally:
         with queue_lock:
-            download_process["active"] = False
-            download_process["tracks"] = []
-            download_process["current_track_index"] = -1
-            download_process["album_id"] = None
-            download_process["album_title"] = ""
-            download_process["artist_name"] = ""
-            download_process["cover_url"] = ""
-            download_process["ytmusic_album"] = None
+            state["active"] = False
+            state["tracks"] = []
+            state["current_track_index"] = -1
+            state["album_id"] = None
+            state["album_title"] = ""
+            state["artist_name"] = ""
+            state["cover_url"] = ""
+            state["ytmusic_album"] = None
+            state["is_client"] = False
+            _active_states.pop(album_id, None)
 
 
 _AUDIO_EXTS = (".mp3", ".m4a", ".opus", ".flac", ".aac", ".ogg")
@@ -936,7 +998,7 @@ def _record_track_failure(
 
 
 def _download_tracks(
-    tracks_to_download, album_path, album, album_ctx,
+    tracks_to_download, album_path, album, album_ctx, state=None,
 ):
     """Download each track, tag, and create XML metadata.
 
@@ -950,12 +1012,17 @@ def _download_tracks(
         album_ctx: Dict with keys: artist_name, album_title, album_id,
             album_mbid, artist_mbid, cover_data, cover_url,
             lidarr_album_path.
+        state: Per-download state container holding the live track list and
+            stop flag (the foreground ``download_process`` or a concurrent
+            client job's own state).
 
     Returns:
         Tuple of (failed_tracks list, total_downloaded_size int).
     """
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
+    if state is None:
+        state = download_process
     artist_name = album_ctx["artist_name"]
     album_title = album_ctx["album_title"]
     album_id = album_ctx["album_id"]
@@ -975,8 +1042,8 @@ def _download_tracks(
     def _process_single_track(idx, track):
         nonlocal total_downloaded_size
 
-        track_state = download_process["tracks"][idx]
-        download_process["current_track_index"] = idx
+        track_state = state["tracks"][idx]
+        state["current_track_index"] = idx
         track_title = track.get("title", f"Track {idx + 1}")
         try:
             track_num = int(track.get("trackNumber", idx + 1))
@@ -989,14 +1056,14 @@ def _download_tracks(
         def _skip_check():
             return (
                 track_state.get("skip")
-                or download_process.get("stop")
+                or state.get("stop")
             )
 
         if _skip_check():
             track_state["status"] = "skipped"
             return
 
-        progress_hook = _make_progress_hook(idx)
+        progress_hook = _make_progress_hook(idx, state)
         track_state["status"] = "searching"
 
         try:
@@ -1509,7 +1576,7 @@ def _download_tracks(
             for idx, track in enumerate(tracks_to_download)
         }
         for future in as_completed(futures):
-            if download_process["stop"]:
+            if state["stop"]:
                 logger.warning("Download stopped by user")
                 break
             try:
@@ -1632,15 +1699,17 @@ def _verify_summary_lines(verify_stats, verified_total):
 def _handle_post_download(
     failed_tracks, succeeded_tracks, tracks_to_download,
     album_id, album_title, artist_name, total_downloaded_size,
-    *, verify_stats=None, album_mbid="", cover_url="",
+    *, verify_stats=None, album_mbid="", cover_url="", state=None,
 ):
     """Log and notify about download results.
 
     Returns:
         A result dict if download should stop (all failed), else None.
     """
+    if state is None:
+        state = download_process
     skipped_count = sum(
-        1 for t in download_process.get("tracks", [])
+        1 for t in state.get("tracks", [])
         if t.get("status") == "skipped"
     )
     attempted_count = len(tracks_to_download) - skipped_count
@@ -1729,10 +1798,10 @@ def _handle_post_download(
                         "Failed to log track_failure for '%s'",
                         ft["title"], exc_info=True,
                     )
-            download_process["result_success"] = False
+            state["result_success"] = False
             return {"error": "All tracks failed to download"}
 
-        download_process["result_partial"] = True
+        state["result_partial"] = True
         partial_extra = list(verify_md2_lines)
         if best_rejected > 0:
             partial_extra.append(
@@ -2041,30 +2110,80 @@ def _log_import_result(
         )
 
 
+def _client_concurrency_limit():
+    """How many download-client album jobs may run at once (1-5)."""
+    try:
+        n = int(load_config().get("download_client_concurrent_albums", 1))
+    except (TypeError, ValueError):
+        n = 1
+    return max(1, min(5, n))
+
+
+def _dispatch_next_from_queue():
+    """Start the next eligible queued album, honoring concurrency limits.
+
+    The foreground slot (``download_process``) runs one download at a time
+    as before; Lidarr download-client albums may additionally run in
+    background slots up to ``download_client_concurrent_albums`` total. A
+    non-client (manual/scheduler) album always uses the foreground slot, so
+    it only starts when the foreground is free. The queue head is peeked
+    first so a non-client album waiting for the foreground doesn't get
+    popped and dropped.
+    """
+    import download_client
+
+    next_album_id = models.peek_next_from_queue()
+    if next_album_id is None:
+        return
+
+    # Already downloading this album (e.g. a re-grab landed in the queue):
+    # drop the duplicate so it doesn't start a second, colliding download.
+    if is_album_active(next_album_id):
+        models.pop_next_from_queue()
+        return
+
+    is_client = download_client.is_client_album(next_album_id)
+    foreground_free = not download_process["active"]
+
+    if is_client:
+        if active_client_album_count() >= _client_concurrency_limit():
+            return  # at the concurrency limit; try again next tick
+        album_id = models.pop_next_from_queue()
+        if album_id is None:
+            return
+        # Use the visible foreground slot when it's free; otherwise spin up
+        # a dedicated background state so concurrent jobs don't collide.
+        job_state = download_process if foreground_free else _make_download_state()
+        threading.Thread(
+            target=download_client.run_album_job,
+            args=(album_id, False),
+            kwargs={"state": job_state},
+            daemon=True,
+        ).start()
+        return
+
+    # Non-client album: needs the single foreground slot.
+    if foreground_free:
+        album_id = models.pop_next_from_queue()
+        if album_id is None:
+            return
+        threading.Thread(
+            target=process_album_download,
+            args=(album_id, False, False),
+            kwargs={"state": download_process},
+            daemon=True,
+        ).start()
+
+
 def process_download_queue():
     """Continuously process the download queue in a loop.
 
-    Pops the next album from the queue and starts a download thread.
-    Sleeps 2 seconds between checks.
+    Dispatches the next eligible album every 2 seconds, allowing concurrent
+    download-client jobs per ``download_client_concurrent_albums``.
     """
     while True:
         try:
-            if not download_process["active"]:
-                next_album_id = models.pop_next_from_queue()
-                if next_album_id is not None:
-                    import download_client
-                    if download_client.is_client_album(next_album_id):
-                        threading.Thread(
-                            target=download_client.run_album_job,
-                            args=(next_album_id, False),
-                            daemon=True,
-                        ).start()
-                    else:
-                        threading.Thread(
-                            target=process_album_download,
-                            args=(next_album_id, False, False),
-                            daemon=True,
-                        ).start()
+            _dispatch_next_from_queue()
         except Exception as e:
             logger.warning(f"Queue processor error: {e}")
         time.sleep(2)
