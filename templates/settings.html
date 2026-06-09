@@ -843,9 +843,16 @@
             <div class="input-group">
                 <label for="ytdlpFormat">
                     yt-dlp Format Override
-                    <div class="label-description">Advanced. Force a specific yt-dlp <a href="https://github.com/yt-dlp/yt-dlp#format-selection" target="_blank" rel="noopener">format selector</a> (e.g. <code>141</code> for 256 kbps AAC with a YouTube Premium account). The built-in selectors are used as a fallback when the requested format isn't available. Leave empty for automatic best-audio selection.</div>
+                    <div class="label-description">Advanced. Force a specific yt-dlp <a href="https://github.com/yt-dlp/yt-dlp#format-selection" target="_blank" rel="noopener">format selector</a> (e.g. <code>141</code> for 256 kbps AAC with a YouTube Premium account). The built-in selectors are used as a fallback when the requested format isn't available. Leave empty for automatic best-audio selection. Use "List formats" below to see a video's available format IDs.</div>
                 </label>
                 <input type="text" id="ytdlpFormat" placeholder="e.g. 141" style="max-width:260px;">
+                <div style="display:flex; gap:.5rem; align-items:center; margin-top:.5rem;">
+                    <input type="text" id="ytdlpFormatTestUrl" placeholder="Paste a YouTube video URL or ID to list its format IDs" style="flex:1 1 auto; min-width:0;">
+                    <button class="btn" type="button" onclick="testYtdlpFormats()" style="white-space:nowrap; flex:0 0 auto; width:auto; padding:.45rem .7rem; font-size:.85rem;">
+                        <i class="fa-solid fa-list"></i> List formats
+                    </button>
+                </div>
+                <div id="ytdlpFormatTestResult" style="font-size:.8rem; margin-top:.4rem;"></div>
             </div>
             <div class="input-group">
                 <label>
@@ -1517,6 +1524,77 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 result.textContent = 'Test failed';
                 result.style.color = '#ef4444';
             }
+        }
+
+        async function testYtdlpFormats() {
+            const result = document.getElementById('ytdlpFormatTestResult');
+            const url = (document.getElementById('ytdlpFormatTestUrl').value || '').trim();
+            if (!url) {
+                result.textContent = 'Enter a YouTube video URL or ID first.';
+                result.style.color = '#ef4444';
+                return;
+            }
+            result.textContent = 'Fetching formats…';
+            result.style.color = 'var(--text-dim)';
+            try {
+                const res = await fetch('/api/ytdlp/formats', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: url }),
+                });
+                const data = await res.json();
+                if (!data.success) {
+                    result.textContent = data.message || 'Failed to list formats';
+                    result.style.color = '#ef4444';
+                    return;
+                }
+                renderYtdlpFormats(data);
+            } catch (e) {
+                result.textContent = 'Failed to list formats';
+                result.style.color = '#ef4444';
+            }
+        }
+
+        function renderYtdlpFormats(data) {
+            const result = document.getElementById('ytdlpFormatTestResult');
+            result.style.color = '';
+            result.innerHTML = '';
+            if (data.title) {
+                const h = document.createElement('div');
+                h.textContent = data.title;
+                h.style.fontWeight = '600';
+                h.style.marginBottom = '.3rem';
+                result.appendChild(h);
+            }
+            const hint = document.createElement('div');
+            hint.textContent = 'Click a format ID to use it as the override.';
+            hint.style.color = 'var(--text-dim)';
+            hint.style.marginBottom = '.4rem';
+            result.appendChild(hint);
+            (data.formats || []).forEach(f => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex; gap:.5rem; align-items:center; padding:.15rem 0;';
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'btn';
+                btn.style.cssText = 'width:auto; padding:.15rem .55rem; font-size:.78rem; flex:0 0 auto;';
+                btn.textContent = f.format_id;
+                btn.title = 'Use this format ID';
+                btn.onclick = () => {
+                    document.getElementById('ytdlpFormat').value = f.format_id;
+                    markSettingsDirty();
+                };
+                const desc = document.createElement('span');
+                desc.style.color = 'var(--text-dim)';
+                const parts = [f.ext, f.acodec || '?'];
+                if (f.abr) parts.push(f.abr + ' kbps');
+                parts.push(f.audio_only ? 'audio-only' : 'audio+video');
+                if (f.filesize) parts.push((f.filesize / 1048576).toFixed(1) + ' MB');
+                desc.textContent = parts.join(' · ');
+                row.appendChild(btn);
+                row.appendChild(desc);
+                result.appendChild(row);
+            });
         }
 
         function updateAudioNormalizeBtn(enabled) {

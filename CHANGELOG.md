@@ -9,7 +9,9 @@
   default best-audio selection. The override is tried first and the
   built-in smart selectors remain as a fallback when the requested format
   isn't available for a video (#58, building on Gazz1e's `supportformat141`
-  fork).
+  fork). A "List formats" tester sits next to the field: paste a YouTube
+  URL/ID and it shows that video's available audio format IDs (codec,
+  bitrate, size); click one to drop it into the override.
 - **Concurrent album downloads in Download Client mode** (Settings → Lidarr
   Download Client → "Concurrent Album Downloads", env
   `DOWNLOAD_CLIENT_CONCURRENT_ALBUMS`, default 1): download several

@@ -11,6 +11,7 @@ from downloader import (
     download_youtube_candidate,
     find_album_on_ytmusic,
     get_effective_forbidden_words,
+    list_video_formats,
     match_album_track,
     search_youtube_candidates,
 )
@@ -1219,6 +1220,69 @@ class TestYtdlpFormatOverride:
         formats = self._formats_tried(mock_ydl_class)
         assert "141" not in formats
         assert formats[0] == "bestaudio/best"
+
+
+class TestListVideoFormats:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_filters_video_only_and_sorts(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "title": "Some Song",
+            "formats": [
+                {"format_id": "137", "ext": "mp4",
+                 "vcodec": "avc1", "acodec": "none"},  # video-only -> dropped
+                {"format_id": "140", "ext": "m4a", "vcodec": "none",
+                 "acodec": "mp4a.40.2", "abr": 128, "filesize": 1048576},
+                {"format_id": "141", "ext": "m4a", "vcodec": "none",
+                 "acodec": "mp4a.40.2", "abr": 256},
+                {"format_id": "18", "ext": "mp4", "vcodec": "avc1",
+                 "acodec": "mp4a.40.2", "abr": 96},  # muxed audio+video
+            ],
+        }
+        res = list_video_formats(
+            "https://www.youtube.com/watch?v=abcdefghijk"
+        )
+        ids = [f["format_id"] for f in res["formats"]]
+        # Video-only 137 dropped; audio-only first (141, 140 by bitrate),
+        # then the muxed audio+video stream.
+        assert ids == ["141", "140", "18"]
+        assert res["title"] == "Some Song"
+        assert res["formats"][0]["audio_only"] is True
+        assert res["formats"][0]["abr"] == 256
+        assert res["formats"][2]["audio_only"] is False
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_bare_id_becomes_watch_url(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "title": "x",
+            "formats": [{"format_id": "140", "ext": "m4a",
+                         "vcodec": "none", "acodec": "mp4a", "abr": 128}],
+        }
+        list_video_formats("abcdefghijk")
+        called = mock_ydl.extract_info.call_args[0][0]
+        assert called == "https://www.youtube.com/watch?v=abcdefghijk"
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_playlist_uses_first_entry(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                None,
+                {"title": "first", "formats": [
+                    {"format_id": "140", "ext": "m4a", "vcodec": "none",
+                     "acodec": "mp4a", "abr": 128}]},
+            ],
+        }
+        res = list_video_formats("https://youtube.com/playlist?list=PL")
+        assert res["title"] == "first"
+        assert [f["format_id"] for f in res["formats"]] == ["140"]
 
 
 class TestVideoIdDedup:

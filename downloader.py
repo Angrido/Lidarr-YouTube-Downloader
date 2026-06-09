@@ -1081,6 +1081,55 @@ def _candidate_display_url(candidate):
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
+def list_video_formats(url):
+    """List the audio-capable formats for a YouTube video URL or ID.
+
+    Powers the Settings "yt-dlp Format Override" tester: paste a video and
+    see which format IDs it exposes (e.g. ``141`` = 256 kbps AAC) so you
+    know what to put in the override. Honors the configured cookies / PO
+    token / player client so the list matches what the downloader sees.
+    Video-only streams are omitted (this is an audio app).
+
+    Returns:
+        dict ``{"title": str, "formats": [{format_id, ext, acodec, abr,
+        filesize, audio_only, note}, ...]}`` sorted audio-only first then by
+        bitrate descending.
+    """
+    video_id = _extract_video_id(url)
+    target = (
+        f"https://www.youtube.com/watch?v={video_id}" if video_id else url
+    )
+    cfg = load_config()
+    player_client = cfg.get("yt_player_client", "android") or None
+    opts = {
+        **_build_common_opts(player_client=player_client),
+        "skip_download": True,
+        "extract_flat": False,
+    }
+    with yt_dlp.YoutubeDL(opts) as ydl:
+        info = ydl.extract_info(target, download=False) or {}
+    if info.get("entries"):  # playlist/search: use the first real entry
+        entries = [e for e in info["entries"] if e]
+        info = entries[0] if entries else {}
+    out = []
+    for f in info.get("formats") or []:
+        if (f.get("acodec") or "none") == "none":
+            continue  # skip video-only streams
+        out.append({
+            "format_id": str(f.get("format_id", "")),
+            "ext": f.get("ext", "") or "",
+            "acodec": f.get("acodec", "") or "",
+            "abr": round(f.get("abr") or 0),
+            "filesize": int(
+                f.get("filesize") or f.get("filesize_approx") or 0
+            ),
+            "audio_only": (f.get("vcodec") or "none") == "none",
+            "note": f.get("format_note", "") or "",
+        })
+    out.sort(key=lambda x: (not x["audio_only"], -(x["abr"] or 0)))
+    return {"title": info.get("title", "") or "", "formats": out}
+
+
 def download_youtube_candidate(
     candidate, output_path, progress_hook=None, skip_check=None,
 ):

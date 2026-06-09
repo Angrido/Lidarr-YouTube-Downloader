@@ -1781,3 +1781,47 @@ def test_cookies_test_no_file(client, monkeypatch):
     monkeypatch.setattr("app.load_config", lambda: {"yt_cookies_file": ""})
     data = client.post("/api/cookies/test").get_json()
     assert data["success"] is False
+
+
+class TestYtdlpFormatsRoute:
+    def test_lists_formats(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "app.list_video_formats",
+            lambda url: {
+                "title": "Song",
+                "formats": [{
+                    "format_id": "141", "ext": "m4a", "acodec": "mp4a",
+                    "abr": 256, "filesize": 0, "audio_only": True,
+                    "note": "",
+                }],
+            },
+        )
+        resp = client.post("/api/ytdlp/formats", json={"url": "abcdefghijk"})
+        data = resp.get_json()
+        assert data["success"] is True
+        assert data["title"] == "Song"
+        assert data["formats"][0]["format_id"] == "141"
+
+    def test_missing_url_is_error(self, client):
+        data = client.post("/api/ytdlp/formats", json={}).get_json()
+        assert data["success"] is False
+
+    def test_no_formats_is_error(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "app.list_video_formats",
+            lambda url: {"title": "x", "formats": []},
+        )
+        data = client.post(
+            "/api/ytdlp/formats", json={"url": "abcdefghijk"}
+        ).get_json()
+        assert data["success"] is False
+
+    def test_extractor_error_is_reported(self, client, monkeypatch):
+        def boom(url):
+            raise Exception("Video unavailable")
+        monkeypatch.setattr("app.list_video_formats", boom)
+        data = client.post(
+            "/api/ytdlp/formats", json={"url": "x"}
+        ).get_json()
+        assert data["success"] is False
+        assert "unavailable" in data["message"].lower()
