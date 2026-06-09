@@ -1269,12 +1269,12 @@ class TestListVideoFormats:
 
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")
-    def test_lists_without_format_selection(
+    def test_lists_without_format_selection_error(
         self, mock_config, mock_ydl_class,
     ):
-        # Must use process=False so a video that only exposes split DASH
-        # streams lists its formats instead of raising "Requested format is
-        # not available".
+        # Must set ignore_no_formats_error so a video that only exposes split
+        # DASH streams lists its formats (full processing, like `yt-dlp -F`)
+        # instead of raising "Requested format is not available".
         mock_config.return_value = {"yt_player_client": "android"}
         mock_ydl = mock_ydl_class.return_value.__enter__.return_value
         mock_ydl.extract_info.return_value = {
@@ -1283,7 +1283,28 @@ class TestListVideoFormats:
                          "acodec": "mp4a", "abr": 128}],
         }
         list_video_formats("abcdefghijk")
-        assert mock_ydl.extract_info.call_args.kwargs.get("process") is False
+        opts = mock_ydl_class.call_args.args[0]
+        assert opts.get("ignore_no_formats_error") is True
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_tries_default_clients_first(self, mock_config, mock_ydl_class):
+        # The first attempt forces no player_client, so yt-dlp uses its own
+        # defaults (what `yt-dlp -F` does) rather than the format-starved
+        # android client.
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "title": "x",
+            "formats": [{"format_id": "140", "ext": "m4a", "vcodec": "none",
+                         "acodec": "mp4a", "abr": 128}],
+        }
+        list_video_formats("abcdefghijk")
+        first_opts = mock_ydl_class.call_args_list[0].args[0]
+        extractor_args = first_opts.get("extractor_args", {})
+        assert "youtube" not in extractor_args or (
+            "player_client" not in extractor_args.get("youtube", {})
+        )
 
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")

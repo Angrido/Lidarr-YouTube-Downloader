@@ -1086,8 +1086,8 @@ def list_video_formats(url):
 
     Powers the Settings "yt-dlp Format Override" tester: paste a video and
     see which format IDs it exposes (e.g. ``141`` = 256 kbps AAC) so you
-    know what to put in the override. Honors the configured cookies / PO
-    token / player client so the list matches what the downloader sees.
+    know what to put in the override. Uses the configured cookies / PO token
+    and mirrors ``yt-dlp -F`` (default clients first, full processing).
     Video-only streams are omitted (this is an audio app).
 
     Returns:
@@ -1095,21 +1095,24 @@ def list_video_formats(url):
         filesize, audio_only, note}, ...]}`` sorted audio-only first then by
         bitrate descending.
     """
-    video_id = _extract_video_id(url)
-    target = (
-        f"https://www.youtube.com/watch?v={video_id}" if video_id else url
-    )
+    raw = (url or "").strip()
+    # Pass full URLs (incl. music.youtube.com) through unchanged so this
+    # matches what `yt-dlp -F <url>` does; only a bare 11-char id is expanded.
+    if re.fullmatch(r"[0-9A-Za-z_-]{11}", raw):
+        target = f"https://www.youtube.com/watch?v={raw}"
+    else:
+        target = raw or url
     cfg = load_config()
-    # ``process=False`` lists formats WITHOUT running format selection, so a
-    # video whose default selector can't be satisfied (e.g. only DASH audio,
-    # no muxed stream) still returns its full format list instead of raising
-    # "Requested format is not available". The android client (the usual
-    # default) often returns limited/no formats without a PO token, so fall
-    # back through the web-family clients like the download path does.
-    configured = cfg.get("yt_player_client", "android") or "android"
-    clients = [configured]
-    for c in ("web", "web_music", "ios", "tv_embedded"):
-        if c not in clients:
+    # ``ignore_no_formats_error`` keeps full processing (so acodec/abr are
+    # populated like `yt-dlp -F`) while not raising "Requested format is not
+    # available" when the default selector can't pick a stream. We try
+    # yt-dlp's own default clients first (what `-F` uses), then fall back
+    # through specific clients — the configured one often is ``android``,
+    # which returns few/no formats without a PO token.
+    configured = (cfg.get("yt_player_client") or "").strip()
+    clients = [None]  # None = yt-dlp default clients (matches `-F`)
+    for c in (configured, "web", "web_music", "ios", "tv_embedded"):
+        if c and c not in clients:
             clients.append(c)
     info = {}
     last_err = None
@@ -1118,13 +1121,12 @@ def list_video_formats(url):
             **_build_common_opts(player_client=pc),
             "skip_download": True,
             "extract_flat": False,
+            "ignore_no_formats_error": True,
         }
         opts.pop("format_sort", None)  # irrelevant when only listing
         try:
             with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(
-                    target, download=False, process=False,
-                ) or {}
+                info = ydl.extract_info(target, download=False) or {}
         except Exception as exc:
             last_err = exc
             info = {}
