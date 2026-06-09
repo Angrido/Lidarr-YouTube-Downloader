@@ -1105,6 +1105,14 @@ def download_youtube_candidate(
             "",
         ]
 
+    # Optional user override (e.g. "141" for the 256 kbps AAC stream on
+    # Premium accounts — issue #58). Tried first, then the built-in
+    # selectors as a fallback so a download still succeeds when the
+    # requested format isn't available for a given video.
+    custom_format = (config.get("ytdlp_format") or "").strip()
+    if custom_format and custom_format not in format_selectors:
+        format_selectors = [custom_format] + format_selectors
+
     first_client = config.get("yt_player_client", "android")
     is_music = candidate.get("source") == "ytmusic"
     has_po_token = bool(

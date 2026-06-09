@@ -841,6 +841,13 @@
                 </select>
             </div>
             <div class="input-group">
+                <label for="ytdlpFormat">
+                    yt-dlp Format Override
+                    <div class="label-description">Advanced. Force a specific yt-dlp <a href="https://github.com/yt-dlp/yt-dlp#format-selection" target="_blank" rel="noopener">format selector</a> (e.g. <code>141</code> for 256 kbps AAC with a YouTube Premium account). The built-in selectors are used as a fallback when the requested format isn't available. Leave empty for automatic best-audio selection.</div>
+                </label>
+                <input type="text" id="ytdlpFormat" placeholder="e.g. 141" style="max-width:260px;">
+            </div>
+            <div class="input-group">
                 <label>
                     Loudness Normalization
                     <div class="label-description">Apply EBU R128 loudness normalization (−14 LUFS) so volume is consistent across tracks. Forces a re-encode (M4A/Opus won't stream-copy when enabled).</div>
@@ -1359,6 +1366,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
             document.getElementById('audioFormatSelect').value = conf.audio_format || 'mp3';
             document.getElementById('audioQualitySelect').value = String(conf.audio_quality || '320');
+            document.getElementById('ytdlpFormat').value = conf.ytdlp_format || '';
             updateAudioNormalizeBtn(conf.audio_normalize === true);
             document.getElementById('ytPoToken').value = conf.yt_po_token || '';
             document.getElementById('ytPotProviderUrl').value = conf.yt_pot_provider_url || '';
@@ -1769,6 +1777,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
                     audio_format: document.getElementById('audioFormatSelect').value || 'mp3',
                     audio_quality: document.getElementById('audioQualitySelect').value || '320',
+                    ytdlp_format: (document.getElementById('ytdlpFormat').value || '').trim(),
                     audio_normalize: document.getElementById('audioNormalizeBtn').dataset.enabled === '1',
                     yt_po_token: (document.getElementById('ytPoToken').value || '').trim(),
                     yt_pot_provider_url: (document.getElementById('ytPotProviderUrl').value || '').trim(),

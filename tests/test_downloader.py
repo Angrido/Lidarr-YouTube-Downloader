@@ -1113,6 +1113,64 @@ class TestMusicClientPriority:
         assert not any("music" in str(c) for c in called_clients if c)
 
 
+class TestYtdlpFormatOverride:
+    @staticmethod
+    def _formats_tried(mock_ydl_class):
+        formats = []
+        for call in mock_ydl_class.call_args_list:
+            opts = call.args[0] if call.args else call.kwargs
+            if isinstance(opts, dict) and "format" in opts:
+                formats.append(opts["format"])
+        return formats
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_custom_format_tried_first(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {
+            "yt_player_client": "android",
+            "audio_format": "m4a",
+            "audio_quality": "320",
+            "ytdlp_format": "141",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "requested format is not available"
+        )
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "ytsearch",
+        }
+        download_youtube_candidate(candidate, "/tmp/out")
+        formats = self._formats_tried(mock_ydl_class)
+        assert formats, "expected at least one format selector to be tried"
+        # The override is attempted first, before the built-in fallbacks.
+        assert formats[0] == "141"
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_no_override_uses_builtin_selectors(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android",
+            "audio_format": "mp3",
+            "audio_quality": "320",
+            "ytdlp_format": "",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "requested format is not available"
+        )
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "ytsearch",
+        }
+        download_youtube_candidate(candidate, "/tmp/out")
+        formats = self._formats_tried(mock_ydl_class)
+        assert "141" not in formats
+        assert formats[0] == "bestaudio/best"
+
+
 class TestVideoIdDedup:
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")

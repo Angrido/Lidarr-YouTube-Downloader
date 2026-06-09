@@ -50,7 +50,7 @@ ALLOWED_CONFIG_KEYS = {
     "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
     "discord_enabled", "discord_webhook_url", "discord_log_types",
     "acoustid_enabled", "acoustid_api_key", "acoustid_accept_score",
-    "min_match_score", "audio_format", "audio_quality",
+    "min_match_score", "audio_format", "audio_quality", "ytdlp_format",
     "lidarr_rename_after_import", "save_cover_art_file",
     "scheduler_retry_after_hours",
     "download_client_enabled", "download_client_api_key",
@@ -173,6 +173,9 @@ def load_config():
         ),
         "audio_format": os.getenv("AUDIO_FORMAT", "mp3"),
         "audio_quality": os.getenv("AUDIO_QUALITY", "320"),
+        # Optional yt-dlp format selector override (e.g. "141" for 256 kbps
+        # AAC on Premium accounts). Empty = use the built-in smart selectors.
+        "ytdlp_format": os.getenv("YTDLP_FORMAT", ""),
         "lidarr_rename_after_import": (
             os.getenv("LIDARR_RENAME_AFTER_IMPORT", "false").lower() == "true"
         ),
