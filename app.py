@@ -579,8 +579,17 @@ def api_ytdlp_formats():
         return jsonify(
             {"success": False, "message": "Enter a YouTube video URL or ID"}
         )
+    # Allowlist YouTube hosts / bare ids before handing the URL to yt-dlp's
+    # generic extractor, so this settings helper can't be used to probe
+    # internal services (SSRF).
+    safe_url = _validate_youtube_url(url)
+    if not safe_url:
+        return jsonify({
+            "success": False,
+            "message": "Enter a valid YouTube video URL or 11-character ID",
+        })
     try:
-        result = list_video_formats(url)
+        result = list_video_formats(safe_url)
     except Exception as e:
         return jsonify({"success": False, "message": str(e)[:240]})
     if not result.get("formats"):
