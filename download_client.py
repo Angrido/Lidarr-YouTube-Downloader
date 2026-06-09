@@ -69,6 +69,12 @@ _STATUS_FAILED = "failed"
 
 _HISTORY_LIMIT = 200
 
+# Debounced auto-refresh of the missing-albums cache, driven by Lidarr's
+# indexer polling (see _maybe_refresh_library).
+_refresh_lock = threading.Lock()
+_last_auto_refresh_ts = 0.0
+_AUTO_REFRESH_MIN_INTERVAL = 300  # seconds between Lidarr-triggered syncs
+
 
 def _new_nzo_id():
     return "SABnzbd_nzo_" + uuid.uuid4().hex[:12]
@@ -407,6 +413,32 @@ def _check_apikey():
 # --- Newznab indexer ------------------------------------------------------
 
 
+def _maybe_refresh_library():
+    """Refresh the missing-albums cache when Lidarr polls the indexer.
+
+    Lidarr hits the Newznab feed/search whenever it RSS-syncs or searches
+    for a wanted release — including right after a new artist or album is
+    added. Triggering a background sync here means newly-added missing
+    albums are picked up by the app (and appear in this feed) without
+    waiting for the periodic sync loop. Debounced so Lidarr's frequent RSS
+    polls don't fire back-to-back syncs.
+    """
+    global _last_auto_refresh_ts
+    # Nothing to sync against if Lidarr isn't configured.
+    if not (load_config().get("lidarr_url") or "").strip():
+        return
+    now = time.time()
+    with _refresh_lock:
+        if now - _last_auto_refresh_ts < _AUTO_REFRESH_MIN_INTERVAL:
+            return
+        _last_auto_refresh_ts = now
+    try:
+        import lidarr_sync  # lazy import to avoid a startup import cycle
+        lidarr_sync.trigger_sync()
+    except Exception:
+        logger.debug("Auto library refresh failed", exc_info=True)
+
+
 def _norm(text):
     return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
 
@@ -726,6 +758,9 @@ def newznab_api():
         return resp
     if t in ("search", "music", "album", "audio", "tvsearch", ""):
         cfg = load_config()
+        # Lidarr is looking for releases — refresh the library so newly
+        # added artists/albums are reflected (debounced).
+        _maybe_refresh_library()
         artist = request.args.get("artist", "")
         album = request.args.get("album", "")
         q = request.args.get("q", "")

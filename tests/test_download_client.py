@@ -67,6 +67,51 @@ def _seed_album(album_id=42, artist="Daft Punk", title="Discovery"):
 # --- Newznab indexer ------------------------------------------------------
 
 
+def test_maybe_refresh_library_debounced(monkeypatch):
+    import lidarr_sync
+    calls = []
+    monkeypatch.setattr(lidarr_sync, "trigger_sync", lambda: calls.append(1))
+    monkeypatch.setattr(
+        download_client, "load_config",
+        lambda: {"lidarr_url": "http://lidarr:8686"},
+    )
+    download_client._last_auto_refresh_ts = 0.0
+    download_client._maybe_refresh_library()
+    download_client._maybe_refresh_library()  # within debounce window
+    assert len(calls) == 1
+
+
+def test_maybe_refresh_library_skipped_without_lidarr_url(monkeypatch):
+    import lidarr_sync
+    calls = []
+    monkeypatch.setattr(lidarr_sync, "trigger_sync", lambda: calls.append(1))
+    monkeypatch.setattr(
+        download_client, "load_config", lambda: {"lidarr_url": ""},
+    )
+    download_client._last_auto_refresh_ts = 0.0
+    download_client._maybe_refresh_library()
+    assert calls == []
+
+
+def test_newznab_search_triggers_library_refresh(
+    client, configured, monkeypatch,
+):
+    import lidarr_sync
+    from config import save_config
+    _seed_album()
+    configured["lidarr_url"] = "http://lidarr:8686"
+    save_config(configured)
+    calls = []
+    monkeypatch.setattr(lidarr_sync, "trigger_sync", lambda: calls.append(1))
+    download_client._last_auto_refresh_ts = 0.0
+    resp = client.get(
+        "/api/newznab/api?t=music&apikey=secret"
+        "&artist=Daft+Punk&album=Discovery"
+    )
+    assert resp.status_code == 200
+    assert len(calls) == 1
+
+
 def test_caps_returns_music_search(client):
     resp = client.get("/api/newznab/api?t=caps")
     assert resp.status_code == 200
