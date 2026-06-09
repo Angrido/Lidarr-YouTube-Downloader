@@ -1821,7 +1821,53 @@ class TestYtdlpFormatsRoute:
             raise Exception("Video unavailable")
         monkeypatch.setattr("app.list_video_formats", boom)
         data = client.post(
-            "/api/ytdlp/formats", json={"url": "x"}
+            "/api/ytdlp/formats", json={"url": "dQw4w9WgXcQ"}
         ).get_json()
         assert data["success"] is False
         assert "unavailable" in data["message"].lower()
+
+    def test_rejects_non_youtube_url(self, client, monkeypatch):
+        # SSRF guard: a non-YouTube URL must be refused before yt-dlp is
+        # ever invoked.
+        calls = []
+        monkeypatch.setattr(
+            "app.list_video_formats", lambda url: calls.append(url)
+        )
+        data = client.post(
+            "/api/ytdlp/formats",
+            json={"url": "http://localhost:8080/admin"},
+        ).get_json()
+        assert data["success"] is False
+        assert calls == []
+
+    def test_accepts_music_youtube_url(self, client, monkeypatch):
+        received = []
+
+        def fake(url):
+            received.append(url)
+            return {"title": "Song", "formats": [{
+                "format_id": "141", "ext": "m4a", "acodec": "mp4a",
+                "abr": 256, "filesize": 0, "audio_only": True, "note": "",
+            }]}
+        monkeypatch.setattr("app.list_video_formats", fake)
+        data = client.post(
+            "/api/ytdlp/formats",
+            json={"url": "https://music.youtube.com/watch?v=DIEI2YLYg6o"},
+        ).get_json()
+        assert data["success"] is True
+        assert received == [
+            "https://music.youtube.com/watch?v=DIEI2YLYg6o"
+        ]
+
+    def test_bare_id_is_normalized_before_listing(self, client, monkeypatch):
+        received = []
+
+        def fake(url):
+            received.append(url)
+            return {"title": "x", "formats": [{
+                "format_id": "140", "ext": "m4a", "acodec": "mp4a",
+                "abr": 128, "filesize": 0, "audio_only": True, "note": "",
+            }]}
+        monkeypatch.setattr("app.list_video_formats", fake)
+        client.post("/api/ytdlp/formats", json={"url": "dQw4w9WgXcQ"})
+        assert received == ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
