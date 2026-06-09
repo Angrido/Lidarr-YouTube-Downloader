@@ -64,7 +64,7 @@ log.setLevel(logging.ERROR)
 app = Flask(__name__)
 app.register_blueprint(download_client.bp)
 
-VERSION = "1.8.1"
+VERSION = "1.8.2"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
