@@ -40,6 +40,7 @@ from processing import (
     get_download_status,
     process_download_queue,
     queue_lock,
+    skip_track,
     stop_download,
 )
 from scheduler import run_scheduler, setup_scheduler
@@ -506,23 +507,24 @@ def api_cookies_test():
     # youtube.com domain. The Google-domain auth cookies (SAPISID/SID on
     # .google.com) are NOT sent to youtube.com, so on their own they don't
     # pass the age gate — LOGIN_INFO is the marker that actually matters.
-    signed_in = False
+    # Parse with yt-dlp's own cookie jar (the same parser the download path
+    # uses for ``cookiefile``): it understands the ``#HttpOnly_`` line
+    # prefix browsers use for HttpOnly cookies — LOGIN_INFO is one, so a
+    # naive "skip # comments" parser misreads real exports as logged out.
     try:
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            cookie_text = f.read()
-        for line in cookie_text.splitlines():
-            if line.startswith("#") or "\t" not in line:
-                continue
-            fields = line.split("\t")
-            if len(fields) >= 6:
-                domain, name = fields[0], fields[5]
-                if "youtube.com" in domain and name == "LOGIN_INFO":
-                    signed_in = True
-                    break
-    except OSError as e:
-        return jsonify(
-            {"success": False, "message": f"Cannot read cookies file: {e}"}
+        from yt_dlp.cookies import YoutubeDLCookieJar
+        jar = YoutubeDLCookieJar(path)
+        jar.load(ignore_discard=True, ignore_expires=True)
+        signed_in = any(
+            cookie.name == "LOGIN_INFO"
+            and "youtube.com" in (cookie.domain or "")
+            for cookie in jar
         )
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "message": f"Cannot parse cookies file: {str(e)[:200]}",
+        })
     try:
         import yt_dlp
         ydl_opts = {
@@ -741,13 +743,12 @@ def api_skip_track():
         return jsonify({"error": "track_index required"}), 400
     if not isinstance(track_index, int):
         return jsonify({"error": "track_index must be an integer"}), 400
-    with queue_lock:
-        if not download_process["active"]:
-            return jsonify({"error": "No active download"}), 409
-        tracks = download_process.get("tracks", [])
-        if track_index < 0 or track_index >= len(tracks):
-            return jsonify({"error": "Invalid track_index"}), 400
-        tracks[track_index]["skip"] = True
+    # Delegate to processing so the skip targets the same download the
+    # dashboard is showing (which may be a background client job).
+    error = skip_track(track_index)
+    if error is not None:
+        message, status = error
+        return jsonify({"error": message}), status
     return jsonify({"success": True})
 
 
@@ -1790,10 +1791,18 @@ def _build_ydl_opts(config, temp_file):
     }
     if audio_format == "mp3":
         pp["preferredquality"] = "320"
+    # Honor the optional yt-dlp format override on the manual-download path
+    # too (issue #58), with a slash-fallback so a video that doesn't expose
+    # the requested format still downloads best audio.
+    custom_format = (config.get("ytdlp_format") or "").strip()
+    fmt = (
+        f"{custom_format}/bestaudio/best" if custom_format
+        else "bestaudio/best"
+    )
     opts = {
         "quiet": True,
         "no_warnings": True,
-        "format": "bestaudio/best",
+        "format": fmt,
         "postprocessors": [pp],
         "outtmpl": temp_file,
         "noplaylist": True,

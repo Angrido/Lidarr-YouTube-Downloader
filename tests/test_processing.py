@@ -2117,12 +2117,15 @@ class TestQueueDispatch:
     @staticmethod
     def _patch_queue(monkeypatch, ids):
         monkeypatch.setattr(
-            "models.peek_next_from_queue",
-            lambda: ids[0] if ids else None,
+            "models.get_queue",
+            lambda: [
+                {"album_id": album_id, "status": "queued"}
+                for album_id in ids
+            ],
         )
         monkeypatch.setattr(
-            "models.pop_next_from_queue",
-            lambda: ids.pop(0) if ids else None,
+            "models.dequeue_album",
+            lambda album_id: ids.remove(album_id),
         )
 
     @staticmethod
@@ -2169,7 +2172,7 @@ class TestQueueDispatch:
         assert started == []
         assert ids == [42]  # not popped — keeps its place in the queue
 
-    def test_client_uses_foreground_when_free(self, monkeypatch):
+    def test_client_always_gets_dedicated_state(self, monkeypatch):
         import processing
         import download_client
         self._patch_queue(monkeypatch, [42])
@@ -2179,9 +2182,14 @@ class TestQueueDispatch:
         processing._dispatch_next_from_queue()
         assert len(started) == 1
         assert started[0].target is download_client.run_album_job
-        assert started[0].kwargs.get("state") is processing.download_process
+        # Client jobs never borrow the foreground state, even when it is
+        # free: the dashboard view is derived from the active-state registry
+        # instead, so there is exactly one kind of client job state.
+        state = started[0].kwargs.get("state")
+        assert state is not None
+        assert state is not processing.download_process
 
-    def test_client_uses_background_when_foreground_busy(self, monkeypatch):
+    def test_client_runs_in_background_when_foreground_busy(self, monkeypatch):
         import processing
         import download_client
         self._patch_queue(monkeypatch, [42])
@@ -2220,6 +2228,27 @@ class TestQueueDispatch:
         processing._dispatch_next_from_queue()
         assert started == []
         assert ids == []  # duplicate popped and discarded
+
+    def test_client_behind_blocked_non_client_still_dispatches(
+        self, monkeypatch,
+    ):
+        # Head-of-line: a non-client album waiting for the busy foreground
+        # must not block a client album (with free slots) queued behind it.
+        import processing
+        import download_client
+        ids = [7, 42]
+        self._patch_queue(monkeypatch, ids)
+        monkeypatch.setattr(
+            download_client, "is_client_album", lambda a: a == 42,
+        )
+        self._patch_limit(monkeypatch, 2)
+        processing.download_process["active"] = True
+        started = self._capture_threads(monkeypatch)
+        processing._dispatch_next_from_queue()
+        assert len(started) == 1
+        assert started[0].target is download_client.run_album_job
+        assert started[0].args == (42,)
+        assert ids == [7]  # the blocked non-client album keeps its position
 
 
 class TestConcurrencyHelpers:
@@ -2270,3 +2299,78 @@ class TestConcurrencyHelpers:
             "downloading"
         )
         assert processing.get_download_status_for_album(123) is None
+
+    def test_album_track_progress_counts_without_copy(self):
+        import processing
+        processing._active_states[7] = {
+            "active": True, "album_id": 7,
+            "tracks": [
+                {"status": "done"}, {"status": "failed"},
+                {"status": "skipped"}, {"status": "downloading"},
+            ],
+        }
+        assert processing.album_track_progress(7) == (3, 4)
+        assert processing.album_track_progress(123) is None
+
+    def test_download_status_shows_background_client_job(self):
+        # With the foreground idle, the dashboard view falls back to an
+        # active background client job so it isn't invisible in the UI.
+        import processing
+        assert processing.download_process["active"] is False
+        processing._active_states[7] = {
+            "active": True, "album_id": 7, "is_client": True,
+            "tracks": [{"status": "downloading"}],
+        }
+        snap = processing.get_download_status()
+        assert snap["album_id"] == 7
+        assert snap["is_client"] is True
+
+    def test_skip_track_targets_displayed_state(self):
+        import processing
+        processing._active_states[7] = {
+            "active": True, "album_id": 7, "is_client": True,
+            "tracks": [{"status": "downloading"}],
+        }
+        assert processing.skip_track(0) is None
+        assert processing._active_states[7]["tracks"][0]["skip"] is True
+        message, status = processing.skip_track(5)
+        assert status == 400
+        processing._active_states.clear()
+        message, status = processing.skip_track(0)
+        assert status == 409
+
+
+class TestStopReporting:
+    @pytest.fixture(autouse=True)
+    def reset_state(self):
+        import processing
+        processing._active_states.clear()
+        processing.download_process.update(processing._make_download_state())
+        yield
+        processing._active_states.clear()
+        processing.download_process.update(processing._make_download_state())
+
+    def test_error_path_reports_stop(self, monkeypatch):
+        # A stop that surfaces as an exception must be reported as
+        # {"stopped": True} — never as an error the download-client wrapper
+        # would turn into a blocklist-worthy 'Failed' job.
+        import processing
+
+        def fake_lidarr_request(*args, **kwargs):
+            processing.download_process["stop"] = True
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(processing, "lidarr_request", fake_lidarr_request)
+        result = processing.process_album_download(4242, client_grab=True)
+        assert result == {"stopped": True}
+        # State is fully reset and deregistered afterwards.
+        assert processing.download_process["active"] is False
+        assert not processing._active_states
+
+    def test_busy_when_album_already_active(self):
+        import processing
+        own_state = processing._make_download_state()
+        own_state["active"] = True
+        processing._active_states[4242] = own_state
+        result = processing.process_album_download(4242)
+        assert result == {"error": "Busy"}

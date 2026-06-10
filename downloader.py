@@ -1081,39 +1081,64 @@ def _candidate_display_url(candidate):
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
+def _client_fallback_chain(config, is_music=False):
+    """Ordered yt-dlp ``player_client`` fallback chain.
+
+    Single source for both the real download path and the format lister,
+    so the lister can't recommend a format from a client the download path
+    never tries. Music clients lead for YT Music candidates (they honor
+    cookies more reliably and expose higher-tier audio); web-family clients
+    are promoted when a PO token or a format override is configured — PO
+    tokens are only honored by web clients, and premium-quality formats
+    (e.g. 141) are only exposed to them.
+    """
+    chain = []
+
+    def _add(*clients):
+        for client in clients:
+            if client and client not in chain:
+                chain.append(client)
+
+    if is_music:
+        _add("web_music", "android_music", "ios_music")
+    has_po_token = bool(
+        (config.get("yt_po_token") or "").strip()
+        or (config.get("yt_pot_provider_url") or "").strip()
+    )
+    custom_format = (config.get("ytdlp_format") or "").strip()
+    if has_po_token or custom_format:
+        _add("web", "web_music")
+    _add(config.get("yt_player_client", "android"))
+    _add("web", "ios", "web_creator", "tv_embedded")
+    return chain
+
+
 def list_video_formats(url):
-    """List the audio-capable formats for a YouTube video URL or ID.
+    """List the audio-capable formats for a YouTube video URL.
 
     Powers the Settings "yt-dlp Format Override" tester: paste a video and
     see which format IDs it exposes (e.g. ``141`` = 256 kbps AAC) so you
-    know what to put in the override. Uses the configured cookies / PO token
-    and mirrors ``yt-dlp -F`` (default clients first, full processing).
-    Video-only streams are omitted (this is an audio app).
+    know what to put in the override. Expects a full, validated YouTube URL
+    (the API route normalizes bare 11-char ids through its allowlist).
+    Uses the configured cookies / PO token and mirrors ``yt-dlp -F``
+    (default clients first, full processing), then falls back through the
+    same client chain the download path uses. Video-only streams are
+    omitted (this is an audio app).
 
     Returns:
         dict ``{"title": str, "formats": [{format_id, ext, acodec, abr,
         filesize, audio_only, note}, ...]}`` sorted audio-only first then by
         bitrate descending.
     """
-    raw = (url or "").strip()
-    # Pass full URLs (incl. music.youtube.com) through unchanged so this
-    # matches what `yt-dlp -F <url>` does; only a bare 11-char id is expanded.
-    if re.fullmatch(r"[0-9A-Za-z_-]{11}", raw):
-        target = f"https://www.youtube.com/watch?v={raw}"
-    else:
-        target = raw or url
+    target = (url or "").strip()
     cfg = load_config()
     # ``ignore_no_formats_error`` keeps full processing (so acodec/abr are
     # populated like `yt-dlp -F`) while not raising "Requested format is not
     # available" when the default selector can't pick a stream. We try
     # yt-dlp's own default clients first (what `-F` uses), then fall back
-    # through specific clients — the configured one often is ``android``,
+    # through the shared chain — the configured client often is ``android``,
     # which returns few/no formats without a PO token.
-    configured = (cfg.get("yt_player_client") or "").strip()
-    clients = [None]  # None = yt-dlp default clients (matches `-F`)
-    for c in (configured, "web", "web_music", "ios", "tv_embedded"):
-        if c and c not in clients:
-            clients.append(c)
+    clients = [None] + _client_fallback_chain(cfg)
     info = {}
     last_err = None
     for pc in clients:
@@ -1200,40 +1225,25 @@ def download_youtube_candidate(
         ]
 
     # Optional user override (e.g. "141" for the 256 kbps AAC stream on
-    # Premium accounts — issue #58). Tried first, then the built-in
-    # selectors as a fallback so a download still succeeds when the
-    # requested format isn't available for a given video.
+    # Premium accounts — issue #58). Folded into the first selector with a
+    # slash-fallback: yt-dlp picks the override when the video exposes it
+    # and otherwise falls back to best audio in the same request, so a
+    # video without the format doesn't cost a wasted sweep of every client.
+    # _client_fallback_chain promotes the web-family clients (the ones that
+    # expose premium formats) when an override is set. With no override the
+    # selectors are untouched.
     custom_format = (config.get("ytdlp_format") or "").strip()
-    if custom_format and custom_format not in format_selectors:
-        format_selectors = [custom_format] + format_selectors
+    if custom_format:
+        format_selectors = (
+            [f"{custom_format}/{format_selectors[0]}"] + format_selectors
+        )
 
-    first_client = config.get("yt_player_client", "android")
     is_music = candidate.get("source") == "ytmusic"
     has_po_token = bool(
         (config.get("yt_po_token") or "").strip()
         or (config.get("yt_pot_provider_url") or "").strip()
     )
-    clients_to_try = []
-    # Music clients hit the YouTube Music InnerTube endpoint, honor
-    # cookies more reliably than bare android, and expose higher-tier
-    # audio. For ytmusic-sourced candidates they take priority over
-    # the user-configured default.
-    if is_music:
-        clients_to_try.extend(["web_music", "android_music", "ios_music"])
-    # PO tokens (manual or via the bgutil provider) are only honored by the
-    # web-family clients, so when one is configured try web before the
-    # default (e.g. android) — otherwise the first attempt, on a client that
-    # ignores the token, just wastes it and reports "format not available".
-    if has_po_token:
-        for c in ("web", "web_music"):
-            if c not in clients_to_try:
-                clients_to_try.append(c)
-    if first_client and first_client not in clients_to_try:
-        clients_to_try.append(first_client)
-    for alt in ["web", "ios", "web_creator", "tv_embedded"]:
-        if alt not in clients_to_try:
-            clients_to_try.append(alt)
-    clients_to_try.append(None)
+    clients_to_try = _client_fallback_chain(config, is_music) + [None]
 
     # Selector-outer / client-inner: ``android`` often only sees the
     # combined 360p mp4 (22k audio) while ``web`` exposes the 130k DASH

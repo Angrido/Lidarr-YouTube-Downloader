@@ -514,17 +514,6 @@ def get_queue_length():
     ).fetchone()[0]
 
 
-def peek_next_from_queue():
-    """Return the next queued album_id without removing it, or None."""
-    conn = db.get_db()
-    row = conn.execute(
-        "SELECT album_id FROM download_queue"
-        " WHERE status = ? ORDER BY position LIMIT 1",
-        (QUEUE_STATUS_QUEUED,),
-    ).fetchone()
-    return row[0] if row else None
-
-
 def pop_next_from_queue():
     """Remove and return the next queued album_id, or None."""
     conn = db.get_db()

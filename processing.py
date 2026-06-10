@@ -54,9 +54,11 @@ DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 def _make_download_state():
     """Create a fresh per-download state container.
 
-    The module-level ``download_process`` is the foreground/primary state
-    that manual single-track downloads, the dashboard and the scheduler
-    read. Concurrent Lidarr download-client album jobs each get their own
+    Single source of truth for the state shape: ``process_album_download``
+    resets a state from this factory at start and end, so a field added
+    here can't go stale between runs. The module-level ``download_process``
+    is the foreground/primary state that manual single-track downloads and
+    the scheduler use. Lidarr download-client album jobs each get their own
     state from this factory so their per-track progress doesn't collide.
     """
     return {
@@ -68,6 +70,7 @@ def _make_download_state():
         "cover_url": "",
         "tracks": [],
         "current_track_index": -1,
+        "ytmusic_album": None,
         "is_client": False,
     }
 
@@ -203,12 +206,32 @@ def _make_progress_hook(idx, state=None):
     return hook
 
 
+def _snapshot_locked(state):
+    """Copy a state for external readers; caller must hold queue_lock."""
+    snapshot = dict(state)
+    snapshot["tracks"] = copy.deepcopy(state["tracks"])
+    return snapshot
+
+
+def _displayed_state_locked():
+    """The state the dashboard shows; caller must hold queue_lock.
+
+    The foreground download has priority; when it is idle, an active
+    background download-client job is shown instead, so concurrent client
+    downloads aren't invisible in the UI.
+    """
+    if download_process["active"]:
+        return download_process
+    for state in _active_states.values():
+        if state.get("active"):
+            return state
+    return download_process
+
+
 def get_download_status():
-    """Return a snapshot of the foreground (primary) download state."""
+    """Return a snapshot of the most relevant in-flight download."""
     with queue_lock:
-        snapshot = dict(download_process)
-        snapshot["tracks"] = copy.deepcopy(download_process["tracks"])
-        return snapshot
+        return _snapshot_locked(_displayed_state_locked())
 
 
 def get_download_status_for_album(album_id):
@@ -221,9 +244,44 @@ def get_download_status_for_album(album_id):
         state = _active_states.get(album_id)
         if state is None:
             return None
-        snapshot = dict(state)
-        snapshot["tracks"] = copy.deepcopy(state["tracks"])
-        return snapshot
+        return _snapshot_locked(state)
+
+
+def album_track_progress(album_id):
+    """(finished, total) track counts for an in-flight album, or None.
+
+    Cheap status tally for the SABnzbd queue poll — no track-list copy.
+    """
+    with queue_lock:
+        state = _active_states.get(album_id)
+        if state is None or not state.get("active"):
+            return None
+        tracks = state.get("tracks") or []
+        finished = sum(
+            1 for t in tracks
+            if t.get("status") in ("done", "failed", "skipped")
+        )
+        return finished, len(tracks)
+
+
+def skip_track(track_index):
+    """Flag a track of the displayed download to be skipped.
+
+    Targets the same state ``get_download_status`` shows, so the dashboard
+    skip button acts on the download the user is looking at.
+
+    Returns:
+        None on success, or an ``(error_message, http_status)`` tuple.
+    """
+    with queue_lock:
+        state = _displayed_state_locked()
+        if not state["active"]:
+            return ("No active download", 409)
+        tracks = state.get("tracks", [])
+        if track_index < 0 or track_index >= len(tracks):
+            return ("Invalid track_index", 400)
+        tracks[track_index]["skip"] = True
+        return None
 
 
 def is_album_active(album_id):
@@ -254,39 +312,33 @@ def stop_download():
         models.clear_queue()
 
 
-def process_album_download(album_id, force=False, client_grab=None, state=None):
+def process_album_download(album_id, force=False, client_grab=False, state=None):
     """Download all tracks for an album and import into Lidarr.
 
     Args:
         album_id: Lidarr album ID to download.
         force: If True, re-download tracks that already exist.
         client_grab: Whether this is a Lidarr download-client grab (skip
-            copy-to-library so Lidarr imports the files itself). When None
-            it is derived via ``is_client_album``; callers that already
-            decided the routing pass it explicitly so the decision is made
-            once and can't race the in-memory job registry.
+            copy-to-library so Lidarr imports the files itself). The queue
+            dispatcher decides this once and passes it through explicitly,
+            so the routing can't race the in-memory job registry.
         state: Per-download state container. Defaults to the foreground
             ``download_process``; concurrent download-client jobs pass their
             own state so their progress doesn't collide.
 
     Returns:
-        Dict with "success", "error", or "stopped" key.
+        Dict with "success", "error", or "stopped" key. A user stop is
+        reported as ``{"stopped": True}`` on every exit path so callers
+        never mistake it for a failure.
     """
     if state is None:
         state = download_process
     with queue_lock:
-        if state["active"]:
+        if state["active"] or album_id in _active_states:
             return {"error": "Busy"}
+        state.update(_make_download_state())
         state["active"] = True
-        state["stop"] = False
-        state["result_success"] = True
-        state["result_partial"] = False
-        state["tracks"] = []
-        state["current_track_index"] = -1
         state["album_id"] = album_id
-        state["album_title"] = ""
-        state["artist_name"] = ""
-        state["cover_url"] = ""
         state["is_client"] = bool(client_grab)
         _active_states[album_id] = state
 
@@ -313,15 +365,6 @@ def process_album_download(album_id, force=False, client_grab=None, state=None):
             f" {album.get('title', 'Unknown')}"
             f" - {album.get('artist', {}).get('artistName', 'Unknown')}"
         )
-
-        # When Lidarr grabbed this album through the download-client
-        # bridge, Lidarr imports the finished files itself. We must then
-        # leave them in place and skip the copy-to-library / RefreshArtist
-        # steps to avoid a double import.
-        if client_grab is None:
-            from download_client import is_client_album
-            client_grab = is_client_album(album_id)
-            state["is_client"] = bool(client_grab)
 
         if not DOWNLOAD_DIR:
             logger.error(
@@ -577,9 +620,12 @@ def process_album_download(album_id, force=False, client_grab=None, state=None):
 
         set_permissions(artist_path)
 
-        # A user stop is neither success nor failure: signal it so the
-        # client wrapper doesn't report a blocklist-worthy failure.
-        if state.get("stop"):
+        # A user stop on a client grab is neither success nor failure:
+        # report it so the client wrapper drops the job (a 'Failed' slot
+        # would be blocklisted by Lidarr). Manual/scheduler downloads keep
+        # the pre-stop behavior instead and fall through, so the tracks
+        # that did finish are still logged and imported.
+        if state.get("stop") and client_grab:
             logger.info(
                 "Download stopped by user; aborting album %s", album_id,
             )
@@ -669,6 +715,13 @@ def process_album_download(album_id, force=False, client_grab=None, state=None):
         return {"success": True, "album_path": lidarr_album_path or album_path}
 
     except Exception as e:
+        if state.get("stop"):
+            # A stop can surface as an exception from a torn-down download;
+            # report the stop, not a failure (and skip the error alert).
+            logger.info(
+                "Download stopped by user during album %s", album_id,
+            )
+            return {"stopped": True}
         logger.error("Error during album download: %s", e, exc_info=True)
         _artist = state.get("artist_name", "Unknown")
         _album = state.get("album_title", "Unknown")
@@ -691,19 +744,10 @@ def process_album_download(album_id, force=False, client_grab=None, state=None):
             artist_name=artist_name,
             details=f"Error: {e}",
         )
-        state["result_success"] = False
         return {"error": str(e)}
     finally:
         with queue_lock:
-            state["active"] = False
-            state["tracks"] = []
-            state["current_track_index"] = -1
-            state["album_id"] = None
-            state["album_title"] = ""
-            state["artist_name"] = ""
-            state["cover_url"] = ""
-            state["ytmusic_album"] = None
-            state["is_client"] = False
+            state.update(_make_download_state())
             _active_states.pop(album_id, None)
 
 
@@ -1798,10 +1842,8 @@ def _handle_post_download(
                         "Failed to log track_failure for '%s'",
                         ft["title"], exc_info=True,
                     )
-            state["result_success"] = False
             return {"error": "All tracks failed to download"}
 
-        state["result_partial"] = True
         partial_extra = list(verify_md2_lines)
         if best_rejected > 0:
             partial_extra.append(
@@ -2122,57 +2164,49 @@ def _client_concurrency_limit():
 def _dispatch_next_from_queue():
     """Start the next eligible queued album, honoring concurrency limits.
 
-    The foreground slot (``download_process``) runs one download at a time
-    as before; Lidarr download-client albums may additionally run in
-    background slots up to ``download_client_concurrent_albums`` total. A
-    non-client (manual/scheduler) album always uses the foreground slot, so
-    it only starts when the foreground is free. The queue head is peeked
-    first so a non-client album waiting for the foreground doesn't get
-    popped and dropped.
+    The queue is scanned in order so a blocked album doesn't hold back an
+    eligible one behind it: a non-client (manual/scheduler) album only runs
+    on the free foreground slot (``download_process``), while Lidarr
+    download-client albums always run in their own state container, up to
+    ``download_client_concurrent_albums`` at once. Blocked albums keep
+    their queue position; an album that is already downloading is dropped
+    as a duplicate.
     """
     import download_client
 
-    next_album_id = models.peek_next_from_queue()
-    if next_album_id is None:
+    try:
+        queued = [
+            row["album_id"] for row in models.get_queue()
+            if row["status"] == models.QUEUE_STATUS_QUEUED
+        ]
+    except Exception:
+        logger.warning("Queue lookup failed", exc_info=True)
         return
 
-    # Already downloading this album (e.g. a re-grab landed in the queue):
-    # drop the duplicate so it doesn't start a second, colliding download.
-    if is_album_active(next_album_id):
-        models.pop_next_from_queue()
-        return
-
-    is_client = download_client.is_client_album(next_album_id)
-    foreground_free = not download_process["active"]
-
-    if is_client:
-        if active_client_album_count() >= _client_concurrency_limit():
-            return  # at the concurrency limit; try again next tick
-        album_id = models.pop_next_from_queue()
-        if album_id is None:
-            return
-        # Use the visible foreground slot when it's free; otherwise spin up
-        # a dedicated background state so concurrent jobs don't collide.
-        job_state = download_process if foreground_free else _make_download_state()
+    for album_id in queued:
+        # Already downloading this album (e.g. a re-grab landed in the
+        # queue): drop the duplicate so it can't start a colliding download.
+        if is_album_active(album_id):
+            models.dequeue_album(album_id)
+            continue
+        if download_client.is_client_album(album_id):
+            if active_client_album_count() >= _client_concurrency_limit():
+                continue  # at the concurrency limit; try again next tick
+            target = download_client.run_album_job
+            job_state = _make_download_state()
+        else:
+            if download_process["active"]:
+                continue  # foreground busy; the album keeps its position
+            target = process_album_download
+            job_state = download_process
+        models.dequeue_album(album_id)
         threading.Thread(
-            target=download_client.run_album_job,
-            args=(album_id, False),
+            target=target,
+            args=(album_id,),
             kwargs={"state": job_state},
             daemon=True,
         ).start()
         return
-
-    # Non-client album: needs the single foreground slot.
-    if foreground_free:
-        album_id = models.pop_next_from_queue()
-        if album_id is None:
-            return
-        threading.Thread(
-            target=process_album_download,
-            args=(album_id, False, False),
-            kwargs={"state": download_process},
-            daemon=True,
-        ).start()
 
 
 def process_download_queue():

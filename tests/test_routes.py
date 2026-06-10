@@ -1727,10 +1727,35 @@ def _mock_ydl_with_formats(n):
     return m
 
 
+_COOKIES_HEADER = "# Netscape HTTP Cookie File\n"
+
+
 def test_cookies_test_signed_in(client, tmp_path, monkeypatch):
     cookies = tmp_path / "cookies.txt"
     cookies.write_text(
-        "# Netscape\n.youtube.com\tTRUE\t/\tTRUE\t0\tLOGIN_INFO\tabc\n"
+        _COOKIES_HEADER
+        + ".youtube.com\tTRUE\t/\tTRUE\t0\tLOGIN_INFO\tabc\n"
+    )
+    monkeypatch.setattr(
+        "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
+    )
+    import yt_dlp
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _mock_ydl_with_formats(14))
+    data = client.post("/api/cookies/test").get_json()
+    assert data["success"] is True
+    assert "signed in" in data["message"].lower()
+
+
+def test_cookies_test_httponly_login_info_detected(
+    client, tmp_path, monkeypatch,
+):
+    # LOGIN_INFO is an HttpOnly cookie: real exports (yt-dlp, curl, the
+    # cookies.txt browser extensions) write it with the #HttpOnly_ line
+    # prefix. The Test must not misread such a file as logged out.
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text(
+        _COOKIES_HEADER
+        + "#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t0\tLOGIN_INFO\tabc\n"
     )
     monkeypatch.setattr(
         "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
@@ -1745,7 +1770,8 @@ def test_cookies_test_signed_in(client, tmp_path, monkeypatch):
 def test_cookies_test_not_signed_in_warns(client, tmp_path, monkeypatch):
     cookies = tmp_path / "cookies.txt"
     cookies.write_text(
-        "# Netscape\n.youtube.com\tTRUE\t/\tTRUE\t0\tVISITOR_INFO1_LIVE\tx\n"
+        _COOKIES_HEADER
+        + ".youtube.com\tTRUE\t/\tTRUE\t0\tVISITOR_INFO1_LIVE\tx\n"
     )
     monkeypatch.setattr(
         "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
@@ -1762,10 +1788,10 @@ def test_cookies_test_google_only_not_signed_in(client, tmp_path, monkeypatch):
     # reported as signed in (these don't pass YouTube's age gate).
     cookies = tmp_path / "cookies.txt"
     cookies.write_text(
-        "# Netscape\n"
-        ".google.com\tTRUE\t/\tTRUE\t0\tSAPISID\tabc\n"
-        ".google.com\tTRUE\t/\tTRUE\t0\t__Secure-3PSID\tdef\n"
-        ".youtube.com\tTRUE\t/\tTRUE\t0\tVISITOR_INFO1_LIVE\tx\n"
+        _COOKIES_HEADER
+        + ".google.com\tTRUE\t/\tTRUE\t0\tSAPISID\tabc\n"
+        + ".google.com\tTRUE\t/\tTRUE\t0\t__Secure-3PSID\tdef\n"
+        + ".youtube.com\tTRUE\t/\tTRUE\t0\tVISITOR_INFO1_LIVE\tx\n"
     )
     monkeypatch.setattr(
         "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
@@ -1781,6 +1807,23 @@ def test_cookies_test_no_file(client, monkeypatch):
     monkeypatch.setattr("app.load_config", lambda: {"yt_cookies_file": ""})
     data = client.post("/api/cookies/test").get_json()
     assert data["success"] is False
+
+
+def test_build_ydl_opts_honors_format_override():
+    # Issue #58: the manual-download path must honor the configured
+    # override, with a slash-fallback so a video without the format still
+    # downloads — and stay on plain best-audio when no override is set.
+    import app as app_module
+    opts = app_module._build_ydl_opts(
+        {"audio_format": "m4a", "ytdlp_format": "141"}, "/tmp/x",
+    )
+    assert opts["format"] == "141/bestaudio/best"
+    opts = app_module._build_ydl_opts(
+        {"audio_format": "m4a", "ytdlp_format": ""}, "/tmp/x",
+    )
+    assert opts["format"] == "bestaudio/best"
+    opts = app_module._build_ydl_opts({"audio_format": "m4a"}, "/tmp/x")
+    assert opts["format"] == "bestaudio/best"
 
 
 class TestYtdlpFormatsRoute:

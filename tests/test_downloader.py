@@ -1194,8 +1194,42 @@ class TestYtdlpFormatOverride:
         download_youtube_candidate(candidate, "/tmp/out")
         formats = self._formats_tried(mock_ydl_class)
         assert formats, "expected at least one format selector to be tried"
-        # The override is attempted first, before the built-in fallbacks.
-        assert formats[0] == "141"
+        # The override leads the first selector with a slash-fallback, so a
+        # video that doesn't expose it falls back to best audio within the
+        # same request instead of wasting a full sweep of every client.
+        assert formats[0].startswith("141/")
+        assert "bestaudio" in formats[0]
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_custom_format_promotes_web_clients(
+        self, mock_config, mock_ydl_class,
+    ):
+        # Premium formats (e.g. 141) are only exposed to the web-family
+        # clients, so an override must put web before the configured
+        # android default.
+        mock_config.return_value = {
+            "yt_player_client": "android",
+            "audio_format": "m4a",
+            "audio_quality": "320",
+            "ytdlp_format": "141",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "requested format is not available"
+        )
+        candidate = {
+            "url": "abc12345678", "title": "t", "duration": 200,
+            "score": 0.9, "source": "ytsearch",
+        }
+        download_youtube_candidate(candidate, "/tmp/out")
+        clients = _called_clients(mock_ydl_class)
+        web_idx = next((i for i, c in enumerate(clients) if c == "web"), -1)
+        android_idx = next(
+            (i for i, c in enumerate(clients) if c == "android"), -1
+        )
+        assert web_idx != -1 and android_idx != -1
+        assert web_idx < android_idx
 
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")
@@ -1255,17 +1289,20 @@ class TestListVideoFormats:
 
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")
-    def test_bare_id_becomes_watch_url(self, mock_config, mock_ydl_class):
-        mock_config.return_value = {"yt_player_client": "android"}
+    def test_uses_same_client_chain_as_download_path(
+        self, mock_config, mock_ydl_class,
+    ):
+        # The lister must fall back through the download path's exact client
+        # chain (after the default-clients attempt), so it can't recommend a
+        # format from a client the real download never tries.
+        from downloader import _client_fallback_chain
+        cfg = {"yt_player_client": "android"}
+        mock_config.return_value = cfg
         mock_ydl = mock_ydl_class.return_value.__enter__.return_value
-        mock_ydl.extract_info.return_value = {
-            "title": "x",
-            "formats": [{"format_id": "140", "ext": "m4a",
-                         "vcodec": "none", "acodec": "mp4a", "abr": 128}],
-        }
-        list_video_formats("abcdefghijk")
-        called = mock_ydl.extract_info.call_args[0][0]
-        assert called == "https://www.youtube.com/watch?v=abcdefghijk"
+        mock_ydl.extract_info.return_value = {"title": "x", "formats": []}
+        list_video_formats("https://www.youtube.com/watch?v=abcdefghijk")
+        tried = _called_clients(mock_ydl_class)
+        assert tried == [None] + _client_fallback_chain(cfg)
 
     @patch("downloader.yt_dlp.YoutubeDL")
     @patch("downloader.load_config")

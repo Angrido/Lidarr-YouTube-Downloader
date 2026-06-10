@@ -34,6 +34,38 @@
   whitespace is honored (and a null value no longer risks breaking the
   search path). The default list is consolidated into one constant and
   aligned with the Settings UI (now includes "reaction").
+- **Cookies "Test" no longer misreads real exports as logged out**: the
+  signed-in check parses the file with yt-dlp's own cookie jar, which
+  understands the `#HttpOnly_` line prefix browsers and yt-dlp use for
+  HttpOnly cookies — `LOGIN_INFO`, the login marker, is one of them.
+- **The yt-dlp Format Override is honored by the manual track download
+  path too** (it previously always forced `bestaudio/best` — thanks
+  @Gazz1e), and the override now rides the first selector with a
+  slash-fallback (`141/bestaudio/...`): a video that doesn't expose the
+  format falls back in the same request instead of sweeping every player
+  client per track. Web-family clients — the ones that expose premium
+  formats — are tried first when an override is set, and the "List
+  formats" tester walks the exact client chain the download path uses.
+  With no override the behavior is unchanged.
+- **Stopping a download no longer discards a manual/scheduler album's
+  finished tracks**: the "drop everything, report nothing" stop semantics
+  now apply only to Lidarr download-client grabs; manual downloads import
+  and log the tracks that completed, as before. The engine reports a stop
+  consistently on every exit path, so a stopped client grab can never
+  surface as a blocklist-worthy failure.
+- **Queue dispatch no longer blocks head-of-line**: a non-client album
+  waiting for the busy foreground slot doesn't hold back client albums
+  (with free concurrency slots) queued behind it.
+- **Background client jobs are visible on the dashboard** when the
+  foreground is idle, and the skip-track button targets the download being
+  shown. Client jobs always run in their own state container, created from
+  a single state factory so per-download fields can't go stale.
+- Hot-path and duplication cleanups: the Newznab/SABnzbd endpoints load
+  the config once per request (and the indexer auto-refresh checks its
+  debounce before touching the config); SABnzbd queue progress is a cheap
+  status tally instead of a deep copy under the queue lock; the
+  retry-cooldown window comes from one shared helper across the scheduler,
+  feed exclusion, grab refusal and release-guid bucketing.
 
 ## 1.8.1
 

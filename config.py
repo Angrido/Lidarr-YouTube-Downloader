@@ -95,6 +95,22 @@ def _parse_min_match_score(value):
     return _parse_unit_float(value, "min_match_score", MIN_MATCH_SCORE_DEFAULT)
 
 
+def retry_cooldown_seconds(cfg=None):
+    """Seconds before a tried album may be retried (0 = disabled).
+
+    Single source of the ``scheduler_retry_after_hours`` window, shared by
+    the scheduler and the download-client bridge (indexer feed exclusion,
+    grab refusal and release-guid bucketing), so the layers can't drift.
+    """
+    if cfg is None:
+        cfg = load_config()
+    try:
+        hours = float(cfg.get("scheduler_retry_after_hours", 24))
+    except (TypeError, ValueError):
+        hours = 24.0
+    return hours * 3600 if hours > 0 else 0
+
+
 def load_config():
     """Load config with env var defaults, overlaid by config.json."""
     global _config_cache, _config_cache_key

@@ -515,26 +515,6 @@ def test_release_pubdate_is_utc():
     assert download_client._release_pubdate("2001-03-12T00:00:00Z") == expected
 
 
-def test_run_album_job_stop_flag_drops_job_on_error(client, monkeypatch):
-    # A stop can arrive on a path that returns an error/exception rather than
-    # {"stopped": True}; the stop flag must still drop the job (no blocklist).
-    nzo = download_client.register_grab(42, "X", "music")
-
-    def fake(*a, **kw):
-        import processing
-        processing.download_process["stop"] = True
-        return {"error": "All tracks failed to download"}
-
-    monkeypatch.setattr("processing.process_album_download", fake)
-    try:
-        download_client.run_album_job(42)
-    finally:
-        import processing
-        processing.download_process["stop"] = False
-    assert download_client._jobs.get(nzo) is None
-    assert not download_client.is_client_album(42)
-
-
 def test_failed_then_succeeded_album_not_blocked(client):
     # An older failed client job must not block a grab once a newer job for
     # the same album has succeeded.
