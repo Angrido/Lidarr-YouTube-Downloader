@@ -503,10 +503,14 @@ def api_cookies_test():
         return jsonify(
             {"success": False, "message": f"Cookies file not found: {path}"}
         )
-    # YouTube marks a logged-in session with the LOGIN_INFO cookie on the
-    # youtube.com domain. The Google-domain auth cookies (SAPISID/SID on
-    # .google.com) are NOT sent to youtube.com, so on their own they don't
-    # pass the age gate — LOGIN_INFO is the marker that actually matters.
+    # Mirror yt-dlp's own ``_has_auth_cookies``: a session counts as logged
+    # in only when youtube.com has BOTH the LOGIN_INFO marker and one of the
+    # SAPISID-family cookies it signs API requests with (SAPISIDHASH).
+    # YouTube clears LOGIN_INFO when it rotates/invalidates a session while
+    # the SAPISID cookies survive, so "SAPISID without LOGIN_INFO" is the
+    # signature of a rotated session — worth its own diagnosis, because
+    # yt-dlp rewrites the cookies file after every run (cookiejar.save on
+    # close), persisting the logged-out jar over the user's export.
     # Parse with yt-dlp's own cookie jar (the same parser the download path
     # uses for ``cookiefile``): it understands the ``#HttpOnly_`` line
     # prefix browsers use for HttpOnly cookies — LOGIN_INFO is one, so a
@@ -515,16 +519,20 @@ def api_cookies_test():
         from yt_dlp.cookies import YoutubeDLCookieJar
         jar = YoutubeDLCookieJar(path)
         jar.load(ignore_discard=True, ignore_expires=True)
-        signed_in = any(
-            cookie.name == "LOGIN_INFO"
-            and "youtube.com" in (cookie.domain or "")
-            for cookie in jar
-        )
     except Exception as e:
         return jsonify({
             "success": False,
             "message": f"Cannot parse cookies file: {str(e)[:200]}",
         })
+    yt_cookie_names = {
+        cookie.name for cookie in jar
+        if "youtube.com" in (cookie.domain or "")
+    }
+    has_login_info = "LOGIN_INFO" in yt_cookie_names
+    has_sapisid = bool(yt_cookie_names & {
+        "SAPISID", "__Secure-1PAPISID", "__Secure-3PAPISID",
+    })
+    signed_in = has_login_info and has_sapisid
     try:
         import yt_dlp
         ydl_opts = {
@@ -553,14 +561,34 @@ def api_cookies_test():
                     " Age-restricted videos should work."
                 ),
             })
+        if has_sapisid:
+            # Account cookies survive rotation, LOGIN_INFO doesn't: this
+            # file held a real login that YouTube has since rotated or
+            # invalidated (and each download run rewrites the file, so the
+            # logged-out jar replaced the original export).
+            return jsonify({
+                "success": False,
+                "message": (
+                    f"Cookies work for public videos ({len(formats)} formats),"
+                    " but the session is no longer logged in: the account"
+                    " (SAPISID) cookies are present while youtube.com"
+                    " LOGIN_INFO is missing — YouTube clears it when it"
+                    " rotates or invalidates a session, and yt-dlp rewrites"
+                    " this file after every run. Re-export fresh cookies"
+                    " from a private/incognito window logged in to"
+                    " youtube.com, then close that window so the browser"
+                    " doesn't rotate them again."
+                ),
+            })
         return jsonify({
             "success": False,
             "message": (
                 f"Cookies work for public videos ({len(formats)} formats)"
-                " but have no youtube.com LOGIN_INFO cookie, so"
-                " age-restricted ('Sign in to confirm your age') tracks"
-                " will fail. Export cookies from a youtube.com tab while"
-                " logged in to YouTube (a google.com export isn't enough)."
+                " but have no youtube.com account cookies (LOGIN_INFO +"
+                " SAPISID), so age-restricted ('Sign in to confirm your"
+                " age') tracks will fail. Export cookies from a youtube.com"
+                " tab while logged in to YouTube (a google.com export isn't"
+                " enough)."
             ),
         })
     except Exception as e:

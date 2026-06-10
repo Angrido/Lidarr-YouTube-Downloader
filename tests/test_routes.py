@@ -1731,10 +1731,13 @@ _COOKIES_HEADER = "# Netscape HTTP Cookie File\n"
 
 
 def test_cookies_test_signed_in(client, tmp_path, monkeypatch):
+    # Signed in per yt-dlp's _has_auth_cookies: LOGIN_INFO AND a
+    # SAPISID-family cookie on youtube.com.
     cookies = tmp_path / "cookies.txt"
     cookies.write_text(
         _COOKIES_HEADER
         + ".youtube.com\tTRUE\t/\tTRUE\t0\tLOGIN_INFO\tabc\n"
+        + ".youtube.com\tTRUE\t/\tTRUE\t0\tSAPISID\txyz\n"
     )
     monkeypatch.setattr(
         "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
@@ -1756,6 +1759,7 @@ def test_cookies_test_httponly_login_info_detected(
     cookies.write_text(
         _COOKIES_HEADER
         + "#HttpOnly_.youtube.com\tTRUE\t/\tTRUE\t0\tLOGIN_INFO\tabc\n"
+        + ".youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-3PAPISID\txyz\n"
     )
     monkeypatch.setattr(
         "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
@@ -1765,6 +1769,31 @@ def test_cookies_test_httponly_login_info_detected(
     data = client.post("/api/cookies/test").get_json()
     assert data["success"] is True
     assert "signed in" in data["message"].lower()
+
+
+def test_cookies_test_rotated_session_diagnosed(
+    client, tmp_path, monkeypatch,
+):
+    # The signature of a session YouTube rotated/invalidated (and that a
+    # later run wrote back to the file): SAPISID-family account cookies
+    # survive while LOGIN_INFO is cleared. The Test must say exactly that,
+    # not the generic "export from a youtube.com tab" advice.
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text(
+        _COOKIES_HEADER
+        + ".youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-3PAPISID\tabc\n"
+        + ".youtube.com\tTRUE\t/\tTRUE\t0\t__Secure-3PSID\tdef\n"
+        + ".youtube.com\tTRUE\t/\tTRUE\t0\tVISITOR_INFO1_LIVE\tx\n"
+    )
+    monkeypatch.setattr(
+        "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
+    )
+    import yt_dlp
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", _mock_ydl_with_formats(14))
+    data = client.post("/api/cookies/test").get_json()
+    assert data["success"] is False
+    assert "rotates or invalidates" in data["message"]
+    assert "private/incognito" in data["message"]
 
 
 def test_cookies_test_not_signed_in_warns(client, tmp_path, monkeypatch):

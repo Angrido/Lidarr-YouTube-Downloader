@@ -6,7 +6,13 @@
 - **Cookies "Test" no longer misreads real exports as logged out**: the
   signed-in check parses the file with yt-dlp's own cookie jar, which
   understands the `#HttpOnly_` line prefix browsers and yt-dlp use for
-  HttpOnly cookies — `LOGIN_INFO`, the login marker, is one of them.
+  HttpOnly cookies — `LOGIN_INFO`, the login marker, is one of them. The
+  verdict now mirrors yt-dlp's own `_has_auth_cookies` (`LOGIN_INFO` +
+  a SAPISID-family cookie), and the rotated-session case gets its own
+  diagnosis: account cookies survive YouTube's rotation while
+  `LOGIN_INFO` is cleared (and yt-dlp rewrites the file after every run),
+  so the Test now says the session was rotated/invalidated and to
+  re-export from a private window — instead of generic export advice.
 - **The yt-dlp Format Override is honored by the manual track download
   path too** (it previously always forced `bestaudio/best` — thanks
   @Gazz1e), and the override now rides the first selector with a
