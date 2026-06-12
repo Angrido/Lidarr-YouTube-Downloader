@@ -1650,6 +1650,10 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             const btn = document.getElementById('ytdlpUpdateBtn');
             btn.disabled = true;
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checking...';
+            // The finally block below always runs (even after a return from
+            // try), so the post-update "Restart App" state must be decided
+            // there or it gets overwritten right back to "Check for Updates".
+            let restartRequired = false;
             try {
                 const res = await fetch('/api/ytdlp/update', { method: 'POST' });
                 const data = await res.json();
@@ -1658,11 +1662,8 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     if (!data.updated) {
                         showToast('success', 'Already Up to Date', `yt-dlp ${data.new_version} is the latest version.`);
                     } else {
-                        showToast('info', 'Update Installed', `yt-dlp updated from ${data.old_version} to ${data.new_version}. Restart required to apply.`);
-                        btn.disabled = false;
-                        btn.innerHTML = '<i class="fa-solid fa-power-off"></i> Restart App';
-                        btn.onclick = restartApp;
-                        return;
+                        restartRequired = true;
+                        showToast('info', 'Update Installed', `yt-dlp updated from ${data.old_version} to ${data.new_version}. Click "Restart App" to apply it.`);
                     }
                 } else {
                     showToast('error', 'Update Failed', data.message || 'Unknown error');
@@ -1671,8 +1672,13 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 showToast('error', 'Update Failed', 'Network error');
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Check for Updates';
-                btn.onclick = updateYtdlp;
+                if (restartRequired) {
+                    btn.innerHTML = '<i class="fa-solid fa-power-off"></i> Restart App';
+                    btn.onclick = restartApp;
+                } else {
+                    btn.innerHTML = '<i class="fa-solid fa-rotate"></i> Check for Updates';
+                    btn.onclick = updateYtdlp;
+                }
             }
         }
 
