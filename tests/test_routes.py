@@ -1855,6 +1855,30 @@ def test_build_ydl_opts_honors_format_override():
     assert opts["format"] == "bestaudio/best"
 
 
+def test_build_ydl_opts_override_promotes_web_clients():
+    # Premium formats like 141 are only exposed to web-family clients, so
+    # with an override the manual path must try the full fallback chain
+    # (web before the configured android), not just the single client.
+    import app as app_module
+    opts = app_module._build_ydl_opts(
+        {"audio_format": "m4a", "ytdlp_format": "141",
+         "yt_player_client": "android"}, "/tmp/x",
+    )
+    clients = opts["extractor_args"]["youtube"]["player_client"]
+    assert "web" in clients and "android" in clients
+    assert clients.index("web") < clients.index("android")
+
+
+def test_build_ydl_opts_no_override_uses_single_client():
+    # With no override the player_client is unchanged (single configured
+    # client), so default downloads behave exactly as before.
+    import app as app_module
+    opts = app_module._build_ydl_opts(
+        {"audio_format": "m4a", "yt_player_client": "android"}, "/tmp/x",
+    )
+    assert opts["extractor_args"]["youtube"]["player_client"] == ["android"]
+
+
 class TestYtdlpFormatsRoute:
     def test_lists_formats(self, client, monkeypatch):
         monkeypatch.setattr(

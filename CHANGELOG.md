@@ -19,9 +19,31 @@
   slash-fallback (`141/bestaudio/...`): a video that doesn't expose the
   format falls back in the same request instead of sweeping every player
   client per track. Web-family clients — the ones that expose premium
-  formats — are tried first when an override is set, and the "List
-  formats" tester walks the exact client chain the download path uses.
-  With no override the behavior is unchanged.
+  formats like 141 — are tried first when an override is set (on the
+  manual single-track path too, which otherwise stayed pinned to the
+  configured `android` client and could never see the format), and the
+  "List formats" tester walks the same client chain the download path
+  uses (including the music clients for a `music.youtube.com` URL). With
+  no override the behavior is unchanged.
+- **The yt-dlp updater now offers the "Restart App" step** after
+  installing a new version: the button's success handler was immediately
+  reset by its own `finally` block, so the freshly-installed yt-dlp was
+  never applied and a second click just hit the rate limit.
+- **The "yt-dlp updater" / cookies-test UI no longer overflows on
+  mobile**: the format-tester result box wraps long error text and video
+  titles (it was being clipped invisibly by the page's `overflow-x:hidden`
+  at ~360px), the format list scrolls when long, format-ID chips use a
+  calm style instead of the page's animated primary button, the "List
+  formats" button is disabled while a lookup is in flight (no racing /
+  stale results), Enter submits the URL field, and that diagnostic field
+  no longer flags the form as having unsaved changes.
+- **Concurrent Album Downloads out-of-range values are clamped to 1–5**
+  in config load, so an env/file value outside the range can't render the
+  Settings dropdown blank and then silently save back `1` over it.
+- **Download-client API-key check no longer 500s on a non-ASCII key**:
+  the timing-safe comparison now runs on bytes (`hmac.compare_digest`
+  raises `TypeError` on a non-ASCII `str`), returning a clean credential
+  rejection instead of an unhandled error.
 - **Stopping a download no longer discards a manual/scheduler album's
   finished tracks**: the "drop everything, report nothing" stop semantics
   now apply only to Lidarr download-client grabs; manual downloads import

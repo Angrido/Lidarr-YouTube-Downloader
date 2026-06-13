@@ -1137,8 +1137,11 @@ def list_video_formats(url):
     # available" when the default selector can't pick a stream. We try
     # yt-dlp's own default clients first (what `-F` uses), then fall back
     # through the shared chain — the configured client often is ``android``,
-    # which returns few/no formats without a PO token.
-    clients = [None] + _client_fallback_chain(cfg)
+    # which returns few/no formats without a PO token. For a music.youtube
+    # URL the music clients (which honor cookies) lead, matching how the
+    # eventual ytmusic-sourced download is resolved.
+    is_music = "music.youtube.com" in target.lower()
+    clients = [None] + _client_fallback_chain(cfg, is_music=is_music)
     info = {}
     last_err = None
     for pc in clients:

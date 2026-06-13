@@ -620,12 +620,14 @@ def process_album_download(album_id, force=False, client_grab=False, state=None)
 
         set_permissions(artist_path)
 
-        # A user stop on a client grab is neither success nor failure:
-        # report it so the client wrapper drops the job (a 'Failed' slot
-        # would be blocklisted by Lidarr). Manual/scheduler downloads keep
-        # the pre-stop behavior instead and fall through, so the tracks
-        # that did finish are still logged and imported.
-        if state.get("stop") and client_grab:
+        # A user stop is reported as "stopped" — never success/failure — for
+        # a client grab (so the wrapper drops the job; a 'Failed' slot would
+        # be blocklisted by Lidarr) and whenever nothing finished, so a stop
+        # before the first track completes can't fall through to the success
+        # path and log a phantom "0 tracks" import. A manual/scheduler stop
+        # with some tracks already done still falls through, so the finished
+        # tracks are logged and imported (a partial download).
+        if state.get("stop") and (client_grab or not succeeded_tracks):
             logger.info(
                 "Download stopped by user; aborting album %s", album_id,
             )

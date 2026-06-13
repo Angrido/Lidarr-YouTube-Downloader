@@ -265,6 +265,15 @@ def load_config():
                 env_defaults.get("acoustid_accept_score", 0.98),
             )
 
+    # Clamp to the 1-5 range the UI offers and the engine enforces, so an
+    # out-of-range env/file value can't render the Settings select blank
+    # (which would then silently save 1 over the configured value).
+    try:
+        _cca = int(config.get("download_client_concurrent_albums", 1))
+    except (TypeError, ValueError):
+        _cca = 1
+    config["download_client_concurrent_albums"] = max(1, min(5, _cca))
+
     def norm(p):
         return (
             os.path.normcase(os.path.abspath(str(p))).rstrip("\\/")

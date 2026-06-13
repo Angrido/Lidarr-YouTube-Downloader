@@ -400,7 +400,13 @@ def _check_apikey(cfg=None):
     provided = request.values.get("apikey", "") or request.values.get(
         "r", "",
     )
-    return hmac.compare_digest(provided, key)
+    # Compare on bytes: hmac.compare_digest raises TypeError on a str with
+    # non-ASCII characters, which would otherwise escape as an unhandled 500
+    # instead of a clean auth failure.
+    return hmac.compare_digest(
+        provided.encode("utf-8", "surrogatepass"),
+        key.encode("utf-8", "surrogatepass"),
+    )
 
 
 # --- Newznab indexer ------------------------------------------------------

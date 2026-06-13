@@ -250,3 +250,16 @@ def test_acoustid_accept_score_from_file_valid(temp_config):
     with open(temp_config, "w") as f:
         json.dump({"acoustid_accept_score": 0.95}, f)
     assert config.load_config()["acoustid_accept_score"] == 0.95
+
+
+def test_concurrent_albums_clamped_to_range(temp_config):
+    # Out-of-range / invalid values are clamped to 1-5 so the Settings
+    # select always matches an option (and can't silently save back 1).
+    for raw, expected in ((10, 5), (0, 1), (-3, 1), ("bad", 1), (3, 3)):
+        with open(temp_config, "w") as f:
+            json.dump({"download_client_concurrent_albums": raw}, f)
+        config.invalidate_config_cache()
+        assert (
+            config.load_config()["download_client_concurrent_albums"]
+            == expected
+        )

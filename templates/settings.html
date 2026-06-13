@@ -847,12 +847,12 @@
                 </label>
                 <input type="text" id="ytdlpFormat" placeholder="e.g. 141" style="max-width:260px;">
                 <div style="display:flex; gap:.5rem; align-items:center; margin-top:.5rem;">
-                    <input type="text" id="ytdlpFormatTestUrl" placeholder="Paste a YouTube video URL or ID to list its format IDs" style="flex:1 1 auto; min-width:0;">
-                    <button class="btn" type="button" onclick="testYtdlpFormats()" style="white-space:nowrap; flex:0 0 auto; width:auto; padding:.45rem .7rem; font-size:.85rem;">
+                    <input type="text" id="ytdlpFormatTestUrl" aria-label="YouTube video URL or ID to list formats" placeholder="YouTube video URL or ID" onkeydown="if(event.key==='Enter'){event.preventDefault();testYtdlpFormats();}" style="flex:1 1 auto; min-width:0;">
+                    <button class="btn" id="ytdlpFormatTestBtn" type="button" onclick="testYtdlpFormats()" style="white-space:nowrap; flex:0 0 auto; width:auto; padding:.45rem .7rem; font-size:.85rem;">
                         <i class="fa-solid fa-list"></i> List formats
                     </button>
                 </div>
-                <div id="ytdlpFormatTestResult" style="font-size:.8rem; margin-top:.4rem;"></div>
+                <div id="ytdlpFormatTestResult" role="status" aria-live="polite" style="font-size:.8rem; margin-top:.4rem; overflow-wrap:anywhere; max-height:14rem; overflow-y:auto;"></div>
             </div>
             <div class="input-group">
                 <label>
@@ -1227,7 +1227,7 @@
                     Concurrent Album Downloads
                     <div class="label-description">How many albums grabbed by Lidarr download simultaneously. Higher values finish a batch faster but multiply the load on YouTube (each album also downloads its tracks in parallel per "Concurrent Track Downloads"). Recommended: 1.</div>
                 </label>
-                <select id="downloadClientConcurrentAlbums" style="max-width:120px;">
+                <select id="downloadClientConcurrentAlbums" style="max-width:160px;">
                     <option value="1">1 (default)</option>
                     <option value="2">2</option>
                     <option value="3">3</option>
@@ -1526,14 +1526,23 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             }
         }
 
+        let ytdlpFormatsInFlight = false;
         async function testYtdlpFormats() {
+            // Guard against double-clicks / racing requests: a slow probe
+            // (yt-dlp sweeps several player clients) could otherwise let an
+            // earlier response render formats for a video the user has since
+            // replaced in the field.
+            if (ytdlpFormatsInFlight) return;
             const result = document.getElementById('ytdlpFormatTestResult');
+            const btn = document.getElementById('ytdlpFormatTestBtn');
             const url = (document.getElementById('ytdlpFormatTestUrl').value || '').trim();
             if (!url) {
                 result.textContent = 'Enter a YouTube video URL or ID first.';
                 result.style.color = '#ef4444';
                 return;
             }
+            ytdlpFormatsInFlight = true;
+            if (btn) btn.disabled = true;
             result.textContent = 'Fetching formats…';
             result.style.color = 'var(--text-dim)';
             try {
@@ -1552,6 +1561,9 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             } catch (e) {
                 result.textContent = 'Failed to list formats';
                 result.style.color = '#ef4444';
+            } finally {
+                ytdlpFormatsInFlight = false;
+                if (btn) btn.disabled = false;
             }
         }
 
@@ -1573,11 +1585,13 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             result.appendChild(hint);
             (data.formats || []).forEach(f => {
                 const row = document.createElement('div');
-                row.style.cssText = 'display:flex; gap:.5rem; align-items:center; padding:.15rem 0;';
+                row.style.cssText = 'display:flex; gap:.5rem; align-items:center; padding:.15rem 0; flex-wrap:wrap;';
                 const btn = document.createElement('button');
                 btn.type = 'button';
-                btn.className = 'btn';
-                btn.style.cssText = 'width:auto; padding:.15rem .55rem; font-size:.78rem; flex:0 0 auto;';
+                // A plain chip, not the page's animated .btn CTA — a column
+                // of 10+ pulsing gradient buttons with overlapping glow would
+                // visually outrank the real actions on the page.
+                btn.style.cssText = 'width:auto; padding:.15rem .55rem; font-size:.78rem; flex:0 0 auto; cursor:pointer; font-family:monospace; color:var(--primary); background:rgba(16,185,129,0.1); border:1px solid rgba(16,185,129,0.25); border-radius:6px;';
                 btn.textContent = f.format_id;
                 btn.title = 'Use this format ID';
                 btn.onclick = () => {
@@ -1972,18 +1986,28 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             if (btn) btn.classList.remove('visible');
         }
 
+        // Fields that are diagnostic inputs, not saved settings, so typing
+        // in them must not flag the form dirty / show the floating save bar.
+        const NON_SETTING_INPUT_IDS = new Set([
+            'ytdlpFormatTestUrl',
+        ]);
+
         function installDirtyListeners() {
             const root = document.querySelector('.container') || document.body;
             // Inputs, selects, checkboxes — anything the user can change
             // and that requires the explicit "Save All Settings" action.
             // Toggle buttons (.toggle-btn) persist immediately via their
             // own POST and don't need to mark the form dirty.
+            const ignore = (e) => (
+                e.target.closest('.toggle-btn')
+                || NON_SETTING_INPUT_IDS.has(e.target.id)
+            );
             root.addEventListener('input', (e) => {
-                if (e.target.closest('.toggle-btn')) return;
+                if (ignore(e)) return;
                 markSettingsDirty();
             });
             root.addEventListener('change', (e) => {
-                if (e.target.closest('.toggle-btn')) return;
+                if (ignore(e)) return;
                 markSettingsDirty();
             });
         }

@@ -29,7 +29,11 @@ import db
 import download_client
 import models
 from config import ALLOWED_CONFIG_KEYS, load_config, save_config
-from downloader import get_ytdlp_version, list_video_formats
+from downloader import (
+    get_ytdlp_version,
+    list_video_formats,
+    _client_fallback_chain,
+)
 from fingerprint import fingerprint_track
 from lidarr import get_missing_albums, lidarr_request
 from metadata import create_xml_metadata, get_itunes_tracks, tag_audio_file
@@ -1845,7 +1849,14 @@ def _build_ydl_opts(config, temp_file):
     extractor_args = {}
     yt_args = {}
     pc = config.get("yt_player_client", "android")
-    if pc:
+    if custom_format:
+        # Premium formats like 141 are only exposed to the web-family
+        # clients, so when an override is set try the full fallback chain
+        # (web promoted) in one go — yt-dlp walks the player_client list in
+        # order — instead of the single configured client (often android),
+        # which would never expose the format and silently fall back.
+        yt_args["player_client"] = _client_fallback_chain(config)
+    elif pc:
         yt_args["player_client"] = [pc]
     po_token = (config.get("yt_po_token") or "").strip()
     if po_token:

@@ -167,6 +167,21 @@ def test_rss_feed_lists_missing_albums(client):
     assert "id=42" in body
 
 
+def test_non_ascii_apikey_is_clean_auth_failure(client):
+    # hmac.compare_digest raises TypeError on a non-ASCII str; the bytes
+    # comparison must turn this into a clean credential rejection, not a 500.
+    resp = client.get("/api/newznab/api?t=search&apikey=café")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Incorrect user credentials" in body
+
+
+def test_non_ascii_apikey_sabnzbd_is_clean_auth_failure(client):
+    resp = client.get("/api/sabnzbd/api?mode=queue&apikey=café")
+    assert resp.status_code == 200
+    assert resp.get_json()["status"] is False
+
+
 def test_rss_feed_empty_when_no_cache(client):
     resp = client.get("/api/newznab/api?t=search&apikey=secret")
     assert "<item>" not in resp.get_data(as_text=True)

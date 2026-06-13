@@ -2374,3 +2374,52 @@ class TestStopReporting:
         processing._active_states[4242] = own_state
         result = processing.process_album_download(4242)
         assert result == {"error": "Busy"}
+
+    def test_manual_stop_before_any_track_reports_stopped(
+        self, tmp_path, monkeypatch,
+    ):
+        # A manual download stopped before the first track completes (all
+        # tracks skipped, none succeeded) must report "stopped" — NOT fall
+        # through to the success path and log a phantom "0 tracks" import
+        # that the scheduler would then treat as done for the cooldown.
+        import processing
+        album = {
+            "id": 5, "title": "A", "foreignAlbumId": "mbid",
+            "releaseDate": "2020-01-01",
+            "artist": {"artistName": "Art", "id": 1, "path": "/m/Art"},
+            "tracks": [{"title": "T1", "trackNumber": 1}],
+            "images": [],
+        }
+        logs = []
+        monkeypatch.setattr(processing, "DOWNLOAD_DIR", str(tmp_path))
+        monkeypatch.setattr(processing, "lidarr_request", lambda *a, **k: album)
+        monkeypatch.setattr(processing, "get_itunes_artwork", lambda *a: None)
+        monkeypatch.setattr(processing, "get_deezer_artwork", lambda *a: None)
+        monkeypatch.setattr(
+            processing, "find_album_on_ytmusic", lambda *a: None,
+        )
+        monkeypatch.setattr(processing, "get_valid_release_id", lambda a: 1)
+        monkeypatch.setattr(processing, "makedirs_safe", lambda *a, **k: None)
+        monkeypatch.setattr(
+            processing, "relax_dir_permissions", lambda *a, **k: None,
+        )
+        monkeypatch.setattr(processing, "set_permissions", lambda *a, **k: None)
+        monkeypatch.setattr(
+            processing, "_send_album_notification", lambda *a, **k: None,
+        )
+        monkeypatch.setattr(processing, "_filter_tracks", lambda t, f, p: t)
+        monkeypatch.setattr(
+            processing.models, "add_log",
+            lambda **k: logs.append(k.get("log_type")),
+        )
+
+        def fake_download_tracks(tracks, album_path, album_, ctx, state):
+            state["stop"] = True
+            for tr in state["tracks"]:
+                tr["status"] = "skipped"
+            return [], [], 0, {}
+
+        monkeypatch.setattr(processing, "_download_tracks", fake_download_tracks)
+        result = processing.process_album_download(5, client_grab=False)
+        assert result == {"stopped": True}
+        assert "download_success" not in logs
