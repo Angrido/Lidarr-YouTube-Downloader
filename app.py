@@ -39,7 +39,6 @@ from lidarr import get_missing_albums, lidarr_request
 from metadata import create_xml_metadata, get_itunes_tracks, tag_audio_file
 from notifications import send_notifications
 from processing import (
-    TrackSkippedException,
     download_process,
     get_download_status,
     process_download_queue,
