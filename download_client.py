@@ -45,7 +45,7 @@ from xml.sax.saxutils import escape as xml_escape, quoteattr
 from flask import Blueprint, Response, jsonify, request
 
 import models
-from config import load_config
+from config import load_config, retry_cooldown_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -305,15 +305,10 @@ def run_album_job(album_id, force=False, state=None):
 
     Wraps ``processing.process_album_download`` so the in-memory job
     transitions to completed/failed once the engine finishes. ``state`` is
-    the per-download state container to use (the foreground state or a
-    dedicated one for a concurrent background job); when None the engine
-    uses the foreground ``download_process``.
+    the per-download state container for this job (each concurrent job gets
+    its own); when None the engine uses the foreground ``download_process``.
     """
     import processing  # lazy to avoid an import cycle
-
-    def _stopped():
-        active = state if state is not None else processing.download_process
-        return bool(active.get("stop"))
 
     mark_downloading(album_id)
     try:
@@ -321,18 +316,15 @@ def run_album_job(album_id, force=False, state=None):
             album_id, force, client_grab=True, state=state,
         )
     except Exception as exc:  # pragma: no cover - defensive
-        if _stopped():
-            _drop_job(album_id)
-            return
         logger.error(
             "Download job for album %s crashed: %s",
             album_id, exc, exc_info=True,
         )
         mark_failed(album_id, str(exc))
         return
-    if result.get("stopped") or _stopped():
-        # Drop the job on a user stop (any stage); a 'Failed' slot would be
-        # blocklisted by Lidarr.
+    if result.get("stopped"):
+        # The engine reports a user stop (any stage) on every exit path;
+        # drop the job — a 'Failed' slot would be blocklisted by Lidarr.
         _drop_job(album_id)
     elif result.get("success"):
         album_path = result.get("album_path", "")
@@ -374,50 +366,53 @@ def _album_percentage(album_id):
     """Best-effort completion percentage for the active download."""
     try:
         import processing
-        snap = processing.get_download_status_for_album(album_id)
+        progress = processing.album_track_progress(album_id)
     except Exception:
         return 0
-    if not snap or not snap.get("active"):
+    if not progress or not progress[1]:
         return 0
-    tracks = snap.get("tracks") or []
-    if not tracks:
-        return 0
-    done = sum(
-        1 for t in tracks
-        if t.get("status") in ("done", "failed", "skipped")
-    )
-    return int(done / len(tracks) * 100)
+    finished, total = progress
+    return int(finished / total * 100)
 
 
 # --- Auth -----------------------------------------------------------------
 
 
-def _configured_key():
-    return (load_config().get("download_client_api_key") or "").strip()
+def _configured_key(cfg=None):
+    if cfg is None:
+        cfg = load_config()
+    return (cfg.get("download_client_api_key") or "").strip()
 
 
-def _client_enabled():
-    cfg = load_config()
+def _client_enabled(cfg=None):
+    if cfg is None:
+        cfg = load_config()
     return bool(
         cfg.get("download_client_enabled")
         and (cfg.get("download_client_api_key") or "").strip()
     )
 
 
-def _check_apikey():
-    key = _configured_key()
+def _check_apikey(cfg=None):
+    key = _configured_key(cfg)
     if not key:
         return False
     provided = request.values.get("apikey", "") or request.values.get(
         "r", "",
     )
-    return hmac.compare_digest(provided, key)
+    # Compare on bytes: hmac.compare_digest raises TypeError on a str with
+    # non-ASCII characters, which would otherwise escape as an unhandled 500
+    # instead of a clean auth failure.
+    return hmac.compare_digest(
+        provided.encode("utf-8", "surrogatepass"),
+        key.encode("utf-8", "surrogatepass"),
+    )
 
 
 # --- Newznab indexer ------------------------------------------------------
 
 
-def _maybe_refresh_library():
+def _maybe_refresh_library(cfg=None):
     """Refresh the missing-albums cache when Lidarr polls the indexer.
 
     Lidarr hits the Newznab feed/search whenever it RSS-syncs or searches
@@ -425,15 +420,18 @@ def _maybe_refresh_library():
     added. Triggering a background sync here means newly-added missing
     albums are picked up by the app (and appear in this feed) without
     waiting for the periodic sync loop. Debounced so Lidarr's frequent RSS
-    polls don't fire back-to-back syncs.
+    polls don't fire back-to-back syncs; the debounce is checked first so
+    the common case skips the config lookup entirely.
     """
     global _last_auto_refresh_ts
-    # Nothing to sync against if Lidarr isn't configured.
-    if not (load_config().get("lidarr_url") or "").strip():
-        return
     now = time.time()
     with _refresh_lock:
         if now - _last_auto_refresh_ts < _AUTO_REFRESH_MIN_INTERVAL:
+            return
+        if cfg is None:
+            cfg = load_config()
+        # Nothing to sync against if Lidarr isn't configured.
+        if not (cfg.get("lidarr_url") or "").strip():
             return
         _last_auto_refresh_ts = now
     try:
@@ -447,38 +445,36 @@ def _norm(text):
     return re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).strip()
 
 
-def _retry_cooldown_seconds():
-    """Seconds to wait before re-offering a tried album (0 = disabled)."""
-    try:
-        hours = float(load_config().get("scheduler_retry_after_hours", 24))
-    except (TypeError, ValueError):
-        hours = 24.0
-    return hours * 3600 if hours > 0 else 0
-
-
 def _active_album_ids():
     with _lock:
         return set(_album_to_nzo.keys())
 
 
-def _recently_client_handled_ids():
+def _cooldown_album_ids(query_fn, label, cfg=None):
+    """Album ids returned by ``query_fn`` within the retry cooldown window."""
+    cooldown = retry_cooldown_seconds(cfg)
+    if not cooldown:
+        return set()
+    try:
+        return query_fn(time.time() - cooldown)
+    except Exception:
+        logger.warning("%s lookup failed", label, exc_info=True)
+        return set()
+
+
+def _recently_client_handled_ids(cfg=None):
     """Album ids the client finished (success or failure) within the cooldown.
 
     Only the client's own jobs hide an album from the feed — a manual or
     scheduler attempt must not, or the feed (and Lidarr's indexer test)
     would go empty whenever something was downloaded outside the client.
     """
-    cooldown = _retry_cooldown_seconds()
-    if not cooldown:
-        return set()
-    try:
-        return models.get_recent_client_album_ids_since(time.time() - cooldown)
-    except Exception:
-        logger.warning("client-handled-ids lookup failed", exc_info=True)
-        return set()
+    return _cooldown_album_ids(
+        models.get_recent_client_album_ids_since, "client-handled-ids", cfg,
+    )
 
 
-def _excluded_album_ids():
+def _excluded_album_ids(cfg=None):
     """Albums Lidarr must not (re)grab now.
 
     Combines albums with an in-flight job and albums the client finished
@@ -490,7 +486,7 @@ def _excluded_album_ids():
     the album is offered again (with a fresh release guid) so transient
     failures still get retried.
     """
-    return _active_album_ids() | _recently_client_handled_ids()
+    return _active_album_ids() | _recently_client_handled_ids(cfg)
 
 
 def _match_album(artist, album, excluded=None):
@@ -630,12 +626,12 @@ def _caps_xml():
 
 
 def _search_xml(albums, cfg, base_url):
-    api_key = _configured_key()
+    api_key = _configured_key(cfg)
     # Time-bucketed guid so that, once the retry cooldown elapses, a
     # failed (and Lidarr-blocklisted) release is re-offered with a fresh
     # guid and can be retried, while staying stable within one window so
     # repeated RSS polls don't trigger duplicate grabs.
-    window = _retry_cooldown_seconds() or 86400
+    window = retry_cooldown_seconds(cfg) or 86400
     bucket = int(time.time() // window)
     items = []
     for album in albums:
@@ -736,20 +732,22 @@ def _parse_album_id_from_nzb(data):
 
 @bp.route("/api/newznab/api", methods=["GET"])
 def newznab_api():
-    if not _client_enabled():
+    # One config load per request: these endpoints are polled frequently
+    # by Lidarr, so every helper below takes the already-loaded cfg.
+    cfg = load_config()
+    if not _client_enabled(cfg):
         return _newznab_error(101, "Download client not enabled")
     t = (request.args.get("t") or "").lower()
     if t == "caps":
         # caps is also used by Lidarr's "Test" before an API key is set
         # in some flows, so allow it without strict auth.
         return Response(_caps_xml(), mimetype="application/xml")
-    if not _check_apikey():
+    if not _check_apikey(cfg):
         return _newznab_error(100, "Incorrect user credentials")
     if t == "get":
         album_id = request.args.get("id", type=int)
         if not album_id:
             return _newznab_error(200, "Missing id")
-        cfg = load_config()
         album = _album_by_id(album_id)
         title = _release_title(album, cfg) if album else f"album {album_id}"
         nzb = _build_nzb(
@@ -761,14 +759,13 @@ def newznab_api():
         )
         return resp
     if t in ("search", "music", "album", "audio", "tvsearch", ""):
-        cfg = load_config()
         # Lidarr is looking for releases — refresh the library so newly
         # added artists/albums are reflected (debounced).
-        _maybe_refresh_library()
+        _maybe_refresh_library(cfg)
         artist = request.args.get("artist", "")
         album = request.args.get("album", "")
         q = request.args.get("q", "")
-        excluded = _excluded_album_ids()
+        excluded = _excluded_album_ids(cfg)
         if not artist and not album and not q:
             # No search terms: this is Lidarr's indexer Test / RSS sync.
             # Expose the cached missing-albums list as the feed so the
@@ -839,17 +836,20 @@ def _sab_error(message):
 
 @bp.route("/api/sabnzbd/api", methods=["GET", "POST"])
 def sabnzbd_api():
-    if not _client_enabled():
+    # One config load per request: Lidarr polls queue/history every few
+    # seconds during downloads, so every helper takes the loaded cfg.
+    cfg = load_config()
+    if not _client_enabled(cfg):
         return _sab_error("Download client not enabled")
     mode = (request.values.get("mode") or "").lower()
     if mode == "version":
         return jsonify({"version": "4.2.0"})
-    if not _check_apikey():
+    if not _check_apikey(cfg):
         return _sab_error("API Key Incorrect")
     if mode == "auth":
         return jsonify({"auth": "apikey"})
     if mode == "get_config":
-        return jsonify(_sab_config())
+        return jsonify(_sab_config(cfg))
     if mode == "fullstatus":
         return jsonify({"status": {"completedir": _complete_dir()}})
     if mode == "queue":
@@ -857,9 +857,9 @@ def sabnzbd_api():
     if mode == "history":
         return _sab_history()
     if mode == "addfile":
-        return _sab_addfile()
+        return _sab_addfile(cfg)
     if mode == "addurl":
-        return _sab_addurl()
+        return _sab_addurl(cfg)
     if mode in ("change_cat", "switch", "config", "retry", "pause", "resume"):
         return jsonify({"status": True})
     return _sab_error(f"Unknown mode: {mode}")
@@ -869,8 +869,10 @@ def _complete_dir():
     return DOWNLOAD_DIR or "/downloads"
 
 
-def _sab_config():
-    category = load_config().get("download_client_category", "music")
+def _sab_config(cfg=None):
+    if cfg is None:
+        cfg = load_config()
+    category = cfg.get("download_client_category", "music")
     return {
         "config": {
             "misc": {
@@ -998,10 +1000,12 @@ def _sab_history():
     })
 
 
-def _sab_addfile():
+def _sab_addfile(cfg=None):
+    if cfg is None:
+        cfg = load_config()
     category = (
         request.values.get("cat")
-        or load_config().get("download_client_category", "music")
+        or cfg.get("download_client_category", "music")
     )
     data = None
     for field in ("name", "nzbfile", "file"):
@@ -1014,33 +1018,35 @@ def _sab_addfile():
     album_id = _parse_album_id_from_nzb(data) if data else None
     if not album_id:
         return _sab_error("Could not parse album id from NZB")
-    if _grab_blocked(album_id):
+    if _grab_blocked(album_id, cfg):
         return _sab_error(
             "Album attempted recently; skipping to avoid a retry loop"
         )
-    nzo_id = register_grab(album_id, _grab_name(album_id), category)
+    nzo_id = register_grab(album_id, _grab_name(album_id, cfg), category)
     return jsonify({"status": True, "nzo_ids": [nzo_id]})
 
 
-def _sab_addurl():
+def _sab_addurl(cfg=None):
+    if cfg is None:
+        cfg = load_config()
     url = request.values.get("name", "")
     category = (
         request.values.get("cat")
-        or load_config().get("download_client_category", "music")
+        or cfg.get("download_client_category", "music")
     )
     m = re.search(r"[?&]id=(\d+)", url)
     if not m:
         return _sab_error("Could not parse album id from URL")
     album_id = int(m.group(1))
-    if _grab_blocked(album_id):
+    if _grab_blocked(album_id, cfg):
         return _sab_error(
             "Album attempted recently; skipping to avoid a retry loop"
         )
-    nzo_id = register_grab(album_id, _grab_name(album_id), category)
+    nzo_id = register_grab(album_id, _grab_name(album_id, cfg), category)
     return jsonify({"status": True, "nzo_ids": [nzo_id]})
 
 
-def _recently_failed_client_ids():
+def _recently_failed_client_ids(cfg=None):
     """Album ids whose *client* job failed within the retry cooldown.
 
     The infinite re-grab loop is between Lidarr and this client, so only
@@ -1049,28 +1055,23 @@ def _recently_failed_client_ids():
     from grabbing — that previously caused legitimate grabs to be refused
     and blocklisted.
     """
-    cooldown = _retry_cooldown_seconds()
-    if not cooldown:
-        return set()
-    try:
-        return models.get_failed_client_album_ids_since(time.time() - cooldown)
-    except Exception:
-        logger.warning("failed-client-ids lookup failed", exc_info=True)
-        return set()
+    return _cooldown_album_ids(
+        models.get_failed_client_album_ids_since, "failed-client-ids", cfg,
+    )
 
 
-def _grab_blocked(album_id):
+def _grab_blocked(album_id, cfg=None):
     """True if a grab should be refused: the album's client job failed
     within the cooldown and there's no active in-flight job (register_grab
     is idempotent for active albums)."""
     album_id = int(album_id)
     if is_client_album(album_id):
         return False
-    return album_id in _recently_failed_client_ids()
+    return album_id in _recently_failed_client_ids(cfg)
 
 
-def _grab_name(album_id):
+def _grab_name(album_id, cfg=None):
     album = _album_by_id(album_id)
     if album:
-        return _release_title(album, load_config())
+        return _release_title(album, cfg if cfg is not None else load_config())
     return f"album {album_id}"

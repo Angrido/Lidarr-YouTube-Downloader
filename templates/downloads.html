@@ -826,6 +826,18 @@
             font-size: 0.8rem;
             margin-bottom: 1rem;
         }
+        #retryModalList input[type="text"] {
+            background: var(--bg, var(--surface));
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text);
+            padding: 0.4rem 0.6rem;
+            font-size: 0.82rem;
+        }
+        #retryModalList input[type="text"]:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
         .file-path-label {
             font-size: 0.7rem;
             text-transform: uppercase;
@@ -1307,6 +1319,240 @@
             } catch (_) {}
             return '';
         }
+
+        // --- In-place "retry failed tracks" overlay (issue #78) ---------
+        // Opens on the downloads page itself so the user can retry the next
+        // failed entry without being navigated to the home page. Reuses the
+        // same backend endpoints as the home overlay
+        // (/api/download/failed, /api/youtube/search, /api/download/manual).
+        let retryFailedData = [];
+        let retryFailedAlbumId = null;
+        const RETRY_BTN_STYLE = 'width:auto; flex:0 0 auto; cursor:pointer; ' +
+            'padding:.4rem .7rem; font-size:.8rem; border-radius:8px; ' +
+            'border:1px solid var(--primary); background:var(--primary); ' +
+            'color:#0b1220; font-weight:600;';
+
+        async function openRetryModal(albumId) {
+            const modal = document.getElementById('retryFailedModal');
+            const subtitle = document.getElementById('retryModalSubtitle');
+            const list = document.getElementById('retryModalList');
+            retryFailedAlbumId = albumId;
+            subtitle.textContent = 'Loading…';
+            list.innerHTML = '';
+            modal.classList.remove('hidden');
+            try {
+                const res = await fetch(
+                    '/api/download/failed?album_id=' + encodeURIComponent(albumId)
+                );
+                const data = await res.json();
+                retryFailedData = data.failed_tracks || [];
+                retryFailedAlbumId = data.album_id || albumId;
+                const count = retryFailedData.length;
+                if (!count) {
+                    subtitle.textContent = 'No failed tracks found for this album.';
+                    return;
+                }
+                const who = [data.artist_name, data.album_title]
+                    .filter(Boolean).join(' — ');
+                subtitle.textContent = (who ? who + ' · ' : '')
+                    + count + ' failed track' + (count > 1 ? 's' : '')
+                    + '. Search YouTube or paste a link to retry.';
+                renderRetryList(data);
+            } catch (e) {
+                subtitle.textContent = 'Failed to load failed tracks.';
+            }
+        }
+
+        function closeRetryModal() {
+            document.getElementById('retryFailedModal').classList.add('hidden');
+        }
+
+        function renderRetryList(data) {
+            const list = document.getElementById('retryModalList');
+            list.innerHTML = '';
+            retryFailedData.forEach((track, i) => {
+                const item = document.createElement('div');
+                item.id = 'retryTrack' + i;
+                item.style.cssText = 'border:1px solid var(--border); '
+                    + 'border-radius:8px; padding:.6rem .7rem; margin-bottom:.6rem;';
+
+                const head = document.createElement('div');
+                head.style.cssText = 'font-weight:600; margin-bottom:.35rem;';
+                head.textContent = (track.track_num ? track.track_num + '. ' : '')
+                    + (track.title || 'Untitled');
+                item.appendChild(head);
+
+                if (track.reason) {
+                    const reason = document.createElement('div');
+                    reason.style.cssText = 'color:var(--danger); '
+                        + 'font-size:.78rem; margin-bottom:.4rem;';
+                    reason.textContent = track.reason;
+                    item.appendChild(reason);
+                }
+
+                const searchRow = document.createElement('div');
+                searchRow.style.cssText = 'display:flex; gap:.4rem; '
+                    + 'margin-bottom:.4rem; flex-wrap:wrap;';
+                const searchInput = document.createElement('input');
+                searchInput.type = 'text';
+                searchInput.id = 'retrySearch' + i;
+                searchInput.placeholder = 'Search YouTube…';
+                searchInput.value = (
+                    (data.artist_name || '') + ' ' + (track.title || '')
+                ).trim();
+                searchInput.style.cssText = 'flex:1 1 auto; min-width:0;';
+                searchInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') searchRetryTrack(i);
+                });
+                const searchBtn = document.createElement('button');
+                searchBtn.type = 'button';
+                searchBtn.style.cssText = RETRY_BTN_STYLE;
+                searchBtn.innerHTML = '<i class="fa-solid fa-search"></i> Search';
+                searchBtn.onclick = () => searchRetryTrack(i);
+                searchRow.appendChild(searchInput);
+                searchRow.appendChild(searchBtn);
+                item.appendChild(searchRow);
+
+                const urlRow = document.createElement('div');
+                urlRow.style.cssText = 'display:flex; gap:.4rem; flex-wrap:wrap;';
+                const urlInput = document.createElement('input');
+                urlInput.type = 'text';
+                urlInput.id = 'retryUrl' + i;
+                urlInput.placeholder = 'or paste a YouTube URL';
+                urlInput.style.cssText = 'flex:1 1 auto; min-width:0;';
+                urlInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') downloadRetryTrack(i);
+                });
+                const dlBtn = document.createElement('button');
+                dlBtn.type = 'button';
+                dlBtn.style.cssText = RETRY_BTN_STYLE;
+                dlBtn.innerHTML = '<i class="fa-solid fa-download"></i> Download';
+                dlBtn.onclick = () => downloadRetryTrack(i);
+                urlRow.appendChild(urlInput);
+                urlRow.appendChild(dlBtn);
+                item.appendChild(urlRow);
+
+                const results = document.createElement('div');
+                results.id = 'retryResults' + i;
+                results.style.cssText = 'margin-top:.4rem;';
+                item.appendChild(results);
+
+                list.appendChild(item);
+            });
+        }
+
+        async function searchRetryTrack(i) {
+            const q = document.getElementById('retrySearch' + i).value.trim();
+            if (!q) return;
+            const results = document.getElementById('retryResults' + i);
+            results.innerHTML = '<div style="color:var(--text-dim); '
+                + 'font-size:.8rem;"><i class="fa-solid fa-spinner fa-spin">'
+                + '</i> Searching…</div>';
+            try {
+                const res = await fetch('/api/youtube/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: q }),
+                });
+                const data = await res.json();
+                const items = data.results || [];
+                if (!items.length) {
+                    results.innerHTML = '<div style="color:var(--text-dim); '
+                        + 'font-size:.8rem;">No results.</div>';
+                    return;
+                }
+                results.innerHTML = '';
+                items.forEach((r) => {
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display:flex; gap:.4rem; '
+                        + 'align-items:center; padding:.3rem 0; '
+                        + 'border-top:1px solid var(--border);';
+                    const info = document.createElement('div');
+                    info.style.cssText = 'flex:1 1 auto; min-width:0; '
+                        + 'font-size:.8rem;';
+                    const dur = r.duration
+                        ? (Math.floor(r.duration / 60) + ':'
+                           + String(r.duration % 60).padStart(2, '0'))
+                        : '';
+                    const t = document.createElement('div');
+                    t.style.cssText = 'white-space:nowrap; overflow:hidden; '
+                        + 'text-overflow:ellipsis;';
+                    t.textContent = r.title || '';
+                    const m = document.createElement('div');
+                    m.style.cssText = 'color:var(--text-dim);';
+                    m.textContent = (r.channel || '') + (dur ? ' · ' + dur : '');
+                    info.appendChild(t);
+                    info.appendChild(m);
+                    const sel = document.createElement('button');
+                    sel.type = 'button';
+                    sel.style.cssText = RETRY_BTN_STYLE
+                        + 'padding:.2rem .55rem; font-size:.78rem;';
+                    sel.textContent = 'Select';
+                    const safe = sanitizeUrl(r.url);
+                    sel.onclick = () => {
+                        document.getElementById('retryUrl' + i).value = safe;
+                        results.innerHTML = '';
+                    };
+                    row.appendChild(info);
+                    row.appendChild(sel);
+                    results.appendChild(row);
+                });
+            } catch (e) {
+                results.innerHTML = '<div style="color:var(--danger); '
+                    + 'font-size:.8rem;">Search failed.</div>';
+            }
+        }
+
+        async function downloadRetryTrack(i) {
+            const track = retryFailedData[i];
+            if (!track) return;
+            const results = document.getElementById('retryResults' + i);
+            const url = sanitizeUrl(
+                document.getElementById('retryUrl' + i).value.trim()
+            );
+            if (!url) {
+                results.innerHTML = '<div style="color:var(--danger); '
+                    + 'font-size:.8rem;">Enter or select a valid YouTube URL.'
+                    + '</div>';
+                return;
+            }
+            results.innerHTML = '<div style="color:var(--text-dim); '
+                + 'font-size:.8rem;"><i class="fa-solid fa-spinner fa-spin">'
+                + '</i> Downloading and tagging…</div>';
+            try {
+                const res = await fetch('/api/download/manual', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        youtube_url: url,
+                        track_title: track.title,
+                        track_num: track.track_num,
+                        album_id: retryFailedAlbumId,
+                    }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    const item = document.getElementById('retryTrack' + i);
+                    if (item) item.style.opacity = '0.6';
+                    results.innerHTML = '<div style="color:var(--primary); '
+                        + 'font-size:.8rem;"><i class="fa-solid fa-circle-check">'
+                        + '</i> Downloaded successfully</div>';
+                    updateHistory();
+                } else {
+                    results.innerHTML = '<div style="color:var(--danger); '
+                        + 'font-size:.8rem;">'
+                        + escapeHtml(data.message || 'Download failed')
+                        + '</div>';
+                }
+            } catch (e) {
+                results.innerHTML = '<div style="color:var(--danger); '
+                    + 'font-size:.8rem;">Download failed.</div>';
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeRetryModal();
+        });
 
         document.addEventListener('DOMContentLoaded', () => {
             const saved = localStorage.getItem('theme') || 'dark';
@@ -1827,11 +2073,17 @@
             row.appendChild(badge);
 
             if (status === 'partial' || status === 'error') {
-                const retryBtn = document.createElement('a');
-                retryBtn.href = '/?retry=' + albumId;
+                const retryBtn = document.createElement('button');
+                retryBtn.type = 'button';
                 retryBtn.className = 'btn-retry-failed';
                 retryBtn.title = 'Search and manually download failed tracks';
-                retryBtn.addEventListener('click', function(e) { e.stopPropagation(); });
+                // Open the retry overlay in place instead of navigating to
+                // the home page, so the user can retry the next failed entry
+                // without leaving the downloads list (issue #78).
+                retryBtn.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    openRetryModal(albumId);
+                });
                 const retryIcon = document.createElement('i');
                 retryIcon.className = 'fa-solid fa-magnifying-glass';
                 retryBtn.appendChild(retryIcon);
@@ -2318,6 +2570,15 @@
         setInterval(updateHistory, 10000);
 
     </script>
+
+<div class="modal-overlay hidden" id="retryFailedModal" onclick="if(event.target===this)closeRetryModal()">
+    <div class="modal-box" style="max-width:560px;">
+        <button class="modal-close" onclick="closeRetryModal()" title="Close"><i class="fas fa-times"></i></button>
+        <div class="modal-title" style="color:var(--text);"><i class="fa-solid fa-magnifying-glass" style="color:var(--primary);"></i> Retry Failed Tracks</div>
+        <div class="modal-subtitle" id="retryModalSubtitle">Loading…</div>
+        <div id="retryModalList" style="max-height:60vh; overflow-y:auto; overflow-wrap:anywhere;"></div>
+    </div>
+</div>
 
 <div class="modal-overlay hidden" id="deleteTrackModal" onclick="if(event.target===this)closeDeleteModal()">
     <div class="modal-box">

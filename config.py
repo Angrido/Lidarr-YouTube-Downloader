@@ -56,6 +56,7 @@ ALLOWED_CONFIG_KEYS = {
     "download_client_enabled", "download_client_api_key",
     "download_client_category", "download_client_concurrent_albums",
     "yt_po_token", "audio_normalize", "yt_pot_provider_url",
+    "playlist_to_library",
 }
 
 MIN_MATCH_SCORE_DEFAULT = 0.8
@@ -93,6 +94,22 @@ def _parse_unit_float(value, name, default):
 def _parse_min_match_score(value):
     """Parse min_match_score to a float in [0.0, 1.0] (default 0.8)."""
     return _parse_unit_float(value, "min_match_score", MIN_MATCH_SCORE_DEFAULT)
+
+
+def retry_cooldown_seconds(cfg=None):
+    """Seconds before a tried album may be retried (0 = disabled).
+
+    Single source of the ``scheduler_retry_after_hours`` window, shared by
+    the scheduler and the download-client bridge (indexer feed exclusion,
+    grab refusal and release-guid bucketing), so the layers can't drift.
+    """
+    if cfg is None:
+        cfg = load_config()
+    try:
+        hours = float(cfg.get("scheduler_retry_after_hours", 24))
+    except (TypeError, ValueError):
+        hours = 24.0
+    return hours * 3600 if hours > 0 else 0
 
 
 def load_config():
@@ -197,6 +214,13 @@ def load_config():
         "download_client_concurrent_albums": int(
             os.getenv("DOWNLOAD_CLIENT_CONCURRENT_ALBUMS", "1")
         ),
+        # When true, a YouTube playlist import is written into the Lidarr
+        # music library (LIDARR_PATH) and a library scan is requested, so the
+        # files land where Jellyfin/Lidarr look instead of only the download
+        # folder. Default false keeps the legacy download-folder-only flow.
+        "playlist_to_library": (
+            os.getenv("PLAYLIST_TO_LIBRARY", "false").lower() == "true"
+        ),
         "path_conflict": False,
     }
 
@@ -248,6 +272,15 @@ def load_config():
                 config["acoustid_accept_score"], "acoustid_accept_score",
                 env_defaults.get("acoustid_accept_score", 0.98),
             )
+
+    # Clamp to the 1-5 range the UI offers and the engine enforces, so an
+    # out-of-range env/file value can't render the Settings select blank
+    # (which would then silently save 1 over the configured value).
+    try:
+        _cca = int(config.get("download_client_concurrent_albums", 1))
+    except (TypeError, ValueError):
+        _cca = 1
+    config["download_client_concurrent_albums"] = max(1, min(5, _cca))
 
     def norm(p):
         return (

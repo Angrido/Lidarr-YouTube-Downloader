@@ -1,5 +1,91 @@
 # Changelog
 
+## 1.8.3
+
+### Added
+- **Save YouTube playlist imports to the music library** (Settings →
+  Download Options, env `PLAYLIST_TO_LIBRARY`, default off): a "Playlist
+  creation from YouTube" import can now be written into your Lidarr music
+  library (`LIDARR_PATH`) instead of only the download folder, and a
+  path-based Lidarr library scan (`DownloadedAlbumsScan`) is requested
+  when it finishes — so the tracks show up in Jellyfin (after its scan)
+  and Lidarr imports whatever it can match (#79). Off keeps the previous
+  download-folder-only behavior.
+
+### Fixed
+- **Manual / playlist / retry downloads no longer fail with "Requested
+  format is not available"** (#80): every single-URL download path
+  (manual track download, the failed-track retry, and YouTube playlist
+  import) now goes through the same multi-client / multi-selector fallback
+  as the automatic album download — trying `web`/`ios`/etc. and looser
+  selectors — instead of a single `bestaudio` attempt on the configured
+  `android` client (which yt-dlp often can't satisfy without a PO token).
+  The format override, cookies and PO tokens apply to these paths too.
+- **The download-retry button no longer navigates away from the Downloads
+  page** (#78): it opens the search/paste-a-link retry overlay in place,
+  so you can retry one failed album after another without being bounced to
+  the home page and back.
+- **Cookies "Test" no longer misreads real exports as logged out**: the
+  signed-in check parses the file with yt-dlp's own cookie jar, which
+  understands the `#HttpOnly_` line prefix browsers and yt-dlp use for
+  HttpOnly cookies — `LOGIN_INFO`, the login marker, is one of them. The
+  verdict now mirrors yt-dlp's own `_has_auth_cookies` (`LOGIN_INFO` +
+  a SAPISID-family cookie), and the rotated-session case gets its own
+  diagnosis: account cookies survive YouTube's rotation while
+  `LOGIN_INFO` is cleared (and yt-dlp rewrites the file after every run),
+  so the Test now says the session was rotated/invalidated and to
+  re-export from a private window — instead of generic export advice.
+- **The yt-dlp Format Override is honored by the manual track download
+  path too** (it previously always forced `bestaudio/best` — thanks
+  @Gazz1e), and the override now rides the first selector with a
+  slash-fallback (`141/bestaudio/...`): a video that doesn't expose the
+  format falls back in the same request instead of sweeping every player
+  client per track. Web-family clients — the ones that expose premium
+  formats like 141 — are tried first when an override is set (on the
+  manual single-track path too, which otherwise stayed pinned to the
+  configured `android` client and could never see the format), and the
+  "List formats" tester walks the same client chain the download path
+  uses (including the music clients for a `music.youtube.com` URL). With
+  no override the behavior is unchanged.
+- **The yt-dlp updater now offers the "Restart App" step** after
+  installing a new version: the button's success handler was immediately
+  reset by its own `finally` block, so the freshly-installed yt-dlp was
+  never applied and a second click just hit the rate limit.
+- **The "yt-dlp updater" / cookies-test UI no longer overflows on
+  mobile**: the format-tester result box wraps long error text and video
+  titles (it was being clipped invisibly by the page's `overflow-x:hidden`
+  at ~360px), the format list scrolls when long, format-ID chips use a
+  calm style instead of the page's animated primary button, the "List
+  formats" button is disabled while a lookup is in flight (no racing /
+  stale results), Enter submits the URL field, and that diagnostic field
+  no longer flags the form as having unsaved changes.
+- **Concurrent Album Downloads out-of-range values are clamped to 1–5**
+  in config load, so an env/file value outside the range can't render the
+  Settings dropdown blank and then silently save back `1` over it.
+- **Download-client API-key check no longer 500s on a non-ASCII key**:
+  the timing-safe comparison now runs on bytes (`hmac.compare_digest`
+  raises `TypeError` on a non-ASCII `str`), returning a clean credential
+  rejection instead of an unhandled error.
+- **Stopping a download no longer discards a manual/scheduler album's
+  finished tracks**: the "drop everything, report nothing" stop semantics
+  now apply only to Lidarr download-client grabs; manual downloads import
+  and log the tracks that completed, as before. The engine reports a stop
+  consistently on every exit path, so a stopped client grab can never
+  surface as a blocklist-worthy failure.
+- **Queue dispatch no longer blocks head-of-line**: a non-client album
+  waiting for the busy foreground slot doesn't hold back client albums
+  (with free concurrency slots) queued behind it.
+- **Background client jobs are visible on the dashboard** when the
+  foreground is idle, and the skip-track button targets the download being
+  shown. Client jobs always run in their own state container, created from
+  a single state factory so per-download fields can't go stale.
+- Hot-path and duplication cleanups: the Newznab/SABnzbd endpoints load
+  the config once per request (and the indexer auto-refresh checks its
+  debounce before touching the config); SABnzbd queue progress is a cheap
+  status tally instead of a deep copy under the queue lock; the
+  retry-cooldown window comes from one shared helper across the scheduler,
+  feed exclusion, grab refusal and release-guid bucketing.
+
 ## 1.8.2
 
 ### Added

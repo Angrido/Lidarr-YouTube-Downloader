@@ -10,7 +10,7 @@ import time
 import schedule
 
 import models
-from config import load_config
+from config import load_config, retry_cooldown_seconds
 from lidarr import get_missing_albums
 from notifications import send_notifications
 from processing import download_process, queue_lock
@@ -40,17 +40,10 @@ def scheduled_check():
     # Skip albums that were already attempted recently (success OR
     # failure) so the scheduler doesn't keep retrying the same failing
     # album every cycle before working through the rest of the library.
-    try:
-        retry_after_hours = float(
-            config.get("scheduler_retry_after_hours", 24)
-        )
-    except (TypeError, ValueError):
-        retry_after_hours = 24.0
+    cooldown = retry_cooldown_seconds(config)
     attempted_ids = set()
-    if retry_after_hours > 0:
-        attempted_ids = models.get_attempted_album_ids_since(
-            now - retry_after_hours * 3600
-        )
+    if cooldown:
+        attempted_ids = models.get_attempted_album_ids_since(now - cooldown)
 
     with queue_lock:
         current_download_id = download_process.get("album_id")

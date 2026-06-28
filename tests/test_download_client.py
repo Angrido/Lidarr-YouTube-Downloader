@@ -167,6 +167,21 @@ def test_rss_feed_lists_missing_albums(client):
     assert "id=42" in body
 
 
+def test_non_ascii_apikey_is_clean_auth_failure(client):
+    # hmac.compare_digest raises TypeError on a non-ASCII str; the bytes
+    # comparison must turn this into a clean credential rejection, not a 500.
+    resp = client.get("/api/newznab/api?t=search&apikey=café")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "Incorrect user credentials" in body
+
+
+def test_non_ascii_apikey_sabnzbd_is_clean_auth_failure(client):
+    resp = client.get("/api/sabnzbd/api?mode=queue&apikey=café")
+    assert resp.status_code == 200
+    assert resp.get_json()["status"] is False
+
+
 def test_rss_feed_empty_when_no_cache(client):
     resp = client.get("/api/newznab/api?t=search&apikey=secret")
     assert "<item>" not in resp.get_data(as_text=True)
@@ -513,26 +528,6 @@ def test_release_pubdate_is_utc():
     # Full ISO datetime (what real Lidarr returns) must parse too, not fall
     # back to "today" — the trailing 'Z' must not break parsing.
     assert download_client._release_pubdate("2001-03-12T00:00:00Z") == expected
-
-
-def test_run_album_job_stop_flag_drops_job_on_error(client, monkeypatch):
-    # A stop can arrive on a path that returns an error/exception rather than
-    # {"stopped": True}; the stop flag must still drop the job (no blocklist).
-    nzo = download_client.register_grab(42, "X", "music")
-
-    def fake(*a, **kw):
-        import processing
-        processing.download_process["stop"] = True
-        return {"error": "All tracks failed to download"}
-
-    monkeypatch.setattr("processing.process_album_download", fake)
-    try:
-        download_client.run_album_job(42)
-    finally:
-        import processing
-        processing.download_process["stop"] = False
-    assert download_client._jobs.get(nzo) is None
-    assert not download_client.is_client_album(42)
 
 
 def test_failed_then_succeeded_album_not_blocked(client):
