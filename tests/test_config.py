@@ -263,3 +263,17 @@ def test_concurrent_albums_clamped_to_range(temp_config):
             config.load_config()["download_client_concurrent_albums"]
             == expected
         )
+
+
+def test_playlist_to_library_default_false(temp_config):
+    assert config.load_config()["playlist_to_library"] is False
+
+
+def test_playlist_to_library_from_file(temp_config):
+    with open(temp_config, "w") as f:
+        json.dump({"playlist_to_library": True}, f)
+    assert config.load_config()["playlist_to_library"] is True
+
+
+def test_playlist_to_library_in_allowed_keys():
+    assert "playlist_to_library" in config.ALLOWED_CONFIG_KEYS

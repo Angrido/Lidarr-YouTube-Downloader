@@ -2,7 +2,29 @@
 
 ## 1.8.3
 
+### Added
+- **Save YouTube playlist imports to the music library** (Settings →
+  Download Options, env `PLAYLIST_TO_LIBRARY`, default off): a "Playlist
+  creation from YouTube" import can now be written into your Lidarr music
+  library (`LIDARR_PATH`) instead of only the download folder, and a
+  path-based Lidarr library scan (`DownloadedAlbumsScan`) is requested
+  when it finishes — so the tracks show up in Jellyfin (after its scan)
+  and Lidarr imports whatever it can match (#79). Off keeps the previous
+  download-folder-only behavior.
+
 ### Fixed
+- **Manual / playlist / retry downloads no longer fail with "Requested
+  format is not available"** (#80): every single-URL download path
+  (manual track download, the failed-track retry, and YouTube playlist
+  import) now goes through the same multi-client / multi-selector fallback
+  as the automatic album download — trying `web`/`ios`/etc. and looser
+  selectors — instead of a single `bestaudio` attempt on the configured
+  `android` client (which yt-dlp often can't satisfy without a PO token).
+  The format override, cookies and PO tokens apply to these paths too.
+- **The download-retry button no longer navigates away from the Downloads
+  page** (#78): it opens the search/paste-a-link retry overlay in place,
+  so you can retry one failed album after another without being bounced to
+  the home page and back.
 - **Cookies "Test" no longer misreads real exports as logged out**: the
   signed-in check parses the file with yt-dlp's own cookie jar, which
   understands the `#HttpOnly_` line prefix browsers and yt-dlp use for

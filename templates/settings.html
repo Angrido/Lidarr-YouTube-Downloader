@@ -792,6 +792,13 @@
             </div>
             <div class="input-group">
                 <label>
+                    Save YouTube Playlist Imports to Library
+                    <div class="label-description">For "Playlist creation from YouTube": write the downloaded tracks into your Lidarr music library path (instead of only the download folder) and ask Lidarr to scan them, so they show up in Jellyfin/Lidarr (Lidarr imports whatever it can match). Requires LIDARR_PATH configured. Off keeps the files in the download folder only.</div>
+                </label>
+                <button class="toggle-btn" id="playlistToLibraryBtn" onclick="togglePlaylistToLibrary()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
                     AcoustID Fingerprinting
                     <div class="label-description">Fingerprint downloaded tracks and look up MusicBrainz recording IDs via AcoustID</div>
                 </label>
@@ -1388,6 +1395,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             document.getElementById('audioQualitySelect').value = String(conf.audio_quality || '320');
             document.getElementById('ytdlpFormat').value = conf.ytdlp_format || '';
             updateAudioNormalizeBtn(conf.audio_normalize === true);
+            updatePlaylistToLibraryBtn(conf.playlist_to_library === true);
             document.getElementById('ytPoToken').value = conf.yt_po_token || '';
             document.getElementById('ytPotProviderUrl').value = conf.yt_pot_provider_url || '';
             const ytCookiesInput = document.getElementById('ytCookiesFile');
@@ -1621,6 +1629,19 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
         function toggleAudioNormalize() {
             const btn = document.getElementById('audioNormalizeBtn');
             updateAudioNormalizeBtn(btn.dataset.enabled !== '1');
+            markSettingsDirty();
+        }
+
+        function updatePlaylistToLibraryBtn(enabled) {
+            const btn = document.getElementById('playlistToLibraryBtn');
+            btn.dataset.enabled = enabled ? '1' : '0';
+            btn.innerText = enabled ? '✓ Save to Library ON' : 'Save to Library OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        function togglePlaylistToLibrary() {
+            const btn = document.getElementById('playlistToLibraryBtn');
+            updatePlaylistToLibraryBtn(btn.dataset.enabled !== '1');
             markSettingsDirty();
         }
 
@@ -1891,6 +1912,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     audio_quality: document.getElementById('audioQualitySelect').value || '320',
                     ytdlp_format: (document.getElementById('ytdlpFormat').value || '').trim(),
                     audio_normalize: document.getElementById('audioNormalizeBtn').dataset.enabled === '1',
+                    playlist_to_library: document.getElementById('playlistToLibraryBtn').dataset.enabled === '1',
                     yt_po_token: (document.getElementById('ytPoToken').value || '').trim(),
                     yt_pot_provider_url: (document.getElementById('ytPotProviderUrl').value || '').trim(),
                     yt_cookies_file: (document.getElementById('ytCookiesFile').value || '').trim(),

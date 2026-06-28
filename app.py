@@ -32,7 +32,7 @@ from config import ALLOWED_CONFIG_KEYS, load_config, save_config
 from downloader import (
     get_ytdlp_version,
     list_video_formats,
-    _client_fallback_chain,
+    download_youtube_candidate,
 )
 from fingerprint import fingerprint_track
 from lidarr import get_missing_albums, lidarr_request
@@ -1815,62 +1815,6 @@ def api_manual_track_download(album_id):
     return jsonify({"success": True, "message": "Download queued"})
 
 
-def _build_ydl_opts(config, temp_file):
-    audio_format = config.get("audio_format", "mp3")
-    pp = {
-        "key": "FFmpegExtractAudio",
-        "preferredcodec": audio_format,
-    }
-    if audio_format == "mp3":
-        pp["preferredquality"] = "320"
-    # Honor the optional yt-dlp format override on the manual-download path
-    # too (issue #58), with a slash-fallback so a video that doesn't expose
-    # the requested format still downloads best audio.
-    custom_format = (config.get("ytdlp_format") or "").strip()
-    fmt = (
-        f"{custom_format}/bestaudio/best" if custom_format
-        else "bestaudio/best"
-    )
-    opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "format": fmt,
-        "postprocessors": [pp],
-        "outtmpl": temp_file,
-        "noplaylist": True,
-    }
-    if config.get("audio_normalize", False):
-        opts["postprocessor_args"] = ["-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]
-    cookies_path = (config.get("yt_cookies_file") or "").strip()
-    if cookies_path and os.path.exists(cookies_path):
-        opts["cookiefile"] = cookies_path
-    if config.get("yt_force_ipv4", True):
-        opts["source_address"] = "0.0.0.0"
-    extractor_args = {}
-    yt_args = {}
-    pc = config.get("yt_player_client", "android")
-    if custom_format:
-        # Premium formats like 141 are only exposed to the web-family
-        # clients, so when an override is set try the full fallback chain
-        # (web promoted) in one go — yt-dlp walks the player_client list in
-        # order — instead of the single configured client (often android),
-        # which would never expose the format and silently fall back.
-        yt_args["player_client"] = _client_fallback_chain(config)
-    elif pc:
-        yt_args["player_client"] = [pc]
-    po_token = (config.get("yt_po_token") or "").strip()
-    if po_token:
-        yt_args["po_token"] = [t.strip() for t in po_token.split(",") if t.strip()]
-    if yt_args:
-        extractor_args["youtube"] = yt_args
-    pot_url = (config.get("yt_pot_provider_url") or "").strip()
-    if pot_url:
-        extractor_args["youtubepot-bgutilhttp"] = {"base_url": [pot_url]}
-    if extractor_args:
-        opts["extractor_args"] = extractor_args
-    return opts
-
-
 def _cleanup_temp_files(temp_file):
     for ext in [".mp3", ".opus", ".flac", ".aac", ".ogg", ".webm", ".m4a", ".part"]:
         tmp = temp_file + ext
@@ -1987,8 +1931,6 @@ def _do_manual_dl(
     lidarr_album_path,
     cover_url,
 ):
-    import yt_dlp
-
     track_state = download_process["tracks"][0]
 
     sanitized_track = sanitize_filename(track_title)
@@ -2016,23 +1958,29 @@ def _do_manual_dl(
             track_state["progress_percent"] = d.get("_percent_str", "0%").strip()
             track_state["progress_speed"] = d.get("_speed_str", "N/A").strip()
 
-    ydl_opts = _build_ydl_opts(config, temp_file)
-    ydl_opts["progress_hooks"] = [progress_hook]
-
-    youtube_title = ""
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(youtube_url, download=False)
-            if info:
-                youtube_title = info.get("title", "")
-                track_state["youtube_title"] = youtube_title
-            ydl.download([youtube_url])
-    except Exception as e:
-        logger.error("yt-dlp download failed for '%s': %s", track_title, e)
+    # Route through the shared multi-client / multi-selector fallback
+    # (cookies, PO tokens and the format override included) so a manual
+    # retry succeeds where a single bestaudio/android attempt hits
+    # "Requested format is not available" (issue #80).
+    candidate = {
+        "url": youtube_url,
+        "title": track_title,
+        "duration": 0,
+        "score": 1.0,
+        "source": "manual",
+    }
+    dl_result = download_youtube_candidate(
+        candidate, temp_file, progress_hook=progress_hook,
+    )
+    if not dl_result.get("success"):
+        msg = (dl_result.get("error_message") or "Download failed")[:200]
+        logger.error("yt-dlp download failed for '%s': %s", track_title, msg)
         _cleanup_temp_files(temp_file)
         track_state["status"] = "failed"
-        track_state["error_message"] = str(e)[:200]
+        track_state["error_message"] = msg
         return
+    youtube_title = dl_result.get("youtube_title", "") or track_title
+    track_state["youtube_title"] = youtube_title
 
     actual_file = temp_file + f".{audio_ext}"
     if not os.path.exists(actual_file):
@@ -2118,8 +2066,6 @@ def _execute_manual_dl(
     cover_url,
     run_acoustid=False,
 ):
-    import yt_dlp
-
     sanitized_track = sanitize_filename(track_title)
     if not sanitized_track:
         sanitized_track = "untitled"
@@ -2143,15 +2089,18 @@ def _execute_manual_dl(
             }
         ), 400
 
-    ydl_opts = _build_ydl_opts(config, temp_file)
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([youtube_url])
-    except Exception as e:
-        logger.error("yt-dlp download failed for '%s': %s", track_title, e)
+    # Shared multi-client / multi-selector fallback (issue #80) so a manual
+    # download doesn't fail on a single "Requested format is not available".
+    candidate = {
+        "url": youtube_url, "title": track_title,
+        "duration": 0, "score": 1.0, "source": "manual",
+    }
+    dl_result = download_youtube_candidate(candidate, temp_file)
+    if not dl_result.get("success"):
+        msg = (dl_result.get("error_message") or "Download failed")[:200]
+        logger.error("yt-dlp download failed for '%s': %s", track_title, msg)
         _cleanup_temp_files(temp_file)
-        return jsonify({"success": False, "message": str(e)[:200]}), 500
+        return jsonify({"success": False, "message": msg}), 500
 
     actual_file = temp_file + f".{audio_ext}"
     if not os.path.exists(actual_file):
@@ -2777,7 +2726,15 @@ def api_youtube_playlist_download():
         validated_entries.append({**entry, "url": v_url})
 
     config = load_config()
-    write_base = _resolve_write_base(config)
+    # When "save playlist imports to the music library" is on, write under
+    # LIDARR_PATH so the files land where Jellyfin/Lidarr look (issue #79);
+    # otherwise keep the legacy download-folder location.
+    if config.get("playlist_to_library") and (
+        config.get("lidarr_path") or ""
+    ).strip():
+        write_base = config["lidarr_path"].strip()
+    else:
+        write_base = _resolve_write_base(config)
     if not write_base:
         return jsonify(
             {"success": False, "message": "No download path configured"}
@@ -2799,11 +2756,44 @@ def api_youtube_playlist_download():
     )
 
 
+def _maybe_scan_playlist_into_library(config, target_path, success_count):
+    """Ask Lidarr to scan a finished playlist import into the library.
+
+    Only when "save playlist imports to the music library" is on, Lidarr is
+    configured and at least one track downloaded. Uses the path-based
+    DownloadedAlbumsScan command (the playlist has no Lidarr artist/album to
+    RefreshArtist against); Lidarr imports whatever it can match and the
+    files are in the library path for Jellyfin to pick up on its next scan.
+    """
+    if not config.get("playlist_to_library") or success_count <= 0:
+        return
+    if not (config.get("lidarr_url") or "").strip():
+        return
+    try:
+        result = lidarr_request(
+            "command",
+            method="POST",
+            data={"name": "DownloadedAlbumsScan", "path": target_path},
+        )
+        if isinstance(result, dict) and "error" in result:
+            logger.warning(
+                "Lidarr DownloadedAlbumsScan failed for %s: %s",
+                target_path, result["error"],
+            )
+        else:
+            logger.info(
+                "Requested Lidarr library scan of %s", target_path,
+            )
+    except Exception as exc:
+        logger.warning(
+            "Lidarr library scan request failed for %s: %s",
+            target_path, exc,
+        )
+
+
 def _execute_playlist_download(
     artist_name, album_title, entries, target_path, config, thumbnail_url="", source_url=""
 ):
-    import yt_dlp
-
     for _ in range(300):
         if not download_process["active"]:
             break
@@ -2940,44 +2930,53 @@ def _execute_playlist_download(
                 if d["status"] == "downloading":
                     state["progress_percent"] = d.get("_percent_str", "0%").strip()
                     state["progress_speed"] = d.get("_speed_str", "N/A").strip()
-                    if state.get("skip"):
-                        raise TrackSkippedException()
 
             temp_file = os.path.join(
                 target_path, f"temp_playlist_{uuid.uuid4().hex[:8]}"
             )
-            ydl_opts = _build_ydl_opts(config, temp_file)
-            ydl_opts["progress_hooks"] = [_progress_hook]
-
+            # Same robust multi-client / multi-selector fallback as the album
+            # and manual paths, so a playlist track doesn't fail on a single
+            # "Requested format is not available" (issue #80).
+            candidate = {
+                "url": youtube_url, "title": track_title,
+                "duration": 0, "score": 1.0, "source": "manual",
+            }
             youtube_title = ""
             try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(youtube_url, download=False)
-                    if info:
-                        youtube_title = info.get("title", "")
-                        track_state["youtube_title"] = youtube_title
-                    ydl.download([youtube_url])
-            except TrackSkippedException:
+                dl_result = download_youtube_candidate(
+                    candidate, temp_file,
+                    progress_hook=_progress_hook,
+                    skip_check=lambda: (
+                        track_state.get("skip")
+                        or download_process.get("stop")
+                    ),
+                )
+            except Exception as e:
+                dl_result = {"success": False, "error_message": str(e)}
+            if dl_result.get("skipped"):
                 _cleanup_temp_files(temp_file)
                 track_state["status"] = "skipped"
                 continue
-            except Exception as e:
+            if not dl_result.get("success"):
+                msg = (dl_result.get("error_message") or "Download failed")[:200]
                 logger.error(
                     "yt-dlp download failed for playlist track '%s': %s",
-                    track_title, e,
+                    track_title, msg,
                 )
                 _cleanup_temp_files(temp_file)
                 track_state["status"] = "failed"
-                track_state["error_message"] = str(e)[:200]
+                track_state["error_message"] = msg
                 _record_playlist_track(
                     album_title=display_album, artist_name=display_artist,
                     track_title=track_title, track_num=track_num,
                     youtube_url=youtube_url, youtube_title=youtube_title,
                     target_path=target_path, success=False,
-                    error_message=str(e)[:200], file_size=0,
+                    error_message=msg, file_size=0,
                     cover_url=thumbnail_url, source_url=source_url,
                 )
                 continue
+            youtube_title = dl_result.get("youtube_title", "") or track_title
+            track_state["youtube_title"] = youtube_title
 
             audio_ext = config.get("audio_format", "mp3")
             actual_file = temp_file + f".{audio_ext}"
@@ -3065,6 +3064,7 @@ def _execute_playlist_download(
             )
 
         set_permissions(target_path)
+        _maybe_scan_playlist_into_library(config, target_path, success_count)
 
     except Exception as e:
         logger.error("Playlist download error: %s", e, exc_info=True)

@@ -56,6 +56,7 @@ ALLOWED_CONFIG_KEYS = {
     "download_client_enabled", "download_client_api_key",
     "download_client_category", "download_client_concurrent_albums",
     "yt_po_token", "audio_normalize", "yt_pot_provider_url",
+    "playlist_to_library",
 }
 
 MIN_MATCH_SCORE_DEFAULT = 0.8
@@ -212,6 +213,13 @@ def load_config():
         ),
         "download_client_concurrent_albums": int(
             os.getenv("DOWNLOAD_CLIENT_CONCURRENT_ALBUMS", "1")
+        ),
+        # When true, a YouTube playlist import is written into the Lidarr
+        # music library (LIDARR_PATH) and a library scan is requested, so the
+        # files land where Jellyfin/Lidarr look instead of only the download
+        # folder. Default false keeps the legacy download-folder-only flow.
+        "playlist_to_library": (
+            os.getenv("PLAYLIST_TO_LIBRARY", "false").lower() == "true"
         ),
         "path_conflict": False,
     }

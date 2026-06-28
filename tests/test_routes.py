@@ -1838,45 +1838,62 @@ def test_cookies_test_no_file(client, monkeypatch):
     assert data["success"] is False
 
 
-def test_build_ydl_opts_honors_format_override():
-    # Issue #58: the manual-download path must honor the configured
-    # override, with a slash-fallback so a video without the format still
-    # downloads — and stay on plain best-audio when no override is set.
-    import app as app_module
-    opts = app_module._build_ydl_opts(
-        {"audio_format": "m4a", "ytdlp_format": "141"}, "/tmp/x",
-    )
-    assert opts["format"] == "141/bestaudio/best"
-    opts = app_module._build_ydl_opts(
-        {"audio_format": "m4a", "ytdlp_format": ""}, "/tmp/x",
-    )
-    assert opts["format"] == "bestaudio/best"
-    opts = app_module._build_ydl_opts({"audio_format": "m4a"}, "/tmp/x")
-    assert opts["format"] == "bestaudio/best"
+class TestPlaylistToLibrary:
+    def test_scan_triggered_when_enabled(self, monkeypatch):
+        # With playlist_to_library on, Lidarr configured and tracks done, a
+        # path-based DownloadedAlbumsScan is requested (issue #79).
+        import app as app_module
+        calls = []
+        monkeypatch.setattr(
+            app_module, "lidarr_request",
+            lambda *a, **k: calls.append(k.get("data")) or {"id": 1},
+        )
+        app_module._maybe_scan_playlist_into_library(
+            {"playlist_to_library": True, "lidarr_url": "http://lidarr:8686"},
+            "/music/Artist/Album", 3,
+        )
+        assert len(calls) == 1
+        assert calls[0]["name"] == "DownloadedAlbumsScan"
+        assert calls[0]["path"] == "/music/Artist/Album"
 
+    def test_scan_skipped_when_disabled(self, monkeypatch):
+        import app as app_module
+        calls = []
+        monkeypatch.setattr(
+            app_module, "lidarr_request",
+            lambda *a, **k: calls.append(1),
+        )
+        app_module._maybe_scan_playlist_into_library(
+            {"playlist_to_library": False, "lidarr_url": "http://lidarr:8686"},
+            "/music/Artist/Album", 3,
+        )
+        assert calls == []
 
-def test_build_ydl_opts_override_promotes_web_clients():
-    # Premium formats like 141 are only exposed to web-family clients, so
-    # with an override the manual path must try the full fallback chain
-    # (web before the configured android), not just the single client.
-    import app as app_module
-    opts = app_module._build_ydl_opts(
-        {"audio_format": "m4a", "ytdlp_format": "141",
-         "yt_player_client": "android"}, "/tmp/x",
-    )
-    clients = opts["extractor_args"]["youtube"]["player_client"]
-    assert "web" in clients and "android" in clients
-    assert clients.index("web") < clients.index("android")
+    def test_scan_skipped_when_nothing_downloaded(self, monkeypatch):
+        import app as app_module
+        calls = []
+        monkeypatch.setattr(
+            app_module, "lidarr_request",
+            lambda *a, **k: calls.append(1),
+        )
+        app_module._maybe_scan_playlist_into_library(
+            {"playlist_to_library": True, "lidarr_url": "http://lidarr:8686"},
+            "/music/Artist/Album", 0,
+        )
+        assert calls == []
 
-
-def test_build_ydl_opts_no_override_uses_single_client():
-    # With no override the player_client is unchanged (single configured
-    # client), so default downloads behave exactly as before.
-    import app as app_module
-    opts = app_module._build_ydl_opts(
-        {"audio_format": "m4a", "yt_player_client": "android"}, "/tmp/x",
-    )
-    assert opts["extractor_args"]["youtube"]["player_client"] == ["android"]
+    def test_scan_skipped_without_lidarr_url(self, monkeypatch):
+        import app as app_module
+        calls = []
+        monkeypatch.setattr(
+            app_module, "lidarr_request",
+            lambda *a, **k: calls.append(1),
+        )
+        app_module._maybe_scan_playlist_into_library(
+            {"playlist_to_library": True, "lidarr_url": ""},
+            "/music/Artist/Album", 3,
+        )
+        assert calls == []
 
 
 class TestYtdlpFormatsRoute:
