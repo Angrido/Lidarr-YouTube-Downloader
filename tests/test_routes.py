@@ -1896,6 +1896,84 @@ class TestPlaylistToLibrary:
         assert calls == []
 
 
+class TestPlaylistRetryContext:
+    """Issue #83: playlist imports get unique negative album_ids so their
+    failed tracks can be retried without a Lidarr album."""
+
+    def test_next_playlist_album_id_decrements(self, client):
+        import models
+        assert models.next_playlist_album_id() == -1
+        _add_track(models, album_id=-1, album_title="P1", success=False)
+        assert models.next_playlist_album_id() == -2
+        _add_track(models, album_id=-2, album_title="P2", success=True)
+        assert models.next_playlist_album_id() == -3
+        # A positive Lidarr album id doesn't affect the negative allocation.
+        _add_track(models, album_id=500, album_title="Real")
+        assert models.next_playlist_album_id() == -3
+
+    def test_history_tracks_route_accepts_negative_id(self, client):
+        import models
+        _add_track(
+            models, album_id=-1, album_title="P1", track_title="T1",
+            success=False, album_path="/x",
+        )
+        resp = client.get("/api/download/history/-1/tracks")
+        assert resp.status_code == 200
+        assert any(t["album_id"] == -1 for t in resp.get_json())
+
+    def test_manual_download_negative_id_no_context(self, client, monkeypatch):
+        # A playlist album_id with no stored row returns the context error
+        # without ever querying Lidarr for a (non-existent) album.
+        import app as app_module
+        calls = []
+        monkeypatch.setattr(
+            app_module, "lidarr_request",
+            lambda p, *a, **k: calls.append(p) or {"error": "x"},
+        )
+        resp = client.post("/api/download/manual", json={
+            "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+            "track_title": "Song", "track_num": 1, "album_id": -5,
+        })
+        data = resp.get_json()
+        assert data["success"] is False
+        assert "No album context" in data["message"]
+        assert calls == []
+
+    def test_manual_download_negative_id_skips_lidarr(
+        self, client, monkeypatch, tmp_path,
+    ):
+        # With stored playlist context, the retry resolves it from the DB
+        # row and reaches the download step without a Lidarr album fetch.
+        import models
+        import app as app_module
+        album_dir = tmp_path / "downloads" / "Various" / "My Playlist"
+        _add_track(
+            models, album_id=-1, album_title="My Playlist",
+            artist_name="Various", track_title="Song", track_number=1,
+            success=False, album_path=str(album_dir),
+        )
+        calls = []
+        monkeypatch.setattr(
+            app_module, "lidarr_request",
+            lambda p, *a, **k: calls.append(p) or {"error": "x"},
+        )
+        monkeypatch.setattr(
+            app_module, "_validate_target_path", lambda *a, **k: True,
+        )
+        monkeypatch.setattr(app_module, "makedirs_safe", lambda *a, **k: None)
+        monkeypatch.setattr(
+            app_module, "download_youtube_candidate",
+            lambda *a, **k: {"success": False, "error_message": "SENTINEL_DL"},
+        )
+        resp = client.post("/api/download/manual", json={
+            "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+            "track_title": "Song", "track_num": 1, "album_id": -1,
+        })
+        data = resp.get_json()
+        assert "SENTINEL_DL" in (data.get("message") or "")
+        assert calls == []
+
+
 class TestYtdlpFormatsRoute:
     def test_lists_formats(self, client, monkeypatch):
         monkeypatch.setattr(
