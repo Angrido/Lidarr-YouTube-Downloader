@@ -13,6 +13,13 @@
   download-folder-only behavior.
 
 ### Fixed
+- **Failed tracks from a YouTube playlist import can now be retried** (#83):
+  playlist imports used to share `album_id = 0`, so the manual retry
+  couldn't resolve a context and returned *"No album context available.
+  Please re-download the album first."* Each import now gets its own id and
+  its retry rebuilds the context from the stored record and re-downloads
+  into the same folder — no Lidarr album required. Different playlists no
+  longer collide in the history / retry views.
 - **Manual / playlist / retry downloads no longer fail with "Requested
   format is not available"** (#80): every single-URL download path
   (manual track download, the failed-track retry, and YouTube playlist
