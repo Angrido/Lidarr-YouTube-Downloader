@@ -68,7 +68,7 @@ log.setLevel(logging.ERROR)
 app = Flask(__name__)
 app.register_blueprint(download_client.bp)
 
-VERSION = "1.8.4"
+VERSION = "1.8.5"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -1469,6 +1469,27 @@ def _proxy_audio_stream(sanitized_url, http_headers, range_header):
         return "Stream unavailable", 502
 
 
+def _synthetic_album_data(title, artist, track_count=0):
+    """A minimal Lidarr-album-shaped dict for content with no real Lidarr
+    album — YouTube playlist imports and their retries. Carries enough for
+    tagging, path building and ``_resolve_track_info``; ``artist.id`` is 0
+    so ``_refresh_lidarr_artist`` safely no-ops.
+    """
+    return {
+        "title": title or "",
+        "artist": {
+            "artistName": artist or "",
+            "id": 0,
+            "foreignArtistId": "",
+        },
+        "releaseDate": "",
+        "trackCount": track_count,
+        "foreignAlbumId": "",
+        "releases": [],
+        "images": [],
+    }
+
+
 @app.route("/api/download/manual", methods=["POST"])
 def api_download_manual():
     client_ip = request.remote_addr or "unknown"
@@ -1498,12 +1519,16 @@ def api_download_manual():
                 "message": "No album context available. Please re-download the album first.",
             }
         ), 400
+    try:
+        album_id_ctx = int(album_id_ctx)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid album id"}), 400
 
     # Playlist imports use a negative album_id and have no Lidarr album, so
     # their retry context comes from the stored track_downloads row instead
     # of Lidarr, and the track is re-downloaded into the same folder the
     # playlist used (issue #83).
-    is_playlist_ctx = int(album_id_ctx) < 0
+    is_playlist_ctx = album_id_ctx < 0
     failed_ctx = models.get_failed_tracks_for_retry(album_id_ctx)
     config = load_config()
 
@@ -1517,17 +1542,10 @@ def api_download_manual():
                     "message": "No album context available. Please re-download the album first.",
                 }
             ), 400
-        album_data = {
-            "title": failed_ctx.get("album_title", ""),
-            "artist": {
-                "artistName": failed_ctx.get("artist_name", ""),
-                "id": 0,
-                "foreignArtistId": "",
-            },
-            "releaseDate": "",
-            "foreignAlbumId": "",
-            "images": [],
-        }
+        album_data = _synthetic_album_data(
+            failed_ctx.get("album_title", ""),
+            failed_ctx.get("artist_name", ""),
+        )
         target_path = failed_ctx.get("album_path") or ""
         makedirs_bases = (
             _makedirs_bases_for(target_path, config) if target_path else []
@@ -2839,11 +2857,6 @@ def _execute_playlist_download(
         )
         return
 
-    # Unique negative album_id for this import so its tracks don't collide
-    # with other playlists (or a real Lidarr album) in the history and
-    # failed-track retry views (issue #83).
-    playlist_album_id = models.next_playlist_album_id()
-
     with queue_lock:
         if download_process["active"]:
             logger.warning(
@@ -2851,6 +2864,12 @@ def _execute_playlist_download(
                 album_title,
             )
             return
+        # Allocate the unique negative album_id under the lock, while no
+        # other download is active, so two imports can't read the same MIN
+        # and collide. It keeps this import's tracks distinct from other
+        # playlists (and real Lidarr albums) in the history / retry views
+        # (issue #83).
+        playlist_album_id = models.next_playlist_album_id()
         download_process["active"] = True
         download_process["stop"] = False
         download_process["album_id"] = playlist_album_id
@@ -2876,19 +2895,9 @@ def _execute_playlist_download(
     display_album = album_title or artist_name
     display_artist = artist_name or album_title
 
-    album_data = {
-        "title": display_album,
-        "artist": {
-            "artistName": display_artist,
-            "id": 0,
-            "foreignArtistId": "",
-        },
-        "releaseDate": "",
-        "trackCount": len(entries),
-        "foreignAlbumId": "",
-        "releases": [],
-        "images": [],
-    }
+    album_data = _synthetic_album_data(
+        display_album, display_artist, track_count=len(entries),
+    )
 
     total_size = 0
     success_count = 0

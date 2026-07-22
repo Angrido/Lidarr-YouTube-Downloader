@@ -1974,6 +1974,123 @@ class TestPlaylistRetryContext:
         assert calls == []
 
 
+def test_manual_download_invalid_album_id_400(client, monkeypatch):
+    # A non-numeric album_id yields a clean 400, not a 500 (issue #83 review).
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    resp = client.post("/api/download/manual", json={
+        "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+        "track_title": "Song", "track_num": 1, "album_id": "abc",
+    })
+    assert resp.get_json()["success"] is False
+    assert "invalid album id" in resp.get_json()["message"].lower()
+
+
+def test_manual_download_negative_id_records_success(
+    client, monkeypatch, tmp_path,
+):
+    # End-to-end: a playlist retry (negative album_id) downloads and records
+    # the track UNDER THE NEGATIVE ID with success, so it drops out of the
+    # failed-retry list.
+    import models
+    import app as app_module
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    album_dir = tmp_path / "downloads" / "Various" / "My Playlist"
+    album_dir.mkdir(parents=True)
+    _add_track(
+        models, album_id=-1, album_title="My Playlist", artist_name="Various",
+        track_title="Song", track_number=1, success=False,
+        album_path=str(album_dir),
+    )
+
+    ext = app_module.load_config().get("audio_format", "mp3")
+
+    def fake_dl(candidate, output_path, **kw):
+        with open(output_path + "." + ext, "wb") as f:
+            f.write(b"AUDIO")
+        return {"success": True, "youtube_title": candidate["title"]}
+
+    monkeypatch.setattr(app_module, "download_youtube_candidate", fake_dl)
+    monkeypatch.setattr(app_module, "_validate_target_path", lambda *a, **k: True)
+    monkeypatch.setattr(app_module, "makedirs_safe", lambda *a, **k: None)
+    monkeypatch.setattr(app_module, "tag_audio_file", lambda *a, **k: None)
+    monkeypatch.setattr(app_module, "create_xml_metadata", lambda *a, **k: None)
+    monkeypatch.setattr(app_module, "set_permissions", lambda *a, **k: None)
+    monkeypatch.setattr(
+        app_module, "lidarr_request",
+        lambda *a, **k: pytest.fail("Lidarr must not be called for a playlist"),
+    )
+
+    resp = client.post("/api/download/manual", json={
+        "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+        "track_title": "Song", "track_num": 1, "album_id": -1,
+    })
+    assert resp.get_json()["success"] is True
+    # Recorded under the negative id with success -> no longer a failed track.
+    rows = models.get_track_downloads_for_album(-1)
+    assert any(
+        r["track_title"] == "Song" and r["success"] == 1 for r in rows
+    )
+    assert models.get_failed_tracks_for_retry(-1)["failed_tracks"] == []
+
+
+def test_manual_download_multi_playlist_isolation(
+    client, monkeypatch, tmp_path,
+):
+    # Retrying a track of playlist B (-2) must rebuild B's folder/context,
+    # not A's (-1).
+    import models
+    import app as app_module
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    dir_a = tmp_path / "A"
+    dir_b = tmp_path / "B"
+    dir_a.mkdir()
+    dir_b.mkdir()
+    _add_track(
+        models, album_id=-1, album_title="A", artist_name="AA",
+        track_title="x", track_number=1, success=False, album_path=str(dir_a),
+    )
+    _add_track(
+        models, album_id=-2, album_title="B", artist_name="BB",
+        track_title="Song", track_number=1, success=False,
+        album_path=str(dir_b),
+    )
+    seen = {}
+    ext = app_module.load_config().get("audio_format", "mp3")
+
+    def fake_dl(candidate, output_path, **kw):
+        seen["output_path"] = output_path
+        with open(output_path + "." + ext, "wb") as f:
+            f.write(b"AUDIO")
+        return {"success": True, "youtube_title": candidate["title"]}
+
+    monkeypatch.setattr(app_module, "download_youtube_candidate", fake_dl)
+    monkeypatch.setattr(app_module, "_validate_target_path", lambda *a, **k: True)
+    monkeypatch.setattr(app_module, "makedirs_safe", lambda *a, **k: None)
+    monkeypatch.setattr(app_module, "tag_audio_file", lambda *a, **k: None)
+    monkeypatch.setattr(app_module, "create_xml_metadata", lambda *a, **k: None)
+    monkeypatch.setattr(app_module, "set_permissions", lambda *a, **k: None)
+
+    resp = client.post("/api/download/manual", json={
+        "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+        "track_title": "Song", "track_num": 1, "album_id": -2,
+    })
+    assert resp.get_json()["success"] is True
+    # Downloaded into B's folder, not A's.
+    assert seen["output_path"].startswith(str(dir_b))
+
+
+def test_next_playlist_album_id_counts_download_logs(client):
+    # An import that recorded only a summary log (no track rows) must not
+    # have its id handed out again.
+    import models
+    assert models.next_playlist_album_id() == -1
+    models.add_log(
+        log_type="manual_download", album_id=-1,
+        album_title="P", artist_name="A",
+    )
+    assert models.next_playlist_album_id() == -2
+
+
 class TestYtdlpFormatsRoute:
     def test_lists_formats(self, client, monkeypatch):
         monkeypatch.setattr(

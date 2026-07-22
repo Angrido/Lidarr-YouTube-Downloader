@@ -9,7 +9,7 @@ import time
 logger = logging.getLogger(__name__)
 
 DB_PATH = "/config/lidarr-downloader.db"
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 _local = threading.local()
 
@@ -431,6 +431,38 @@ def _migrate_v6_to_v7(conn):
     conn.execute(_DOWNLOAD_CLIENT_JOBS_DDL)
 
 
+def _migrate_v7_to_v8(conn):
+    """Give each pre-existing YouTube playlist import a unique negative id.
+
+    Playlist imports used to record every track under the shared sentinel
+    ``album_id = 0``, which made their failed tracks un-retryable (the retry
+    couldn't resolve a context) and collapsed distinct playlists together in
+    the history. Reassign each existing ``album_id = 0`` group — keyed by
+    (album_title, artist_name) — to its own negative id, matching the scheme
+    new imports now use, in both track_downloads and download_logs so the two
+    views stay consistent. Real Lidarr albums use positive ids and are
+    untouched.
+    """
+    groups = conn.execute(
+        "SELECT DISTINCT album_title, artist_name FROM track_downloads"
+        " WHERE album_id = 0"
+    ).fetchall()
+    next_id = -1
+    for row in groups:
+        album_title, artist_name = row[0], row[1]
+        conn.execute(
+            "UPDATE track_downloads SET album_id = ?"
+            " WHERE album_id = 0 AND album_title = ? AND artist_name = ?",
+            (next_id, album_title, artist_name),
+        )
+        conn.execute(
+            "UPDATE download_logs SET album_id = ?"
+            " WHERE album_id = 0 AND album_title = ? AND artist_name = ?",
+            (next_id, album_title, artist_name),
+        )
+        next_id -= 1
+
+
 def _run_migrations(conn, current_version):
     """Run any pending schema migrations sequentially."""
     migrations = {
@@ -440,6 +472,7 @@ def _run_migrations(conn, current_version):
         5: _migrate_v4_to_v5,
         6: _migrate_v5_to_v6,
         7: _migrate_v6_to_v7,
+        8: _migrate_v7_to_v8,
     }
     for version in sorted(migrations):
         if current_version < version:
