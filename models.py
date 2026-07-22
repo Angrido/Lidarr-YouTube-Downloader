@@ -67,6 +67,34 @@ def get_latest_download_album_id():
     return row[0] if row else None
 
 
+def next_playlist_album_id():
+    """Return a fresh negative album_id for a YouTube playlist import.
+
+    Real Lidarr album ids are positive, so playlist imports live in a
+    disjoint negative id space. Each import gets its own id (one below the
+    most negative existing one, starting at -1) so its tracks don't collide
+    with other playlists in the history and failed-track retry views, which
+    key everything on album_id.
+
+    The lowest id is taken across BOTH ``track_downloads`` and
+    ``download_logs`` so an import that failed before recording any track
+    (its summary log still lands in ``download_logs``) can't have its id
+    handed out again to the next import. Callers allocate under
+    ``processing.queue_lock`` while no other download is active, which
+    serializes the read-then-decrement.
+    """
+    conn = db.get_db()
+    row = conn.execute(
+        "SELECT MIN(m) FROM ("
+        " SELECT MIN(album_id) AS m FROM track_downloads WHERE album_id < 0"
+        " UNION ALL"
+        " SELECT MIN(album_id) AS m FROM download_logs WHERE album_id < 0"
+        ")"
+    ).fetchone()
+    least = row[0] if row and row[0] is not None else 0
+    return least - 1
+
+
 def add_track_download(
     *, album_id, album_title, artist_name, track_title, track_number,
     success, error_message, youtube_url, youtube_title, match_score,

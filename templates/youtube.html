@@ -1305,7 +1305,10 @@
             const resp = await fetch('/api/download/status');
             if (!resp.ok) return;
             const st = await resp.json();
-            if (!st.active || st.album_id !== 0) return;
+            // Only resume a YouTube import here — those use album_id <= 0
+            // (playlist imports get a unique negative id; legacy ones used
+            // 0). A positive id is a real Lidarr album, handled elsewhere.
+            if (!st.active || st.album_id > 0) return;
             const tracks = st.tracks || [];
             if (!tracks.length) return;
 

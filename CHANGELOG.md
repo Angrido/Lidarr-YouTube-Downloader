@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.8.5
+
+### Fixed
+- **Playlist import progress is restored again after a page reload** —
+  reloading the YouTube import page while a playlist was downloading left
+  the progress panel blank and the live updates disconnected (a regression
+  from the 1.8.4 per-import id change: the resume check still assumed the
+  old "playlist = album id 0" marker). It now recognizes an in-progress
+  import and re-attaches its progress and live stream.
+- **Retrying failed tracks from playlists imported before 1.8.4 now works**
+  — those imports were all stored under the shared internal id `0`, so
+  their retry hit *"No album context available."* A one-time migration
+  reassigns each old playlist to its own id (in both the download records
+  and the logs), so their failed tracks can be retried into the right
+  folder like new imports, and distinct playlists stop colliding in the
+  history.
+- **The manual-download endpoint returns a clean error for a malformed
+  request** — a non-numeric `album_id` now yields a normal "invalid
+  request" response instead of a 500.
+
+### Changed
+- Playlist import ids are allocated race-safely (reserved under the queue
+  lock, counting both download records and logs), so two imports can't
+  collide even back-to-back.
+
+## 1.8.4
+
+### Fixed
+- **Failed tracks from a YouTube playlist import can now be retried** (#83):
+  playlist imports used to share `album_id = 0`, so the manual "search &
+  select" retry couldn't resolve a context and returned *"No album context
+  available. Please re-download the album first."* Each import now gets its
+  own id, and its retry rebuilds the context from the stored record and
+  re-downloads into the same folder — no Lidarr album required. Different
+  playlists no longer collide in the history / retry views.
+
 ## 1.8.3
 
 ### Added

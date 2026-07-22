@@ -68,7 +68,7 @@ log.setLevel(logging.ERROR)
 app = Flask(__name__)
 app.register_blueprint(download_client.bp)
 
-VERSION = "1.8.3"
+VERSION = "1.8.5"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -1011,8 +1011,10 @@ def api_clear_history():
     return jsonify({"success": True})
 
 
-@app.route("/api/download/history/<int:album_id>/tracks")
+@app.route("/api/download/history/<int(signed=True):album_id>/tracks")
 def api_album_tracks(album_id):
+    # signed=True so a playlist import's negative album_id resolves here
+    # too (issue #83), not just positive Lidarr album ids.
     return jsonify(models.get_track_downloads_for_album(album_id))
 
 
@@ -1467,6 +1469,27 @@ def _proxy_audio_stream(sanitized_url, http_headers, range_header):
         return "Stream unavailable", 502
 
 
+def _synthetic_album_data(title, artist, track_count=0):
+    """A minimal Lidarr-album-shaped dict for content with no real Lidarr
+    album — YouTube playlist imports and their retries. Carries enough for
+    tagging, path building and ``_resolve_track_info``; ``artist.id`` is 0
+    so ``_refresh_lidarr_artist`` safely no-ops.
+    """
+    return {
+        "title": title or "",
+        "artist": {
+            "artistName": artist or "",
+            "id": 0,
+            "foreignArtistId": "",
+        },
+        "releaseDate": "",
+        "trackCount": track_count,
+        "foreignAlbumId": "",
+        "releases": [],
+        "images": [],
+    }
+
+
 @app.route("/api/download/manual", methods=["POST"])
 def api_download_manual():
     client_ip = request.remote_addr or "unknown"
@@ -1496,33 +1519,62 @@ def api_download_manual():
                 "message": "No album context available. Please re-download the album first.",
             }
         ), 400
+    try:
+        album_id_ctx = int(album_id_ctx)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "message": "Invalid album id"}), 400
 
-    album_data = lidarr_request(f"album/{album_id_ctx}")
-    if "error" in album_data:
-        return jsonify(
-            {
-                "success": False,
-                "message": f"Failed to fetch album from Lidarr: {album_data['error']}",
-            }
-        ), 500
-
+    # Playlist imports use a negative album_id and have no Lidarr album, so
+    # their retry context comes from the stored track_downloads row instead
+    # of Lidarr, and the track is re-downloaded into the same folder the
+    # playlist used (issue #83).
+    is_playlist_ctx = album_id_ctx < 0
     failed_ctx = models.get_failed_tracks_for_retry(album_id_ctx)
     config = load_config()
 
-    if _resolve_write_base(config):
-        target_path, makedirs_bases, lidarr_import_path = _build_album_paths(
-            album_data, config,
+    if is_playlist_ctx:
+        if not failed_ctx.get("album_title") and not failed_ctx.get(
+            "artist_name"
+        ):
+            return jsonify(
+                {
+                    "success": False,
+                    "message": "No album context available. Please re-download the album first.",
+                }
+            ), 400
+        album_data = _synthetic_album_data(
+            failed_ctx.get("album_title", ""),
+            failed_ctx.get("artist_name", ""),
         )
+        target_path = failed_ctx.get("album_path") or ""
+        makedirs_bases = (
+            _makedirs_bases_for(target_path, config) if target_path else []
+        )
+        lidarr_import_path = target_path
     else:
-        lidarr_album_path_val = failed_ctx.get("lidarr_album_path", "")
-        dl_album_path = failed_ctx.get("album_path", "")
-        target_path = (
-            lidarr_album_path_val
-            if lidarr_album_path_val and os.path.isdir(lidarr_album_path_val)
-            else dl_album_path
-        )
-        makedirs_bases = _makedirs_bases_for(target_path, config) if target_path else []
-        lidarr_import_path = lidarr_album_path_val or target_path or ""
+        album_data = lidarr_request(f"album/{album_id_ctx}")
+        if "error" in album_data:
+            return jsonify(
+                {
+                    "success": False,
+                    "message": f"Failed to fetch album from Lidarr: {album_data['error']}",
+                }
+            ), 500
+
+        if _resolve_write_base(config):
+            target_path, makedirs_bases, lidarr_import_path = _build_album_paths(
+                album_data, config,
+            )
+        else:
+            lidarr_album_path_val = failed_ctx.get("lidarr_album_path", "")
+            dl_album_path = failed_ctx.get("album_path", "")
+            target_path = (
+                lidarr_album_path_val
+                if lidarr_album_path_val and os.path.isdir(lidarr_album_path_val)
+                else dl_album_path
+            )
+            makedirs_bases = _makedirs_bases_for(target_path, config) if target_path else []
+            lidarr_import_path = lidarr_album_path_val or target_path or ""
 
     if not target_path:
         return jsonify({"success": False, "message": "No album path available"}), 400
@@ -2335,7 +2387,8 @@ def _notify_manual_download(
 def _resolve_track_info(track_title, track_num, album_data, album_id):
     track_info = {"title": track_title, "trackNumber": track_num}
     tracks = album_data.get("tracks", [])
-    if not tracks:
+    # A playlist import (album_id <= 0) has no Lidarr album to query.
+    if not tracks and int(album_id or 0) > 0:
         tracks_res = lidarr_request(f"track?albumId={album_id}")
         if isinstance(tracks_res, list):
             tracks = tracks_res
@@ -2811,9 +2864,15 @@ def _execute_playlist_download(
                 album_title,
             )
             return
+        # Allocate the unique negative album_id under the lock, while no
+        # other download is active, so two imports can't read the same MIN
+        # and collide. It keeps this import's tracks distinct from other
+        # playlists (and real Lidarr albums) in the history / retry views
+        # (issue #83).
+        playlist_album_id = models.next_playlist_album_id()
         download_process["active"] = True
         download_process["stop"] = False
-        download_process["album_id"] = 0
+        download_process["album_id"] = playlist_album_id
         download_process["album_title"] = album_title
         download_process["artist_name"] = artist_name
         download_process["cover_url"] = ""
@@ -2836,19 +2895,9 @@ def _execute_playlist_download(
     display_album = album_title or artist_name
     display_artist = artist_name or album_title
 
-    album_data = {
-        "title": display_album,
-        "artist": {
-            "artistName": display_artist,
-            "id": 0,
-            "foreignArtistId": "",
-        },
-        "releaseDate": "",
-        "trackCount": len(entries),
-        "foreignAlbumId": "",
-        "releases": [],
-        "images": [],
-    }
+    album_data = _synthetic_album_data(
+        display_album, display_artist, track_count=len(entries),
+    )
 
     total_size = 0
     success_count = 0
@@ -2966,6 +3015,7 @@ def _execute_playlist_download(
                 track_state["status"] = "failed"
                 track_state["error_message"] = msg
                 _record_playlist_track(
+                    album_id=playlist_album_id,
                     album_title=display_album, artist_name=display_artist,
                     track_title=track_title, track_num=track_num,
                     youtube_url=youtube_url, youtube_title=youtube_title,
@@ -2984,6 +3034,7 @@ def _execute_playlist_download(
                 track_state["status"] = "failed"
                 track_state["error_message"] = "Download failed — file not created"
                 _record_playlist_track(
+                    album_id=playlist_album_id,
                     album_title=display_album, artist_name=display_artist,
                     track_title=track_title, track_num=track_num,
                     youtube_url=youtube_url, youtube_title=youtube_title,
@@ -3035,6 +3086,7 @@ def _execute_playlist_download(
                 track_state["status"] = "failed"
                 track_state["error_message"] = str(e)[:200]
                 _record_playlist_track(
+                    album_id=playlist_album_id,
                     album_title=display_album, artist_name=display_artist,
                     track_title=track_title, track_num=track_num,
                     youtube_url=youtube_url, youtube_title=youtube_title,
@@ -3054,6 +3106,7 @@ def _execute_playlist_download(
             )
 
             _record_playlist_track(
+                album_id=playlist_album_id,
                 album_title=album_title, artist_name=artist_name,
                 track_title=track_title, track_num=track_num,
                 youtube_url=youtube_url, youtube_title=youtube_title,
@@ -3075,7 +3128,7 @@ def _execute_playlist_download(
         try:
             models.add_log(
                 log_type="manual_download",
-                album_id=0,
+                album_id=playlist_album_id,
                 album_title=display_album,
                 artist_name=display_artist,
                 details=(
@@ -3165,14 +3218,14 @@ def _execute_playlist_download(
 
 
 def _record_playlist_track(
-    *, album_title, artist_name, track_title, track_num,
+    *, album_id, album_title, artist_name, track_title, track_num,
     youtube_url, youtube_title, target_path,
     success, error_message, file_size, cover_url="", source_url="",
 ):
     track_download_id = None
     try:
         track_download_id = models.add_track_download(
-            album_id=0,
+            album_id=album_id,
             album_title=album_title,
             artist_name=artist_name,
             track_title=track_title,
@@ -3195,7 +3248,7 @@ def _record_playlist_track(
         if success:
             models.add_log(
                 log_type="track_download",
-                album_id=0,
+                album_id=album_id,
                 album_title=album_title,
                 artist_name=artist_name,
                 details="Track downloaded successfully",
@@ -3207,7 +3260,7 @@ def _record_playlist_track(
         else:
             models.add_log(
                 log_type="track_failure",
-                album_id=0,
+                album_id=album_id,
                 album_title=album_title,
                 artist_name=artist_name,
                 details=error_message or "Unknown error",

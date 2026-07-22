@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from db import close_db, get_db, init_db
+from db import SCHEMA_VERSION, close_db, get_db, init_db
 
 
 @pytest.fixture(autouse=True)
@@ -35,7 +35,7 @@ def test_init_db_sets_schema_version(temp_db):
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
     conn.close()
-    assert row[0] == 7
+    assert row[0] == SCHEMA_VERSION
 
 
 def test_init_db_idempotent(temp_db):
@@ -44,8 +44,8 @@ def test_init_db_idempotent(temp_db):
     conn = sqlite3.connect(temp_db)
     rows = conn.execute("SELECT COUNT(*) FROM schema_version").fetchone()
     conn.close()
-    # V1 insert + V2..V7 migrations = 7 rows
-    assert rows[0] == 7
+    # One schema_version row per applied migration (V1 insert + V2..VN).
+    assert rows[0] == SCHEMA_VERSION
 
 
 def test_get_db_returns_connection(temp_db):
@@ -185,7 +185,7 @@ def test_migrate_v1_to_v2_creates_track_downloads(temp_db):
         "SELECT version FROM schema_version"
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
-    assert row[0] == 7
+    assert row[0] == SCHEMA_VERSION
     conn.close()
 
 
@@ -337,7 +337,7 @@ def test_migrate_v2_to_v3_adds_acoustid_columns(temp_db):
         "SELECT version FROM schema_version"
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
-    assert row[0] == 7
+    assert row[0] == SCHEMA_VERSION
     conn.close()
 
 
@@ -416,7 +416,7 @@ def test_schema_version_is_4(temp_db):
         " ORDER BY version DESC LIMIT 1"
     ).fetchone()
     conn.close()
-    assert row[0] == 7
+    assert row[0] == SCHEMA_VERSION
 
 
 # --- V4 to V5 Migration ---
@@ -492,3 +492,45 @@ def test_v5_migration_preserves_existing_logs(temp_db):
     assert row[1] is None
     assert row[2] is None
     conn.close()
+
+
+def test_migrate_v7_to_v8_reassigns_playlist_ids(temp_db):
+    """Legacy playlist rows (album_id=0) become unique negative ids in both
+    track_downloads and download_logs; distinct playlists get distinct ids."""
+    import db as db_mod
+    import models
+    init_db()
+    for title, artist, track in (
+        ("PlA", "ArtA", "t1"), ("PlA", "ArtA", "t2"), ("PlB", "ArtB", "t3"),
+    ):
+        models.add_track_download(
+            album_id=0, album_title=title, artist_name=artist,
+            track_title=track, track_number=1, success=False,
+            error_message="", youtube_url="", youtube_title="",
+            match_score=0.0, duration_seconds=0, album_path="/d",
+            lidarr_album_path="", cover_url="",
+        )
+    models.add_log(
+        log_type="track_failure", album_id=0,
+        album_title="PlA", artist_name="ArtA",
+    )
+    conn = get_db()
+    db_mod._migrate_v7_to_v8(conn)
+    conn.commit()
+
+    rows = conn.execute(
+        "SELECT DISTINCT album_title, album_id FROM track_downloads"
+        " ORDER BY album_title"
+    ).fetchall()
+    ids = {r[0]: r[1] for r in rows}
+    assert ids["PlA"] < 0 and ids["PlB"] < 0
+    assert ids["PlA"] != ids["PlB"]
+    # The download_logs row for PlA got the same negative id as its tracks.
+    log_id = conn.execute(
+        "SELECT album_id FROM download_logs WHERE album_title = 'PlA'"
+    ).fetchone()[0]
+    assert log_id == ids["PlA"]
+    # No legacy album_id=0 rows remain.
+    assert conn.execute(
+        "SELECT COUNT(*) FROM track_downloads WHERE album_id = 0"
+    ).fetchone()[0] == 0

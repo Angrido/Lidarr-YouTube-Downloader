@@ -3803,7 +3803,10 @@
         }
 
         queuedAlbumIds = new Set(queue.map((q) => q.id));
-        if (data.active && data.album_id) queuedAlbumIds.add(data.album_id);
+        // Only real Lidarr albums (positive id) belong in this set, which is
+        // matched against missing-album cards; a playlist import's negative
+        // id would never match and must not be added.
+        if (data.active && data.album_id > 0) queuedAlbumIds.add(data.album_id);
 
         const totalInQueue = queue.length + (data.active ? 1 : 0);
         const badge = document.getElementById("queueBadge");
