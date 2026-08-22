@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.8.6
+
+### Added
+- **Per-track artist for compilations** (Settings → "Search Artist Source",
+  env `SEARCH_ARTIST_SOURCE`, default `album`): on compilation albums Lidarr
+  sets the album artist to "Various Artists", so the old YouTube search
+  (`Various Artists - <title>`) matched nothing. The app can now resolve
+  each track's real artist via MusicBrainz and/or iTunes and search for
+  `<track artist> - <title>` instead, falling back to the album artist when
+  it can't be resolved. Default keeps the previous album-artist behavior.
+  (#86 — thanks @aki-ks)
+
+### Fixed
+- **Third-party API requests now send a proper `User-Agent`** — MusicBrainz,
+  AcoustID and the Cover Art Archive require an identifying User-Agent;
+  requests now carry the real app version, avoiding throttling/rejection.
+  MusicBrainz lookups are throttled to 1 req/s and retried with backoff on
+  `503`/`Retry-After`. (thanks @aki-ks)
+
 ## 1.8.5
 
 ### Fixed
