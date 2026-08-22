@@ -57,7 +57,15 @@ ALLOWED_CONFIG_KEYS = {
     "download_client_category", "download_client_concurrent_albums",
     "yt_po_token", "audio_normalize", "yt_pot_provider_url",
     "playlist_to_library",
+    "search_artist_source",
 }
+
+# Valid values for search_artist_source: which artist to use when building
+# the YouTube search query for a track. "album" (default) is Lidarr's
+# album-level artist (cheap, but wrong for compilations tagged "Various
+# Artists"); the others resolve a real per-track artist via MusicBrainz
+# and/or iTunes before falling back to "album".
+SEARCH_ARTIST_SOURCES = {"album", "mb_itunes", "itunes_mb", "mb", "itunes"}
 
 MIN_MATCH_SCORE_DEFAULT = 0.8
 
@@ -193,6 +201,7 @@ def load_config():
         "min_match_score": _parse_min_match_score(
             os.getenv("MIN_MATCH_SCORE", "0.8"),
         ),
+        "search_artist_source": os.getenv("SEARCH_ARTIST_SOURCE", "album"),
         "audio_format": os.getenv("AUDIO_FORMAT", "mp3"),
         "audio_quality": os.getenv("AUDIO_QUALITY", "320"),
         # Optional yt-dlp format selector override (e.g. "141" for 256 kbps
@@ -281,6 +290,9 @@ def load_config():
     except (TypeError, ValueError):
         _cca = 1
     config["download_client_concurrent_albums"] = max(1, min(5, _cca))
+
+    if config.get("search_artist_source") not in SEARCH_ARTIST_SOURCES:
+        config["search_artist_source"] = "album"
 
     def norm(p):
         return (

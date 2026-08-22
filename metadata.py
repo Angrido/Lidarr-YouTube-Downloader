@@ -7,6 +7,8 @@ Lidarr import, and iTunes API lookups for track lists and album artwork.
 import base64
 import logging
 import os
+import threading
+import time
 from xml.sax.saxutils import escape as xml_escape
 
 import requests
@@ -349,6 +351,7 @@ def get_itunes_tracks(artist, album_name):
                     {
                         "trackNumber": item.get("trackNumber"),
                         "title": item.get("trackName"),
+                        "artist": item.get("artistName"),
                         "previewUrl": item.get("previewUrl"),
                         "hasFile": False,
                     }
@@ -453,9 +456,32 @@ def get_deezer_artwork(artist, album):
     return None
 
 
+_mb_rate_lock = threading.Lock()
+_mb_last_request_time = 0.0
+_MB_MIN_INTERVAL = 1.0
+
+
+def _musicbrainz_throttle():
+    """Space out MusicBrainz requests to at most 1 per second.
+
+    MusicBrainz throttles by source IP address: once a client's request
+    rate is measured too high, *all* of its requests get declined with
+    HTTP 503 until the rate drops again, and that measured rate is
+    currently ~1 request/second on average.
+    source: https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting
+    """
+    global _mb_last_request_time
+    with _mb_rate_lock:
+        wait = _mb_last_request_time + _MB_MIN_INTERVAL - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _mb_last_request_time = time.monotonic()
+
+
 def _musicbrainz_release_id(artist, album):
     """Resolve a MusicBrainz release id (uuid) for artist+album, or None."""
     try:
+        _musicbrainz_throttle()
         url = "https://musicbrainz.org/ws/2/release/"
         params = {
             "query": f'artist:"{artist}" AND release:"{album}"',
@@ -489,6 +515,38 @@ def _musicbrainz_release_id(artist, album):
             return releases[0].get("id") or None
     except Exception as e:
         logger.debug(f"MusicBrainz lookup failed: {e}")
+    return None
+
+
+def get_musicbrainz_recording_artist(recording_id):
+    """Resolve a MusicBrainz recording's artist-credit name.
+
+    Used to find the real per-track artist for compilation albums, where
+    Lidarr's album-level artist is "Various Artists" but each track's
+    MusicBrainz recording (``foreignRecordingId``) has its own credited
+    artist(s).
+
+    Returns the artist-credit phrase (e.g. "Artist A feat. Artist B"), or
+    None if unresolvable.
+    """
+    if not recording_id:
+        return None
+    try:
+        _musicbrainz_throttle()
+        url = f"https://musicbrainz.org/ws/2/recording/{recording_id}"
+        params = {"fmt": "json", "inc": "artist-credits"}
+        headers = {"User-Agent": "Lidarr-YouTube-Downloader/1.7"}
+        r = requests.get(url, params=params, headers=headers, timeout=10)
+        data = r.json() or {}
+        credits = data.get("artist-credit", []) or []
+        name = "".join(
+            (c.get("name", "") if isinstance(c, dict) else "")
+            + (c.get("joinphrase", "") if isinstance(c, dict) else "")
+            for c in credits
+        ).strip()
+        return name or None
+    except Exception as e:
+        logger.debug(f"MusicBrainz recording artist lookup failed: {e}")
     return None
 
 
