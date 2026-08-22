@@ -31,8 +31,13 @@ from mutagen.oggopus import OggOpus
 
 from lidarr import get_monitored_release
 from utils import sanitize_filename
+from version import USER_AGENT
 
 logger = logging.getLogger(__name__)
+
+# Identifying User-Agent for the MusicBrainz family of APIs (musicbrainz.org,
+# coverartarchive.org), which reject or throttle the default requests one.
+_API_HEADERS = {"User-Agent": USER_AGENT}
 
 
 def tag_mp3(file_path, track_info, album_info, cover_data):
@@ -488,8 +493,7 @@ def _musicbrainz_release_id(artist, album):
             "fmt": "json",
             "limit": 5,
         }
-        headers = {"User-Agent": "Lidarr-YouTube-Downloader/1.7"}
-        r = requests.get(url, params=params, headers=headers, timeout=10)
+        r = requests.get(url, params=params, headers=_API_HEADERS, timeout=10)
         data = r.json() or {}
         releases = data.get("releases", []) or []
         artist_lower = (artist or "").lower()
@@ -535,8 +539,7 @@ def get_musicbrainz_recording_artist(recording_id):
         _musicbrainz_throttle()
         url = f"https://musicbrainz.org/ws/2/recording/{recording_id}"
         params = {"fmt": "json", "inc": "artist-credits"}
-        headers = {"User-Agent": "Lidarr-YouTube-Downloader/1.7"}
-        r = requests.get(url, params=params, headers=headers, timeout=10)
+        r = requests.get(url, params=params, headers=_API_HEADERS, timeout=10)
         data = r.json() or {}
         credits = data.get("artist-credit", []) or []
         name = "".join(
@@ -565,7 +568,9 @@ def get_cover_art_archive_artwork(artist, album):
         cover_url = (
             f"https://coverartarchive.org/release/{release_id}/front"
         )
-        r = requests.get(cover_url, timeout=15, allow_redirects=True)
+        r = requests.get(
+            cover_url, headers=_API_HEADERS, timeout=15, allow_redirects=True
+        )
         if r.status_code == 200 and r.content:
             return r.content
     except Exception as e:
