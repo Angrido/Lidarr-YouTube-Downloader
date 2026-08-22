@@ -825,6 +825,19 @@
                 </select>
             </div>
             <div class="input-group">
+                <label for="searchArtistSource">
+                    YouTube Search Artist
+                    <div class="label-description">Which artist to use when building the YouTube search query for a track. "Lidarr Album Artist" is instant but shows "Various Artists" for compilations, so those tracks often can't be found. The other options resolve the real per-track artist via MusicBrainz and/or iTunes before falling back to the album artist — more accurate, but adds up to ~1s per track (MusicBrainz rate limit) to the search step.</div>
+                </label>
+                <select id="searchArtistSource" style="max-width:340px;">
+                    <option value="album">Lidarr Album Artist (default, fastest)</option>
+                    <option value="mb_itunes">Track Artist (MusicBrainz, iTunes fallback)</option>
+                    <option value="itunes_mb">Track Artist (iTunes, MusicBrainz fallback)</option>
+                    <option value="mb">Track Artist (MusicBrainz only)</option>
+                    <option value="itunes">Track Artist (iTunes only)</option>
+                </select>
+            </div>
+            <div class="input-group">
                 <label for="audioFormatSelect">
                     Audio Format
                     <div class="label-description">M4A and Opus prefer the native YouTube stream and stream-copy without re-encoding (no quality loss). MP3 always transcodes.</div>
@@ -1391,6 +1404,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             document.getElementById('durationTolerance').value = conf.duration_tolerance || 10;
             document.getElementById('minMatchScore').value = conf.min_match_score != null ? conf.min_match_score : 0.8;
             document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
+            document.getElementById('searchArtistSource').value = conf.search_artist_source || 'album';
             document.getElementById('audioFormatSelect').value = conf.audio_format || 'mp3';
             document.getElementById('audioQualitySelect').value = String(conf.audio_quality || '320');
             document.getElementById('ytdlpFormat').value = conf.ytdlp_format || '';
@@ -1908,6 +1922,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10,
                     min_match_score: parseFloat(document.getElementById('minMatchScore').value) || 0.8,
                     concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
+                    search_artist_source: document.getElementById('searchArtistSource').value || 'album',
                     audio_format: document.getElementById('audioFormatSelect').value || 'mp3',
                     audio_quality: document.getElementById('audioQualitySelect').value || '320',
                     ytdlp_format: (document.getElementById('ytdlpFormat').value || '').trim(),

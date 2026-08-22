@@ -7,6 +7,8 @@ Lidarr import, and iTunes API lookups for track lists and album artwork.
 import base64
 import logging
 import os
+import threading
+import time
 from xml.sax.saxutils import escape as xml_escape
 
 import requests
@@ -29,8 +31,13 @@ from mutagen.oggopus import OggOpus
 
 from lidarr import get_monitored_release
 from utils import sanitize_filename
+from version import USER_AGENT
 
 logger = logging.getLogger(__name__)
+
+# Identifying User-Agent for the MusicBrainz family of APIs (musicbrainz.org,
+# coverartarchive.org), which reject or throttle the default requests one.
+_API_HEADERS = {"User-Agent": USER_AGENT}
 
 
 def tag_mp3(file_path, track_info, album_info, cover_data):
@@ -349,6 +356,7 @@ def get_itunes_tracks(artist, album_name):
                     {
                         "trackNumber": item.get("trackNumber"),
                         "title": item.get("trackName"),
+                        "artist": item.get("artistName"),
                         "previewUrl": item.get("previewUrl"),
                         "hasFile": False,
                     }
@@ -453,6 +461,88 @@ def get_deezer_artwork(artist, album):
     return None
 
 
+_mb_rate_lock = threading.Lock()
+_mb_last_request_time = 0.0
+_MB_MIN_INTERVAL = 1.0
+
+
+def _musicbrainz_throttle():
+    """Space out MusicBrainz requests to at most 1 per second.
+
+    MusicBrainz throttles by source IP address: once a client's request
+    rate is measured too high, *all* of its requests get declined with
+    HTTP 503 until the rate drops again, and that measured rate is
+    currently ~1 request/second on average.
+    source: https://musicbrainz.org/doc/MusicBrainz_API/Rate_Limiting
+    """
+    global _mb_last_request_time
+    with _mb_rate_lock:
+        wait = _mb_last_request_time + _MB_MIN_INTERVAL - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _mb_last_request_time = time.monotonic()
+
+
+_MB_RETRY_ATTEMPTS = 5
+_MB_RETRY_BACKOFF = 2.0
+_MB_RETRY_STATUS = (429, 500, 502, 503, 504)
+
+
+def _musicbrainz_get(url, params, label="lookup"):
+    """GET a MusicBrainz endpoint, throttled and retried on 503/timeouts.
+
+    MusicBrainz answers with HTTP 503 ("currently busy") whenever the
+    server is loaded or our source IP has been rate-limited, so a single
+    attempt fails spuriously. Retries up to ``_MB_RETRY_ATTEMPTS`` times
+    with exponential backoff (honouring ``Retry-After`` when present) and
+    the usual 1 req/s throttle between attempts.
+
+    Returns the successful ``Response``, or None if every attempt failed.
+    """
+    for attempt in range(1, _MB_RETRY_ATTEMPTS + 1):
+        try:
+            _musicbrainz_throttle()
+            r = requests.get(
+                url, params=params, headers=_API_HEADERS, timeout=10
+            )
+            if r.status_code == 200:
+                return r
+            if r.status_code in _MB_RETRY_STATUS \
+                    and attempt < _MB_RETRY_ATTEMPTS:
+                delay = _MB_RETRY_BACKOFF ** (attempt - 1)
+                try:
+                    delay = max(delay, float(r.headers.get("Retry-After", 0)))
+                except (TypeError, ValueError):
+                    pass
+                logger.info(
+                    "      MB %s: HTTP %s, retrying in %.1fs (attempt %d/%d)",
+                    label, r.status_code, delay, attempt, _MB_RETRY_ATTEMPTS,
+                )
+                time.sleep(delay)
+                continue
+            logger.info(
+                "      MB %s failed: HTTP %s after %d attempt(s), body: %.300s",
+                label, r.status_code, attempt, r.text,
+            )
+            return None
+        except Exception as e:
+            if attempt < _MB_RETRY_ATTEMPTS:
+                delay = _MB_RETRY_BACKOFF ** (attempt - 1)
+                logger.info(
+                    "      MB %s: %s: %s, retrying in %.1fs"
+                    " (attempt %d/%d)",
+                    label, type(e).__name__, e, delay,
+                    attempt, _MB_RETRY_ATTEMPTS,
+                )
+                time.sleep(delay)
+                continue
+            logger.info(
+                "      MB %s failed after %d attempt(s): %s: %s",
+                label, attempt, type(e).__name__, e,
+            )
+    return None
+
+
 def _musicbrainz_release_id(artist, album):
     """Resolve a MusicBrainz release id (uuid) for artist+album, or None."""
     try:
@@ -462,8 +552,9 @@ def _musicbrainz_release_id(artist, album):
             "fmt": "json",
             "limit": 5,
         }
-        headers = {"User-Agent": "Lidarr-YouTube-Downloader/1.7"}
-        r = requests.get(url, params=params, headers=headers, timeout=10)
+        r = _musicbrainz_get(url, params, label="release lookup")
+        if r is None:
+            return None
         data = r.json() or {}
         releases = data.get("releases", []) or []
         artist_lower = (artist or "").lower()
@@ -492,6 +583,38 @@ def _musicbrainz_release_id(artist, album):
     return None
 
 
+def get_musicbrainz_recording_artist(recording_id):
+    """Resolve a MusicBrainz recording's artist-credit name.
+
+    Used to find the real per-track artist for compilation albums, where
+    Lidarr's album-level artist is "Various Artists" but each track's
+    MusicBrainz recording (``foreignRecordingId``) has its own credited
+    artist(s).
+
+    Returns the artist-credit phrase (e.g. "Artist A feat. Artist B"), or
+    None if unresolvable.
+    """
+    if not recording_id:
+        return None
+    try:
+        url = f"https://musicbrainz.org/ws/2/recording/{recording_id}"
+        params = {"fmt": "json", "inc": "artist-credits"}
+        r = _musicbrainz_get(url, params, label="artist lookup")
+        if r is None:
+            return None
+        data = r.json() or {}
+        credits = data.get("artist-credit", []) or []
+        name = "".join(
+            (c.get("name", "") if isinstance(c, dict) else "")
+            + (c.get("joinphrase", "") if isinstance(c, dict) else "")
+            for c in credits
+        ).strip()
+        return name or None
+    except Exception as e:
+        logger.debug(f"MusicBrainz recording artist lookup failed: {e}")
+    return None
+
+
 def get_cover_art_archive_artwork(artist, album):
     """Fetch album artwork from MusicBrainz Cover Art Archive (CAA).
 
@@ -507,7 +630,9 @@ def get_cover_art_archive_artwork(artist, album):
         cover_url = (
             f"https://coverartarchive.org/release/{release_id}/front"
         )
-        r = requests.get(cover_url, timeout=15, allow_redirects=True)
+        r = requests.get(
+            cover_url, headers=_API_HEADERS, timeout=15, allow_redirects=True
+        )
         if r.status_code == 200 and r.content:
             return r.content
     except Exception as e:

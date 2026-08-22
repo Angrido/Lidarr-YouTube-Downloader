@@ -56,6 +56,7 @@ from utils import (
     sanitize_filename,
     set_permissions,
 )
+from version import USER_AGENT, VERSION
 
 logging.basicConfig(
     level=logging.INFO, format="%(message)s", handlers=[logging.StreamHandler()]
@@ -67,8 +68,6 @@ log.setLevel(logging.ERROR)
 
 app = Flask(__name__)
 app.register_blueprint(download_client.bp)
-
-VERSION = "1.8.5"
 
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 
@@ -3347,7 +3346,7 @@ def _get_ytdlp_pypi_version():
     try:
         resp = http_requests.get(
             "https://pypi.org/pypi/yt-dlp/json",
-            headers={"User-Agent": "lidarr-yt-downloader"},
+            headers={"User-Agent": USER_AGENT},
             timeout=10,
         )
         resp.raise_for_status()

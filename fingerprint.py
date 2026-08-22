@@ -14,9 +14,12 @@ import time
 
 import requests
 
+from version import USER_AGENT
+
 logger = logging.getLogger(__name__)
 
 ACOUSTID_API_URL = "https://api.acoustid.org/v2/lookup"
+ACOUSTID_HEADERS = {"User-Agent": USER_AGENT}
 RATE_LIMIT_INTERVAL = 0.34  # ~3 requests per second
 
 _last_request_time = 0.0
@@ -79,7 +82,9 @@ def _lookup_acoustid(api_key, duration, fingerprint):
     }
     try:
         _throttle()
-        r = requests.post(ACOUSTID_API_URL, data=params, timeout=15)
+        r = requests.post(
+            ACOUSTID_API_URL, data=params, headers=ACOUSTID_HEADERS, timeout=15
+        )
         if not r.ok:
             logger.warning(
                 "AcoustID API returned %d: %s",

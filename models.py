@@ -101,6 +101,7 @@ def add_track_download(
     duration_seconds, album_path, lidarr_album_path, cover_url,
     acoustid_fingerprint_id="", acoustid_score=0.0,
     acoustid_recording_id="", acoustid_recording_title="",
+    track_artist="",
 ):
     """Record a single track download attempt."""
     conn = db.get_db()
@@ -112,9 +113,9 @@ def add_track_download(
             album_path, lidarr_album_path, cover_url,
             acoustid_fingerprint_id, acoustid_score,
             acoustid_recording_id, acoustid_recording_title,
-            timestamp)
+            track_artist, timestamp)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                   ?, ?, ?, ?, ?)""",
+                   ?, ?, ?, ?, ?, ?)""",
         (
             album_id, album_title, artist_name, track_title,
             track_number, int(success), error_message, youtube_url,
@@ -122,7 +123,7 @@ def add_track_download(
             album_path, lidarr_album_path, cover_url,
             acoustid_fingerprint_id, acoustid_score,
             acoustid_recording_id, acoustid_recording_title,
-            time.time(),
+            track_artist, time.time(),
         ),
     )
     conn.commit()
@@ -204,7 +205,8 @@ def get_failed_tracks_for_retry(album_id):
     # Get the latest attempt per track
     rows = conn.execute(
         """
-        SELECT t1.track_title, t1.track_number, t1.error_message
+        SELECT t1.track_title, t1.track_number, t1.error_message,
+               t1.track_artist
         FROM track_downloads t1
         INNER JOIN (
             SELECT track_title, MAX(timestamp) as max_ts
@@ -225,6 +227,7 @@ def get_failed_tracks_for_retry(album_id):
                 "title": row["track_title"],
                 "reason": row["error_message"],
                 "track_num": row["track_number"],
+                "artist": row["track_artist"] or ctx["artist_name"],
             }
             for row in rows
         ],

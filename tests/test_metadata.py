@@ -221,12 +221,86 @@ class TestGetDeezerArtwork:
         assert metadata.get_deezer_artwork("X", "Y") is None
 
 
+@patch("metadata.time.sleep", lambda *_: None)
+class TestGetMusicbrainzRecordingArtist:
+    def _ok(self, credits):
+        return MagicMock(
+            status_code=200, json=lambda: {"artist-credit": credits}
+        )
+
+    def test_returns_none_without_recording_id(self):
+        assert metadata.get_musicbrainz_recording_artist(None) is None
+        assert metadata.get_musicbrainz_recording_artist("") is None
+
+    @patch("metadata.requests.get")
+    def test_joins_artist_credit_phrase(self, mock_get):
+        mock_get.return_value = self._ok([
+            {"name": "Artist A", "joinphrase": " feat. "},
+            {"name": "Artist B", "joinphrase": ""},
+        ])
+        result = metadata.get_musicbrainz_recording_artist("rec-1")
+        assert result == "Artist A feat. Artist B"
+
+    @patch("metadata.requests.get")
+    def test_retries_on_503_and_succeeds(self, mock_get):
+        mock_get.side_effect = [
+            MagicMock(status_code=503, text="busy", headers={}),
+            MagicMock(status_code=503, text="busy", headers={}),
+            self._ok([{"name": "Zaho", "joinphrase": ""}]),
+        ]
+        result = metadata.get_musicbrainz_recording_artist("rec-1")
+        assert result == "Zaho"
+        assert mock_get.call_count == 3
+
+    @patch("metadata.requests.get")
+    def test_gives_up_after_configured_attempts(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=503, text="busy", headers={}
+        )
+        assert metadata.get_musicbrainz_recording_artist("rec-1") is None
+        assert mock_get.call_count == metadata._MB_RETRY_ATTEMPTS
+
+    @patch("metadata.requests.get")
+    def test_retries_on_network_error(self, mock_get):
+        mock_get.side_effect = [
+            Exception("timeout"),
+            self._ok([{"name": "Zaho", "joinphrase": ""}]),
+        ]
+        assert metadata.get_musicbrainz_recording_artist("rec-1") == "Zaho"
+        assert mock_get.call_count == 2
+
+    @patch("metadata.requests.get")
+    def test_does_not_retry_on_404(self, mock_get):
+        mock_get.return_value = MagicMock(
+            status_code=404, text="not found", headers={}
+        )
+        assert metadata.get_musicbrainz_recording_artist("rec-1") is None
+        assert mock_get.call_count == 1
+
+    @patch("metadata.requests.get")
+    def test_honours_retry_after_header(self, mock_get):
+        mock_get.side_effect = [
+            MagicMock(status_code=503, text="busy", headers={
+                "Retry-After": "5",
+            }),
+            self._ok([{"name": "Zaho", "joinphrase": ""}]),
+        ]
+        with patch("metadata.time.sleep") as mock_sleep:
+            assert metadata.get_musicbrainz_recording_artist("rec-1") == "Zaho"
+        assert 5.0 in [c[0][0] for c in mock_sleep.call_args_list]
+
+    @patch("metadata.requests.get")
+    def test_returns_none_on_empty_credit(self, mock_get):
+        mock_get.return_value = self._ok([])
+        assert metadata.get_musicbrainz_recording_artist("rec-1") is None
+
+
 class TestGetCoverArtArchiveArtwork:
     @patch("metadata.requests.get")
     def test_returns_artwork_via_musicbrainz_release(self, mock_get):
         # MusicBrainz returns a release id, then CAA returns image bytes.
         mock_get.side_effect = [
-            MagicMock(json=lambda: {
+            MagicMock(status_code=200, json=lambda: {
                 "releases": [
                     {
                         "id": "abc-uuid",
@@ -244,7 +318,9 @@ class TestGetCoverArtArchiveArtwork:
 
     @patch("metadata.requests.get")
     def test_returns_none_when_musicbrainz_has_no_release(self, mock_get):
-        mock_get.return_value = MagicMock(json=lambda: {"releases": []})
+        mock_get.return_value = MagicMock(
+            status_code=200, json=lambda: {"releases": []}
+        )
         result = metadata.get_cover_art_archive_artwork("X", "Y")
         assert result is None
         assert mock_get.call_count == 1
@@ -252,7 +328,7 @@ class TestGetCoverArtArchiveArtwork:
     @patch("metadata.requests.get")
     def test_returns_none_on_caa_404(self, mock_get):
         mock_get.side_effect = [
-            MagicMock(json=lambda: {
+            MagicMock(status_code=200, json=lambda: {
                 "releases": [
                     {
                         "id": "abc",

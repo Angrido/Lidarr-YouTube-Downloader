@@ -3932,7 +3932,7 @@
                     </div>
                     <div class="failed-track-inputs" id="failedSearchRow${i}">
                         <input type="text" id="failedSearch${i}" placeholder="Search YouTube..."
-                            value="${escapeHtml((data.artist_name || "") + " " + track.title)}"
+                            value="${escapeHtml((track.artist || data.artist_name || "") + " " + track.title)}"
                             onkeydown="if(event.key==='Enter')searchFailedTrack(${i})">
                         <button class="ft-btn" onclick="searchFailedTrack(${i})">
                             <i class="fa-solid fa-search"></i> Search

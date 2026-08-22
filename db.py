@@ -9,7 +9,7 @@ import time
 logger = logging.getLogger(__name__)
 
 DB_PATH = "/config/lidarr-downloader.db"
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 _local = threading.local()
 
@@ -463,6 +463,20 @@ def _migrate_v7_to_v8(conn):
         next_id -= 1
 
 
+def _migrate_v8_to_v9(conn):
+    """Add track_artist to track_downloads.
+
+    Stores the per-track artist resolved for the search query (MusicBrainz
+    recording artist-credit and/or iTunes), distinct from the Lidarr
+    album-level artist_name column, so compilation ("Various Artists")
+    tracks can be searched and retried with their real artist.
+    """
+    conn.execute(
+        "ALTER TABLE track_downloads"
+        " ADD COLUMN track_artist TEXT DEFAULT ''"
+    )
+
+
 def _run_migrations(conn, current_version):
     """Run any pending schema migrations sequentially."""
     migrations = {
@@ -473,6 +487,7 @@ def _run_migrations(conn, current_version):
         6: _migrate_v5_to_v6,
         7: _migrate_v6_to_v7,
         8: _migrate_v7_to_v8,
+        9: _migrate_v8_to_v9,
     }
     for version in sorted(migrations):
         if current_version < version:

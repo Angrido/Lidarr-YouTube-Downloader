@@ -1398,7 +1398,8 @@
                 searchInput.id = 'retrySearch' + i;
                 searchInput.placeholder = 'Search YouTube…';
                 searchInput.value = (
-                    (data.artist_name || '') + ' ' + (track.title || '')
+                    (track.artist || data.artist_name || '') + ' '
+                    + (track.title || '')
                 ).trim();
                 searchInput.style.cssText = 'flex:1 1 auto; min-width:0;';
                 searchInput.addEventListener('keydown', (e) => {

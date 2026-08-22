@@ -32,6 +32,7 @@ from metadata import (
     get_deezer_artwork,
     get_itunes_artwork,
     get_itunes_tracks,
+    get_musicbrainz_recording_artist,
 )
 from notifications import (
     build_musicbrainz_link,
@@ -312,6 +313,77 @@ def stop_download():
         models.clear_queue()
 
 
+def _match_itunes_track(itunes_tracks, track):
+    """Find the iTunes track dict matching a Lidarr/local track by number
+    or, failing that, by normalized title."""
+    track_num = track.get("trackNumber")
+    if track_num is not None:
+        for it in itunes_tracks:
+            if it.get("trackNumber") == track_num:
+                return it
+    title = (track.get("title") or "").strip().lower()
+    if title:
+        for it in itunes_tracks:
+            if (it.get("title") or "").strip().lower() == title:
+                return it
+    return None
+
+
+def _resolve_track_artists(tracks, artist_name, album_title, source):
+    """Resolve a per-track artist for each track, per ``search_artist_source``.
+
+    Lidarr's track resource has no per-track artist field, so for
+    compilation albums (Lidarr artist "Various Artists") the YouTube search
+    otherwise has no real artist to search for. Depending on ``source``,
+    resolve one via MusicBrainz and/or iTunes, in the configured order;
+    sets ``track["artist"]`` when found.
+    """
+    if source == "album" or not tracks:
+        return
+
+    use_mb = source in ("mb_itunes", "itunes_mb", "mb")
+    use_itunes = source in ("mb_itunes", "itunes_mb", "itunes")
+    mb_first = source in ("mb_itunes", "mb")
+
+    itunes_tracks = None
+
+    def _try_itunes(track):
+        nonlocal itunes_tracks
+        if itunes_tracks is None:
+            itunes_tracks = get_itunes_tracks(artist_name, album_title) or []
+        match = _match_itunes_track(itunes_tracks, track)
+        return (match or {}).get("artist")
+
+    def _try_mb(track):
+        return get_musicbrainz_recording_artist(track.get("foreignRecordingId"))
+
+    for track in tracks:
+        resolved = None
+        if mb_first:
+            if use_mb:
+                resolved = _try_mb(track)
+            if not resolved and use_itunes:
+                resolved = _try_itunes(track)
+        else:
+            if use_itunes:
+                resolved = _try_itunes(track)
+            if not resolved and use_mb:
+                resolved = _try_mb(track)
+        if resolved:
+            track["artist"] = resolved
+            logger.info(
+                "   Track artist resolved (%s): '%s' -> '%s'"
+                " (album artist: '%s')",
+                source, track.get("title", "?"), resolved, artist_name,
+            )
+        else:
+            logger.info(
+                "   Track artist not resolved (%s): '%s'"
+                " -> keeping album artist '%s'",
+                source, track.get("title", "?"), artist_name,
+            )
+
+
 def process_album_download(album_id, force=False, client_grab=False, state=None):
     """Download all tracks for an album and import into Lidarr.
 
@@ -401,6 +473,10 @@ def process_album_download(album_id, force=False, client_grab=False, state=None)
         album["tracks"] = tracks
 
         artist_name = album["artist"]["artistName"]
+        search_artist_source = load_config().get("search_artist_source", "album")
+        _resolve_track_artists(
+            tracks, artist_name, album["title"], search_artist_source,
+        )
         artist_id = album["artist"]["id"]
         artist_mbid = album["artist"].get("foreignArtistId", "")
         album_title = album["title"]
@@ -906,7 +982,7 @@ def _build_candidate_attempt(
 def _accept_track_file(
     src_file, track_num, sanitized_track, dl_result, fp_data,
     *, track_state, track_title, album_path, album_ctx,
-    candidate_attempts=None,
+    candidate_attempts=None, track_artist=None,
 ):
     """Accept a downloaded file: XML metadata, move, record in DB.
 
@@ -939,6 +1015,7 @@ def _accept_track_file(
             album_id=album_ctx["album_id"],
             album_title=album_ctx["album_title"],
             artist_name=album_ctx["artist_name"],
+            track_artist=track_artist or album_ctx["artist_name"],
             track_title=track_title,
             track_number=track_num, success=True,
             error_message="",
@@ -987,7 +1064,7 @@ def _accept_track_file(
 def _record_track_failure(
     fail_reason, track_state, track_title, track_num,
     *, album_path, album_ctx, failed_tracks, _results_lock,
-    candidate_attempts=None,
+    candidate_attempts=None, track_artist=None,
 ):
     """Record a track failure in state, failed_tracks list, and DB."""
     track_state["status"] = "failed"
@@ -1005,6 +1082,7 @@ def _record_track_failure(
             album_id=album_ctx["album_id"],
             album_title=album_ctx["album_title"],
             artist_name=album_ctx["artist_name"],
+            track_artist=track_artist or album_ctx["artist_name"],
             track_title=track_title,
             track_number=track_num, success=False,
             error_message=fail_reason,
@@ -1097,6 +1175,7 @@ def _download_tracks(
             track_num = idx + 1
         track_duration_ms = track.get("duration")
         expected_recording_id = track.get("foreignRecordingId")
+        track_artist = track.get("artist") or artist_name
         sanitized_track = sanitize_filename(track_title)
 
         def _skip_check():
@@ -1161,8 +1240,14 @@ def _download_tracks(
                     "   No album-playlist match for '%s';"
                     " falling back to per-track search", track_title,
                 )
+            base_query = f"{track_artist} {track_title} official audio"
+            logger.info(
+                "   Per-track search query for '%s': \"%s\""
+                " (track_artist='%s')",
+                track_title, base_query, track_artist,
+            )
             candidates = search_youtube_candidates(
-                f"{artist_name} {track_title} official audio",
+                base_query,
                 track_title, track_duration_ms,
                 skip_check=_skip_check, banned_urls=banned_url_set,
             )
@@ -1178,6 +1263,7 @@ def _download_tracks(
                 album_path=album_path, album_ctx=album_ctx,
                 failed_tracks=failed_tracks,
                 _results_lock=_results_lock,
+                track_artist=track_artist,
             )
             return
 
@@ -1450,6 +1536,7 @@ def _download_tracks(
                 album_path=album_path,
                 album_ctx=album_ctx,
                 candidate_attempts=candidate_attempts_buf,
+                track_artist=track_artist,
             )
             with _results_lock:
                 total_downloaded_size += file_size
@@ -1545,6 +1632,7 @@ def _download_tracks(
                         candidate_attempts=(
                             candidate_attempts_buf
                         ),
+                        track_artist=track_artist,
                     )
                     with _results_lock:
                         total_downloaded_size += file_size
@@ -1614,6 +1702,7 @@ def _download_tracks(
                 failed_tracks=failed_tracks,
                 _results_lock=_results_lock,
                 candidate_attempts=candidate_attempts_buf,
+                track_artist=track_artist,
             )
 
     with ThreadPoolExecutor(max_workers=concurrent_tracks) as executor:
