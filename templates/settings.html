@@ -7,6 +7,13 @@
     <title>Settings - Lidarr YouTube Downloader</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#09090b">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Lidarr YT">
+    <link rel="apple-touch-icon" href="/static/favicon.svg">
+    <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
     <style>
         :root {
             --bg: #09090b;
@@ -690,6 +697,53 @@
                 padding: 1.5rem;
             }
         }
+
+        /* Settings search + collapsible sections */
+        .settings-search-wrap {
+            position: relative;
+            margin-bottom: 1.25rem;
+        }
+        .settings-search-wrap i {
+            position: absolute;
+            left: 0.9rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-dim);
+            pointer-events: none;
+        }
+        #settingsSearch {
+            width: 100%;
+            padding: 0.7rem 0.9rem 0.7rem 2.4rem;
+            border-radius: 10px;
+            border: 1px solid var(--border, var(--border-glass));
+            background: var(--surface, rgba(255,255,255,0.03));
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+        #settingsSearch:focus { outline: none; border-color: var(--primary); }
+        .settings-section .section-header {
+            cursor: pointer;
+            user-select: none;
+        }
+        .section-chevron {
+            margin-left: auto;
+            color: var(--text-dim);
+            transition: transform 0.15s ease;
+            font-size: 1rem !important;
+        }
+        .settings-section.collapsed .section-chevron {
+            transform: rotate(-90deg);
+        }
+        .settings-section.collapsed .section-header {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+        .settings-section.collapsed > *:not(.section-header) {
+            display: none !important;
+        }
+        .settings-section.search-hidden { display: none !important; }
+        .input-group.search-hidden { display: none !important; }
     </style>
 </head>
 
@@ -721,6 +775,10 @@
     </header>
 
     <div class="container">
+        <div class="settings-search-wrap">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="settingsSearch" placeholder="Search settings…" autocomplete="off" aria-label="Search settings">
+        </div>
         <div class="settings-section">
             <div class="section-header">
                 <i class="fa-solid fa-robot"></i>
@@ -880,6 +938,20 @@
                     <div class="label-description">Apply EBU R128 loudness normalization (−14 LUFS) so volume is consistent across tracks. Forces a re-encode (M4A/Opus won't stream-copy when enabled).</div>
                 </label>
                 <button class="toggle-btn" id="audioNormalizeBtn" onclick="toggleAudioNormalize()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    ReplayGain Tags
+                    <div class="label-description">Measure each track's loudness and write ReplayGain tags (<code>REPLAYGAIN_TRACK_GAIN</code>/<code>PEAK</code>) so players like Jellyfin/Navidrome can normalize volume — <strong>without re-encoding</strong> the audio (non-destructive, unlike Loudness Normalization). Adds a short ffmpeg analysis pass per track.</div>
+                </label>
+                <button class="toggle-btn" id="replayGainBtn" onclick="toggleReplayGain()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    Save Synced Lyrics (.lrc)
+                    <div class="label-description">Fetch time-synced lyrics from <a href="https://lrclib.net" target="_blank" rel="noopener">LRCLIB</a> and write a <code>.lrc</code> file next to each track, so Jellyfin/Navidrome/Plex can show synced lyrics. Falls back to plain lyrics when synced aren't available.</div>
+                </label>
+                <button class="toggle-btn" id="saveLyricsBtn" onclick="toggleSaveLyrics()">Loading...</button>
             </div>
             <div class="input-group">
                 <label>
@@ -1346,7 +1418,93 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             loadConfig();
             loadYtdlpVersion();
             installDirtyListeners();
+            initSettingsSearchAndCollapse();
         });
+
+        // Collapsible sections + live search. Runs entirely on the rendered
+        // DOM (no change to field ids / save wiring). Collapse state per
+        // section persists in localStorage.
+        function initSettingsSearchAndCollapse() {
+            const sections = Array.from(
+                document.querySelectorAll('.settings-section')
+            );
+            let collapsedState = {};
+            try {
+                collapsedState = JSON.parse(
+                    localStorage.getItem('settingsCollapsed') || '{}'
+                );
+            } catch (_) { collapsedState = {}; }
+
+            const sectionKey = (section) => {
+                const h = section.querySelector('.section-header h2');
+                return h ? h.textContent.trim() : '';
+            };
+
+            sections.forEach((section) => {
+                const header = section.querySelector('.section-header');
+                if (!header) return;
+                const chevron = document.createElement('i');
+                chevron.className = 'fa-solid fa-chevron-down section-chevron';
+                header.appendChild(chevron);
+                const key = sectionKey(section);
+                if (key && collapsedState[key]) {
+                    section.classList.add('collapsed');
+                }
+                header.addEventListener('click', () => {
+                    // Don't toggle while a search filter is active.
+                    if (document.getElementById('settingsSearch').value.trim()) {
+                        return;
+                    }
+                    section.classList.toggle('collapsed');
+                    const k = sectionKey(section);
+                    if (k) {
+                        collapsedState[k] = section.classList.contains(
+                            'collapsed'
+                        );
+                        try {
+                            localStorage.setItem(
+                                'settingsCollapsed',
+                                JSON.stringify(collapsedState)
+                            );
+                        } catch (_) {}
+                    }
+                });
+            });
+
+            const search = document.getElementById('settingsSearch');
+            search.addEventListener('input', () => {
+                const q = search.value.trim().toLowerCase();
+                sections.forEach((section) => {
+                    if (!q) {
+                        // Restore default view: clear search flags, reapply
+                        // saved collapse state.
+                        section.classList.remove('search-hidden');
+                        section.querySelectorAll('.input-group').forEach(
+                            (g) => g.classList.remove('search-hidden')
+                        );
+                        const k = sectionKey(section);
+                        section.classList.toggle(
+                            'collapsed', !!(k && collapsedState[k])
+                        );
+                        return;
+                    }
+                    const header = section.querySelector('.section-header');
+                    const headerText = header
+                        ? header.textContent.toLowerCase() : '';
+                    let anyVisible = false;
+                    section.querySelectorAll('.input-group').forEach((g) => {
+                        const match = g.textContent.toLowerCase().includes(q)
+                            || headerText.includes(q);
+                        g.classList.toggle('search-hidden', !match);
+                        if (match) anyVisible = true;
+                    });
+                    // While searching, expand matching sections and hide
+                    // sections with no matches.
+                    section.classList.remove('collapsed');
+                    section.classList.toggle('search-hidden', !anyVisible);
+                });
+            });
+        }
 
         function toggleTheme() {
             const toggle = document.getElementById('themeToggle');
@@ -1410,6 +1568,8 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             document.getElementById('ytdlpFormat').value = conf.ytdlp_format || '';
             updateAudioNormalizeBtn(conf.audio_normalize === true);
             updatePlaylistToLibraryBtn(conf.playlist_to_library === true);
+            updateReplayGainBtn(conf.apply_replaygain === true);
+            updateSaveLyricsBtn(conf.save_lyrics === true);
             document.getElementById('ytPoToken').value = conf.yt_po_token || '';
             document.getElementById('ytPotProviderUrl').value = conf.yt_pot_provider_url || '';
             const ytCookiesInput = document.getElementById('ytCookiesFile');
@@ -1656,6 +1816,32 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
         function togglePlaylistToLibrary() {
             const btn = document.getElementById('playlistToLibraryBtn');
             updatePlaylistToLibraryBtn(btn.dataset.enabled !== '1');
+            markSettingsDirty();
+        }
+
+        function updateReplayGainBtn(enabled) {
+            const btn = document.getElementById('replayGainBtn');
+            btn.dataset.enabled = enabled ? '1' : '0';
+            btn.innerText = enabled ? '✓ ReplayGain ON' : 'ReplayGain OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        function toggleReplayGain() {
+            const btn = document.getElementById('replayGainBtn');
+            updateReplayGainBtn(btn.dataset.enabled !== '1');
+            markSettingsDirty();
+        }
+
+        function updateSaveLyricsBtn(enabled) {
+            const btn = document.getElementById('saveLyricsBtn');
+            btn.dataset.enabled = enabled ? '1' : '0';
+            btn.innerText = enabled ? '✓ Lyrics ON' : 'Lyrics OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        function toggleSaveLyrics() {
+            const btn = document.getElementById('saveLyricsBtn');
+            updateSaveLyricsBtn(btn.dataset.enabled !== '1');
             markSettingsDirty();
         }
 
@@ -1928,6 +2114,8 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     ytdlp_format: (document.getElementById('ytdlpFormat').value || '').trim(),
                     audio_normalize: document.getElementById('audioNormalizeBtn').dataset.enabled === '1',
                     playlist_to_library: document.getElementById('playlistToLibraryBtn').dataset.enabled === '1',
+                    apply_replaygain: document.getElementById('replayGainBtn').dataset.enabled === '1',
+                    save_lyrics: document.getElementById('saveLyricsBtn').dataset.enabled === '1',
                     yt_po_token: (document.getElementById('ytPoToken').value || '').trim(),
                     yt_pot_provider_url: (document.getElementById('ytPotProviderUrl').value || '').trim(),
                     yt_cookies_file: (document.getElementById('ytCookiesFile').value || '').trim(),

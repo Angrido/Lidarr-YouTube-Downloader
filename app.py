@@ -115,6 +115,57 @@ def favicon():
     )
 
 
+# --- PWA (installable web app) --------------------------------------------
+
+_PWA_MANIFEST = {
+    "name": "Lidarr YouTube Downloader",
+    "short_name": "Lidarr YT",
+    "description": (
+        "Download missing albums from YouTube into your Lidarr library."
+    ),
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#09090b",
+    "theme_color": "#09090b",
+    "icons": [
+        {
+            "src": "/static/favicon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any maskable",
+        }
+    ],
+}
+
+# Minimal service worker: a no-op fetch handler is enough for the browser
+# to treat the app as installable, without intercepting requests (so SSE
+# progress streams and audio range requests keep working untouched).
+_SERVICE_WORKER_JS = (
+    "self.addEventListener('install', () => self.skipWaiting());\n"
+    "self.addEventListener('activate', (e) =>"
+    " e.waitUntil(self.clients.claim()));\n"
+    "self.addEventListener('fetch', () => {});\n"
+)
+
+
+@app.route("/manifest.webmanifest")
+def pwa_manifest():
+    return Response(
+        json.dumps(_PWA_MANIFEST),
+        mimetype="application/manifest+json",
+    )
+
+
+@app.route("/sw.js")
+def service_worker():
+    resp = Response(_SERVICE_WORKER_JS, mimetype="application/javascript")
+    # Allow the root-scoped worker even though it's served from /sw.js.
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
 @app.route("/api/health")
 @app.route("/health")
 def api_health():

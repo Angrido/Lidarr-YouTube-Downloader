@@ -5,8 +5,10 @@ Lidarr import, and iTunes API lookups for track lists and album artwork.
 """
 
 import base64
+import json
 import logging
 import os
+import subprocess
 import threading
 import time
 from xml.sax.saxutils import escape as xml_escape
@@ -232,6 +234,138 @@ def tag_audio_file(file_path, track_info, album_info, cover_data):
     if ext == ".m4a":
         return tag_m4a(file_path, track_info, album_info, cover_data)
     return tag_mp3(file_path, track_info, album_info, cover_data)
+
+
+_LRCLIB_URL = "https://lrclib.net/api/get"
+
+
+def write_lyrics_sidecar(audio_file, artist, title, album="", duration=0):
+    """Fetch synced lyrics from LRCLIB and write a ``.lrc`` sidecar.
+
+    LRCLIB (https://lrclib.net) is a free, no-auth community lyrics
+    database. The .lrc file is written next to the audio file (same base
+    name) so Jellyfin/Navidrome/etc. pick it up. Prefers time-synced
+    lyrics, falling back to plain. Returns the .lrc path, or None.
+    """
+    if not artist or not title:
+        return None
+    params = {"artist_name": artist, "track_name": title}
+    if album:
+        params["album_name"] = album
+    if duration:
+        try:
+            params["duration"] = int(duration)
+        except (TypeError, ValueError):
+            pass
+    try:
+        r = requests.get(
+            _LRCLIB_URL, params=params, headers=_API_HEADERS, timeout=10
+        )
+        if r.status_code != 200:
+            return None
+        data = r.json() or {}
+        lyrics = data.get("syncedLyrics") or data.get("plainLyrics")
+        if not lyrics or not lyrics.strip():
+            return None
+        lrc_path = os.path.splitext(audio_file)[0] + ".lrc"
+        with open(lrc_path, "w", encoding="utf-8") as f:
+            f.write(lyrics)
+        logger.info("Lyrics saved: %s", os.path.basename(lrc_path))
+        return lrc_path
+    except Exception as e:
+        logger.debug("Lyrics fetch failed for %s - %s: %s", artist, title, e)
+        return None
+
+
+# ReplayGain 2.0 reference level (EBU R128 −18 LUFS).
+_REPLAYGAIN_REFERENCE_LUFS = -18.0
+
+
+def _measure_loudness(audio_file):
+    """Return ``(integrated_lufs, true_peak_dbtp)`` via ffmpeg, or None.
+
+    Runs a single ffmpeg ``loudnorm`` analysis pass, which prints an
+    ``input_i`` (integrated loudness) and ``input_tp`` (true peak) JSON
+    block to stderr — cheaper and more portable than a separate scanner.
+    """
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-nostats", "-i", audio_file,
+                "-af", "loudnorm=print_format=json", "-f", "null", "-",
+            ],
+            capture_output=True, text=True, timeout=180,
+        )
+    except Exception as e:
+        logger.debug("ffmpeg loudness measurement failed: %s", e)
+        return None
+    out = proc.stderr or ""
+    start = out.rfind("{")
+    end = out.rfind("}")
+    if start == -1 or end == -1 or end < start:
+        return None
+    try:
+        data = json.loads(out[start:end + 1])
+        return float(data["input_i"]), float(data["input_tp"])
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
+def apply_replaygain_tags(audio_file):
+    """Measure loudness and write ReplayGain *track* tags (non-destructive).
+
+    Writes ``REPLAYGAIN_TRACK_GAIN`` / ``REPLAYGAIN_TRACK_PEAK`` so players
+    can normalize volume without re-encoding the audio. Supports MP3 (TXXX),
+    M4A (iTunes freeform) and Opus (Vorbis comments). Returns the gain
+    string (e.g. ``"-2.34 dB"``) on success, or None.
+    """
+    measured = _measure_loudness(audio_file)
+    if measured is None:
+        return None
+    integrated, true_peak = measured
+    if integrated in (float("-inf"), float("inf")):
+        return None
+    gain_db = _REPLAYGAIN_REFERENCE_LUFS - integrated
+    peak_linear = 10 ** (true_peak / 20.0)
+    gain_str = f"{gain_db:.2f} dB"
+    peak_str = f"{peak_linear:.6f}"
+    ext = os.path.splitext(audio_file)[1].lower()
+    try:
+        if ext == ".m4a":
+            audio = MP4(audio_file)
+            audio["----:com.apple.iTunes:replaygain_track_gain"] = [
+                MP4FreeForm(gain_str.encode())
+            ]
+            audio["----:com.apple.iTunes:replaygain_track_peak"] = [
+                MP4FreeForm(peak_str.encode())
+            ]
+            audio.save()
+        elif ext == ".opus":
+            audio = OggOpus(audio_file)
+            audio["REPLAYGAIN_TRACK_GAIN"] = gain_str
+            audio["REPLAYGAIN_TRACK_PEAK"] = peak_str
+            audio.save()
+        else:
+            audio = MP3(audio_file, ID3=ID3)
+            if audio.tags is None:
+                audio.add_tags()
+            audio.tags.add(
+                TXXX(encoding=3, desc="REPLAYGAIN_TRACK_GAIN", text=gain_str)
+            )
+            audio.tags.add(
+                TXXX(encoding=3, desc="REPLAYGAIN_TRACK_PEAK", text=peak_str)
+            )
+            audio.save()
+        logger.info(
+            "ReplayGain written: %s (%s)",
+            os.path.basename(audio_file), gain_str,
+        )
+        return gain_str
+    except Exception as e:
+        logger.warning(
+            "Failed to write ReplayGain tags to %s: %s", audio_file, e
+        )
+        return None
 
 
 def _add_musicbrainz_tags(audio, track_info, album_info, release):

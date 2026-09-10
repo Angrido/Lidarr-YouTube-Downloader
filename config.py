@@ -58,6 +58,7 @@ ALLOWED_CONFIG_KEYS = {
     "yt_po_token", "audio_normalize", "yt_pot_provider_url",
     "playlist_to_library",
     "search_artist_source",
+    "save_lyrics", "apply_replaygain",
 }
 
 # Valid values for search_artist_source: which artist to use when building
@@ -172,6 +173,16 @@ def load_config():
         "yt_pot_provider_url": os.getenv("YT_POT_PROVIDER_URL", ""),
         "audio_normalize": (
             os.getenv("AUDIO_NORMALIZE", "false").lower() == "true"
+        ),
+        # Write a synced .lrc lyrics sidecar (fetched from LRCLIB) next to
+        # each downloaded track.
+        "save_lyrics": (
+            os.getenv("SAVE_LYRICS", "false").lower() == "true"
+        ),
+        # Compute and write ReplayGain track tags (non-destructive volume
+        # normalization) instead of re-encoding the audio.
+        "apply_replaygain": (
+            os.getenv("APPLY_REPLAYGAIN", "false").lower() == "true"
         ),
         "yt_retries": int(os.getenv("YT_RETRIES", "10")),
         "yt_fragment_retries": int(os.getenv("YT_FRAGMENT_RETRIES", "10")),

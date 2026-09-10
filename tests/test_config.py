@@ -277,3 +277,24 @@ def test_playlist_to_library_from_file(temp_config):
 
 def test_playlist_to_library_in_allowed_keys():
     assert "playlist_to_library" in config.ALLOWED_CONFIG_KEYS
+
+
+def test_save_lyrics_default_false(temp_config):
+    assert config.load_config()["save_lyrics"] is False
+
+
+def test_apply_replaygain_default_false(temp_config):
+    assert config.load_config()["apply_replaygain"] is False
+
+
+def test_lyrics_and_replaygain_from_file(temp_config):
+    with open(temp_config, "w") as f:
+        json.dump({"save_lyrics": True, "apply_replaygain": True}, f)
+    cfg = config.load_config()
+    assert cfg["save_lyrics"] is True
+    assert cfg["apply_replaygain"] is True
+
+
+def test_lyrics_replaygain_in_allowed_keys():
+    assert "save_lyrics" in config.ALLOWED_CONFIG_KEYS
+    assert "apply_replaygain" in config.ALLOWED_CONFIG_KEYS

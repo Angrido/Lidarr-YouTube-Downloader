@@ -2179,3 +2179,22 @@ class TestYtdlpFormatsRoute:
         monkeypatch.setattr("app.list_video_formats", fake)
         client.post("/api/ytdlp/formats", json={"url": "dQw4w9WgXcQ"})
         assert received == ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+
+
+def test_pwa_manifest(client):
+    import json as _json
+    resp = client.get("/manifest.webmanifest")
+    assert resp.status_code == 200
+    assert "manifest" in resp.mimetype
+    m = _json.loads(resp.get_data(as_text=True))
+    assert m["start_url"] == "/"
+    assert m["display"] == "standalone"
+    assert m["icons"] and m["icons"][0]["src"].endswith(".svg")
+
+
+def test_service_worker(client):
+    resp = client.get("/sw.js")
+    assert resp.status_code == 200
+    assert "javascript" in resp.mimetype
+    assert resp.headers.get("Service-Worker-Allowed") == "/"
+    assert "addEventListener('fetch'" in resp.get_data(as_text=True)

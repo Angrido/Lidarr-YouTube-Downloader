@@ -537,3 +537,83 @@ def _create_minimal_mp3(path):
         for _ in range(10):
             f.write(frame_header + frame_data)
     return path
+
+
+class TestWriteLyricsSidecar:
+    @patch("metadata.requests.get")
+    def test_writes_synced_lrc(self, mock_get, tmp_path):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"syncedLyrics": "[00:01.00] Hello", "plainLyrics": "Hello"},
+        )
+        audio = tmp_path / "01 - Song.m4a"
+        audio.write_bytes(b"x")
+        result = metadata.write_lyrics_sidecar(str(audio), "Artist", "Song")
+        assert result == str(tmp_path / "01 - Song.lrc")
+        assert (tmp_path / "01 - Song.lrc").read_text() == "[00:01.00] Hello"
+
+    @patch("metadata.requests.get")
+    def test_falls_back_to_plain_lyrics(self, mock_get, tmp_path):
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"syncedLyrics": None, "plainLyrics": "Just text"},
+        )
+        audio = tmp_path / "a.mp3"
+        audio.write_bytes(b"x")
+        assert metadata.write_lyrics_sidecar(str(audio), "A", "B") is not None
+        assert (tmp_path / "a.lrc").read_text() == "Just text"
+
+    @patch("metadata.requests.get")
+    def test_none_on_404(self, mock_get, tmp_path):
+        mock_get.return_value = MagicMock(status_code=404)
+        assert metadata.write_lyrics_sidecar(
+            str(tmp_path / "a.mp3"), "A", "B"
+        ) is None
+        assert not (tmp_path / "a.lrc").exists()
+
+    @patch("metadata.requests.get")
+    def test_none_when_lyrics_empty(self, mock_get, tmp_path):
+        mock_get.return_value = MagicMock(
+            status_code=200, json=lambda: {"syncedLyrics": "", "plainLyrics": ""}
+        )
+        assert metadata.write_lyrics_sidecar(
+            str(tmp_path / "a.mp3"), "A", "B"
+        ) is None
+
+    def test_none_without_artist_or_title(self):
+        assert metadata.write_lyrics_sidecar("/x.mp3", "", "Song") is None
+        assert metadata.write_lyrics_sidecar("/x.mp3", "Artist", "") is None
+
+
+class TestReplayGain:
+    @patch("metadata.subprocess.run")
+    def test_measure_loudness_parses_json(self, mock_run):
+        mock_run.return_value = MagicMock(
+            stderr='junk\n{\n  "input_i" : "-20.00",\n'
+                   '  "input_tp" : "-1.00"\n}\n'
+        )
+        assert metadata._measure_loudness("x.mp3") == (-20.0, -1.0)
+
+    @patch("metadata.subprocess.run")
+    def test_measure_loudness_bad_output(self, mock_run):
+        mock_run.return_value = MagicMock(stderr="no json here")
+        assert metadata._measure_loudness("x.mp3") is None
+
+    @patch("metadata._measure_loudness", return_value=(-20.0, -1.0))
+    @patch("metadata.MP3")
+    def test_writes_replaygain_mp3_tags(self, mock_mp3, _measure, tmp_path):
+        audio = MagicMock()
+        audio.tags = MagicMock()
+        mock_mp3.return_value = audio
+        f = tmp_path / "track.mp3"
+        f.write_bytes(b"x")
+        # reference (-18) - integrated (-20) = +2.00 dB
+        assert metadata.apply_replaygain_tags(str(f)) == "2.00 dB"
+        assert audio.tags.add.call_count == 2
+        audio.save.assert_called_once()
+
+    @patch("metadata._measure_loudness", return_value=None)
+    def test_replaygain_none_when_measure_fails(self, _measure, tmp_path):
+        f = tmp_path / "track.mp3"
+        f.write_bytes(b"x")
+        assert metadata.apply_replaygain_tags(str(f)) is None

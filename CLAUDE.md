@@ -125,7 +125,7 @@ Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
 ### Config
 
-Loaded from env vars + `/config/config.json`. File config overrides env vars. Saved via `save_config()`. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API. Notable config keys beyond the basics: `concurrent_tracks`, `yt_cookies_file`, `yt_force_ipv4`, `yt_player_client`, `yt_retries`, `yt_fragment_retries`, `yt_sleep_requests`, `yt_sleep_interval`, `yt_max_sleep_interval`, `discord_enabled`, `discord_webhook_url`, `discord_log_types`, `acoustid_enabled`, `acoustid_api_key`, `download_client_enabled`, `download_client_api_key`, `download_client_category`, `yt_po_token` (manual yt-dlp PO token(s), comma-separated), `audio_normalize` (EBU R128 loudnorm, forces re-encode), `yt_pot_provider_url` (URL of a bgutil PO-token provider sidecar for automatic PO tokens; `bgutil-ytdlp-pot-provider` plugin is in requirements and a sidecar is wired in docker-compose), `search_artist_source` (per-track YouTube search artist: `album` default, or `mb_itunes`/`itunes_mb`/`mb`/`itunes` to resolve the real artist for compilations).
+Loaded from env vars + `/config/config.json`. File config overrides env vars. Saved via `save_config()`. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API. Notable config keys beyond the basics: `concurrent_tracks`, `yt_cookies_file`, `yt_force_ipv4`, `yt_player_client`, `yt_retries`, `yt_fragment_retries`, `yt_sleep_requests`, `yt_sleep_interval`, `yt_max_sleep_interval`, `discord_enabled`, `discord_webhook_url`, `discord_log_types`, `acoustid_enabled`, `acoustid_api_key`, `download_client_enabled`, `download_client_api_key`, `download_client_category`, `yt_po_token` (manual yt-dlp PO token(s), comma-separated), `audio_normalize` (EBU R128 loudnorm, forces re-encode), `yt_pot_provider_url` (URL of a bgutil PO-token provider sidecar for automatic PO tokens; `bgutil-ytdlp-pot-provider` plugin is in requirements and a sidecar is wired in docker-compose), `search_artist_source` (per-track YouTube search artist: `album` default, or `mb_itunes`/`itunes_mb`/`mb`/`itunes` to resolve the real artist for compilations), `save_lyrics` (write a `.lrc` synced-lyrics sidecar per track, fetched from LRCLIB), `apply_replaygain` (measure loudness with ffmpeg and write ReplayGain track tags — non-destructive volume normalization).
 
 ### Lidarr download-client bridge (`download_client.py`)
 
@@ -171,7 +171,7 @@ Standalone scripts not part of the main app:
 
 ## Version Updates
 
-The version string is defined in `version.py`: `VERSION = "1.8.6"`. The README badge also references it and must be updated manually.
+The version string is defined in `version.py`: `VERSION = "1.8.7"`. The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 

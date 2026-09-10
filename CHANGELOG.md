@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.8.7
+
+### Added
+- **Installable web app (PWA)** — the UI now ships a web manifest and a
+  minimal service worker, so you can "Add to Home Screen" on Android/iOS
+  and run it as a standalone app with its own icon and theme color.
+- **ReplayGain tags** (Settings → "ReplayGain Tags", env `APPLY_REPLAYGAIN`,
+  default off): measures each track's loudness with ffmpeg and writes
+  `REPLAYGAIN_TRACK_GAIN`/`PEAK` tags (MP3/M4A/Opus) so players like
+  Jellyfin/Navidrome can normalize volume **without re-encoding** the audio
+  — non-destructive, unlike Loudness Normalization.
+- **Synced lyrics `.lrc` sidecars** (Settings → "Save Synced Lyrics", env
+  `SAVE_LYRICS`, default off): fetches time-synced lyrics from
+  [LRCLIB](https://lrclib.net) and writes a `.lrc` next to each track (falls
+  back to plain lyrics), so Jellyfin/Navidrome/Plex can display lyrics.
+
+### Improved
+- **Settings page is searchable and collapsible** — a search box filters
+  options live as you type, and each section can be collapsed (state
+  remembered per section), so the long settings page is much easier to
+  navigate.
+
 ## 1.8.6
 
 ### Added
