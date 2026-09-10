@@ -101,7 +101,7 @@ def add_track_download(
     duration_seconds, album_path, lidarr_album_path, cover_url,
     acoustid_fingerprint_id="", acoustid_score=0.0,
     acoustid_recording_id="", acoustid_recording_title="",
-    track_artist="",
+    track_artist="", source_format="",
 ):
     """Record a single track download attempt."""
     conn = db.get_db()
@@ -113,9 +113,9 @@ def add_track_download(
             album_path, lidarr_album_path, cover_url,
             acoustid_fingerprint_id, acoustid_score,
             acoustid_recording_id, acoustid_recording_title,
-            track_artist, timestamp)
+            track_artist, source_format, timestamp)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                   ?, ?, ?, ?, ?, ?)""",
+                   ?, ?, ?, ?, ?, ?, ?)""",
         (
             album_id, album_title, artist_name, track_title,
             track_number, int(success), error_message, youtube_url,
@@ -123,7 +123,7 @@ def add_track_download(
             album_path, lidarr_album_path, cover_url,
             acoustid_fingerprint_id, acoustid_score,
             acoustid_recording_id, acoustid_recording_title,
-            track_artist, time.time(),
+            track_artist, source_format, time.time(),
         ),
     )
     conn.commit()

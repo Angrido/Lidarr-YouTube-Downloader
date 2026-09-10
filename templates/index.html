@@ -12,6 +12,7 @@
       referrerpolicy="no-referrer"
     />
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+    <link rel="stylesheet" href="/static/components.css" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#09090b" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -2798,6 +2799,19 @@
       }
 
       document.addEventListener("DOMContentLoaded", () => {
+        // First-run: send unconfigured instances to the setup wizard
+        // (unless the user chose to skip it).
+        (async () => {
+          try {
+            if (!localStorage.getItem("setupDone")) {
+              const c = await (await fetch("/api/config")).json();
+              if (!(c.lidarr_url || "").trim()) {
+                window.location.href = "/setup";
+              }
+            }
+          } catch (_) {}
+        })();
+
         const saved = localStorage.getItem("theme") || "dark";
         if (saved === "light") {
           document.body.classList.add("light");

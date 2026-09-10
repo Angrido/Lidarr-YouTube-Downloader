@@ -101,6 +101,11 @@ def settings():
     return render_template("settings.html")
 
 
+@app.route("/setup")
+def setup():
+    return render_template("setup.html")
+
+
 @app.route("/logs")
 def logs():
     return render_template("logs.html")

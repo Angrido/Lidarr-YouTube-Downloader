@@ -102,7 +102,7 @@ State is stored in SQLite at `/config/lidarr-downloader.db`. Tables: `schema_ver
 
 **`album_id` id space:** a positive `album_id` is a real Lidarr album id. YouTube playlist imports have no Lidarr album, so each import is assigned a **unique negative `album_id`** (`models.next_playlist_album_id()`), keeping its tracks distinct in the history / failed-track retry views. This negative space is disjoint from Lidarr's and must never be joined to Lidarr or sent to the Lidarr API (e.g. `download_client.py` assumes positive ids). Retry resolves a negative id's context from the stored `track_downloads` row instead of Lidarr.
 
-Current schema version: **9**. Migrations:
+Current schema version: **10**. Migrations:
 - V1→V2: Replaced `download_history` + `failed_tracks` with `track_downloads` (per-track download records with YouTube URL, match score, duration, album/track metadata).
 - V2→V3: Added AcoustID fingerprint columns to `track_downloads` (`acoustid_fingerprint_id`, `acoustid_score`, `acoustid_recording_id`, `acoustid_recording_title`).
 - V3→V4: Added `banned_urls` table for tracking banned YouTube URLs per album/track.
@@ -111,6 +111,7 @@ Current schema version: **9**. Migrations:
 - V6→V7: Added `download_client_jobs` table so the Lidarr download-client bridge (SABnzbd `nzo_id` jobs) survives restarts; `download_client.restore_jobs()` reloads them at startup and re-queues interrupted downloads.
 - V7→V8: Reassigned pre-existing YouTube playlist imports (recorded under the shared sentinel `album_id = 0`) to unique negative `album_id`s in `track_downloads` and `download_logs`, so old failed playlist tracks become retryable and distinct playlists stop colliding.
 - V8→V9: Added `track_artist` to `track_downloads`, storing the per-track artist resolved via `search_artist_source` (MusicBrainz/iTunes), distinct from the Lidarr album-level `artist_name`, so compilation ("Various Artists") tracks can be searched/retried with their real artist.
+- V9→V10: Added `source_format` to `track_downloads`, a human-readable summary of the YouTube source stream actually downloaded (format id · container · bitrate, e.g. `140 · m4a · 128 kbps`), for the per-track audio-quality report in the download history.
 
 Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
@@ -149,7 +150,11 @@ Telegram and Discord webhooks, filtered by `log_type` (e.g., `partial_success`, 
 - `templates/downloads.html` — download queue and history
 - `templates/logs.html` — download log entries with retry support
 - `templates/settings.html` — configuration UI
+- `templates/youtube.html` — manual YouTube URL / playlist import
+- `templates/setup.html` — first-run setup wizard (`/setup`); the dashboard redirects unconfigured instances here (client-side, skippable)
+- `static/components.css` — shared UI component system (`.ui-btn`, `.ui-badge`, `.ui-input`, `.ui-card`, `.ui-modal`, `.ui-toast`), included by every page. Prefer these classes for new UI instead of ad-hoc inline styles.
 - `static/favicon.svg` — app icon
+- PWA: `/manifest.webmanifest` and `/sw.js` are served from the app root; every template head links the manifest and registers the (no-op-fetch) service worker so the UI is installable.
 
 ## Utility Tools (`tools/`)
 
@@ -171,7 +176,7 @@ Standalone scripts not part of the main app:
 
 ## Version Updates
 
-The version string is defined in `version.py`: `VERSION = "1.8.7"`. The README badge also references it and must be updated manually.
+The version string is defined in `version.py`: `VERSION = "1.8.8"`. The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 

@@ -7,6 +7,7 @@
     <title>Downloads - Lidarr YouTube Downloader</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/components.css">
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#09090b">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -1334,10 +1335,6 @@
         // (/api/download/failed, /api/youtube/search, /api/download/manual).
         let retryFailedData = [];
         let retryFailedAlbumId = null;
-        const RETRY_BTN_STYLE = 'width:auto; flex:0 0 auto; cursor:pointer; ' +
-            'padding:.4rem .7rem; font-size:.8rem; border-radius:8px; ' +
-            'border:1px solid var(--primary); background:var(--primary); ' +
-            'color:#0b1220; font-weight:600;';
 
         async function openRetryModal(albumId) {
             const modal = document.getElementById('retryFailedModal');
@@ -1414,7 +1411,8 @@
                 });
                 const searchBtn = document.createElement('button');
                 searchBtn.type = 'button';
-                searchBtn.style.cssText = RETRY_BTN_STYLE;
+                searchBtn.className = 'ui-btn ui-btn-primary';
+                searchBtn.style.flex = '0 0 auto';
                 searchBtn.innerHTML = '<i class="fa-solid fa-search"></i> Search';
                 searchBtn.onclick = () => searchRetryTrack(i);
                 searchRow.appendChild(searchInput);
@@ -1433,7 +1431,8 @@
                 });
                 const dlBtn = document.createElement('button');
                 dlBtn.type = 'button';
-                dlBtn.style.cssText = RETRY_BTN_STYLE;
+                dlBtn.className = 'ui-btn ui-btn-primary';
+                dlBtn.style.flex = '0 0 auto';
                 dlBtn.innerHTML = '<i class="fa-solid fa-download"></i> Download';
                 dlBtn.onclick = () => downloadRetryTrack(i);
                 urlRow.appendChild(urlInput);
@@ -1493,8 +1492,8 @@
                     info.appendChild(m);
                     const sel = document.createElement('button');
                     sel.type = 'button';
-                    sel.style.cssText = RETRY_BTN_STYLE
-                        + 'padding:.2rem .55rem; font-size:.78rem;';
+                    sel.className = 'ui-btn ui-btn-primary ui-btn-sm';
+                    sel.style.flex = '0 0 auto';
                     sel.textContent = 'Select';
                     const safe = sanitizeUrl(r.url);
                     sel.onclick = () => {
@@ -2200,6 +2199,14 @@
                             attemptBadge.textContent = '(' + attemptCount + ' attempts)';
                             titleCell.appendChild(attemptBadge);
                         }
+                    }
+                    if (!isFailed && !t.deleted && t.source_format) {
+                        var qual = document.createElement('span');
+                        qual.className = 'ui-badge';
+                        qual.style.marginLeft = '.4rem';
+                        qual.title = 'Downloaded source stream quality';
+                        qual.textContent = t.source_format;
+                        titleCell.appendChild(qual);
                     }
                     detailRow.appendChild(titleCell);
 

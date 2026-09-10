@@ -694,3 +694,27 @@ class TestCandidateAttempts:
         rows = models.get_candidate_attempts(td_id)
         assert rows[0]["youtube_title"] == "Earlier"
         assert rows[1]["youtube_title"] == "Later"
+
+
+def test_add_track_download_stores_source_format():
+    models.add_track_download(
+        album_id=77, album_title="A", artist_name="Ar",
+        track_title="T", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0, album_path="/d",
+        lidarr_album_path="", cover_url="",
+        source_format="140 · m4a · 128 kbps",
+    )
+    rows = models.get_track_downloads_for_album(77)
+    assert rows[0]["source_format"] == "140 · m4a · 128 kbps"
+
+
+def test_add_track_download_source_format_defaults_empty():
+    models.add_track_download(
+        album_id=78, album_title="A", artist_name="Ar",
+        track_title="T", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0, album_path="/d",
+        lidarr_album_path="", cover_url="",
+    )
+    assert models.get_track_downloads_for_album(78)[0]["source_format"] == ""

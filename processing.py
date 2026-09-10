@@ -1049,6 +1049,7 @@ def _accept_track_file(
             acoustid_recording_title=fp_data.get(
                 "acoustid_recording_title", "",
             ),
+            source_format=dl_result.get("source_format", ""),
         )
     except Exception:
         logger.error(

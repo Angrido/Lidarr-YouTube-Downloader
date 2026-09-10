@@ -2198,3 +2198,18 @@ def test_service_worker(client):
     assert "javascript" in resp.mimetype
     assert resp.headers.get("Service-Worker-Allowed") == "/"
     assert "addEventListener('fetch'" in resp.get_data(as_text=True)
+
+
+def test_setup_page_renders(client):
+    resp = client.get("/setup")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "downloadPath" in body and "lidarrPath" in body
+    assert "testConnection" in body
+    assert "/static/components.css" in body
+
+
+def test_components_css_served(client):
+    resp = client.get("/static/components.css")
+    assert resp.status_code == 200
+    assert ".ui-btn" in resp.get_data(as_text=True)

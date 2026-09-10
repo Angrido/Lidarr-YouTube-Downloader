@@ -1848,3 +1848,16 @@ class TestPoTokenClientPriority:
             "player_client" in r.message and "MyTrack" in r.message
             for r in caplog.records
         )
+
+
+def test_format_source_quality():
+    from downloader import _format_source_quality
+    assert _format_source_quality(
+        {"format_id": "140", "ext": "m4a", "abr": 128}
+    ) == "140 · m4a · 128 kbps"
+    assert _format_source_quality(
+        {"format_id": "251", "ext": "webm", "abr": 143.6}
+    ) == "251 · webm · 144 kbps"
+    assert _format_source_quality({}) == ""
+    assert _format_source_quality({"ext": "opus"}) == "opus"
+    assert _format_source_quality({"format_id": "140", "abr": None}) == "140"

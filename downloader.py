@@ -1185,6 +1185,27 @@ def list_video_formats(url):
     return {"title": info.get("title", "") or "", "formats": out}
 
 
+def _format_source_quality(fmt):
+    """Human-readable summary of the downloaded source stream for the
+    per-track quality report, e.g. ``"140 · m4a · 128 kbps"``. Empty when
+    nothing was captured.
+    """
+    if not fmt:
+        return ""
+    parts = []
+    if fmt.get("format_id"):
+        parts.append(str(fmt["format_id"]))
+    if fmt.get("ext"):
+        parts.append(str(fmt["ext"]))
+    abr = fmt.get("abr")
+    if abr:
+        try:
+            parts.append(f"{round(float(abr))} kbps")
+        except (TypeError, ValueError):
+            pass
+    return " · ".join(parts)
+
+
 def download_youtube_candidate(
     candidate, output_path, progress_hook=None, skip_check=None,
 ):
@@ -1291,8 +1312,23 @@ def download_youtube_candidate(
                 # format_sort, so drop it on the last two fallbacks.
                 if sel_idx >= len(format_selectors) - 2:
                     ydl_opts_download.pop("format_sort", None)
+                # Capture the source stream's real format/bitrate for the
+                # per-track quality report, alongside the caller's hook.
+                captured_fmt = {}
+
+                def _capture_source_format(d, _c=captured_fmt):
+                    if d.get("status") in ("downloading", "finished"):
+                        info = d.get("info_dict") or {}
+                        if info.get("format_id") or info.get("abr"):
+                            _c["format_id"] = info.get("format_id")
+                            _c["ext"] = info.get("ext")
+                            _c["abr"] = info.get("abr")
+                            _c["acodec"] = info.get("acodec")
+
+                hooks = [_capture_source_format]
                 if progress_hook:
-                    ydl_opts_download["progress_hooks"] = [progress_hook]
+                    hooks.append(progress_hook)
+                ydl_opts_download["progress_hooks"] = hooks
                 try:
                     with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
                         ydl_dl.download([download_url])
@@ -1306,6 +1342,7 @@ def download_youtube_candidate(
                         "youtube_title": candidate["title"],
                         "match_score": round(candidate["score"], 4),
                         "duration_seconds": int(candidate["duration"]),
+                        "source_format": _format_source_quality(captured_fmt),
                     }
                 except Exception as e:
                     last_err = e

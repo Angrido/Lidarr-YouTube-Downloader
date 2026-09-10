@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.8.8
+
+### Added
+- **First-run setup wizard** (`/setup`): a short guided flow that tests the
+  Lidarr connection (and explains the `LIDARR_URL`/`LIDARR_API_KEY` env vars
+  when it can't reach it) and lets you set your download/library folders.
+  Unconfigured instances are sent here automatically (skippable).
+- **Per-track audio quality report**: the download history now shows the
+  actual YouTube source stream each track was downloaded from — format id,
+  container and bitrate (e.g. `140 · m4a · 128 kbps`) — so it's obvious at a
+  glance when a track came from a low-bitrate source. Stored per track
+  (schema v10).
+
+### Improved
+- **Shared UI component system** (`static/components.css`): a consistent set
+  of buttons, badges, inputs, cards, modals and toasts (`.ui-*`) used by the
+  new wizard and adopted across the retry UI, so the interface stays visually
+  consistent instead of drifting per page.
+
 ## 1.8.7
 
 ### Added

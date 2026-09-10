@@ -9,7 +9,7 @@ import time
 logger = logging.getLogger(__name__)
 
 DB_PATH = "/config/lidarr-downloader.db"
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 _local = threading.local()
 
@@ -477,6 +477,20 @@ def _migrate_v8_to_v9(conn):
     )
 
 
+def _migrate_v9_to_v10(conn):
+    """Add source_format to track_downloads.
+
+    Stores a human-readable summary of the YouTube source stream that was
+    actually downloaded (format id, container, bitrate — e.g. "140 · m4a ·
+    128 kbps"), so the download history / logs can show a per-track audio
+    quality report.
+    """
+    conn.execute(
+        "ALTER TABLE track_downloads"
+        " ADD COLUMN source_format TEXT DEFAULT ''"
+    )
+
+
 def _run_migrations(conn, current_version):
     """Run any pending schema migrations sequentially."""
     migrations = {
@@ -488,6 +502,7 @@ def _run_migrations(conn, current_version):
         7: _migrate_v6_to_v7,
         8: _migrate_v7_to_v8,
         9: _migrate_v8_to_v9,
+        10: _migrate_v9_to_v10,
     }
     for version in sorted(migrations):
         if current_version < version:
