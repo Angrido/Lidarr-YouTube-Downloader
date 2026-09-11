@@ -1033,14 +1033,23 @@ def _accept_track_file(
     shutil.move(src_file, final_file)
     track_state["status"] = "done"
 
+    # Optional post-download enrichment. Never let a lyrics/ReplayGain
+    # hiccup (e.g. a broken ffmpeg) fail a track whose file is already in
+    # place — the download itself has succeeded by this point.
     if cfg.get("save_lyrics"):
-        write_lyrics_sidecar(
-            final_file, track_artist or album_ctx["artist_name"],
-            track_title, album_ctx["album_title"],
-            dl_result.get("duration_seconds", 0),
-        )
+        try:
+            write_lyrics_sidecar(
+                final_file, track_artist or album_ctx["artist_name"],
+                track_title, album_ctx["album_title"],
+                dl_result.get("duration_seconds", 0),
+            )
+        except Exception as exc:
+            logger.debug("Lyrics sidecar failed for %s: %s", final_file, exc)
     if cfg.get("apply_replaygain"):
-        apply_replaygain_tags(final_file)
+        try:
+            apply_replaygain_tags(final_file)
+        except Exception as exc:
+            logger.debug("ReplayGain failed for %s: %s", final_file, exc)
 
     try:
         track_download_id = models.add_track_download(

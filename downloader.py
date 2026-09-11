@@ -10,6 +10,7 @@ Public API:
     download_track_youtube()    -- thin wrapper combining both
 """
 
+import glob
 import logging
 import math
 import os
@@ -1222,6 +1223,85 @@ def _format_source_quality(fmt):
     return " · ".join(parts)
 
 
+def _download_raw_audio(
+    candidate, output_path, audio_format, is_music, config,
+    progress_hook=None, skip_check=None, captured_fmt=None,
+):
+    """Download the native audio stream with NO ffmpeg postprocessing.
+
+    Last-resort fallback for when ffmpeg postprocessing fails locally (e.g.
+    a broken/emulated ffmpeg that can't open output files). For m4a/opus
+    targets the matching YouTube stream (format 140 = m4a, 251 = opus) is
+    already in the wanted container, so downloading it directly — with the
+    automatic ffmpeg fixups disabled — yields a valid file without invoking
+    ffmpeg at all. Returns the produced ``output_path.<audio_format>`` path,
+    or None when no native stream matches the target container.
+    """
+    if audio_format == "m4a":
+        selector = "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]"
+    elif audio_format == "opus":
+        selector = "bestaudio[ext=webm][acodec=opus]/bestaudio[acodec=opus]"
+    else:
+        # No native YouTube stream is in this container (e.g. mp3), so a raw
+        # download can't avoid the conversion ffmpeg would have to do.
+        return None
+
+    target_file = f"{output_path}.{audio_format}"
+    if captured_fmt is None:
+        captured_fmt = {}
+
+    def _cap(d, _c=captured_fmt):
+        if d.get("status") in ("downloading", "finished"):
+            info = d.get("info_dict") or {}
+            if info.get("format_id") or info.get("abr"):
+                _c["format_id"] = info.get("format_id")
+                _c["ext"] = info.get("ext")
+                _c["abr"] = info.get("abr")
+                _c["acodec"] = info.get("acodec")
+
+    hooks = [_cap]
+    if progress_hook:
+        hooks.append(progress_hook)
+
+    for pc in _client_fallback_chain(config, is_music) + [None]:
+        if skip_check and skip_check():
+            return None
+        for leftover in glob.glob(output_path + ".*"):
+            try:
+                os.remove(leftover)
+            except OSError:
+                pass
+        opts = {
+            **_build_common_opts(player_client=pc),
+            "outtmpl": output_path + ".%(ext)s",
+            "format": selector,
+            # Disable yt-dlp's automatic FFmpegFixup* postprocessors — they
+            # would invoke the same broken ffmpeg we are trying to avoid.
+            "fixup": "never",
+            "progress_hooks": hooks,
+        }
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([candidate["url"]])
+        except Exception as e:
+            logger.debug(
+                "   Raw-audio fallback failed (client=%s): %s",
+                pc or "default", str(e)[:160],
+            )
+            continue
+        if os.path.exists(target_file):
+            return target_file
+        # A different container came down (target stream absent); it can't be
+        # used without conversion, so clean up and give up on the raw path.
+        for leftover in glob.glob(output_path + ".*"):
+            try:
+                os.remove(leftover)
+            except OSError:
+                pass
+        return None
+    return None
+
+
 def download_youtube_candidate(
     candidate, output_path, progress_hook=None, skip_check=None,
 ):
@@ -1414,6 +1494,29 @@ def download_youtube_candidate(
                     continue
 
     if conversion_errors:
+        # ffmpeg postprocessing is broken locally. For m4a/opus targets the
+        # native YouTube stream is already in the wanted container, so try a
+        # direct download with no ffmpeg step at all before giving up.
+        raw_captured = {}
+        raw_file = _download_raw_audio(
+            candidate, output_path, audio_format, is_music, config,
+            progress_hook=progress_hook, skip_check=skip_check,
+            captured_fmt=raw_captured,
+        )
+        if raw_file:
+            logger.info(
+                "Downloaded '%s' without conversion (ffmpeg postprocessing"
+                " unavailable) — kept the native %s stream.",
+                candidate["title"], audio_format,
+            )
+            return {
+                "success": True,
+                "youtube_url": display_url,
+                "youtube_title": candidate["title"],
+                "match_score": round(candidate["score"], 4),
+                "duration_seconds": int(candidate["duration"]),
+                "source_format": _format_source_quality(raw_captured),
+            }
         # A postprocessing failure is a local ffmpeg/filesystem problem that
         # every candidate would hit identically, so flag it: the caller stops
         # trying more sources instead of repeating the same doomed conversion.

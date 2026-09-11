@@ -654,6 +654,62 @@ class TestDownloadYoutubeCandidate:
         assert not _is_postprocess_error("http error 403 forbidden")
         assert not _is_postprocess_error("requested format is not available")
 
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_raw_fallback_when_ffmpeg_postprocessing_unavailable(
+        self, mock_config, mock_ydl_class, tmp_path,
+    ):
+        # ffmpeg can't convert (broken/emulated), but the native m4a stream
+        # should still be downloaded directly, with no ffmpeg step.
+        import os
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "m4a",
+        }
+        out = str(tmp_path / "output")
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        calls = {"n": 0}
+
+        def _dl(urls):
+            calls["n"] += 1
+            if calls["n"] <= 3:
+                raise Exception(
+                    "ERROR: Postprocessing: audio conversion failed:"
+                    " Error opening output files: Function not implemented"
+                )
+            # Raw fallback: yt-dlp writes the native m4a file, no ffmpeg.
+            with open(out + ".m4a", "wb") as fh:
+                fh.write(b"\x00\x00\x00\x00")
+            return 0
+
+        mock_ydl.download.side_effect = _dl
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, out)
+        assert result["success"] is True
+        assert result.get("postprocess_error") is None
+        assert os.path.exists(out + ".m4a")
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_raw_fallback_skipped_for_mp3_target(
+        self, mock_config, mock_ydl_class,
+    ):
+        # mp3 has no native YouTube stream, so the raw fallback can't help
+        # and the call still reports a bounded postprocess failure.
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "mp3",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "ERROR: Postprocessing: Error opening output files:"
+            " Function not implemented"
+        )
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result["success"] is False
+        assert result.get("postprocess_error") is True
+        # No native-stream download attempts were made for mp3.
+        assert mock_ydl.download.call_count <= 3
+
 
 class TestYouTubeMusicSourceAcceptedWithoutChannel:
     @patch("downloader.yt_dlp.YoutubeDL")
