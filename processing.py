@@ -956,6 +956,12 @@ def _download_candidate_threaded(
         return None
 
     if not dl_result.get("success"):
+        if dl_result.get("postprocess_error"):
+            # Local ffmpeg/filesystem failure — flag it so the candidate
+            # loop stops instead of retrying the identical conversion on
+            # every other candidate.
+            track_state["postprocess_error"] = True
+            track_state["error_message"] = dl_result.get("error_message", "")
         _cleanup_temp_files(attempt_temp)
         return None
 
@@ -1379,6 +1385,17 @@ def _download_tracks(
                 )
                 if track_state["status"] == "skipped":
                     return
+                if track_state.get("postprocess_error"):
+                    # ffmpeg can't produce the output file; every other
+                    # candidate downloads the same way and would fail
+                    # identically. Stop here so a bad ffmpeg/filesystem
+                    # setup can't spin through every candidate.
+                    logger.error(
+                        "Aborting remaining candidates for '%s': %s",
+                        track_title,
+                        track_state.get("error_message", ""),
+                    )
+                    break
                 continue
             dl_result, actual_file = dl_out
 
@@ -1698,7 +1715,12 @@ def _download_tracks(
                     )
                     _cleanup_temp_files(fallback_temp)
 
-            if low_score_fallback:
+            if track_state.get("postprocess_error"):
+                fail_reason = track_state.get(
+                    "error_message",
+                    "Audio postprocessing failed (local ffmpeg error)",
+                )
+            elif low_score_fallback:
                 fail_reason = (
                     f"Unverified fallback below"
                     f" min_match_score={min_match_score:.2f}"

@@ -620,6 +620,40 @@ class TestDownloadYoutubeCandidate:
         assert "format" in result["error_message"].lower() \
             or "no downloadable" in result["error_message"].lower()
 
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_postprocess_error_flags_and_bounds_retries(
+        self, mock_config, mock_ydl_class,
+    ):
+        # A persistent ffmpeg postprocessing failure must NOT be retried
+        # across every selector/client/candidate — it's a local problem.
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "ERROR: Postprocessing: audio conversion failed:"
+            " Error opening output files: Function not implemented"
+        )
+        candidate = {
+            "url": "u", "title": "t", "duration": 200, "score": 0.9,
+        }
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result["success"] is False
+        assert result.get("postprocess_error") is True
+        assert "postprocessing" in result["error_message"].lower()
+        # Bounded: a handful of attempts, not the full selector x client
+        # x candidate cascade (which was 20+).
+        assert mock_ydl.download.call_count <= 3
+
+    def test_is_postprocess_error_classifier(self):
+        from downloader import _is_postprocess_error
+        assert _is_postprocess_error(
+            "error opening output files: function not implemented"
+        )
+        assert _is_postprocess_error("postprocessing: audio conversion failed")
+        assert _is_postprocess_error("conversion failed")
+        assert not _is_postprocess_error("http error 403 forbidden")
+        assert not _is_postprocess_error("requested format is not available")
+
 
 class TestYouTubeMusicSourceAcceptedWithoutChannel:
     @patch("downloader.yt_dlp.YoutubeDL")

@@ -1185,6 +1185,22 @@ def list_video_formats(url):
     return {"title": info.get("title", "") or "", "formats": out}
 
 
+def _is_postprocess_error(msg_low):
+    """True when a yt-dlp failure comes from the ffmpeg postprocessing step
+    (audio extraction/conversion) rather than the download itself.
+
+    These are local ffmpeg/filesystem problems (e.g. "Error opening output
+    files: Function not implemented") that are independent of the source
+    stream, the player client and the format selector, so retrying those
+    dimensions just repeats the identical failure.
+    """
+    return (
+        "postprocessing" in msg_low
+        or "conversion failed" in msg_low
+        or "error opening output" in msg_low
+    )
+
+
 def _format_source_quality(fmt):
     """Human-readable summary of the downloaded source stream for the
     per-track quality report, e.g. ``"140 · m4a · 128 kbps"``. Empty when
@@ -1276,6 +1292,8 @@ def download_youtube_candidate(
     last_err = None
     any_403 = False
     format_unavailable_errors = 0
+    conversion_errors = 0
+    abort_conversion = False
     extract_pp = [
         {
             "key": "FFmpegExtractAudio",
@@ -1284,10 +1302,14 @@ def download_youtube_candidate(
         }
     ]
     for sel_idx, selector in enumerate(format_selectors):
+        if abort_conversion:
+            break
         pp_variants = [extract_pp]
         if sel_idx >= len(format_selectors) - 2:
             pp_variants.append(None)
         for postprocessors in pp_variants:
+            if abort_conversion:
+                break
             for pc in clients_to_try:
                 if skip_check and skip_check():
                     return {"skipped": True}
@@ -1367,11 +1389,54 @@ def download_youtube_candidate(
                             selector, pc or "default",
                         )
                         continue
+                    if _is_postprocess_error(msg_low):
+                        conversion_errors += 1
+                        last_line = (msg.strip().splitlines() or [msg])[-1]
+                        logger.warning(
+                            "   Audio postprocessing failed for '%s'"
+                            " (selector='%s'): %s",
+                            candidate["title"], selector, last_line[:160],
+                        )
+                        # ffmpeg couldn't write the output file. The player
+                        # client can't change that, so stop cycling clients
+                        # for this stream; a couple of other selectors get a
+                        # chance (a directly-copyable stream may dodge the
+                        # failing transcode) before we give up — this is a
+                        # local ffmpeg/filesystem issue, not something more
+                        # sources can fix.
+                        if conversion_errors >= 3:
+                            abort_conversion = True
+                        break
                     logger.debug(
                         f"   Failed with player_client={pc or 'default'}"
                         f" selector='{selector}'; {msg[:180]}"
                     )
                     continue
+
+    if conversion_errors:
+        # A postprocessing failure is a local ffmpeg/filesystem problem that
+        # every candidate would hit identically, so flag it: the caller stops
+        # trying more sources instead of repeating the same doomed conversion.
+        last_line = (
+            (str(last_err).strip().splitlines() or [str(last_err)])[-1]
+            if last_err else "unknown error"
+        )
+        logger.warning(
+            "Giving up on '%s': audio postprocessing failed %d time(s)"
+            " — local ffmpeg/filesystem issue, not a source problem.",
+            candidate["title"], conversion_errors,
+        )
+        return {
+            "success": False,
+            "postprocess_error": True,
+            "error_message": (
+                "Audio postprocessing failed — ffmpeg could not write the"
+                f" converted file ({last_line[:140]}). This is a local"
+                " ffmpeg/filesystem problem (not a YouTube one); check the"
+                " ffmpeg build and that the download path supports the"
+                " operation."
+            ),
+        }
 
     if last_err:
         # Surface PO-token state on failure so users can tell whether a
