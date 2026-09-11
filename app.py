@@ -270,7 +270,11 @@ def api_config_import():
 @app.route("/api/backup/export")
 def api_backup_export():
     """Download a consistent SQLite backup of the whole app database."""
-    fd, tmp = tempfile.mkstemp(suffix=".db")
+    # Write the copy next to the DB (on the persistent /config volume)
+    # rather than the system temp dir, which in containers is often a small
+    # tmpfs that a large DB backup could exhaust.
+    db_dir = os.path.dirname(db.DB_PATH) or None
+    fd, tmp = tempfile.mkstemp(suffix=".db", dir=db_dir)
     os.close(fd)
     try:
         dst = sqlite3.connect(tmp)
@@ -327,21 +331,36 @@ def api_backup_import():
     db_dir = os.path.dirname(db.DB_PATH) or "."
     fd, tmp = tempfile.mkstemp(suffix=".db", dir=db_dir)
     os.close(fd)
-    # Validate the upload is a sound SQLite database with our schema.
+    # Validate the upload is a sound SQLite database carrying a schema
+    # version this build can actually open. We read the version exactly the
+    # way init_db() does, and require 1 <= version <= our SCHEMA_VERSION:
+    # an empty/column-less schema_version table would otherwise re-run every
+    # migration on restart (bricking the app), and a newer-than-ours schema
+    # can't be migrated down.
+    valid = False
+    reason = "Not a valid Lidarr-YT backup database."
     try:
         request.files["file"].save(tmp)
         con = sqlite3.connect(tmp)
         try:
             integrity = con.execute("PRAGMA integrity_check").fetchone()
-            has_schema = con.execute(
-                "SELECT name FROM sqlite_master"
-                " WHERE type='table' AND name='schema_version'"
+            ver_row = con.execute(
+                "SELECT version FROM schema_version"
+                " ORDER BY version DESC LIMIT 1"
             ).fetchone()
         finally:
             con.close()
-        valid = bool(
-            integrity and integrity[0] == "ok" and has_schema
-        )
+        if not (integrity and integrity[0] == "ok"):
+            reason = "Backup file is corrupted."
+        elif not ver_row or not isinstance(ver_row[0], int):
+            reason = "Not a valid Lidarr-YT backup database."
+        elif ver_row[0] < 1 or ver_row[0] > db.SCHEMA_VERSION:
+            reason = (
+                "Backup schema version %s is not supported by this "
+                "version of the app." % ver_row[0]
+            )
+        else:
+            valid = True
     except sqlite3.DatabaseError:
         valid = False
     except Exception as e:
@@ -352,21 +371,22 @@ def api_backup_import():
             os.remove(tmp)
         except OSError:
             pass
-        return jsonify({
-            "success": False,
-            "message": "Not a valid Lidarr-YT backup database.",
-        }), 400
+        return jsonify({"success": False, "message": reason}), 400
 
     try:
-        # Swap the live DB. Drop the current thread's connection and the
-        # WAL/SHM sidecars so nothing mixes with the restored file.
+        # Swap the live DB. Drop this thread's connection, put the restored
+        # file in place, then clear the WAL/SHM sidecars *last* — the
+        # restored backup is self-contained (checkpointed by .backup()), so
+        # any leftover sidecar belongs to the old database and must not be
+        # replayed against the new file. A restart follows immediately, so
+        # background threads still holding old connections are torn down.
         db.close_db()
+        os.replace(tmp, db.DB_PATH)
         for ext in ("-wal", "-shm"):
             try:
                 os.remove(db.DB_PATH + ext)
             except OSError:
                 pass
-        os.replace(tmp, db.DB_PATH)
     except Exception as e:
         logger.error("Backup restore failed: %s", e, exc_info=True)
         try:

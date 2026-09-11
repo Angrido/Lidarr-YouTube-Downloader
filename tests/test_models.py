@@ -788,3 +788,37 @@ def test_get_insights_daily_counts_today():
     today = data["daily"][-1]
     assert today["success"] == 1
     assert today["failed"] == 1
+
+
+def test_quality_bucket_handles_missing_format_id():
+    # No format id: "<container> · <bitrate>" — the middle is NOT the
+    # container, so a naive parts[1] would mislabel it as the bitrate.
+    assert models._quality_bucket("m4a · 128 kbps") == "m4a"
+    assert models._quality_bucket("140 · opus · 160 kbps") == "opus"
+    assert models._quality_bucket("140") == "Unknown"
+    assert models._quality_bucket("") == "Unknown"
+
+
+def test_get_insights_window_excludes_old_rows():
+    # Rows outside the window must not leak into any metric.
+    conn = db.get_db()
+    old_ts = time.time() - 40 * 86400
+    rid = _add_dl(artist_name="Old Artist", success=True,
+                  source_format="140 · m4a · 128 kbps")
+    conn.execute("UPDATE track_downloads SET timestamp=? WHERE id=?",
+                 (old_ts, rid))
+    conn.commit()
+    _add_dl(artist_name="Recent Artist", success=True,
+            source_format="251 · opus · 160 kbps")
+    data = models.get_insights(days=7)
+    assert data["totals"]["total_tracks"] == 1
+    assert data["totals"]["successful"] == 1
+    assert [a["artist"] for a in data["top_artists"]] == ["Recent Artist"]
+    assert {q["label"] for q in data["quality"]} == {"opus"}
+
+
+def test_get_insights_distinct_artists_ignores_empty():
+    _add_dl(artist_name="Real Artist", success=True)
+    _add_dl(artist_name="", success=False)
+    data = models.get_insights(days=30)
+    assert data["totals"]["distinct_artists"] == 1

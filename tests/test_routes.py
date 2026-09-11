@@ -2307,6 +2307,44 @@ def test_backup_import_valid_restarts(client, monkeypatch, tmp_path):
     assert resp.get_json()["success"] is True
 
 
+def test_backup_import_rejects_empty_schema_version(client, monkeypatch, tmp_path):
+    # A DB whose schema_version table exists but has no rows must be
+    # rejected: restoring it would make init_db re-run every migration and
+    # crash-loop the app on restart.
+    import io
+    import sqlite3
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    bak = tmp_path / "empty.db"
+    con = sqlite3.connect(str(bak))
+    con.execute("CREATE TABLE schema_version (version INTEGER, applied_at REAL)")
+    con.commit()
+    con.close()
+    data = {"file": (io.BytesIO(bak.read_bytes()), "empty.db")}
+    resp = client.post(
+        "/api/backup/import", data=data, content_type="multipart/form-data"
+    )
+    assert resp.status_code == 400
+    assert resp.get_json()["success"] is False
+
+
+def test_backup_import_rejects_future_schema(client, monkeypatch, tmp_path):
+    import io
+    import sqlite3
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    bak = tmp_path / "future.db"
+    con = sqlite3.connect(str(bak))
+    con.execute("CREATE TABLE schema_version (version INTEGER, applied_at REAL)")
+    con.execute("INSERT INTO schema_version VALUES (999, 0)")
+    con.commit()
+    con.close()
+    data = {"file": (io.BytesIO(bak.read_bytes()), "future.db")}
+    resp = client.post(
+        "/api/backup/import", data=data, content_type="multipart/form-data"
+    )
+    assert resp.status_code == 400
+    assert "not supported" in resp.get_json()["message"].lower()
+
+
 def test_backup_import_refused_while_downloading(client, monkeypatch):
     monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
     import app as app_module

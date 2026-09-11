@@ -713,17 +713,17 @@
                     </div>
                     <div class="chart-card">
                         <div class="chart-title"><i class="fas fa-circle-check" style="color:var(--primary)"></i> Success rate</div>
-                        <div class="chart-hint">Across all recorded track attempts</div>
+                        <div class="chart-hint">Track attempts in the last ${data.window_days} days</div>
                         ${buildDonut(t)}
                     </div>
                     <div class="chart-card">
                         <div class="chart-title"><i class="fas fa-headphones" style="color:var(--accent)"></i> Audio quality</div>
-                        <div class="chart-hint">Source stream container of downloaded tracks</div>
+                        <div class="chart-hint">Source stream container of tracks downloaded in the last ${data.window_days} days</div>
                         ${buildHBars(data.quality, 'label', 'count', true)}
                     </div>
                     <div class="chart-card wide">
                         <div class="chart-title"><i class="fas fa-star" style="color:var(--primary)"></i> Top artists</div>
-                        <div class="chart-hint">Most downloaded artists</div>
+                        <div class="chart-hint">Most downloaded artists in the last ${data.window_days} days</div>
                         ${buildHBars(data.top_artists, 'artist', 'count', false)}
                     </div>
                 </div>`;

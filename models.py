@@ -265,34 +265,51 @@ def get_history_album_ids_since(since_timestamp):
 
 
 def _quality_bucket(source_format):
-    """Reduce a stored source_format ("<id> · <container> · <bitrate>") to a
-    coarse container/codec label used by the quality distribution chart."""
+    """Reduce a stored source_format to a coarse container/codec label for
+    the quality distribution chart.
+
+    ``source_format`` is built by ``downloader._format_source_quality`` as
+    ``"<format_id> · <container> · <bitrate> kbps"`` with any part omitted
+    when unknown, so the container is not at a fixed position. Pick the
+    first token that is neither the numeric format id nor the bitrate.
+    """
     if not source_format:
         return "Unknown"
-    parts = [p.strip() for p in source_format.split("·")]
-    if len(parts) >= 2 and parts[1]:
-        return parts[1]
+    for part in source_format.split("·"):
+        token = part.strip()
+        if not token or token.isdigit() or token.lower().endswith("kbps"):
+            continue
+        return token
     return "Unknown"
 
 
 def get_insights(days=30):
     """Aggregate download analytics for the insights dashboard.
 
-    Returns overall totals, a per-day success/failure series covering the
-    last ``days`` (zero-filled), the top artists by successful tracks, and
-    an audio-quality breakdown derived from the recorded ``source_format``.
+    Every metric is scoped to the same window — the last ``days`` calendar
+    days up to and including today (local time) — so the whole page reflects
+    the selector. Returns windowed totals, a zero-filled per-day
+    success/failure series, the top artists by successful tracks, and an
+    audio-quality breakdown derived from the recorded ``source_format``.
     """
     conn = db.get_db()
-    since = (datetime.now() - timedelta(days=days)).timestamp()
+    today = datetime.now().date()
+    start_date = today - timedelta(days=days - 1)
+    # Local midnight of the earliest displayed day, so the query window and
+    # the zero-filled day range line up exactly (no boundary day dropped).
+    since = datetime(
+        start_date.year, start_date.month, start_date.day
+    ).timestamp()
 
-    # Overall totals (all time).
+    # Overall totals within the window.
     row = conn.execute(
         "SELECT COUNT(*),"
         " SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END),"
         " COUNT(DISTINCT album_id),"
-        " COUNT(DISTINCT artist_name),"
+        " COUNT(DISTINCT NULLIF(artist_name, '')),"
         " SUM(CASE WHEN success = 1 THEN duration_seconds ELSE 0 END)"
-        " FROM track_downloads"
+        " FROM track_downloads WHERE timestamp >= ?",
+        (since,),
     ).fetchone()
     total = (row[0] if row else 0) or 0
     successful = (row[1] if row else 0) or 0
@@ -317,17 +334,17 @@ def get_insights(days=30):
     ).fetchall()
     by_day = {r[0]: ((r[1] or 0), (r[2] or 0)) for r in rows}
     daily = []
-    today = datetime.now().date()
     for i in range(days - 1, -1, -1):
         d = (today - timedelta(days=i)).isoformat()
         succ, fail = by_day.get(d, (0, 0))
         daily.append({"date": d, "success": succ, "failed": fail})
 
-    # Top artists by successful tracks.
+    # Top artists by successful tracks within the window.
     rows = conn.execute(
         "SELECT artist_name, COUNT(*) AS c FROM track_downloads"
-        " WHERE success = 1 AND artist_name != ''"
-        " GROUP BY artist_name ORDER BY c DESC, artist_name LIMIT 10"
+        " WHERE success = 1 AND artist_name != '' AND timestamp >= ?"
+        " GROUP BY artist_name ORDER BY c DESC, artist_name LIMIT 10",
+        (since,),
     ).fetchall()
     top_artists = [{"artist": r[0], "count": r[1]} for r in rows]
 
@@ -335,7 +352,8 @@ def get_insights(days=30):
     quality = {}
     rows = conn.execute(
         "SELECT source_format, COUNT(*) FROM track_downloads"
-        " WHERE success = 1 GROUP BY source_format"
+        " WHERE success = 1 AND timestamp >= ? GROUP BY source_format",
+        (since,),
     ).fetchall()
     for fmt, count in rows:
         label = _quality_bucket(fmt)
