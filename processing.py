@@ -547,6 +547,11 @@ def process_album_download(album_id, force=False, client_grab=False, state=None)
 
         release_id = get_valid_release_id(album)
         if release_id == 0:
+            logger.warning(
+                "No valid release found for album %s (%s - %s); skipping. "
+                "Lidarr returned no usable release id for this album.",
+                album_id, artist_name, album_title,
+            )
             return {"error": "No valid releases found for this album."}
 
         album_mbid = album.get("foreignAlbumId", "")
@@ -641,6 +646,16 @@ def process_album_download(album_id, force=False, client_grab=False, state=None)
         )
 
         if len(tracks_to_download) == 0:
+            already_have = sum(1 for t in tracks if t.get("hasFile", False))
+            logger.info(
+                "Nothing to download for %s - %s: %d track(s) considered, "
+                "none need downloading (%d already marked hasFile in Lidarr, "
+                "the rest already exist on disk under %s). If you expected a "
+                "fresh download, the album is likely already complete in "
+                "Lidarr, or leftover files from a previous run are present.",
+                artist_name, album_title, len(tracks), already_have,
+                album_path,
+            )
             if not client_grab:
                 lidarr_request_with_retry(
                     "command",
