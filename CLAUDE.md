@@ -146,10 +146,11 @@ Telegram and Discord webhooks, filtered by `log_type` (e.g., `partial_success`, 
 
 ## Templates
 
-- `templates/index.html` — main dashboard, missing albums list
+- `templates/index.html` — main dashboard, missing albums list. Per-album checkboxes drive a floating **bulk-action bar** (multi-select → enqueue via `/api/download/queue/bulk`); `selectedAlbums` Set survives view re-renders.
 - `templates/downloads.html` — download queue and history
+- `templates/insights.html` — analytics dashboard (`/insights`); fetches `/api/insights?days=N` and draws dependency-free inline-SVG charts (daily success/fail stacked bars, success-rate donut, audio-quality distribution, top artists). Aggregation is `models.get_insights()`.
 - `templates/logs.html` — download log entries with retry support
-- `templates/settings.html` — configuration UI
+- `templates/settings.html` — configuration UI, incl. **Backup & Restore** (`/api/backup/export` streams a `sqlite3`-consistent copy of the DB; `/api/backup/import` validates the upload, atomically replaces the DB, and restarts — refused while a download is active)
 - `templates/youtube.html` — manual YouTube URL / playlist import
 - `templates/setup.html` — first-run setup wizard (`/setup`); the dashboard redirects unconfigured instances here (client-side, skippable)
 - `static/components.css` — shared UI component system (`.ui-btn`, `.ui-badge`, `.ui-input`, `.ui-card`, `.ui-modal`, `.ui-toast`), included by every page. Prefer these classes for new UI instead of ad-hoc inline styles.
@@ -176,7 +177,7 @@ Standalone scripts not part of the main app:
 
 ## Version Updates
 
-The version string is defined in `version.py`: `VERSION = "1.8.8"`. The README badge also references it and must be updated manually.
+The version string is defined in `version.py`: `VERSION = "1.9.0"`. The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 

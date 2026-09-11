@@ -9,8 +9,10 @@ import logging
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -22,6 +24,7 @@ from flask import (
     jsonify,
     render_template,
     request,
+    send_file,
     send_from_directory,
 )
 
@@ -109,6 +112,11 @@ def setup():
 @app.route("/logs")
 def logs():
     return render_template("logs.html")
+
+
+@app.route("/insights")
+def insights():
+    return render_template("insights.html")
 
 
 @app.route("/favicon.ico")
@@ -257,6 +265,122 @@ def api_config_import():
             ),
         }
     )
+
+
+@app.route("/api/backup/export")
+def api_backup_export():
+    """Download a consistent SQLite backup of the whole app database."""
+    fd, tmp = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    try:
+        dst = sqlite3.connect(tmp)
+        try:
+            db.get_db().backup(dst)
+        finally:
+            dst.close()
+    except Exception as e:
+        logger.error("Backup export failed: %s", e, exc_info=True)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return jsonify({"success": False, "message": "Backup failed"}), 500
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    resp = send_file(
+        tmp,
+        as_attachment=True,
+        download_name=f"lidarr-yt-backup-{ts}.db",
+        mimetype="application/octet-stream",
+    )
+
+    @resp.call_on_close
+    def _cleanup_backup_tmp():
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+    return resp
+
+
+@app.route("/api/backup/import", methods=["POST"])
+def api_backup_import():
+    """Restore the app database from an uploaded backup, then restart.
+
+    Validates the upload is a sound SQLite database with our schema before
+    replacing the live DB, refuses while a download is active, and restarts
+    so every worker reconnects to the new database.
+    """
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"backup_import:{client_ip}", rate_limit_store, window=30, max_requests=2
+    ):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
+    if download_process.get("active"):
+        return jsonify({
+            "success": False,
+            "message": "A download is in progress. Stop it before restoring.",
+        }), 409
+    if "file" not in request.files:
+        return jsonify({"success": False, "message": "No file uploaded"}), 400
+
+    db_dir = os.path.dirname(db.DB_PATH) or "."
+    fd, tmp = tempfile.mkstemp(suffix=".db", dir=db_dir)
+    os.close(fd)
+    # Validate the upload is a sound SQLite database with our schema.
+    try:
+        request.files["file"].save(tmp)
+        con = sqlite3.connect(tmp)
+        try:
+            integrity = con.execute("PRAGMA integrity_check").fetchone()
+            has_schema = con.execute(
+                "SELECT name FROM sqlite_master"
+                " WHERE type='table' AND name='schema_version'"
+            ).fetchone()
+        finally:
+            con.close()
+        valid = bool(
+            integrity and integrity[0] == "ok" and has_schema
+        )
+    except sqlite3.DatabaseError:
+        valid = False
+    except Exception as e:
+        logger.error("Backup validation failed: %s", e, exc_info=True)
+        valid = False
+    if not valid:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return jsonify({
+            "success": False,
+            "message": "Not a valid Lidarr-YT backup database.",
+        }), 400
+
+    try:
+        # Swap the live DB. Drop the current thread's connection and the
+        # WAL/SHM sidecars so nothing mixes with the restored file.
+        db.close_db()
+        for ext in ("-wal", "-shm"):
+            try:
+                os.remove(db.DB_PATH + ext)
+            except OSError:
+                pass
+        os.replace(tmp, db.DB_PATH)
+    except Exception as e:
+        logger.error("Backup restore failed: %s", e, exc_info=True)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return jsonify({"success": False, "message": "Restore failed"}), 500
+
+    def _do_restart():
+        time.sleep(0.8)
+        _exec_restart()
+
+    threading.Thread(target=_do_restart, daemon=True).start()
+    return jsonify({"success": True, "restart_required": True})
 
 
 @app.route("/api/download-client/info")
@@ -1168,6 +1292,16 @@ def api_stats():
             "downloaded_today": downloaded_today,
         }
     )
+
+
+@app.route("/api/insights")
+def api_insights():
+    days = request.args.get("days", 30, type=int)
+    if days < 1:
+        days = 1
+    if days > 365:
+        days = 365
+    return jsonify(models.get_insights(days=days))
 
 
 @app.route("/api/logs", methods=["GET"])

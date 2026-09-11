@@ -438,6 +438,47 @@ class TestTemplateRoutes:
         resp = client.get("/logs")
         assert resp.status_code == 200
 
+    def test_insights_page(self, client):
+        resp = client.get("/insights")
+        assert resp.status_code == 200
+
+
+class TestInsightsRoute:
+    """GET /api/insights returns aggregate analytics."""
+
+    def test_insights_empty(self, client):
+        resp = client.get("/api/insights")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["totals"]["total_tracks"] == 0
+        assert data["window_days"] == 30
+        assert isinstance(data["daily"], list)
+
+    def test_insights_with_data(self, client):
+        import models
+
+        _add_track(models, album_id=1, artist_name="Artist X",
+                   success=True, duration_seconds=200,
+                   source_format="140 · m4a · 128 kbps")
+        _add_track(models, album_id=1, artist_name="Artist X",
+                   success=False)
+        resp = client.get("/api/insights?days=7")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["window_days"] == 7
+        assert len(data["daily"]) == 7
+        assert data["totals"]["total_tracks"] == 2
+        assert data["totals"]["successful"] == 1
+        assert data["totals"]["success_rate"] == 50.0
+        assert data["top_artists"][0]["artist"] == "Artist X"
+
+    def test_insights_days_clamped(self, client):
+        # Out-of-range windows are clamped to [1, 365].
+        assert len(client.get("/api/insights?days=0")
+                   .get_json()["daily"]) == 1
+        assert len(client.get("/api/insights?days=9999")
+                   .get_json()["daily"]) == 365
+
 
 class TestSkipTrackRoute:
     """POST /api/download/skip-track sets skip flag."""
@@ -2213,3 +2254,70 @@ def test_components_css_served(client):
     resp = client.get("/static/components.css")
     assert resp.status_code == 200
     assert ".ui-btn" in resp.get_data(as_text=True)
+
+
+def test_backup_export_returns_sqlite(client, tmp_path):
+    resp = client.get("/api/backup/export")
+    assert resp.status_code == 200
+    data = resp.get_data()
+    assert data[:16] == b"SQLite format 3\x00"
+    # It's a real db with our schema.
+    import sqlite3
+    f = tmp_path / "dl.db"
+    f.write_bytes(data)
+    con = sqlite3.connect(str(f))
+    has = con.execute(
+        "SELECT name FROM sqlite_master"
+        " WHERE type='table' AND name='schema_version'"
+    ).fetchone()
+    con.close()
+    assert has is not None
+
+
+def test_backup_import_rejects_invalid(client, monkeypatch):
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    import io
+    data = {"file": (io.BytesIO(b"not a database"), "bad.db")}
+    resp = client.post(
+        "/api/backup/import", data=data, content_type="multipart/form-data"
+    )
+    assert resp.status_code == 400
+    assert resp.get_json()["success"] is False
+
+
+def test_backup_import_valid_restarts(client, monkeypatch, tmp_path):
+    import io
+    import sqlite3
+    import app as app_module
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    restarted = []
+    monkeypatch.setattr(app_module, "_exec_restart", lambda: restarted.append(1))
+    # Build a valid backup db.
+    bak = tmp_path / "backup.db"
+    con = sqlite3.connect(str(bak))
+    con.execute("CREATE TABLE schema_version (version INTEGER, applied_at REAL)")
+    con.execute("INSERT INTO schema_version VALUES (10, 0)")
+    con.commit()
+    con.close()
+    data = {"file": (io.BytesIO(bak.read_bytes()), "backup.db")}
+    resp = client.post(
+        "/api/backup/import", data=data, content_type="multipart/form-data"
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["success"] is True
+
+
+def test_backup_import_refused_while_downloading(client, monkeypatch):
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    import app as app_module
+    import io
+    app_module.download_process["active"] = True
+    try:
+        data = {"file": (io.BytesIO(b"x"), "b.db")}
+        resp = client.post(
+            "/api/backup/import", data=data,
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 409
+    finally:
+        app_module.download_process["active"] = False

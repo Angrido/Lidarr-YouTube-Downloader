@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Insights - Lidarr YouTube Downloader</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/components.css">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#09090b">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Lidarr YT">
+    <link rel="apple-touch-icon" href="/static/favicon.svg">
+    <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
+    <style>
+        :root {
+            --bg: #09090b;
+            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.05) 0%, transparent 50%);
+            --surface: #18181b;
+            --surface-glass: rgba(24, 24, 27, 0.7);
+            --surface-hover: #27272a;
+            --text: #fafafa;
+            --text-dim: #a1a1aa;
+            --primary: #10b981;
+            --primary-hover: #059669;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --accent: #0891b2;
+            --border: #27272a;
+            --border-glass: rgba(255, 255, 255, 0.1);
+            --radius: 16px;
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
+            --glow: 0 0 20px rgba(16, 185, 129, 0.3);
+        }
+
+        body.light {
+            --bg: #f4f4f5;
+            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.03) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.03) 0%, transparent 50%);
+            --surface: #ffffff;
+            --surface-glass: rgba(255, 255, 255, 0.7);
+            --surface-hover: #f4f4f5;
+            --text: #18181b;
+            --text-dim: #71717a;
+            --border: #e4e4e7;
+            --border-glass: rgba(0, 0, 0, 0.1);
+            --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            --glow: 0 0 20px rgba(16, 185, 129, 0.2);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg);
+            background-image: var(--bg-pattern);
+            background-attachment: fixed;
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        header {
+            background: var(--surface-glass);
+            backdrop-filter: blur(30px) saturate(200%);
+            -webkit-backdrop-filter: blur(30px) saturate(200%);
+            border-bottom: 1px solid var(--border-glass);
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            padding: 0;
+        }
+
+        .nav-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 64px;
+        }
+
+        .logo {
+            font-weight: 800;
+            font-size: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            background: linear-gradient(135deg, var(--primary), #06d6a0, #0891b2);
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            animation: gradient-shift 4s ease infinite;
+            letter-spacing: -0.02em;
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 28px;
+            height: 28px;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .logo-icon svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        @keyframes gradient-shift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 0.25rem;
+            align-items: center;
+        }
+
+        .nav-links a {
+            color: var(--text-dim);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.9rem;
+            padding: 0.5rem 0.9rem;
+            border-radius: 10px;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .nav-links a:hover {
+            color: var(--text);
+            background: var(--surface-hover);
+        }
+
+        .nav-links a.active {
+            color: var(--primary);
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .nav-badge {
+            background: linear-gradient(135deg, #ef4444, #f87171);
+            color: white;
+            font-size: 0.65rem;
+            font-weight: 700;
+            min-width: 18px;
+            height: 18px;
+            border-radius: 999px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 0 5px;
+            line-height: 1;
+        }
+
+        .nav-badge.active {
+            display: inline-flex;
+        }
+
+        .controls {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .theme-toggle {
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border-glass);
+            color: var(--text);
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1rem;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .theme-toggle:hover {
+            background: var(--surface-hover);
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+            transform: scale(1.08);
+        }
+
+        .theme-toggle.spin i {
+            animation: themeSwitch 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes themeSwitch {
+            0% { transform: rotate(0deg) scale(1); opacity: 1; }
+            50% { transform: rotate(180deg) scale(0); opacity: 0; }
+            100% { transform: rotate(360deg) scale(1); opacity: 1; }
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+            width: 100%;
+            flex: 1;
+        }
+
+        .page-header {
+            margin-bottom: 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+
+        .page-title {
+            font-size: 2rem;
+            font-weight: 800;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(135deg, var(--primary), #06d6a0);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .page-subtitle {
+            color: var(--text-dim);
+            font-size: 1rem;
+        }
+
+        select.filter-select {
+            padding: 0.6rem 2rem 0.6rem 1rem;
+            border-radius: 30px;
+            border: 1px solid var(--border-glass);
+            background: var(--surface-glass);
+            backdrop-filter: blur(10px);
+            color: var(--text);
+            appearance: none;
+            cursor: pointer;
+            outline: none;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2310b981' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 1rem center;
+        }
+
+        select.filter-select:focus {
+            border-color: var(--primary);
+            box-shadow: var(--glow);
+        }
+
+        /* Stat cards */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat-card {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            padding: 1.25rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card .stat-icon {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            font-size: 1.5rem;
+            opacity: 0.25;
+        }
+
+        .stat-card .stat-value {
+            font-size: 1.9rem;
+            font-weight: 800;
+            line-height: 1.1;
+            letter-spacing: -0.02em;
+        }
+
+        .stat-card .stat-label {
+            color: var(--text-dim);
+            font-size: 0.82rem;
+            margin-top: 0.35rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        /* Chart cards */
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1.25rem;
+        }
+
+        .chart-card {
+            background: var(--surface-glass);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            padding: 1.25rem 1.4rem 1.4rem;
+            min-width: 0;
+        }
+
+        .chart-card.wide {
+            grid-column: 1 / -1;
+        }
+
+        .chart-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin-bottom: 0.15rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .chart-hint {
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            margin-bottom: 1rem;
+        }
+
+        .chart-svg {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        /* SVG element theming */
+        .bar-success { fill: var(--primary); transition: opacity 0.15s ease; }
+        .bar-failed { fill: var(--danger); transition: opacity 0.15s ease; }
+        .bar-success:hover, .bar-failed:hover { opacity: 0.75; }
+        .axis-text { fill: var(--text-dim); font-size: 11px; font-family: inherit; }
+        .grid-line { stroke: var(--border-glass); stroke-width: 1; }
+
+        .legend {
+            display: flex;
+            gap: 1.2rem;
+            flex-wrap: wrap;
+            margin-top: 0.9rem;
+            font-size: 0.82rem;
+            color: var(--text-dim);
+        }
+        .legend-item { display: flex; align-items: center; gap: 0.4rem; }
+        .legend-dot { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
+
+        /* Horizontal bar list (top artists / quality) */
+        .hbar-row {
+            display: grid;
+            grid-template-columns: minmax(80px, 34%) 1fr auto;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.7rem;
+        }
+        .hbar-label {
+            font-size: 0.85rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .hbar-track {
+            background: var(--surface-hover);
+            border-radius: 6px;
+            height: 12px;
+            overflow: hidden;
+        }
+        .hbar-fill {
+            display: block;
+            height: 100%;
+            border-radius: 6px;
+            background: linear-gradient(90deg, var(--primary), #06d6a0);
+            width: 0;
+            transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .hbar-fill.alt { background: linear-gradient(90deg, var(--accent), #22d3ee); }
+        .hbar-value {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--text-dim);
+            min-width: 2.2rem;
+            text-align: right;
+        }
+
+        /* Donut */
+        .donut-wrap {
+            display: flex;
+            align-items: center;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+        .donut-center-value {
+            font-size: 1.9rem;
+            font-weight: 800;
+            fill: var(--text);
+        }
+        .donut-center-label {
+            font-size: 0.7rem;
+            fill: var(--text-dim);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 1rem;
+            color: var(--text-dim);
+        }
+        .empty-state i { font-size: 3rem; opacity: 0.4; margin-bottom: 1rem; }
+
+        .loading-state {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--text-dim);
+        }
+
+        @media (max-width: 900px) {
+            .chart-grid { grid-template-columns: 1fr; }
+        }
+
+        @media (max-width: 768px) {
+            .nav-container {
+                height: auto;
+                flex-wrap: wrap;
+                padding: 0.75rem 1rem;
+                gap: 0.5rem;
+            }
+            .logo { font-size: 1rem; }
+            .nav-links {
+                width: 100%;
+                justify-content: center;
+                flex-wrap: wrap;
+                gap: 0.15rem;
+                order: 3;
+            }
+            .nav-links a { padding: 0.35rem 0.7rem; font-size: 0.8rem; }
+            .container { padding: 1rem; }
+            .page-title { font-size: 1.5rem; }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="nav-container">
+            <a href="/" style="text-decoration: none;">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <svg viewBox="0 0 32 32" fill="white"><rect x="4" y="18" width="4" height="8" rx="1"/><rect x="10" y="12" width="4" height="14" rx="1"/><rect x="18" y="6" width="4" height="20" rx="1"/><rect x="24" y="14" width="4" height="12" rx="1"/></svg>
+                    </div>
+                    LYD
+                </div>
+            </a>
+            <div class="nav-links">
+                <a href="/"><i class="fas fa-home"></i> Home</a>
+                <a href="/downloads"><i class="fas fa-download"></i> Downloads <span class="nav-badge" id="queueBadge">0</span></a>
+                <a href="/insights" class="active"><i class="fas fa-chart-line"></i> Insights</a>
+                <a href="/logs"><i class="fas fa-list"></i> Logs</a>
+                <a href="/youtube"><i class="fab fa-youtube"></i> YouTube</a>
+                <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
+            </div>
+            <div class="controls">
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
+                    <i class="fas fa-moon" id="theme-icon"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="page-header">
+            <div>
+                <h1 class="page-title">📊 Insights</h1>
+                <p class="page-subtitle">Download activity, success rate and audio quality at a glance</p>
+            </div>
+            <select class="filter-select" id="windowSelect" onchange="loadInsights()">
+                <option value="7">Last 7 days</option>
+                <option value="30" selected>Last 30 days</option>
+                <option value="90">Last 90 days</option>
+                <option value="365">Last year</option>
+            </select>
+        </div>
+
+        <div id="insightsBody">
+            <div class="loading-state">
+                <i class="fas fa-spinner fa-spin"></i> Loading insights…
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleTheme() {
+            const toggle = document.getElementById('themeToggle');
+            toggle.classList.add('spin');
+            setTimeout(() => {
+                document.body.classList.toggle('light');
+                const icon = document.getElementById('theme-icon');
+                if (document.body.classList.contains('light')) {
+                    icon.classList.remove('fa-moon');
+                    icon.classList.add('fa-sun');
+                    localStorage.setItem('theme', 'light');
+                } else {
+                    icon.classList.remove('fa-sun');
+                    icon.classList.add('fa-moon');
+                    localStorage.setItem('theme', 'dark');
+                }
+            }, 250);
+            setTimeout(() => toggle.classList.remove('spin'), 500);
+        }
+
+        if (localStorage.getItem('theme') === 'light') {
+            document.body.classList.add('light');
+            document.getElementById('theme-icon').classList.remove('fa-moon');
+            document.getElementById('theme-icon').classList.add('fa-sun');
+        }
+
+        function escapeHtml(str) {
+            return String(str == null ? '' : str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function fmtInt(n) {
+            return (n || 0).toLocaleString();
+        }
+
+        function fmtDuration(seconds) {
+            seconds = Math.round(seconds || 0);
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            if (h >= 1) return h + 'h ' + m + 'm';
+            if (m >= 1) return m + 'm';
+            return seconds + 's';
+        }
+
+        async function updateQueueBadge() {
+            try {
+                const res = await fetch('/api/stats');
+                const s = await res.json();
+                const badge = document.getElementById('queueBadge');
+                if (s.in_queue > 0) {
+                    badge.textContent = s.in_queue;
+                    badge.classList.add('active');
+                } else {
+                    badge.classList.remove('active');
+                }
+            } catch (e) {}
+        }
+
+        function statCard(icon, value, label, color) {
+            return `<div class="stat-card">
+                        <i class="fas ${icon} stat-icon" style="color:${color}"></i>
+                        <div class="stat-value" style="color:${color}">${value}</div>
+                        <div class="stat-label">${label}</div>
+                    </div>`;
+        }
+
+        function buildStats(t) {
+            return `<div class="stat-grid">
+                ${statCard('fa-music', fmtInt(t.total_tracks), 'Tracks attempted', 'var(--text)')}
+                ${statCard('fa-circle-check', t.success_rate + '%', 'Success rate', 'var(--primary)')}
+                ${statCard('fa-download', fmtInt(t.successful), 'Downloaded', 'var(--primary)')}
+                ${statCard('fa-triangle-exclamation', fmtInt(t.failed), 'Failed', 'var(--danger)')}
+                ${statCard('fa-compact-disc', fmtInt(t.distinct_albums), 'Albums', 'var(--accent)')}
+                ${statCard('fa-user', fmtInt(t.distinct_artists), 'Artists', 'var(--accent)')}
+                ${statCard('fa-clock', fmtDuration(t.total_duration_seconds), 'Listening time', 'var(--warning)')}
+            </div>`;
+        }
+
+        // Stacked daily bar chart (success + failed per day).
+        function buildDailyChart(daily) {
+            const W = 720, H = 260, pl = 36, pr = 12, pt = 14, pb = 26;
+            const plotW = W - pl - pr, plotH = H - pt - pb;
+            const n = daily.length;
+            const maxTotal = Math.max(1, ...daily.map(d => d.success + d.failed));
+            const slot = plotW / n;
+            const barW = Math.max(2, Math.min(26, slot * 0.62));
+
+            // Y gridlines at 0, 50%, 100% of max.
+            let grid = '';
+            for (let g = 0; g <= 2; g++) {
+                const frac = g / 2;
+                const y = pt + plotH - frac * plotH;
+                const val = Math.round(maxTotal * frac);
+                grid += `<line x1="${pl}" y1="${y}" x2="${W - pr}" y2="${y}" class="grid-line" ${g === 0 ? '' : 'stroke-dasharray="3 4"'}/>`;
+                grid += `<text x="${pl - 6}" y="${y + 3}" text-anchor="end" class="axis-text">${val}</text>`;
+            }
+
+            let bars = '';
+            daily.forEach((d, i) => {
+                const x = pl + i * slot + (slot - barW) / 2;
+                const sH = (d.success / maxTotal) * plotH;
+                const fH = (d.failed / maxTotal) * plotH;
+                const yS = pt + plotH - sH;
+                const yF = yS - fH;
+                if (sH > 0) bars += `<rect x="${x.toFixed(1)}" y="${yS.toFixed(1)}" width="${barW.toFixed(1)}" height="${sH.toFixed(1)}" rx="1.5" class="bar-success"><title>${d.date}: ${d.success} downloaded</title></rect>`;
+                if (fH > 0) bars += `<rect x="${x.toFixed(1)}" y="${yF.toFixed(1)}" width="${barW.toFixed(1)}" height="${fH.toFixed(1)}" rx="1.5" class="bar-failed"><title>${d.date}: ${d.failed} failed</title></rect>`;
+            });
+
+            // X labels: first, middle, last.
+            let xlabels = '';
+            const idxs = n <= 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
+            [...new Set(idxs)].forEach(i => {
+                const x = pl + i * slot + slot / 2;
+                const short = daily[i].date.slice(5); // MM-DD
+                const anchor = i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
+                xlabels += `<text x="${x.toFixed(1)}" y="${H - 8}" text-anchor="${anchor}" class="axis-text">${short}</text>`;
+            });
+
+            return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" role="img" aria-label="Downloads over time">
+                        ${grid}${bars}${xlabels}
+                    </svg>
+                    <div class="legend">
+                        <span class="legend-item"><span class="legend-dot" style="background:var(--primary)"></span>Downloaded</span>
+                        <span class="legend-item"><span class="legend-dot" style="background:var(--danger)"></span>Failed</span>
+                    </div>`;
+        }
+
+        // Success-rate donut.
+        function buildDonut(t) {
+            const size = 150, sw = 18, r = (size - sw) / 2, cx = size / 2, cy = size / 2;
+            const circ = 2 * Math.PI * r;
+            const rate = Math.max(0, Math.min(100, t.success_rate)) / 100;
+            const dash = circ * rate;
+            return `<div class="donut-wrap">
+                    <svg viewBox="0 0 ${size} ${size}" style="width:150px;height:150px;flex-shrink:0" role="img" aria-label="Success rate ${t.success_rate}%">
+                        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--surface-hover)" stroke-width="${sw}"/>
+                        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--primary)" stroke-width="${sw}"
+                            stroke-linecap="round" stroke-dasharray="${dash.toFixed(1)} ${(circ - dash).toFixed(1)}"
+                            transform="rotate(-90 ${cx} ${cy})"/>
+                        <text x="${cx}" y="${cy - 2}" text-anchor="middle" class="donut-center-value">${t.success_rate}%</text>
+                        <text x="${cx}" y="${cy + 16}" text-anchor="middle" class="donut-center-label">success</text>
+                    </svg>
+                    <div style="flex:1;min-width:130px">
+                        <div class="hbar-row" style="grid-template-columns:1fr auto">
+                            <span class="hbar-label"><i class="fas fa-circle" style="color:var(--primary);font-size:0.6rem"></i> Downloaded</span>
+                            <span class="hbar-value">${fmtInt(t.successful)}</span>
+                        </div>
+                        <div class="hbar-row" style="grid-template-columns:1fr auto">
+                            <span class="hbar-label"><i class="fas fa-circle" style="color:var(--danger);font-size:0.6rem"></i> Failed</span>
+                            <span class="hbar-value">${fmtInt(t.failed)}</span>
+                        </div>
+                        <div class="hbar-row" style="grid-template-columns:1fr auto">
+                            <span class="hbar-label"><i class="fas fa-circle" style="color:var(--text-dim);font-size:0.6rem"></i> Total</span>
+                            <span class="hbar-value">${fmtInt(t.total_tracks)}</span>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        // Horizontal bars for a labeled list.
+        function buildHBars(items, labelKey, valueKey, alt) {
+            if (!items.length) {
+                return `<div style="color:var(--text-dim);font-size:0.85rem;padding:1rem 0">No data yet.</div>`;
+            }
+            const max = Math.max(1, ...items.map(x => x[valueKey]));
+            return items.map(x => {
+                const pct = (x[valueKey] / max) * 100;
+                return `<div class="hbar-row">
+                            <span class="hbar-label" title="${escapeHtml(x[labelKey])}">${escapeHtml(x[labelKey])}</span>
+                            <span class="hbar-track"><span class="hbar-fill${alt ? ' alt' : ''}" style="width:0" data-w="${pct.toFixed(1)}%"></span></span>
+                            <span class="hbar-value">${fmtInt(x[valueKey])}</span>
+                        </div>`;
+            }).join('');
+        }
+
+        function render(data) {
+            const t = data.totals;
+            const body = document.getElementById('insightsBody');
+            if (!t.total_tracks) {
+                body.innerHTML = `<div class="empty-state">
+                        <i class="fas fa-chart-line"></i>
+                        <h2 style="margin-bottom:0.5rem">No download history yet</h2>
+                        <p>Queue some albums and your insights will appear here.</p>
+                    </div>`;
+                return;
+            }
+            body.innerHTML = `
+                ${buildStats(t)}
+                <div class="chart-grid">
+                    <div class="chart-card wide">
+                        <div class="chart-title"><i class="fas fa-chart-column" style="color:var(--primary)"></i> Downloads over time</div>
+                        <div class="chart-hint">Successful vs failed track downloads per day (last ${data.window_days} days)</div>
+                        ${buildDailyChart(data.daily)}
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-title"><i class="fas fa-circle-check" style="color:var(--primary)"></i> Success rate</div>
+                        <div class="chart-hint">Across all recorded track attempts</div>
+                        ${buildDonut(t)}
+                    </div>
+                    <div class="chart-card">
+                        <div class="chart-title"><i class="fas fa-headphones" style="color:var(--accent)"></i> Audio quality</div>
+                        <div class="chart-hint">Source stream container of downloaded tracks</div>
+                        ${buildHBars(data.quality, 'label', 'count', true)}
+                    </div>
+                    <div class="chart-card wide">
+                        <div class="chart-title"><i class="fas fa-star" style="color:var(--primary)"></i> Top artists</div>
+                        <div class="chart-hint">Most downloaded artists</div>
+                        ${buildHBars(data.top_artists, 'artist', 'count', false)}
+                    </div>
+                </div>`;
+            // Animate horizontal bars in from their rendered 0 width.
+            requestAnimationFrame(() => {
+                document.querySelectorAll('.hbar-fill').forEach(el => {
+                    if (el.dataset.w) el.style.width = el.dataset.w;
+                });
+            });
+        }
+
+        async function loadInsights() {
+            const days = document.getElementById('windowSelect').value;
+            const body = document.getElementById('insightsBody');
+            body.innerHTML = `<div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Loading insights…</div>`;
+            try {
+                const res = await fetch('/api/insights?days=' + encodeURIComponent(days));
+                if (!res.ok) throw new Error('Server error ' + res.status);
+                const data = await res.json();
+                render(data);
+            } catch (e) {
+                body.innerHTML = `<div class="empty-state">
+                        <i class="fas fa-triangle-exclamation" style="color:var(--danger)"></i>
+                        <p>Failed to load insights. Please try again.</p>
+                    </div>`;
+            }
+        }
+
+        updateQueueBadge();
+        loadInsights();
+    </script>
+</body>
+
+</html>

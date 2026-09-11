@@ -718,3 +718,73 @@ def test_add_track_download_source_format_defaults_empty():
         lidarr_album_path="", cover_url="",
     )
     assert models.get_track_downloads_for_album(78)[0]["source_format"] == ""
+
+
+# --- Insights aggregation ---
+
+
+def _add_dl(**kw):
+    base = dict(
+        album_id=1, album_title="A", artist_name="X", track_title="T",
+        track_number=1, success=True, error_message="", youtube_url="",
+        youtube_title="", match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    base.update(kw)
+    return models.add_track_download(**base)
+
+
+def test_get_insights_empty():
+    data = models.get_insights(days=7)
+    assert data["totals"]["total_tracks"] == 0
+    assert data["totals"]["success_rate"] == 0.0
+    assert data["top_artists"] == []
+    assert data["quality"] == []
+    # Zero-filled daily series still has one entry per day.
+    assert len(data["daily"]) == 7
+    assert all(d["success"] == 0 and d["failed"] == 0 for d in data["daily"])
+
+
+def test_get_insights_totals_and_rate():
+    _add_dl(album_id=1, artist_name="Artist X", success=True,
+            duration_seconds=200, source_format="140 · m4a · 128 kbps")
+    _add_dl(album_id=1, artist_name="Artist X", success=False,
+            error_message="no match")
+    _add_dl(album_id=2, album_title="B", artist_name="Artist Y",
+            success=True, duration_seconds=180,
+            source_format="251 · opus · 160 kbps")
+    data = models.get_insights(days=30)
+    t = data["totals"]
+    assert t["total_tracks"] == 3
+    assert t["successful"] == 2
+    assert t["failed"] == 1
+    assert t["success_rate"] == 66.7
+    assert t["distinct_albums"] == 2
+    assert t["distinct_artists"] == 2
+    assert t["total_duration_seconds"] == 380
+
+
+def test_get_insights_top_artists_and_quality():
+    _add_dl(artist_name="Artist X", success=True,
+            source_format="140 · m4a · 128 kbps")
+    _add_dl(artist_name="Artist X", success=True,
+            source_format="140 · m4a · 128 kbps")
+    _add_dl(artist_name="Artist Y", success=True,
+            source_format="251 · opus · 160 kbps")
+    _add_dl(artist_name="Artist Z", success=True, source_format="")
+    data = models.get_insights(days=30)
+    # Top artist first, ordered by count desc.
+    assert data["top_artists"][0] == {"artist": "Artist X", "count": 2}
+    quality = {q["label"]: q["count"] for q in data["quality"]}
+    assert quality["m4a"] == 2
+    assert quality["opus"] == 1
+    assert quality["Unknown"] == 1
+
+
+def test_get_insights_daily_counts_today():
+    _add_dl(success=True)
+    _add_dl(success=False)
+    data = models.get_insights(days=7)
+    today = data["daily"][-1]
+    assert today["success"] == 1
+    assert today["failed"] == 1

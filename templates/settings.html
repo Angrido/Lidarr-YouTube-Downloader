@@ -763,6 +763,7 @@
             <div class="nav-links">
                 <a href="/"><i class="fas fa-home"></i> Home</a>
                 <a href="/downloads"><i class="fas fa-download"></i> Downloads <span class="nav-badge" id="queueBadge">0</span></a>
+                <a href="/insights"><i class="fas fa-chart-line"></i> Insights</a>
                 <a href="/logs"><i class="fas fa-list"></i> Logs</a>
                 <a href="/youtube"><i class="fab fa-youtube"></i> YouTube</a>
                 <a href="/settings" class="active"><i class="fas fa-cog"></i> Settings</a>
@@ -1268,6 +1269,25 @@
                 <input type="file" id="configFileInput" accept=".json" style="display: none;" onchange="handleConfigImport(event)">
                 <button class="btn" onclick="document.getElementById('configFileInput').click()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
                     <i class="fa-solid fa-upload"></i> Import config.json
+                </button>
+            </div>
+            <div class="input-group">
+                <label>
+                    Backup Database
+                    <div class="label-description">Download a full backup of the app database — download history, logs, queue, banned URLs and playlist imports. Keep it safe to restore after a reset or on a new install. (Your <code>config.json</code> is exported separately, above.)</div>
+                </label>
+                <button class="btn" onclick="exportBackup()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                    <i class="fa-solid fa-database"></i> Download backup (.db)
+                </button>
+            </div>
+            <div class="input-group">
+                <label>
+                    Restore Database
+                    <div class="label-description">Upload a previously downloaded backup to <strong>replace</strong> the current database. The app restarts to apply it. Not available while a download is running.</div>
+                </label>
+                <input type="file" id="backupFileInput" accept=".db,.sqlite,.sqlite3" style="display: none;" onchange="handleBackupImport(event)">
+                <button class="btn" onclick="document.getElementById('backupFileInput').click()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                    <i class="fa-solid fa-upload"></i> Restore backup (.db)
                 </button>
             </div>
         </div>
@@ -1941,6 +1961,40 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
 
         function exportConfig() {
             window.location.href = '/api/config/export';
+        }
+
+        function exportBackup() {
+            window.location.href = '/api/backup/export';
+        }
+
+        async function handleBackupImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const ok = confirm(
+                'Restore will REPLACE your current database with this backup '
+                + 'and restart the app. This cannot be undone. Continue?'
+            );
+            if (!ok) { event.target.value = ''; return; }
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const res = await fetch('/api/backup/import', {
+                    method: 'POST', body: formData,
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('success', 'Restoring',
+                        'Database restored — the app is restarting…');
+                    setTimeout(() => window.location.reload(), 4500);
+                } else {
+                    showToast('error', 'Restore failed',
+                        data.message || 'Could not restore the backup');
+                }
+            } catch (e) {
+                showToast('info', 'Restarting', 'The app is restarting…');
+                setTimeout(() => window.location.reload(), 4500);
+            }
+            event.target.value = '';
         }
 
         async function sendTelegramTest() {

@@ -8,7 +8,7 @@ import json
 import logging
 import math
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 
 import db
@@ -262,6 +262,97 @@ def get_history_album_ids_since(since_timestamp):
         (since_timestamp,),
     ).fetchall()
     return {row[0] for row in rows}
+
+
+def _quality_bucket(source_format):
+    """Reduce a stored source_format ("<id> · <container> · <bitrate>") to a
+    coarse container/codec label used by the quality distribution chart."""
+    if not source_format:
+        return "Unknown"
+    parts = [p.strip() for p in source_format.split("·")]
+    if len(parts) >= 2 and parts[1]:
+        return parts[1]
+    return "Unknown"
+
+
+def get_insights(days=30):
+    """Aggregate download analytics for the insights dashboard.
+
+    Returns overall totals, a per-day success/failure series covering the
+    last ``days`` (zero-filled), the top artists by successful tracks, and
+    an audio-quality breakdown derived from the recorded ``source_format``.
+    """
+    conn = db.get_db()
+    since = (datetime.now() - timedelta(days=days)).timestamp()
+
+    # Overall totals (all time).
+    row = conn.execute(
+        "SELECT COUNT(*),"
+        " SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END),"
+        " COUNT(DISTINCT album_id),"
+        " COUNT(DISTINCT artist_name),"
+        " SUM(CASE WHEN success = 1 THEN duration_seconds ELSE 0 END)"
+        " FROM track_downloads"
+    ).fetchone()
+    total = (row[0] if row else 0) or 0
+    successful = (row[1] if row else 0) or 0
+    totals = {
+        "total_tracks": total,
+        "successful": successful,
+        "failed": total - successful,
+        "success_rate": round(successful / total * 100, 1) if total else 0.0,
+        "distinct_albums": (row[2] or 0) if row else 0,
+        "distinct_artists": (row[3] or 0) if row else 0,
+        "total_duration_seconds": (row[4] or 0) if row else 0,
+    }
+
+    # Per-day success/failure over the window (local dates), zero-filled.
+    rows = conn.execute(
+        "SELECT strftime('%Y-%m-%d', timestamp, 'unixepoch', 'localtime') AS day,"
+        " SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END),"
+        " SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END)"
+        " FROM track_downloads WHERE timestamp >= ?"
+        " GROUP BY day",
+        (since,),
+    ).fetchall()
+    by_day = {r[0]: ((r[1] or 0), (r[2] or 0)) for r in rows}
+    daily = []
+    today = datetime.now().date()
+    for i in range(days - 1, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        succ, fail = by_day.get(d, (0, 0))
+        daily.append({"date": d, "success": succ, "failed": fail})
+
+    # Top artists by successful tracks.
+    rows = conn.execute(
+        "SELECT artist_name, COUNT(*) AS c FROM track_downloads"
+        " WHERE success = 1 AND artist_name != ''"
+        " GROUP BY artist_name ORDER BY c DESC, artist_name LIMIT 10"
+    ).fetchall()
+    top_artists = [{"artist": r[0], "count": r[1]} for r in rows]
+
+    # Audio-quality distribution from the recorded source_format.
+    quality = {}
+    rows = conn.execute(
+        "SELECT source_format, COUNT(*) FROM track_downloads"
+        " WHERE success = 1 GROUP BY source_format"
+    ).fetchall()
+    for fmt, count in rows:
+        label = _quality_bucket(fmt)
+        quality[label] = quality.get(label, 0) + count
+    quality_list = sorted(
+        ({"label": k, "count": v} for k, v in quality.items()),
+        key=lambda x: x["count"],
+        reverse=True,
+    )
+
+    return {
+        "totals": totals,
+        "daily": daily,
+        "top_artists": top_artists,
+        "quality": quality_list,
+        "window_days": days,
+    }
 
 
 def get_attempted_album_ids_since(since_timestamp):

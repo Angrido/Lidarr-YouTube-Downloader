@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.9.0
+
+### Added
+- **Insights dashboard** (`/insights`): a new analytics page with
+  dependency-free inline-SVG charts — downloads over time (successful vs
+  failed per day), overall success-rate donut, audio-quality distribution
+  (from the per-track source format) and your most-downloaded artists —
+  plus headline stats (tracks attempted, success rate, albums, artists,
+  total listening time). Pick a 7 / 30 / 90 / 365-day window.
+- **Bulk actions on the library**: select multiple missing albums with the
+  new per-album checkboxes (in every view — cards, list and table) and queue
+  them all at once from a floating action bar, instead of adding them one by
+  one.
+- **Backup & Restore** (Settings → Import / Export): download a consistent
+  snapshot of the whole database (settings, history, queue) as a single
+  `.db` file, and restore it later by uploading it. The restore validates
+  the file, swaps the database atomically and restarts the app; it's
+  refused while a download is in progress to avoid corruption.
+
 ## 1.8.8
 
 ### Added
