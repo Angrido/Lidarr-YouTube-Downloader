@@ -268,6 +268,13 @@ def _build_common_opts(player_client=None):
 
 MAX_CANDIDATES = 10
 
+# Set once we confirm ffmpeg can't run the audio postprocessing on this host
+# (e.g. a broken/emulated ffmpeg that returns ENOSYS when opening output
+# files). After that, m4a/opus downloads skip straight to the no-ffmpeg
+# native-stream path instead of re-downloading each stream several times
+# just to watch the same conversion fail. Reset on process restart.
+_ffmpeg_postprocess_broken = False
+
 # YouTube Music auto-generates an album-browse playlist for every release
 # uploaded by a label; its id always starts with this prefix. Discovering
 # this playlist is the most reliable way to identify the canonical track
@@ -1305,6 +1312,7 @@ def _download_raw_audio(
 def download_youtube_candidate(
     candidate, output_path, progress_hook=None, skip_check=None,
 ):
+    global _ffmpeg_postprocess_broken
     if skip_check and skip_check():
         return {"skipped": True}
 
@@ -1364,6 +1372,35 @@ def download_youtube_candidate(
         or (config.get("yt_pot_provider_url") or "").strip()
     )
     clients_to_try = _client_fallback_chain(config, is_music) + [None]
+
+    # ffmpeg postprocessing already proved broken this session: for m4a/opus
+    # the native stream needs no conversion, so go straight to the no-ffmpeg
+    # path instead of re-downloading the stream once per doomed conversion
+    # attempt. (mp3 has no native stream, so it still tries the normal path.)
+    if _ffmpeg_postprocess_broken and audio_format in ("m4a", "opus") \
+            and not normalize_audio:
+        raw_captured = {}
+        raw_file = _download_raw_audio(
+            candidate, output_path, audio_format, is_music, config,
+            progress_hook=progress_hook, skip_check=skip_check,
+            captured_fmt=raw_captured,
+        )
+        if raw_file:
+            logger.info(
+                "Downloaded '%s' as native %s (ffmpeg postprocessing is"
+                " unavailable on this host).",
+                candidate["title"], audio_format,
+            )
+            return {
+                "success": True,
+                "youtube_url": display_url,
+                "youtube_title": candidate["title"],
+                "match_score": round(candidate["score"], 4),
+                "duration_seconds": int(candidate["duration"]),
+                "source_format": _format_source_quality(raw_captured),
+            }
+        # No native stream in the wanted container — fall through and let the
+        # normal path try (and, if ffmpeg really is broken, fail cleanly).
 
     # Selector-outer / client-inner: ``android`` often only sees the
     # combined 360p mp4 (22k audio) while ``web`` exposes the 130k DASH
@@ -1494,9 +1531,12 @@ def download_youtube_candidate(
                     continue
 
     if conversion_errors:
-        # ffmpeg postprocessing is broken locally. For m4a/opus targets the
-        # native YouTube stream is already in the wanted container, so try a
-        # direct download with no ffmpeg step at all before giving up.
+        # ffmpeg postprocessing is broken locally. Remember it so later tracks
+        # skip the doomed conversion attempts entirely.
+        _ffmpeg_postprocess_broken = True
+        # For m4a/opus targets the native YouTube stream is already in the
+        # wanted container, so try a direct download with no ffmpeg step at
+        # all before giving up.
         raw_captured = {}
         raw_file = _download_raw_audio(
             candidate, output_path, audio_format, is_music, config,

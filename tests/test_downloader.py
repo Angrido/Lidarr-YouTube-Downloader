@@ -1,5 +1,8 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+import downloader
 from downloader import (
     _build_common_opts,
     _candidate_display_url,
@@ -15,6 +18,16 @@ from downloader import (
     match_album_track,
     search_youtube_candidates,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_ffmpeg_broken_flag():
+    # download_youtube_candidate latches a module-level flag once ffmpeg
+    # postprocessing proves broken; reset it around every test so it can't
+    # leak between tests (or into other test modules in the same process).
+    downloader._ffmpeg_postprocess_broken = False
+    yield
+    downloader._ffmpeg_postprocess_broken = False
 
 
 def test_looks_like_music_video():
@@ -709,6 +722,33 @@ class TestDownloadYoutubeCandidate:
         assert result.get("postprocess_error") is True
         # No native-stream download attempts were made for mp3.
         assert mock_ydl.download.call_count <= 3
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_early_raw_path_when_ffmpeg_known_broken(
+        self, mock_config, mock_ydl_class, tmp_path,
+    ):
+        # Once ffmpeg postprocessing is known broken, an m4a target must go
+        # straight to the native download — no wasted conversion cascade.
+        import os
+        downloader._ffmpeg_postprocess_broken = True
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "m4a",
+        }
+        out = str(tmp_path / "output")
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+
+        def _dl(urls):
+            with open(out + ".m4a", "wb") as fh:
+                fh.write(b"\x00\x00")
+            return 0
+
+        mock_ydl.download.side_effect = _dl
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, out)
+        assert result["success"] is True
+        assert mock_ydl.download.call_count == 1
+        assert os.path.exists(out + ".m4a")
 
 
 class TestYouTubeMusicSourceAcceptedWithoutChannel:
