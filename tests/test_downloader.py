@@ -21,13 +21,17 @@ from downloader import (
 
 
 @pytest.fixture(autouse=True)
-def _reset_ffmpeg_broken_flag():
-    # download_youtube_candidate latches a module-level flag once ffmpeg
-    # postprocessing proves broken; reset it around every test so it can't
-    # leak between tests (or into other test modules in the same process).
-    downloader._ffmpeg_postprocess_broken = False
+def _reset_ffmpeg_pp_state():
+    # download_youtube_candidate caches whether ffmpeg can write output.
+    # Force "works" around every test so the normal path is exercised
+    # without running a real ffmpeg probe (individual tests override it),
+    # and so the cached state can't leak between tests or test modules.
+    # Also mark yt-dlp plugins as already loaded so the quiet preload is a
+    # no-op and never touches the real yt-dlp during tests.
+    downloader._ffmpeg_pp_state = True
+    downloader._plugins_preloaded = True
     yield
-    downloader._ffmpeg_postprocess_broken = False
+    downloader._ffmpeg_pp_state = True
 
 
 def test_looks_like_music_video():
@@ -731,7 +735,7 @@ class TestDownloadYoutubeCandidate:
         # Once ffmpeg postprocessing is known broken, an m4a target must go
         # straight to the native download — no wasted conversion cascade.
         import os
-        downloader._ffmpeg_postprocess_broken = True
+        downloader._ffmpeg_pp_state = False
         mock_config.return_value = {
             "yt_player_client": "android", "audio_format": "m4a",
         }
@@ -749,6 +753,58 @@ class TestDownloadYoutubeCandidate:
         assert result["success"] is True
         assert mock_ydl.download.call_count == 1
         assert os.path.exists(out + ".m4a")
+
+
+class TestFfmpegProbe:
+    @patch("downloader.subprocess.run")
+    def test_probe_broken_when_ffmpeg_returns_error(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1)
+        assert downloader._probe_ffmpeg_can_write_audio(None) is False
+
+    @patch("downloader.subprocess.run")
+    def test_probe_broken_when_no_output_file(self, mock_run):
+        # ffmpeg claims success but no file lands (the ENOSYS symptom).
+        mock_run.return_value = MagicMock(returncode=0)
+        assert downloader._probe_ffmpeg_can_write_audio(None) is False
+
+    @patch("downloader.subprocess.run")
+    def test_probe_ok_when_ffmpeg_writes_file(self, mock_run, tmp_path):
+        def _run(cmd, **kw):
+            with open(cmd[-1], "wb") as fh:
+                fh.write(b"\x00" * 64)
+            return MagicMock(returncode=0)
+        mock_run.side_effect = _run
+        assert downloader._probe_ffmpeg_can_write_audio(str(tmp_path)) is True
+
+    @patch("downloader.subprocess.run")
+    def test_postprocess_works_caches_probe(self, mock_run):
+        downloader._ffmpeg_pp_state = None
+        mock_run.return_value = MagicMock(returncode=1)
+        assert downloader._ffmpeg_postprocess_works(None) is False
+        assert downloader._ffmpeg_postprocess_works(None) is False
+        # Probe ran only once despite two queries.
+        assert mock_run.call_count == 1
+
+
+class TestPluginPreload:
+    def test_preload_runs_once_and_mutes_stderr(self, capsys):
+        downloader._plugins_preloaded = False
+        fake_plugins = MagicMock()
+        try:
+            with patch.object(downloader, "yt_dlp") as mock_ytdlp:
+                # Simulate the noisy loader writing to stderr on first load.
+                def _noisy():
+                    import sys
+                    sys.stderr.write("PoTokenProvider BgUtilHTTP already registered\n")
+                mock_ytdlp.plugins = fake_plugins
+                fake_plugins.load_all_plugins.side_effect = _noisy
+                downloader.preload_ytdlp_plugins_quietly()
+                downloader.preload_ytdlp_plugins_quietly()
+        finally:
+            downloader._plugins_preloaded = True
+        # Loaded exactly once, and its stderr noise was swallowed.
+        assert fake_plugins.load_all_plugins.call_count == 1
+        assert "already registered" not in capsys.readouterr().err
 
 
 class TestYouTubeMusicSourceAcceptedWithoutChannel:

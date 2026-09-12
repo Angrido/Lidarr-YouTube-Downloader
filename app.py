@@ -36,6 +36,7 @@ from downloader import (
     get_ytdlp_version,
     list_video_formats,
     download_youtube_candidate,
+    preload_ytdlp_plugins_quietly,
 )
 from fingerprint import fingerprint_track
 from lidarr import get_missing_albums, lidarr_request
@@ -3589,6 +3590,9 @@ if __name__ == "__main__":
     db.init_db()
     models.reset_downloading_to_queued()
     download_client.restore_jobs()
+    # Load yt-dlp plugins once, quietly, so the bgutil PO-token provider's
+    # harmless "already registered" import error never appears mid-download.
+    preload_ytdlp_plugins_quietly()
     logger.info("Starting Lidarr YouTube Downloader...")
     logger.info("Version: %s", VERSION)
     logger.info(

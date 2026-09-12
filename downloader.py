@@ -15,6 +15,9 @@ import logging
 import math
 import os
 import re
+import subprocess
+import tempfile
+import threading
 from difflib import SequenceMatcher
 
 import yt_dlp
@@ -268,12 +271,117 @@ def _build_common_opts(player_client=None):
 
 MAX_CANDIDATES = 10
 
-# Set once we confirm ffmpeg can't run the audio postprocessing on this host
-# (e.g. a broken/emulated ffmpeg that returns ENOSYS when opening output
-# files). After that, m4a/opus downloads skip straight to the no-ffmpeg
-# native-stream path instead of re-downloading each stream several times
-# just to watch the same conversion fail. Reset on process restart.
-_ffmpeg_postprocess_broken = False
+# Whether ffmpeg can actually encode+write an audio file on this host.
+# None = not probed yet, True = works, False = broken (e.g. an emulated CPU
+# arch or a download filesystem that returns ENOSYS for the mp4 muxer, where
+# ffmpeg can read/analyse but not open output files). When broken, m4a/opus
+# downloads skip straight to the no-ffmpeg native-stream path from the very
+# first track, so no doomed conversion is ever attempted. Reset on restart.
+_ffmpeg_pp_state = None
+_ffmpeg_pp_lock = threading.Lock()
+
+
+def _probe_ffmpeg_can_write_audio(probe_dir=None):
+    """Return True if ffmpeg can encode and actually WRITE an audio file.
+
+    Encodes 0.1s of silence to an m4a file (on the same filesystem the real
+    downloads use, when available) and checks a non-empty file lands. Hosts
+    with a broken/emulated ffmpeg fail here with ENOSYS, exactly as the real
+    postprocessing does.
+    """
+    probe_dir = probe_dir if (probe_dir and os.path.isdir(probe_dir)) else None
+    try:
+        fd, path = tempfile.mkstemp(suffix=".m4a", dir=probe_dir)
+        os.close(fd)
+        os.remove(path)  # let ffmpeg create it fresh
+    except OSError:
+        return True  # can't set up the probe — assume ffmpeg is fine
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg", "-hide_banner", "-nostats", "-y",
+                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                "-t", "0.1", "-c:a", "aac", path,
+            ],
+            capture_output=True, text=True, timeout=30,
+        )
+        ok = (
+            proc.returncode == 0
+            and os.path.exists(path)
+            and os.path.getsize(path) > 0
+        )
+        if not ok:
+            logger.info(
+                "ffmpeg cannot write audio output on this host; downloads"
+                " will keep the native stream (no conversion). This is an"
+                " environment issue (often an emulated CPU architecture)."
+            )
+        return ok
+    except Exception as e:
+        logger.info(
+            "ffmpeg output probe failed (%s); keeping native streams"
+            " without conversion.", e,
+        )
+        return False
+    finally:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _ffmpeg_postprocess_works(probe_dir=None):
+    """Cached, thread-safe check of whether ffmpeg can write audio here."""
+    global _ffmpeg_pp_state
+    with _ffmpeg_pp_lock:
+        if _ffmpeg_pp_state is None:
+            _ffmpeg_pp_state = _probe_ffmpeg_can_write_audio(probe_dir)
+        return _ffmpeg_pp_state
+
+
+def _mark_ffmpeg_postprocess_broken():
+    """Latch ffmpeg postprocessing as broken (used if a real conversion fails
+    even though the probe passed)."""
+    global _ffmpeg_pp_state
+    with _ffmpeg_pp_lock:
+        _ffmpeg_pp_state = False
+
+
+_plugins_preloaded = False
+_plugins_preload_lock = threading.Lock()
+
+
+def preload_ytdlp_plugins_quietly():
+    """Load yt-dlp's plugins once with stderr muted.
+
+    The bgutil PO-token provider registers under both of yt-dlp's plugin
+    mechanisms, so the first plugin load prints a harmless (but alarming)
+    "PoTokenProvider ... already registered" import error with a traceback.
+    Trigger that one-time load here with stderr captured, so it never
+    surfaces mid-download. The provider still ends up registered (the first
+    registration wins), so PO-token support is unaffected. Idempotent and
+    thread-safe.
+    """
+    global _plugins_preloaded
+    import contextlib
+    import io
+    with _plugins_preload_lock:
+        if _plugins_preloaded:
+            return
+        _plugins_preloaded = True
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                plugins = getattr(yt_dlp, "plugins", None)
+                if plugins and hasattr(plugins, "load_all_plugins"):
+                    plugins.load_all_plugins()
+                else:  # older yt-dlp: YoutubeDL construction triggers load
+                    with yt_dlp.YoutubeDL(
+                        {"quiet": True, "no_warnings": True,
+                         "logger": _SILENT_YDL_LOGGER}
+                    ):
+                        pass
+        except Exception:
+            pass
 
 # YouTube Music auto-generates an album-browse playlist for every release
 # uploaded by a label; its id always starts with this prefix. Discovering
@@ -1312,7 +1420,9 @@ def _download_raw_audio(
 def download_youtube_candidate(
     candidate, output_path, progress_hook=None, skip_check=None,
 ):
-    global _ffmpeg_postprocess_broken
+    # Ensure yt-dlp's plugins are loaded quietly before the first download,
+    # covering entry points that don't run the app's __main__ startup.
+    preload_ytdlp_plugins_quietly()
     if skip_check and skip_check():
         return {"skipped": True}
 
@@ -1373,11 +1483,13 @@ def download_youtube_candidate(
     )
     clients_to_try = _client_fallback_chain(config, is_music) + [None]
 
-    # ffmpeg postprocessing already proved broken this session: for m4a/opus
-    # the native stream needs no conversion, so go straight to the no-ffmpeg
-    # path instead of re-downloading the stream once per doomed conversion
-    # attempt. (mp3 has no native stream, so it still tries the normal path.)
-    if _ffmpeg_postprocess_broken and audio_format in ("m4a", "opus") \
+    # If ffmpeg can't write output on this host (probed once, up front), the
+    # normal conversion path is doomed and only produces error noise. For
+    # m4a/opus the native stream needs no conversion, so go straight to the
+    # no-ffmpeg path from the very first track. (mp3 has no native stream and
+    # loudnorm needs a re-encode, so those still take the normal path.)
+    ffmpeg_ok = _ffmpeg_postprocess_works(os.path.dirname(output_path))
+    if not ffmpeg_ok and audio_format in ("m4a", "opus") \
             and not normalize_audio:
         raw_captured = {}
         raw_file = _download_raw_audio(
@@ -1531,9 +1643,9 @@ def download_youtube_candidate(
                     continue
 
     if conversion_errors:
-        # ffmpeg postprocessing is broken locally. Remember it so later tracks
-        # skip the doomed conversion attempts entirely.
-        _ffmpeg_postprocess_broken = True
+        # ffmpeg postprocessing is broken locally (the probe missed it, or it
+        # broke mid-run). Latch it so later tracks skip the doomed cascade.
+        _mark_ffmpeg_postprocess_broken()
         # For m4a/opus targets the native YouTube stream is already in the
         # wanted container, so try a direct download with no ffmpeg step at
         # all before giving up.

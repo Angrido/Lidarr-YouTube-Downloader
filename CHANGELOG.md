@@ -19,6 +19,21 @@
   the file, swaps the database atomically and restarts the app; it's
   refused while a download is in progress to avoid corruption.
 
+### Fixed
+- **Downloads survive a broken/emulated ffmpeg.** On hosts where ffmpeg
+  can't write output files (e.g. an emulated CPU architecture, or a
+  download filesystem returning ENOSYS for the mp4 muxer), audio conversion
+  failed for every track. The app now probes ffmpeg once at first download
+  and, when conversion isn't possible, downloads the native m4a/opus stream
+  directly with no ffmpeg step — so downloads still succeed, without the
+  endless "Postprocessing: Error opening output files" retry loop that
+  previously had to be stopped by hand.
+- **Quiet yt-dlp plugin loading.** The bgutil PO-token provider registered
+  under both of yt-dlp's plugin mechanisms, printing an alarming
+  "PoTokenProvider ... already registered" traceback on the first download.
+  Plugins are now loaded once at startup with that harmless message
+  suppressed; PO-token support is unaffected.
+
 ## 1.8.8
 
 ### Added
