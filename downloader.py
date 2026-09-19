@@ -274,45 +274,68 @@ def _build_common_opts(player_client=None):
 MAX_CANDIDATES = 10
 
 _ffmpeg_pp_state = None
+# Set when a real download's conversion failed. That is proof, unlike the
+# probe's approximation, so Re-check must not be able to clear it.
+_ffmpeg_pp_observed_broken = False
 _ffmpeg_pp_lock = threading.Lock()
 _normalize_skip_warned = False
 
 
-def _probe_ffmpeg_can_write_audio(probe_dir=None):
-    """Return True if ffmpeg can encode and actually WRITE an audio file.
+def _run_ffmpeg(args, timeout=30):
+    return subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-y", *args],
+        capture_output=True, text=True, timeout=timeout,
+    )
 
-    Encodes 0.1s of silence to an m4a file (on the same filesystem the real
-    downloads use, when available) and checks a non-empty file lands. Hosts
-    with a broken/emulated ffmpeg fail here with ENOSYS, exactly as the real
-    postprocessing does.
+
+def _probe_ffmpeg_can_write_audio(probe_dir=None):
+    """Return True if ffmpeg can write the audio files a download produces.
+
+    Runs both shapes yt-dlp uses, on the filesystem the downloads land on:
+    encoding to m4a, then stream-copying that m4a into another one. A host
+    can fail only the second, which is the one a native YouTube stream takes,
+    so testing the encode alone reports healthy where downloads still fail.
     """
     probe_dir = probe_dir if (probe_dir and os.path.isdir(probe_dir)) else None
+    paths = []
     try:
-        fd, path = tempfile.mkstemp(suffix=".m4a", dir=probe_dir)
-        os.close(fd)
-        os.remove(path)  # let ffmpeg create it fresh
-    except OSError:
-        return True  # can't set up the probe — assume ffmpeg is fine
-    try:
-        proc = subprocess.run(
-            [
-                "ffmpeg", "-hide_banner", "-nostats", "-y",
-                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                "-t", "0.1", "-c:a", "aac",
-                # yt-dlp appends +faststart to every output it writes
-                # (FFmpegPostProcessor.real_run_ffmpeg); without it the probe
-                # tests a different code path and passes on hosts where the
-                # real conversion fails.
-                "-movflags", "+faststart",
-                path,
-            ],
-            capture_output=True, text=True, timeout=30,
-        )
-        ok = (
+        for _ in range(2):
+            fd, path = tempfile.mkstemp(suffix=".m4a", dir=probe_dir)
+            os.close(fd)
+            os.remove(path)
+            paths.append(path)
+    except OSError as e:
+        for path in paths:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        logger.info("Could not set up the ffmpeg probe (%s).", e)
+        return True
+    encoded, remuxed = paths
+
+    def wrote(path, proc):
+        return (
             proc.returncode == 0
             and os.path.exists(path)
             and os.path.getsize(path) > 0
         )
+
+    try:
+        # yt-dlp appends +faststart to every output it writes
+        # (FFmpegPostProcessor.real_run_ffmpeg); without it the probe tests a
+        # different code path and passes on hosts where downloads fail.
+        proc = _run_ffmpeg([
+            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+            "-t", "0.1", "-c:a", "aac", "-movflags", "+faststart", encoded,
+        ])
+        ok = wrote(encoded, proc)
+        if ok:
+            proc = _run_ffmpeg([
+                "-i", encoded, "-vn", "-acodec", "copy",
+                "-movflags", "+faststart", remuxed,
+            ])
+            ok = wrote(remuxed, proc)
         if not ok:
             logger.info(
                 "ffmpeg cannot write audio output on this host; downloads"
@@ -327,10 +350,11 @@ def _probe_ffmpeg_can_write_audio(probe_dir=None):
         )
         return False
     finally:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
+        for path in paths:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 
 def _ffmpeg_postprocess_works(probe_dir=None):
@@ -356,7 +380,8 @@ def ffmpeg_status(probe_dir=None, refresh=False):
     global _ffmpeg_pp_state
     if refresh:
         with _ffmpeg_pp_lock:
-            _ffmpeg_pp_state = None
+            if not _ffmpeg_pp_observed_broken:
+                _ffmpeg_pp_state = None
     audio_format = (load_config().get("audio_format", "mp3") or "").lower()
     ok = _ffmpeg_postprocess_works(probe_dir)
     native_ok = audio_format in NATIVE_AUDIO_FORMATS
@@ -365,6 +390,7 @@ def ffmpeg_status(probe_dir=None, refresh=False):
         "machine": platform.machine(),
         "audio_format": audio_format,
         "downloads_work": bool(ok or native_ok),
+        "observed": _ffmpeg_pp_observed_broken,
         "native_formats": list(NATIVE_AUDIO_FORMATS),
     }
     if ok:
@@ -379,6 +405,11 @@ def ffmpeg_status(probe_dir=None, refresh=False):
         "ffmpeg cannot write audio output on this host."
     )
     status["detail"] = (
+        "A download has already failed to convert on this host, so this is"
+        " measured, not predicted. Re-checking cannot clear it; restart the"
+        " container once you have changed the image. "
+        if _ffmpeg_pp_observed_broken else ""
+    ) + (
         "ffmpeg fails with ENOSYS (“Function not implemented”) when it"
         " writes a converted file. That error comes from the system, not from"
         " ffmpeg itself, and almost always means the container is running"
@@ -413,11 +444,11 @@ def ffmpeg_status(probe_dir=None, refresh=False):
 
 
 def _mark_ffmpeg_postprocess_broken():
-    """Latch ffmpeg postprocessing as broken (used if a real conversion fails
-    even though the probe passed)."""
-    global _ffmpeg_pp_state
+    """Record that a real conversion failed, which settles the question."""
+    global _ffmpeg_pp_state, _ffmpeg_pp_observed_broken
     with _ffmpeg_pp_lock:
         _ffmpeg_pp_state = False
+        _ffmpeg_pp_observed_broken = True
 
 
 _plugins_preloaded = False

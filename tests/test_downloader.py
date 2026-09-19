@@ -29,9 +29,11 @@ def _reset_ffmpeg_pp_state():
     # Also mark yt-dlp plugins as already loaded so the quiet preload is a
     # no-op and never touches the real yt-dlp during tests.
     downloader._ffmpeg_pp_state = True
+    downloader._ffmpeg_pp_observed_broken = False
     downloader._plugins_preloaded = True
     yield
     downloader._ffmpeg_pp_state = True
+    downloader._ffmpeg_pp_observed_broken = False
 
 
 def test_looks_like_music_video():
@@ -2119,3 +2121,75 @@ class TestFfmpegStatus:
             str(tmp_path), refresh=True
         )["ok"] is False
         assert mock_run.call_count == 1
+
+
+class TestObservedFailureIsAuthoritative:
+    """A failed real conversion outranks the probe's approximation."""
+
+    def _cfg(self):
+        return {"audio_format": "m4a", "yt_player_client": "android"}
+
+    @patch("downloader._run_ffmpeg")
+    @patch("downloader.load_config")
+    def test_recheck_cannot_clear_an_observed_failure(
+        self, mock_config, mock_ffmpeg, tmp_path,
+    ):
+        # The reported bug: Re-check reported "works" after a download had
+        # already proved otherwise, then went red again on the next song.
+        mock_config.return_value = self._cfg()
+        downloader._mark_ffmpeg_postprocess_broken()
+
+        def _pass(args, timeout=30):
+            open(args[-1], "wb").write(b"\0" * 64)
+            return MagicMock(returncode=0)
+
+        mock_ffmpeg.side_effect = _pass
+        st = downloader.ffmpeg_status(str(tmp_path), refresh=True)
+        assert st["ok"] is False
+        assert st["observed"] is True
+        assert "measured, not predicted" in st["detail"]
+
+    @patch("downloader._run_ffmpeg")
+    @patch("downloader.load_config")
+    def test_recheck_still_works_without_an_observed_failure(
+        self, mock_config, mock_ffmpeg, tmp_path,
+    ):
+        mock_config.return_value = self._cfg()
+        downloader._ffmpeg_pp_state = False
+
+        def _pass(args, timeout=30):
+            open(args[-1], "wb").write(b"\0" * 64)
+            return MagicMock(returncode=0)
+
+        mock_ffmpeg.side_effect = _pass
+        st = downloader.ffmpeg_status(str(tmp_path), refresh=True)
+        assert st["ok"] is True
+        assert st["observed"] is False
+
+
+class TestProbeCoversBothFfmpegShapes:
+    @patch("downloader._run_ffmpeg")
+    def test_a_failing_stream_copy_is_caught(self, mock_ffmpeg, tmp_path):
+        # A native YouTube m4a is stream-copied, not encoded. A host that
+        # can encode but not copy must not be reported as healthy.
+        calls = {"n": 0}
+
+        def _run(args, timeout=30):
+            calls["n"] += 1
+            if "copy" in args:
+                return MagicMock(returncode=1)
+            open(args[-1], "wb").write(b"\0" * 64)
+            return MagicMock(returncode=0)
+
+        mock_ffmpeg.side_effect = _run
+        assert downloader._probe_ffmpeg_can_write_audio(str(tmp_path)) is False
+        assert calls["n"] == 2
+
+    @patch("downloader._run_ffmpeg")
+    def test_both_shapes_passing_reports_healthy(self, mock_ffmpeg, tmp_path):
+        def _run(args, timeout=30):
+            open(args[-1], "wb").write(b"\0" * 64)
+            return MagicMock(returncode=0)
+
+        mock_ffmpeg.side_effect = _run
+        assert downloader._probe_ffmpeg_can_write_audio(str(tmp_path)) is True
