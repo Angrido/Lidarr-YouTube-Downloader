@@ -80,6 +80,17 @@ class DedupeFilter(logging.Filter):
         return True
 
 
+def section(logger, msg, *args, **kwargs):
+    """Log an INFO line that opens a new block, preceded by a blank line.
+
+    A container log is read as one long scroll; without breathing room the
+    start of an album run is indistinguishable from the chatter around it.
+    """
+    extra = dict(kwargs.pop("extra", None) or {})
+    extra["section"] = True
+    logger.info(msg, *args, extra=extra, **kwargs)
+
+
 class ConsoleFormatter(logging.Formatter):
     """`HH:MM:SS  <icon>  message`, with the icon only when it earns one."""
 
@@ -93,6 +104,8 @@ class ConsoleFormatter(logging.Formatter):
         indent = " " * (len(stamp) + 2 + len(_NO_ICON))
         message = message.replace("\n", "\n" + indent)
         line = f"{stamp}  {icon}{message}"
+        if getattr(record, "section", False):
+            line = "\n" + line
         if record.exc_info:
             line += "\n" + self.formatException(record.exc_info)
         if record.stack_info:

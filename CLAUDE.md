@@ -156,6 +156,12 @@ line — background loops used to repeat the same sentence hundreds of times.
 Prefer fixing repetition at the source (log at DEBUG when nothing changed,
 as `lidarr_sync` does) and treat the filter as a safety net.
 
+`logutil.section(logger, ...)` opens a visual block: the line is preceded by
+a blank line, so startup and each album run read as separate paragraphs
+rather than one flat scroll. Messages that belong *inside* an album run are
+prefixed with three spaces so they sit under its header — keep that
+convention when adding album-flow logging.
+
 ### ffmpeg capability diagnostics
 
 Some hosts cannot run ffmpeg's audio conversion at all — most often the

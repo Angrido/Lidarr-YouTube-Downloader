@@ -3628,17 +3628,19 @@ def _startup_ytdlp_update():
 
 
 if __name__ == "__main__":
+    # Identify the app before reporting what it is doing, so the startup
+    # block reads top-down instead of opening with migration chatter.
+    logutil.section(logger, "Lidarr YouTube Downloader %s", VERSION)
+    logger.info(
+        "Download directory: %s",
+        DOWNLOAD_DIR if DOWNLOAD_DIR else "Not set (check DOWNLOAD_PATH env)",
+    )
     db.init_db()
     models.reset_downloading_to_queued()
     download_client.restore_jobs()
     # Load yt-dlp plugins once, quietly, so the bgutil PO-token provider's
     # harmless "already registered" import error never appears mid-download.
     preload_ytdlp_plugins_quietly()
-    logger.info("Lidarr YouTube Downloader %s", VERSION)
-    logger.info(
-        "Download directory: %s",
-        DOWNLOAD_DIR if DOWNLOAD_DIR else "Not set (check DOWNLOAD_PATH env)",
-    )
     setup_scheduler()
     threading.Thread(target=run_scheduler, daemon=True).start()
     threading.Thread(target=process_download_queue, daemon=True).start()

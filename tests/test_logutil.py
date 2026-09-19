@@ -106,3 +106,40 @@ def test_setup_logging_replaces_handlers_and_is_idempotent():
             root.removeHandler(h)
         for h in original:
             root.addHandler(h)
+
+
+class TestSectionBreaks:
+    def test_section_record_gets_a_blank_line_before_it(self):
+        rec = _record("Album X")
+        rec.section = True
+        line = logutil.ConsoleFormatter().format(rec)
+        assert line.startswith("\n")
+        # The blank line is a real blank line, not an indented one.
+        assert line.split("\n")[0] == ""
+        assert "Album X" in line
+
+    def test_plain_records_are_not_spaced(self):
+        line = logutil.ConsoleFormatter().format(_record("routine"))
+        assert not line.startswith("\n")
+
+    def test_section_helper_marks_the_record(self):
+        seen = []
+
+        class _L:
+            def info(self, msg, *args, **kwargs):
+                seen.append((msg, args, kwargs))
+
+        logutil.section(_L(), "%s hi", "X")
+        msg, args, kwargs = seen[0]
+        assert msg == "%s hi" and args == ("X",)
+        assert kwargs["extra"]["section"] is True
+
+    def test_section_helper_keeps_caller_extra(self):
+        seen = []
+
+        class _L:
+            def info(self, msg, *args, **kwargs):
+                seen.append(kwargs)
+
+        logutil.section(_L(), "x", extra={"other": 1})
+        assert seen[0]["extra"] == {"other": 1, "section": True}

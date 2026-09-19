@@ -29,7 +29,9 @@
   result actually changes. ffmpeg postprocessing failures are no longer
   printed twice (once by yt-dlp and once by us), the ten-line schema
   migration chatter is a single line, and Flask's duplicate startup banner
-  is gone.
+  is gone. Startup and each album download are separated by a blank line
+  and read as their own block, with the steps of a download indented
+  under the album they belong to.
 
 - **Settings now explains it when this machine cannot convert audio.** The
   app already detected the problem, but only mentioned it in the log, where

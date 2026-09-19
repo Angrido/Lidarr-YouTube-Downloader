@@ -1590,7 +1590,7 @@ def download_youtube_candidate(
         )
         if raw_file:
             logger.info(
-                "Downloaded '%s' as native %s (ffmpeg postprocessing is"
+                "   Downloaded '%s' as native %s (ffmpeg postprocessing is"
                 " unavailable on this host).",
                 candidate["title"], audio_format,
             )
@@ -1677,7 +1677,7 @@ def download_youtube_candidate(
                     with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
                         ydl_dl.download([download_url])
                     logger.info(
-                        "Downloaded '%s' via player_client=%s",
+                        "   Downloaded '%s' via player_client=%s",
                         candidate["title"], pc or "default",
                     )
                     return {
@@ -1747,7 +1747,7 @@ def download_youtube_candidate(
         )
         if raw_file:
             logger.info(
-                "Downloaded '%s' without conversion (ffmpeg postprocessing"
+                "   Downloaded '%s' without conversion (ffmpeg postprocessing"
                 " unavailable) — kept the native %s stream.",
                 candidate["title"], audio_format,
             )

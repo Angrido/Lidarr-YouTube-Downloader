@@ -445,7 +445,8 @@ def process_album_download(
             )
             return album
 
-        logger.info(
+        logutil.section(
+            logger,
             "%s %s \u2014 %s",
             logutil.ICON_ALBUM,
             album.get("artist", {}).get("artistName", "Unknown"),
@@ -610,7 +611,7 @@ def process_album_download(
 
         # Cover bytes ride along in memory for ID3 + notifications,
         # flushed to disk once the album directory exists below.
-        logger.info(f"Fetching album cover: {artist_name} - {album_title}")
+        logger.info(f"   Fetching album cover: {artist_name} - {album_title}")
         cover_sources = [
             ("iTunes (Apple Music)", lambda: get_itunes_artwork(
                 artist_name, album_title,
@@ -640,13 +641,13 @@ def process_album_download(
                 cover_data = None
             if cover_data:
                 logger.info(
-                    "Album cover fetched from %s (%d KB)",
+                    "   Album cover fetched from %s (%d KB)",
                     source_name, len(cover_data) // 1024,
                 )
                 break
-            logger.info("No album cover from %s", source_name)
+            logger.info("   No album cover from %s", source_name)
         if not cover_data:
-            logger.info("No album cover found in any source")
+            logger.info("   No album cover found in any source")
 
         # Resolve the official YT Music album playlist once so per-track
         # search can map directly to canonical entries instead of fishing
@@ -692,7 +693,7 @@ def process_album_download(
             disable_notification=True,
         )
 
-        logger.info(f"Total tracks to download: {len(tracks_to_download)}")
+        logger.info(f"   Total tracks to download: {len(tracks_to_download)}")
 
         album_ctx = {
             "artist_name": artist_name,

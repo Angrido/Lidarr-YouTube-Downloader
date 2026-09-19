@@ -270,7 +270,7 @@ def write_lyrics_sidecar(audio_file, artist, title, album="", duration=0):
         lrc_path = os.path.splitext(audio_file)[0] + ".lrc"
         with open(lrc_path, "w", encoding="utf-8") as f:
             f.write(lyrics)
-        logger.info("Lyrics saved: %s", os.path.basename(lrc_path))
+        logger.info("   Lyrics saved: %s", os.path.basename(lrc_path))
         return lrc_path
     except Exception as e:
         logger.debug("Lyrics fetch failed for %s - %s: %s", artist, title, e)
@@ -357,7 +357,7 @@ def apply_replaygain_tags(audio_file):
             )
             audio.save()
         logger.info(
-            "ReplayGain written: %s (%s)",
+            "   ReplayGain written: %s (%s)",
             os.path.basename(audio_file), gain_str,
         )
         return gain_str
