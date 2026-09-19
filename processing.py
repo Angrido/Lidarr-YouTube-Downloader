@@ -13,6 +13,7 @@ import threading
 import time
 import uuid
 
+import logutil
 import models
 from config import load_config, retry_cooldown_seconds, MIN_MATCH_SCORE_DEFAULT
 from models import CandidateOutcome
@@ -445,9 +446,10 @@ def process_album_download(
             return album
 
         logger.info(
-            f"Starting download for album:"
-            f" {album.get('title', 'Unknown')}"
-            f" - {album.get('artist', {}).get('artistName', 'Unknown')}"
+            "%s %s \u2014 %s",
+            logutil.ICON_ALBUM,
+            album.get("artist", {}).get("artistName", "Unknown"),
+            album.get("title", "Unknown"),
         )
 
         if not DOWNLOAD_DIR:
@@ -762,8 +764,8 @@ def process_album_download(
         # copy-to-library, RefreshArtist, rename and cleanup steps.
         if client_grab:
             logger.info(
-                "Album downloaded successfully (Lidarr will import):"
-                " %s - %s", artist_name, album_title,
+                "%s Album complete: %s \u2014 %s (Lidarr will import)",
+                logutil.ICON_DONE, artist_name, album_title,
             )
             _log_import_result(
                 failed_tracks, album_id, album_title, artist_name,
@@ -785,8 +787,8 @@ def process_album_download(
         )
 
         logger.info(
-            f"Album downloaded successfully:"
-            f" {artist_name} - {album_title}"
+            "%s Album complete: %s \u2014 %s",
+            logutil.ICON_DONE, artist_name, album_title,
         )
 
         _log_import_result(

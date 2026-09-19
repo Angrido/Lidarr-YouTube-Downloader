@@ -19,6 +19,18 @@
   the file, swaps the database atomically and restarts the app; it's
   refused while a download is in progress to avoid corruption.
 
+### Improved
+- **The container log is readable again.** Every line now carries a
+  timestamp, warnings and errors are marked with an icon so they stand out,
+  and a handful of milestones (ready, album started, album finished) get one
+  too — the rest stays plain. Consecutive identical lines are collapsed into
+  a single "repeated N×" note: the periodic Lidarr sync used to print the
+  same sentence hundreds of times in a row, and now only speaks up when the
+  result actually changes. ffmpeg postprocessing failures are no longer
+  printed twice (once by yt-dlp and once by us), the ten-line schema
+  migration chatter is a single line, and Flask's duplicate startup banner
+  is gone.
+
 ### Fixed
 - **Tracks that can never be found stop being retried forever** (#90). A song
   that simply isn't on YouTube failed identically on every scheduler cycle,

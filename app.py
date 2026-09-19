@@ -60,15 +60,21 @@ from utils import (
     sanitize_filename,
     set_permissions,
 )
+import logutil
 from version import USER_AGENT, VERSION
 
-logging.basicConfig(
-    level=logging.INFO, format="%(message)s", handlers=[logging.StreamHandler()]
-)
+logutil.setup_logging(logging.INFO)
 logger = logging.getLogger(__name__)
 
 log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
+# Werkzeug prints its own multi-line banner straight to stdout, which
+# duplicates the startup lines we log ourselves.
+try:
+    import flask.cli
+    flask.cli.show_server_banner = lambda *a, **k: None
+except Exception:
+    pass
 
 app = Flask(__name__)
 app.register_blueprint(download_client.bp)
@@ -3594,8 +3600,7 @@ if __name__ == "__main__":
     # Load yt-dlp plugins once, quietly, so the bgutil PO-token provider's
     # harmless "already registered" import error never appears mid-download.
     preload_ytdlp_plugins_quietly()
-    logger.info("Starting Lidarr YouTube Downloader...")
-    logger.info("Version: %s", VERSION)
+    logger.info("Lidarr YouTube Downloader %s", VERSION)
     logger.info(
         "Download directory: %s",
         DOWNLOAD_DIR if DOWNLOAD_DIR else "Not set (check DOWNLOAD_PATH env)",
@@ -3609,6 +3614,7 @@ if __name__ == "__main__":
     flask_host = os.environ.get("FLASK_HOST", "0.0.0.0")
     flask_port = int(os.environ.get("FLASK_PORT", "5000"))
     logger.info(
-        "Application started successfully on http://%s:%d", flask_host, flask_port
+        "%s Ready on http://%s:%d",
+        logutil.ICON_APP, flask_host, flask_port,
     )
     app.run(host=flask_host, port=flask_port, debug=False, use_reloader=False)

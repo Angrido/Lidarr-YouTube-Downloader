@@ -85,6 +85,7 @@ docker run -p 5005:5000 \
 | `scheduler.py` | Scheduled polling/auto-download |
 | `fingerprint.py` | AcoustID fingerprinting via fpcalc/chromaprint |
 | `download_client.py` | Lidarr download-client bridge: Newznab indexer + SABnzbd client emulation (Flask blueprint) |
+| `logutil.py` | Console log formatting: timestamp + level icon, consecutive-duplicate collapsing |
 | `utils.py` | Shared utilities |
 
 ### Key data flows
@@ -142,6 +143,18 @@ Downloads run in background threads. `queue_lock` (threading.Lock) in `processin
 Optional `schedule` library job polls for missing albums and auto-downloads at configured intervals. Albums attempted within `scheduler_retry_after_hours` are skipped (`models.get_attempted_album_ids_since`, which keys off **any** `download_logs` row for the album — so every early exit in `process_album_download` must still write a log, or the album is re-queued every cycle).
 
 **Retry backoff (issue #90):** `process_album_download` decides what to download *before* any network work — it computes `album_path`, calls `_compute_deferred_tracks()` + `_filter_tracks()`, and returns "Skipped" early if nothing is left. Tracks that keep failing back off exponentially (`scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days) from their consecutive-failure count in `track_downloads` (`models.get_track_failure_counts`), so a song that simply isn't on YouTube stops costing a cover-art fetch, per-track artist lookups and a YT Music resolution every cycle. Manual queue adds (`download_queue.force`) and Lidarr grabs (`client_grab`) bypass the backoff.
+
+### Logging
+
+`logutil.setup_logging()` (called from `app.py`) installs a console formatter
+for the `docker compose logs` stream: `HH:MM:SS` + an icon column that stays
+empty for INFO and carries ⚠️/❌ for warnings/errors, so problems stand out
+without every line being decorated. Milestone messages (ready, album start,
+album complete) carry an inline icon from `logutil.ICON_*`. A `DedupeFilter`
+collapses consecutive identical lines and reports the streak as its own INFO
+line — background loops used to repeat the same sentence hundreds of times.
+Prefer fixing repetition at the source (log at DEBUG when nothing changed,
+as `lidarr_sync` does) and treat the filter as a safety net.
 
 ### Notifications
 

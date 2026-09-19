@@ -202,6 +202,9 @@ class _SilentYDLLogger:
         # android client commonly returns this even with valid cookies;
         # music/web clients recover on the next attempt.
         "please sign in",
+        # We already log a single, clearer "Audio postprocessing failed
+        # for '<track>'" line per attempt; yt-dlp's raw copy just doubles it.
+        "postprocessing:",
     )
 
     def debug(self, msg):

@@ -519,9 +519,17 @@ def _run_migrations(conn, current_version):
         10: _migrate_v9_to_v10,
         11: _migrate_v10_to_v11,
     }
+    pending = [v for v in sorted(migrations) if current_version < v]
+    if pending:
+        # One line for the whole upgrade instead of two per step: a fresh
+        # install otherwise opens with twenty lines of migration chatter.
+        logger.info(
+            "Upgrading database schema v%d \u2192 v%d\u2026",
+            current_version, pending[-1],
+        )
     for version in sorted(migrations):
         if current_version < version:
-            logger.info(
+            logger.debug(
                 "Running migration to schema version %d...", version
             )
             try:
@@ -533,7 +541,7 @@ def _run_migrations(conn, current_version):
                     (version, time.time()),
                 )
                 conn.commit()
-                logger.info("Migration to version %d complete", version)
+                logger.debug("Migration to version %d complete", version)
             except Exception:
                 conn.rollback()
                 logger.error(
