@@ -9,7 +9,7 @@ import time
 logger = logging.getLogger(__name__)
 
 DB_PATH = "/config/lidarr-downloader.db"
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 _local = threading.local()
 
@@ -491,6 +491,20 @@ def _migrate_v9_to_v10(conn):
     )
 
 
+def _migrate_v10_to_v11(conn):
+    """Add force to download_queue.
+
+    Marks a queue entry as explicitly requested by the user (manual "Add to
+    Queue") rather than produced by the scheduler. Such an entry bypasses
+    the per-track retry backoff, so asking for an album by hand always
+    attempts every missing track right away.
+    """
+    conn.execute(
+        "ALTER TABLE download_queue"
+        " ADD COLUMN force INTEGER NOT NULL DEFAULT 0"
+    )
+
+
 def _run_migrations(conn, current_version):
     """Run any pending schema migrations sequentially."""
     migrations = {
@@ -503,6 +517,7 @@ def _run_migrations(conn, current_version):
         8: _migrate_v7_to_v8,
         9: _migrate_v8_to_v9,
         10: _migrate_v9_to_v10,
+        11: _migrate_v10_to_v11,
     }
     for version in sorted(migrations):
         if current_version < version:

@@ -822,3 +822,26 @@ def test_get_insights_distinct_artists_ignores_empty():
     _add_dl(artist_name="", success=False)
     data = models.get_insights(days=30)
     assert data["totals"]["distinct_artists"] == 1
+
+
+# --- Queue force flag (manual add bypasses retry backoff) ---
+
+
+def test_enqueue_album_defaults_to_not_forced():
+    models.enqueue_album(11)
+    row = [r for r in models.get_queue() if r["album_id"] == 11][0]
+    assert row["force"] == 0
+
+
+def test_enqueue_album_force_marks_the_entry():
+    models.enqueue_album(12, force=True)
+    row = [r for r in models.get_queue() if r["album_id"] == 12][0]
+    assert row["force"] == 1
+
+
+def test_force_upgrades_an_already_queued_album():
+    # Scheduler queued it first; a manual add must not lose the intent.
+    assert models.enqueue_album(13) is True
+    assert models.enqueue_album(13, force=True) is False
+    row = [r for r in models.get_queue() if r["album_id"] == 13][0]
+    assert row["force"] == 1

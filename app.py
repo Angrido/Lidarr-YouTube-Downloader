@@ -941,7 +941,8 @@ def api_download(album_id):
         current_id = download_process.get("album_id")
     if current_id == album_id:
         return jsonify({"success": False, "message": "Already in queue or downloading"})
-    added = models.enqueue_album(album_id)
+    # Manual request: bypass the per-track retry backoff.
+    added = models.enqueue_album(album_id, force=True)
     if added:
         return jsonify({"success": True, "queued": True})
     return jsonify({"success": False, "message": "Already in queue or downloading"})
@@ -1142,7 +1143,7 @@ def api_add_to_queue():
     with queue_lock:
         current_id = download_process.get("album_id")
     if current_id != album_id:
-        models.enqueue_album(album_id)
+        models.enqueue_album(album_id, force=True)
     return jsonify({"success": True, "queue_length": models.get_queue_length()})
 
 
@@ -1166,7 +1167,7 @@ def api_add_to_queue_bulk():
         current_id = download_process.get("album_id")
     for album_id in album_ids:
         if isinstance(album_id, int) and album_id != current_id:
-            if models.enqueue_album(album_id):
+            if models.enqueue_album(album_id, force=True):
                 added += 1
     return jsonify(
         {

@@ -178,6 +178,45 @@ def get_album_history(page=1, per_page=50):
     return _paginate(query, count_query, (), page, per_page)
 
 
+def get_track_failure_counts(album_id):
+    """Consecutive failed attempts per track, since that track last worked.
+
+    Returns ``{track_title: {"failures": int, "last_failure": float}}``.
+    Only failures newer than the track's most recent success are counted, so
+    a track that succeeded starts from zero again if it later fails (e.g.
+    its file was deleted). Tracks whose latest attempt succeeded are absent.
+
+    Track identity is ``(album_id, track_title)``, matching
+    ``get_failed_tracks_for_retry``.
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        """
+        SELECT f.track_title AS track_title,
+               COUNT(*) AS failures,
+               MAX(f.timestamp) AS last_failure
+        FROM track_downloads AS f
+        WHERE f.album_id = ?
+          AND f.success = 0
+          AND f.timestamp > COALESCE((
+                SELECT MAX(s.timestamp) FROM track_downloads AS s
+                WHERE s.album_id = f.album_id
+                  AND s.track_title = f.track_title
+                  AND s.success = 1
+              ), 0)
+        GROUP BY f.track_title
+        """,
+        (album_id,),
+    ).fetchall()
+    return {
+        row["track_title"]: {
+            "failures": row["failures"],
+            "last_failure": row["last_failure"] or 0.0,
+        }
+        for row in rows
+    }
+
+
 def get_failed_tracks_for_retry(album_id):
     """Return failed tracks for retry UI.
 
@@ -612,19 +651,32 @@ def get_banned_urls_for_album(album_id):
 # --- Queue ---
 
 
-def enqueue_album(album_id):
-    """Add an album to the download queue. Returns False if duplicate."""
+def enqueue_album(album_id, force=False):
+    """Add an album to the download queue. Returns False if duplicate.
+
+    ``force`` marks the entry as explicitly requested by the user, which
+    makes the download bypass the per-track retry backoff. Re-adding an
+    album that is already queued still returns False, but a forced request
+    upgrades the existing entry so the manual intent isn't lost.
+    """
     conn = db.get_db()
     max_pos = conn.execute(
         "SELECT COALESCE(MAX(position), 0) FROM download_queue"
     ).fetchone()[0]
     cursor = conn.execute(
-        "INSERT OR IGNORE INTO download_queue (album_id, position, status)"
-        " VALUES (?, ?, ?)",
-        (album_id, max_pos + 1, QUEUE_STATUS_QUEUED),
+        "INSERT OR IGNORE INTO download_queue"
+        " (album_id, position, status, force)"
+        " VALUES (?, ?, ?, ?)",
+        (album_id, max_pos + 1, QUEUE_STATUS_QUEUED, 1 if force else 0),
     )
+    added = cursor.rowcount > 0
+    if not added and force:
+        conn.execute(
+            "UPDATE download_queue SET force = 1 WHERE album_id = ?",
+            (album_id,),
+        )
     conn.commit()
-    return cursor.rowcount > 0
+    return added
 
 
 def dequeue_album(album_id):

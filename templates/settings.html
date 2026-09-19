@@ -821,6 +821,20 @@
                 </label>
                 <input type="number" id="schedulerRetryAfterHours" value="24" min="0" step="1" style="max-width:120px;">
             </div>
+            <div class="input-group">
+                <label>
+                    Back Off Failing Tracks
+                    <div class="label-description">A track that keeps failing (e.g. a song that simply isn't on YouTube) waits twice as long after each failure instead of being retried every cycle forever &mdash; capped at 30 days, so it is still found if it appears later. Turn off to retry every run.</div>
+                </label>
+                <button class="toggle-btn" id="trackRetryBackoffBtn" onclick="toggleTrackRetryBackoff()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    Max Retries per Track
+                    <div class="label-description">Give up on a track for good after this many consecutive failures. Set to 0 to never give up (just keep backing off). Adding an album to the queue by hand always retries everything immediately.</div>
+                </label>
+                <input type="number" id="maxTrackRetries" value="0" min="0" step="1" style="max-width:120px;">
+            </div>
         </div>
 
         <div class="settings-section">
@@ -1619,6 +1633,10 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             document.getElementById('downloadClientApiKey').value = conf.download_client_api_key || '';
             document.getElementById('downloadClientCategory').value = conf.download_client_category || 'music';
             document.getElementById('downloadClientConcurrentAlbums').value = String(conf.download_client_concurrent_albums || 1);
+            updateTrackRetryBackoffBtn(conf.track_retry_backoff !== false);
+            document.getElementById('maxTrackRetries').value = (
+                conf.max_track_retries != null ? conf.max_track_retries : 0
+            );
             document.getElementById('schedulerRetryAfterHours').value = (
                 conf.scheduler_retry_after_hours != null
                     ? conf.scheduler_retry_after_hours
@@ -1850,6 +1868,19 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
         function toggleReplayGain() {
             const btn = document.getElementById('replayGainBtn');
             updateReplayGainBtn(btn.dataset.enabled !== '1');
+            markSettingsDirty();
+        }
+
+        function updateTrackRetryBackoffBtn(enabled) {
+            const btn = document.getElementById('trackRetryBackoffBtn');
+            btn.dataset.enabled = enabled ? '1' : '0';
+            btn.innerText = enabled ? '✓ Retry Backoff ON' : 'Retry Backoff OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        function toggleTrackRetryBackoff() {
+            const btn = document.getElementById('trackRetryBackoffBtn');
+            updateTrackRetryBackoffBtn(btn.dataset.enabled !== '1');
             markSettingsDirty();
         }
 
@@ -2149,6 +2180,8 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     scheduler_interval: document.getElementById('interval').value,
                     scheduler_max_albums: parseInt(document.getElementById('schedulerMaxAlbums').value) || 0,
                     scheduler_retry_after_hours: parseFloat(document.getElementById('schedulerRetryAfterHours').value) || 0,
+                    track_retry_backoff: document.getElementById('trackRetryBackoffBtn').dataset.enabled === '1',
+                    max_track_retries: parseInt(document.getElementById('maxTrackRetries').value, 10) || 0,
                     telegram_bot_token: document.getElementById('botToken').value,
                     telegram_chat_id: document.getElementById('chatId').value,
                     telegram_enabled: !!document.getElementById('botToken').value,

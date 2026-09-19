@@ -14,7 +14,7 @@ import time
 import uuid
 
 import models
-from config import load_config, MIN_MATCH_SCORE_DEFAULT
+from config import load_config, retry_cooldown_seconds, MIN_MATCH_SCORE_DEFAULT
 from models import CandidateOutcome
 from downloader import (
     download_youtube_candidate,
@@ -386,12 +386,19 @@ def _resolve_track_artists(tracks, artist_name, album_title, source):
             )
 
 
-def process_album_download(album_id, force=False, client_grab=False, state=None):
+def process_album_download(
+    album_id, force=False, client_grab=False, state=None,
+    ignore_backoff=False,
+):
     """Download all tracks for an album and import into Lidarr.
 
     Args:
         album_id: Lidarr album ID to download.
         force: If True, re-download tracks that already exist.
+        ignore_backoff: If True, attempt every missing track even if it is
+            currently backing off after repeated failures. Set for albums
+            the user queued by hand and for Lidarr download-client grabs,
+            which are both explicit "do it now" requests.
         client_grab: Whether this is a Lidarr download-client grab (skip
             copy-to-library so Lidarr imports the files itself). The queue
             dispatcher decides this once and passes it through explicitly,
@@ -407,6 +414,9 @@ def process_album_download(album_id, force=False, client_grab=False, state=None)
     """
     if state is None:
         state = download_process
+    # A Lidarr grab is an explicit request for this album, like a manual
+    # queue add, so it shouldn't be held back by the retry backoff.
+    ignore_backoff = bool(ignore_backoff or client_grab)
     with queue_lock:
         if state["active"] or album_id in _active_states:
             return {"error": "Busy"}
@@ -475,10 +485,6 @@ def process_album_download(album_id, force=False, client_grab=False, state=None)
         album["tracks"] = tracks
 
         artist_name = album["artist"]["artistName"]
-        search_artist_source = load_config().get("search_artist_source", "album")
-        _resolve_track_artists(
-            tracks, artist_name, album["title"], search_artist_source,
-        )
         artist_id = album["artist"]["id"]
         artist_mbid = album["artist"].get("foreignArtistId", "")
         album_title = album["title"]
@@ -493,6 +499,111 @@ def process_album_download(album_id, force=False, client_grab=False, state=None)
                 if img.get("coverType") == "cover"
             ),
             "",
+        )
+
+        release_id = get_valid_release_id(album)
+        if release_id == 0:
+            logger.warning(
+                "No valid release found for album %s (%s - %s); skipping. "
+                "Lidarr returned no usable release id for this album.",
+                album_id, artist_name, album_title,
+            )
+            return {"error": "No valid releases found for this album."}
+
+        album_mbid = album.get("foreignAlbumId", "")
+
+        # Prefer the artist folder name Lidarr actually uses (basename of
+        # its artist.path) so chars like "/" survive as "+" instead of
+        # being stripped — e.g. K/DA stays "K+DA" matching Lidarr and
+        # avoids duplicate "KDA" folders.
+        lidarr_artist_path_field = album["artist"].get("path", "") or ""
+        lidarr_artist_folder = os.path.basename(
+            lidarr_artist_path_field.rstrip("/\\")
+        )
+        sanitized_artist = (
+            lidarr_artist_folder or sanitize_filename(artist_name)
+        )
+        sanitized_album = sanitize_filename(album_title)
+
+        artist_path = os.path.join(DOWNLOAD_DIR, sanitized_artist)
+        if release_year:
+            album_folder_name = f"{sanitized_album} ({release_year})"
+        else:
+            album_folder_name = sanitized_album
+        album_path = os.path.join(artist_path, album_folder_name)
+
+        # Decide what actually needs downloading *before* any network work.
+        # An album whose tracks are all present — or are backing off after
+        # repeated failures (issue #90) — must not cost a cover-art fetch, a
+        # per-track artist lookup and a YT Music resolution every cycle.
+        cfg = load_config()
+        deferred = (
+            {} if (force or ignore_backoff)
+            else _compute_deferred_tracks(album_id, tracks, cfg)
+        )
+        tracks_to_download = _filter_tracks(
+            tracks, force, album_path, deferred,
+        )
+
+        if len(tracks_to_download) == 0:
+            _log_nothing_to_download(
+                album_id, album_title, artist_name, tracks, deferred,
+                album_path,
+            )
+            if not client_grab:
+                lidarr_request_with_retry(
+                    "command",
+                    data={"name": "RefreshArtist", "artistId": artist_id},
+                )
+            # Nothing was downloaded. Only report a storage path to Lidarr
+            # if the folder actually holds audio, so the download client
+            # doesn't ask Lidarr to import an empty directory.
+            skip_path = album_path if _dir_has_audio(album_path) else ""
+            return {
+                "success": True,
+                "message": "Skipped",
+                "album_path": skip_path,
+            }
+
+        # A pre-existing artist folder (e.g. created by Lidarr/root) can
+        # block creating the new album subfolder. Best-effort relax it to
+        # group-writable first (no-op unless we own it). (Issue #66.)
+        if os.path.isdir(artist_path):
+            relax_dir_permissions(artist_path)
+        try:
+            makedirs_safe(album_path, [DOWNLOAD_DIR])
+        except BaseNotMountedError as exc:
+            logger.error(
+                "DOWNLOAD_PATH (%s) is not mounted inside the container: %s",
+                DOWNLOAD_DIR, exc,
+            )
+            return {
+                "error": (
+                    f"DOWNLOAD_PATH '{DOWNLOAD_DIR}' is not mounted. "
+                    "Add a volume mount in docker-compose.yml or correct the path in settings."
+                )
+            }
+        except PermissionError as exc:
+            puid = os.getenv("PUID", "?")
+            logger.error(
+                "Permission denied creating %s: %s. "
+                "Ensure DOWNLOAD_PATH (%s) is owned by uid=%s "
+                "(set PUID/PGID correctly and check host directory ownership).",
+                album_path, exc, DOWNLOAD_DIR, puid,
+            )
+            return {
+                "error": (
+                    f"Permission denied: cannot create {album_path}. "
+                    f"{exc}"
+                )
+            }
+
+        # Resolve per-track artists only for the tracks we will actually
+        # fetch — this can cost one MusicBrainz/iTunes lookup per track.
+        search_artist_source = cfg.get("search_artist_source", "album")
+        _resolve_track_artists(
+            tracks_to_download, artist_name, album_title,
+            search_artist_source,
         )
 
         # Cover bytes ride along in memory for ID3 + notifications,
@@ -545,70 +656,6 @@ def process_album_download(album_id, force=False, client_grab=False, state=None)
             logger.debug("YT Music album discovery raised: %s", exc)
         state["ytmusic_album"] = ytmusic_album
 
-        release_id = get_valid_release_id(album)
-        if release_id == 0:
-            logger.warning(
-                "No valid release found for album %s (%s - %s); skipping. "
-                "Lidarr returned no usable release id for this album.",
-                album_id, artist_name, album_title,
-            )
-            return {"error": "No valid releases found for this album."}
-
-        album_mbid = album.get("foreignAlbumId", "")
-
-        # Prefer the artist folder name Lidarr actually uses (basename of
-        # its artist.path) so chars like "/" survive as "+" instead of
-        # being stripped — e.g. K/DA stays "K+DA" matching Lidarr and
-        # avoids duplicate "KDA" folders.
-        lidarr_artist_path_field = album["artist"].get("path", "") or ""
-        lidarr_artist_folder = os.path.basename(
-            lidarr_artist_path_field.rstrip("/\\")
-        )
-        sanitized_artist = (
-            lidarr_artist_folder or sanitize_filename(artist_name)
-        )
-        sanitized_album = sanitize_filename(album_title)
-
-        artist_path = os.path.join(DOWNLOAD_DIR, sanitized_artist)
-        if release_year:
-            album_folder_name = f"{sanitized_album} ({release_year})"
-        else:
-            album_folder_name = sanitized_album
-        album_path = os.path.join(artist_path, album_folder_name)
-        # A pre-existing artist folder (e.g. created by Lidarr/root) can
-        # block creating the new album subfolder. Best-effort relax it to
-        # group-writable first (no-op unless we own it). (Issue #66.)
-        if os.path.isdir(artist_path):
-            relax_dir_permissions(artist_path)
-        try:
-            makedirs_safe(album_path, [DOWNLOAD_DIR])
-        except BaseNotMountedError as exc:
-            logger.error(
-                "DOWNLOAD_PATH (%s) is not mounted inside the container: %s",
-                DOWNLOAD_DIR, exc,
-            )
-            return {
-                "error": (
-                    f"DOWNLOAD_PATH '{DOWNLOAD_DIR}' is not mounted. "
-                    "Add a volume mount in docker-compose.yml or correct the path in settings."
-                )
-            }
-        except PermissionError as exc:
-            puid = os.getenv("PUID", "?")
-            logger.error(
-                "Permission denied creating %s: %s. "
-                "Ensure DOWNLOAD_PATH (%s) is owned by uid=%s "
-                "(set PUID/PGID correctly and check host directory ownership).",
-                album_path, exc, DOWNLOAD_DIR, puid,
-            )
-            return {
-                "error": (
-                    f"Permission denied: cannot create {album_path}. "
-                    f"{exc}"
-                )
-            }
-
-        cfg = load_config()
         if cover_data and cfg.get("save_cover_art_file", True):
             _write_cover_art(
                 cover_data, album_path, cfg.get("lidarr_path", "") or "",
@@ -621,7 +668,9 @@ def process_album_download(album_id, force=False, client_grab=False, state=None)
             album_id=album_id,
             album_title=album_title,
             artist_name=artist_name,
-            details=f"Starting download of {len(tracks)} track(s)",
+            details=(
+                f"Starting download of {len(tracks_to_download)} track(s)"
+            ),
         )
         _send_album_notification(
             log_type="download_started",
@@ -632,44 +681,14 @@ def process_album_download(album_id, force=False, client_grab=False, state=None)
             album_mbid=album_mbid,
             cover_url=cover_url,
             fields=[
-                {"name": "Tracks", "value": str(len(tracks)),
+                {"name": "Tracks", "value": str(len(tracks_to_download)),
                  "inline": True},
             ],
             extra_md2_lines=[
-                f"*Tracks:* {md2_escape(len(tracks))}",
+                f"*Tracks:* {md2_escape(len(tracks_to_download))}",
             ],
             disable_notification=True,
         )
-
-        tracks_to_download = _filter_tracks(
-            tracks, force, album_path,
-        )
-
-        if len(tracks_to_download) == 0:
-            already_have = sum(1 for t in tracks if t.get("hasFile", False))
-            logger.info(
-                "Nothing to download for %s - %s: %d track(s) considered, "
-                "none need downloading (%d already marked hasFile in Lidarr, "
-                "the rest already exist on disk under %s). If you expected a "
-                "fresh download, the album is likely already complete in "
-                "Lidarr, or leftover files from a previous run are present.",
-                artist_name, album_title, len(tracks), already_have,
-                album_path,
-            )
-            if not client_grab:
-                lidarr_request_with_retry(
-                    "command",
-                    data={"name": "RefreshArtist", "artistId": artist_id},
-                )
-            # Nothing was downloaded. Only report a storage path to Lidarr
-            # if the folder actually holds audio, so the download client
-            # doesn't ask Lidarr to import an empty directory.
-            skip_path = album_path if _dir_has_audio(album_path) else ""
-            return {
-                "success": True,
-                "message": "Skipped",
-                "album_path": skip_path,
-            }
 
         logger.info(f"Total tracks to download: {len(tracks_to_download)}")
 
@@ -859,13 +878,146 @@ def _dir_has_audio(path):
         return False
 
 
-def _filter_tracks(tracks, force, album_path):
-    """Filter tracks that need downloading."""
+# A track that keeps failing is retried on an exponential backoff rather
+# than every cycle forever. Never wait longer than this between attempts, so
+# a song that only shows up on YouTube later is still eventually found.
+_TRACK_BACKOFF_MAX_SECONDS = 30 * 24 * 3600
+# Guard against absurd exponents on a track with a long failure history.
+_TRACK_BACKOFF_MAX_EXPONENT = 20
+
+
+def _format_retry_eta(retry_at):
+    """Human-readable wait until a deferred track is tried again."""
+    if not retry_at:
+        return "permanently (max retries reached)"
+    remaining = max(retry_at - time.time(), 0)
+    if remaining >= 86400:
+        return f"~{remaining / 86400:.0f}d"
+    return f"~{max(remaining / 3600, 1):.0f}h"
+
+
+def _log_nothing_to_download(
+    album_id, album_title, artist_name, tracks, deferred, album_path,
+):
+    """Explain why an album ended up with nothing to download.
+
+    Without this the album silently reports "Skipped" and the user has no
+    idea whether it is already complete or whether tracks are backing off.
+    """
+    if deferred:
+        detail = ", ".join(
+            f"'{title}' ({info['failures']}x, retry {_format_retry_eta(info['retry_at'])})"
+            for title, info in list(deferred.items())[:5]
+        )
+        more = "" if len(deferred) <= 5 else f" (+{len(deferred) - 5} more)"
+        logger.info(
+            "Nothing to download for %s - %s: %d of %d track(s) keep failing "
+            "and are backing off — %s%s. They will be retried automatically; "
+            "use Add to Queue to try them now.",
+            artist_name, album_title, len(deferred), len(tracks),
+            detail, more,
+        )
+    else:
+        already_have = sum(1 for t in tracks if t.get("hasFile", False))
+        logger.info(
+            "Nothing to download for %s - %s: %d track(s) considered, "
+            "none need downloading (%d already marked hasFile in Lidarr, "
+            "the rest already exist on disk under %s). If you expected a "
+            "fresh download, the album is likely already complete in "
+            "Lidarr, or leftover files from a previous run are present.",
+            artist_name, album_title, len(tracks), already_have,
+            album_path,
+        )
+    # The scheduler's retry cooldown keys off *any* download_logs row for
+    # the album; without this the album would be re-queued every cycle.
+    try:
+        models.add_log(
+            log_type="download_skipped",
+            album_id=album_id,
+            album_title=album_title,
+            artist_name=artist_name,
+            details=(
+                f"Nothing to download ({len(deferred)} track(s) backing off)"
+                if deferred else "Nothing to download (album already complete)"
+            ),
+        )
+    except Exception:
+        logger.debug("Could not log skipped album %s", album_id, exc_info=True)
+
+
+def _compute_deferred_tracks(album_id, tracks, cfg=None):
+    """Tracks to skip this run because they keep failing (issue #90).
+
+    A song that simply isn't on YouTube fails identically every time, yet
+    the scheduler re-queues its album forever. Each consecutive failure
+    doubles the wait before that track is tried again
+    (``scheduler_retry_after_hours * 2^(k-1)``, capped at 30 days), so the
+    futile work decays instead of repeating daily — while still retrying
+    eventually, in case the track appears later. With ``max_track_retries``
+    set, a track past that many consecutive failures is dropped for good.
+
+    Returns ``{track_title: {"failures": int, "retry_at": float|None}}``;
+    ``retry_at`` is None for tracks given up on permanently.
+    """
+    if cfg is None:
+        cfg = load_config()
+    # Playlist imports (negative ids) are always explicit user requests.
+    if album_id is None or album_id < 0:
+        return {}
+    backoff_on = bool(cfg.get("track_retry_backoff", True))
+    try:
+        max_retries = int(cfg.get("max_track_retries", 0) or 0)
+    except (TypeError, ValueError):
+        max_retries = 0
+    if not backoff_on and max_retries <= 0:
+        return {}
+    try:
+        counts = models.get_track_failure_counts(album_id)
+    except Exception:
+        logger.debug(
+            "Could not read track failure counts for album %s",
+            album_id, exc_info=True,
+        )
+        return {}
+    if not counts:
+        return {}
+
+    base = retry_cooldown_seconds(cfg) or 24 * 3600
+    now = time.time()
+    deferred = {}
+    for track in tracks:
+        title = track.get("title", "")
+        info = counts.get(title)
+        if not info:
+            continue
+        failures = info["failures"]
+        if max_retries > 0 and failures >= max_retries:
+            deferred[title] = {"failures": failures, "retry_at": None}
+            continue
+        if not backoff_on:
+            continue
+        exponent = min(max(failures - 1, 0), _TRACK_BACKOFF_MAX_EXPONENT)
+        wait = min(base * (2 ** exponent), _TRACK_BACKOFF_MAX_SECONDS)
+        retry_at = info["last_failure"] + wait
+        if now < retry_at:
+            deferred[title] = {"failures": failures, "retry_at": retry_at}
+    return deferred
+
+
+def _filter_tracks(tracks, force, album_path, deferred=None):
+    """Filter tracks that need downloading.
+
+    ``deferred`` is an optional map from _compute_deferred_tracks of tracks
+    that keep failing and are backing off this run; they count as "nothing
+    to do" without any disk or network work.
+    """
     audio_ext = load_config().get("audio_format", "mp3")
     tracks_to_download = []
     for t in tracks:
         if not force:
             if t.get("hasFile", False):
+                continue
+            if deferred and t.get("title", "") in deferred:
                 continue
             try:
                 track_num = int(t.get("trackNumber", 0))
@@ -2325,14 +2477,15 @@ def _dispatch_next_from_queue():
 
     try:
         queued = [
-            row["album_id"] for row in models.get_queue()
+            (row["album_id"], bool(row.get("force", 0)))
+            for row in models.get_queue()
             if row["status"] == models.QUEUE_STATUS_QUEUED
         ]
     except Exception:
         logger.warning("Queue lookup failed", exc_info=True)
         return
 
-    for album_id in queued:
+    for album_id, forced in queued:
         # Already downloading this album (e.g. a re-grab landed in the
         # queue): drop the duplicate so it can't start a colliding download.
         if is_album_active(album_id):
@@ -2349,10 +2502,15 @@ def _dispatch_next_from_queue():
             target = process_album_download
             job_state = download_process
         models.dequeue_album(album_id)
+        kwargs = {"state": job_state}
+        if target is process_album_download:
+            # A hand-queued album skips the per-track retry backoff.
+            # (Client grabs bypass it via client_grab instead.)
+            kwargs["ignore_backoff"] = forced
         threading.Thread(
             target=target,
             args=(album_id,),
-            kwargs={"state": job_state},
+            kwargs=kwargs,
             daemon=True,
         ).start()
         return

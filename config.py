@@ -53,6 +53,7 @@ ALLOWED_CONFIG_KEYS = {
     "min_match_score", "audio_format", "audio_quality", "ytdlp_format",
     "lidarr_rename_after_import", "save_cover_art_file",
     "scheduler_retry_after_hours",
+    "track_retry_backoff", "max_track_retries",
     "download_client_enabled", "download_client_api_key",
     "download_client_category", "download_client_concurrent_albums",
     "yt_po_token", "audio_normalize", "yt_pot_provider_url",
@@ -146,6 +147,15 @@ def load_config():
         "scheduler_retry_after_hours": float(
             os.getenv("SCHEDULER_RETRY_AFTER_HOURS", "24")
         ),
+        # Back off retries of tracks that keep failing (see
+        # processing._compute_deferred_tracks). On by default: without it a
+        # song that simply isn't on YouTube is retried every cycle forever.
+        "track_retry_backoff": (
+            os.getenv("TRACK_RETRY_BACKOFF", "true").lower() == "true"
+        ),
+        # Consecutive failures after which a track is given up on for good
+        # (0 = never give up, just keep backing off).
+        "max_track_retries": int(os.getenv("MAX_TRACK_RETRIES", "0")),
         "telegram_enabled": (
             os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"
         ),
@@ -262,7 +272,7 @@ def load_config():
             "scheduler_interval", "duration_tolerance", "scheduler_max_albums",
             "concurrent_tracks", "yt_retries", "yt_fragment_retries",
             "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
-            "download_client_concurrent_albums",
+            "download_client_concurrent_albums", "max_track_retries",
         )
         for _k in _int_keys:
             if _k in config:

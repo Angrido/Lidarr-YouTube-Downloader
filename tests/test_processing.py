@@ -2407,7 +2407,7 @@ class TestStopReporting:
         monkeypatch.setattr(
             processing, "_send_album_notification", lambda *a, **k: None,
         )
-        monkeypatch.setattr(processing, "_filter_tracks", lambda t, f, p: t)
+        monkeypatch.setattr(processing, "_filter_tracks", lambda t, f, p, d=None: t)
         monkeypatch.setattr(
             processing.models, "add_log",
             lambda **k: logs.append(k.get("log_type")),
@@ -2423,3 +2423,251 @@ class TestStopReporting:
         result = processing.process_album_download(5, client_grab=False)
         assert result == {"stopped": True}
         assert "download_success" not in logs
+
+
+# --- Retry backoff for repeatedly-failing tracks (issue #90) ---
+
+
+def _add_attempt(album_id, title, success, ts=None):
+    """Record one track attempt, optionally backdated."""
+    import time as _t
+    rid = models.add_track_download(
+        album_id=album_id, album_title="Album", artist_name="Artist",
+        track_title=title, track_number=1, success=success,
+        error_message="" if success else "no match",
+        youtube_url="", youtube_title="", match_score=0.0,
+        duration_seconds=0, album_path="", lidarr_album_path="",
+        cover_url="",
+    )
+    if ts is not None:
+        conn = db.get_db()
+        conn.execute(
+            "UPDATE track_downloads SET timestamp=? WHERE id=?", (ts, rid)
+        )
+        conn.commit()
+    else:
+        ts = _t.time()
+    return rid
+
+
+class TestTrackFailureCounts:
+    def test_counts_consecutive_failures(self):
+        _add_attempt(1, "Song", False)
+        _add_attempt(1, "Song", False)
+        _add_attempt(1, "Song", False)
+        counts = models.get_track_failure_counts(1)
+        assert counts["Song"]["failures"] == 3
+
+    def test_success_resets_the_counter(self):
+        import time as _t
+        now = _t.time()
+        _add_attempt(1, "Song", False, ts=now - 300)
+        _add_attempt(1, "Song", False, ts=now - 200)
+        _add_attempt(1, "Song", True, ts=now - 100)
+        # Only failures after the last success count.
+        assert models.get_track_failure_counts(1) == {}
+        _add_attempt(1, "Song", False, ts=now - 50)
+        assert models.get_track_failure_counts(1)["Song"]["failures"] == 1
+
+    def test_scoped_per_album_and_track(self):
+        _add_attempt(1, "A", False)
+        _add_attempt(1, "B", False)
+        _add_attempt(2, "A", False)
+        counts = models.get_track_failure_counts(1)
+        assert set(counts) == {"A", "B"}
+        assert counts["A"]["failures"] == 1
+
+
+class TestComputeDeferredTracks:
+    def _cfg(self, **over):
+        cfg = {
+            "track_retry_backoff": True,
+            "max_track_retries": 0,
+            "scheduler_retry_after_hours": 24,
+        }
+        cfg.update(over)
+        return cfg
+
+    def test_doubles_the_wait_per_failure(self):
+        import time as _t
+        import processing
+        now = _t.time()
+        # 3 failures, last one 30h ago: wait is 24h * 2^2 = 96h -> deferred.
+        for _ in range(3):
+            _add_attempt(1, "Song", False, ts=now - 30 * 3600)
+        tracks = [{"title": "Song"}]
+        deferred = processing._compute_deferred_tracks(1, tracks, self._cfg())
+        assert "Song" in deferred
+        assert deferred["Song"]["failures"] == 3
+
+    def test_retries_once_the_backoff_elapsed(self):
+        import time as _t
+        import processing
+        now = _t.time()
+        # 1 failure 30h ago: wait is 24h -> already elapsed, so retry.
+        _add_attempt(1, "Song", False, ts=now - 30 * 3600)
+        tracks = [{"title": "Song"}]
+        assert processing._compute_deferred_tracks(
+            1, tracks, self._cfg()
+        ) == {}
+
+    def test_max_retries_gives_up_permanently(self):
+        import time as _t
+        import processing
+        now = _t.time()
+        for _ in range(5):
+            _add_attempt(1, "Song", False, ts=now - 400 * 24 * 3600)
+        tracks = [{"title": "Song"}]
+        deferred = processing._compute_deferred_tracks(
+            1, tracks, self._cfg(max_track_retries=3),
+        )
+        # Past the cap even though the backoff window has long elapsed.
+        assert deferred["Song"]["retry_at"] is None
+
+    def test_disabled_returns_nothing(self):
+        import processing
+        for _ in range(9):
+            _add_attempt(1, "Song", False)
+        tracks = [{"title": "Song"}]
+        assert processing._compute_deferred_tracks(
+            1, tracks, self._cfg(track_retry_backoff=False),
+        ) == {}
+
+    def test_playlist_imports_are_never_deferred(self):
+        import processing
+        for _ in range(9):
+            _add_attempt(-7, "Song", False)
+        tracks = [{"title": "Song"}]
+        assert processing._compute_deferred_tracks(
+            -7, tracks, self._cfg()
+        ) == {}
+
+    def test_backoff_is_capped(self):
+        import time as _t
+        import processing
+        now = _t.time()
+        # A huge failure count must not produce an unbounded wait: 60 days
+        # since the last attempt is past the 30-day cap, so it retries.
+        for _ in range(40):
+            _add_attempt(1, "Song", False, ts=now - 60 * 24 * 3600)
+        tracks = [{"title": "Song"}]
+        assert processing._compute_deferred_tracks(
+            1, tracks, self._cfg()
+        ) == {}
+
+
+class TestFilterTracksHonoursDeferred:
+    def test_deferred_tracks_are_skipped(self, tmp_path):
+        import processing
+        tracks = [{"title": "A", "trackNumber": 1},
+                  {"title": "B", "trackNumber": 2}]
+        out = processing._filter_tracks(
+            tracks, False, str(tmp_path), {"A": {"failures": 3}},
+        )
+        assert [t["title"] for t in out] == ["B"]
+
+    def test_force_ignores_deferred(self, tmp_path):
+        import processing
+        tracks = [{"title": "A", "trackNumber": 1}]
+        out = processing._filter_tracks(
+            tracks, True, str(tmp_path), {"A": {"failures": 3}},
+        )
+        assert [t["title"] for t in out] == ["A"]
+
+
+class TestDeferredAlbumSkipsNetworkWork:
+    """An album whose tracks are all backing off must cost nothing."""
+
+    def _album(self):
+        return {
+            "id": 77, "title": "A", "foreignAlbumId": "mbid",
+            "releaseDate": "2020-01-01",
+            "artist": {"artistName": "Art", "id": 1, "path": "/m/Art"},
+            "tracks": [{"title": "Song", "trackNumber": 1}],
+            "images": [],
+        }
+
+    def _wire(self, monkeypatch, tmp_path, calls, logs):
+        import processing
+        monkeypatch.setattr(processing, "DOWNLOAD_DIR", str(tmp_path))
+        monkeypatch.setattr(
+            processing, "lidarr_request", lambda *a, **k: self._album(),
+        )
+        monkeypatch.setattr(
+            processing, "lidarr_request_with_retry", lambda *a, **k: {},
+        )
+        monkeypatch.setattr(processing, "get_valid_release_id", lambda a: 1)
+        monkeypatch.setattr(processing, "makedirs_safe", lambda *a, **k: None)
+        monkeypatch.setattr(
+            processing, "relax_dir_permissions", lambda *a, **k: None,
+        )
+        monkeypatch.setattr(
+            processing, "_send_album_notification", lambda *a, **k: None,
+        )
+        monkeypatch.setattr(
+            processing.models, "add_log",
+            lambda **k: logs.append(k.get("log_type")),
+        )
+        # Anything below here means we did avoidable network work.
+        for name in (
+            "get_itunes_artwork", "get_cover_art_archive_artwork",
+            "get_deezer_artwork",
+        ):
+            monkeypatch.setattr(
+                processing, name,
+                lambda *a, _n=name: calls.append(_n),
+            )
+        monkeypatch.setattr(
+            processing, "find_album_on_ytmusic",
+            lambda *a, **k: calls.append("ytmusic"),
+        )
+        monkeypatch.setattr(
+            processing, "_resolve_track_artists",
+            lambda *a, **k: calls.append("resolve_artists"),
+        )
+
+    def test_all_deferred_skips_without_network(
+        self, tmp_path, monkeypatch,
+    ):
+        import time as _t
+        import processing
+        # 4 failures an hour ago -> 24h*2^3 = 192h wait, so still deferred.
+        for _ in range(4):
+            _add_attempt(77, "Song", False, ts=_t.time() - 3600)
+        calls, logs = [], []
+        self._wire(monkeypatch, tmp_path, calls, logs)
+        monkeypatch.setattr(
+            processing, "load_config",
+            lambda: {"track_retry_backoff": True, "max_track_retries": 0,
+                     "scheduler_retry_after_hours": 24, "audio_format": "mp3"},
+        )
+        result = processing.process_album_download(77)
+        assert result["message"] == "Skipped"
+        # No cover art, no YT Music, no per-track artist lookups.
+        assert calls == []
+        # Still logged, so the scheduler cooldown keeps holding it back.
+        assert "download_skipped" in logs
+
+    def test_forced_add_bypasses_the_backoff(self, tmp_path, monkeypatch):
+        import time as _t
+        import processing
+        for _ in range(4):
+            _add_attempt(77, "Song", False, ts=_t.time() - 3600)
+        calls, logs = [], []
+        self._wire(monkeypatch, tmp_path, calls, logs)
+        monkeypatch.setattr(
+            processing, "load_config",
+            lambda: {"track_retry_backoff": True, "max_track_retries": 0,
+                     "scheduler_retry_after_hours": 24, "audio_format": "mp3"},
+        )
+        monkeypatch.setattr(
+            processing, "_download_tracks",
+            lambda *a, **k: ([], [{"title": "Song"}], 0, {}),
+        )
+        monkeypatch.setattr(
+            processing, "_handle_post_download", lambda *a, **k: {"ok": True},
+        )
+        result = processing.process_album_download(77, ignore_backoff=True)
+        # It got past the filter and did the real work.
+        assert result == {"ok": True}
+        assert "ytmusic" in calls

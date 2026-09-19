@@ -20,6 +20,19 @@
   refused while a download is in progress to avoid corruption.
 
 ### Fixed
+- **Tracks that can never be found stop being retried forever** (#90). A song
+  that simply isn't on YouTube failed identically on every scheduler cycle,
+  forever. Each consecutive failure now doubles the wait before that track is
+  tried again (capped at 30 days), so the futile work decays instead of
+  repeating daily — but it is still retried eventually, in case the track
+  shows up later. Set *Max Retries per Track* to give up for good instead.
+  Adding an album to the queue by hand always retries everything immediately.
+- **Albums with nothing to download no longer cost a full round of API
+  calls.** The "what needs downloading" check now runs *before* the cover-art
+  fetch, the per-track artist lookups and the YouTube Music album
+  resolution, so an album that is already complete (or fully backed off)
+  exits immediately instead of burning those every cycle. Per-track artist
+  lookups are also limited to the tracks actually being fetched.
 - **Downloads survive a broken/emulated ffmpeg.** On hosts where ffmpeg
   can't write output files (e.g. an emulated CPU architecture, or a
   download filesystem returning ENOSYS for the mp4 muxer), audio conversion
