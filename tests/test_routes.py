@@ -473,7 +473,6 @@ class TestInsightsRoute:
         assert data["top_artists"][0]["artist"] == "Artist X"
 
     def test_insights_days_clamped(self, client):
-        # Out-of-range windows are clamped to [1, 365].
         assert len(client.get("/api/insights?days=0")
                    .get_json()["daily"]) == 1
         assert len(client.get("/api/insights?days=9999")
@@ -2261,7 +2260,6 @@ def test_backup_export_returns_sqlite(client, tmp_path):
     assert resp.status_code == 200
     data = resp.get_data()
     assert data[:16] == b"SQLite format 3\x00"
-    # It's a real db with our schema.
     import sqlite3
     f = tmp_path / "dl.db"
     f.write_bytes(data)
@@ -2292,7 +2290,6 @@ def test_backup_import_valid_restarts(client, monkeypatch, tmp_path):
     monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
     restarted = []
     monkeypatch.setattr(app_module, "_exec_restart", lambda: restarted.append(1))
-    # Build a valid backup db.
     bak = tmp_path / "backup.db"
     con = sqlite3.connect(str(bak))
     con.execute("CREATE TABLE schema_version (version INTEGER, applied_at REAL)")

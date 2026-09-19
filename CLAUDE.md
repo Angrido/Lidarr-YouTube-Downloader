@@ -147,9 +147,9 @@ Optional `schedule` library job polls for missing albums and auto-downloads at c
 ### Logging
 
 `logutil.setup_logging()` (called from `app.py`) installs a console formatter
-for the `docker compose logs` stream: `HH:MM:SS` + an icon column that stays
-empty for INFO and carries ⚠️/❌ for warnings/errors, so problems stand out
-without every line being decorated. Milestone messages (ready, album start,
+for the `docker compose logs` stream: `HH:MM:SS`, then the message. Warnings
+and errors get an icon, which makes their line protrude rather than adding a
+column everything else has to pay for. Milestone messages (ready, album start,
 album complete) carry an inline icon from `logutil.ICON_*`. A `DedupeFilter`
 collapses consecutive identical lines and reports the streak as its own INFO
 line — background loops used to repeat the same sentence hundreds of times.

@@ -203,8 +203,6 @@ class _SilentYDLLogger:
         # android client commonly returns this even with valid cookies;
         # music/web clients recover on the next attempt.
         "please sign in",
-        # We already log a single, clearer "Audio postprocessing failed
-        # for '<track>'" line per attempt; yt-dlp's raw copy just doubles it.
         "postprocessing:",
     )
 
@@ -275,15 +273,8 @@ def _build_common_opts(player_client=None):
 
 MAX_CANDIDATES = 10
 
-# Whether ffmpeg can actually encode+write an audio file on this host.
-# None = not probed yet, True = works, False = broken (e.g. an emulated CPU
-# arch or a download filesystem that returns ENOSYS for the mp4 muxer, where
-# ffmpeg can read/analyse but not open output files). When broken, m4a/opus
-# downloads skip straight to the no-ffmpeg native-stream path from the very
-# first track, so no doomed conversion is ever attempted. Reset on restart.
 _ffmpeg_pp_state = None
 _ffmpeg_pp_lock = threading.Lock()
-# One-shot so the 'normalisation needs ffmpeg' notice isn't repeated per track.
 _normalize_skip_warned = False
 
 
@@ -308,11 +299,10 @@ def _probe_ffmpeg_can_write_audio(probe_dir=None):
                 "ffmpeg", "-hide_banner", "-nostats", "-y",
                 "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
                 "-t", "0.1", "-c:a", "aac",
-                # yt-dlp appends this to *every* output it writes
-                # (FFmpegPostProcessor.real_run_ffmpeg). Without it the
-                # probe exercises a different code path than the real
-                # conversion and can pass on a host where the real one
-                # fails, which is exactly what it must not do.
+                # yt-dlp appends +faststart to every output it writes
+                # (FFmpegPostProcessor.real_run_ffmpeg); without it the probe
+                # tests a different code path and passes on hosts where the
+                # real conversion fails.
                 "-movflags", "+faststart",
                 path,
             ],
@@ -352,7 +342,6 @@ def _ffmpeg_postprocess_works(probe_dir=None):
         return _ffmpeg_pp_state
 
 
-#: Containers YouTube serves natively, so they need no ffmpeg conversion.
 NATIVE_AUDIO_FORMATS = ("m4a", "opus")
 
 
@@ -375,8 +364,6 @@ def ffmpeg_status(probe_dir=None, refresh=False):
         "ok": bool(ok),
         "machine": platform.machine(),
         "audio_format": audio_format,
-        # Downloads still work when the wanted container is one YouTube
-        # already serves: we keep that stream instead of converting it.
         "downloads_work": bool(ok or native_ok),
         "native_formats": list(NATIVE_AUDIO_FORMATS),
     }
@@ -1443,8 +1430,6 @@ def _download_raw_audio(
     elif audio_format == "opus":
         selector = "bestaudio[ext=webm][acodec=opus]/bestaudio[acodec=opus]"
     else:
-        # No native YouTube stream is in this container (e.g. mp3), so a raw
-        # download can't avoid the conversion ffmpeg would have to do.
         return None
 
     target_file = f"{output_path}.{audio_format}"
@@ -1492,8 +1477,6 @@ def _download_raw_audio(
             continue
         if os.path.exists(target_file):
             return target_file
-        # A different container came down (target stream absent); it can't be
-        # used without conversion, so clean up and give up on the raw path.
         for leftover in glob.glob(output_path + ".*"):
             try:
                 os.remove(leftover)
@@ -1506,8 +1489,6 @@ def _download_raw_audio(
 def download_youtube_candidate(
     candidate, output_path, progress_hook=None, skip_check=None,
 ):
-    # Ensure yt-dlp's plugins are loaded quietly before the first download,
-    # covering entry points that don't run the app's __main__ startup.
     preload_ytdlp_plugins_quietly()
     if skip_check and skip_check():
         return {"skipped": True}
@@ -1569,19 +1550,11 @@ def download_youtube_candidate(
     )
     clients_to_try = _client_fallback_chain(config, is_music) + [None]
 
-    # If ffmpeg can't write output on this host (probed once, up front), the
-    # normal conversion path is doomed and only produces error noise. For
-    # m4a/opus the native stream needs no conversion, so go straight to the
-    # no-ffmpeg path from the very first track. (mp3 has no native stream and
-    # loudnorm needs a re-encode, so those still take the normal path.)
     probe_dir = os.path.dirname(output_path)
     ffmpeg_ok = _ffmpeg_postprocess_works(probe_dir)
     if not ffmpeg_ok and audio_format in ("m4a", "opus"):
         global _normalize_skip_warned
         if normalize_audio and not _normalize_skip_warned:
-            # Loudness normalisation needs a re-encode, which is exactly
-            # what this host cannot do. Keeping the audio un-normalised
-            # beats failing every single track.
             _normalize_skip_warned = True
             logger.warning(
                 "Loudness normalisation needs ffmpeg, which cannot write"
@@ -1607,8 +1580,6 @@ def download_youtube_candidate(
                 "duration_seconds": int(candidate["duration"]),
                 "source_format": _format_source_quality(raw_captured),
             }
-        # No native stream in the wanted container — fall through and let the
-        # normal path try (and, if ffmpeg really is broken, fail cleanly).
 
     # Selector-outer / client-inner: ``android`` often only sees the
     # combined 360p mp4 (22k audio) while ``web`` exposes the 130k DASH
@@ -1627,8 +1598,6 @@ def download_youtube_candidate(
         }
     ]
     for sel_idx, selector in enumerate(format_selectors):
-        # Another track may have proved ffmpeg broken while we were mid-run
-        # (tracks download concurrently); stop as soon as that is known.
         if abort_conversion or not _ffmpeg_postprocess_works(probe_dir):
             break
         pp_variants = [extract_pp]
@@ -1661,8 +1630,6 @@ def download_youtube_candidate(
                 # format_sort, so drop it on the last two fallbacks.
                 if sel_idx >= len(format_selectors) - 2:
                     ydl_opts_download.pop("format_sort", None)
-                # Capture the source stream's real format/bitrate for the
-                # per-track quality report, alongside the caller's hook.
                 captured_fmt = {}
 
                 def _capture_source_format(d, _c=captured_fmt):
@@ -1724,11 +1691,6 @@ def download_youtube_candidate(
                                 "   Audio postprocessing failed for '%s': %s",
                                 candidate["title"], last_line[:160],
                             )
-                        # ffmpeg could not write an output file. Neither the
-                        # player client nor the format selector changes that,
-                        # so stop the cascade here instead of repeating the
-                        # identical failure for every combination — the
-                        # no-ffmpeg fallback below handles it.
                         abort_conversion = True
                         break
                     logger.debug(
@@ -1738,12 +1700,7 @@ def download_youtube_candidate(
                     continue
 
     if conversion_errors:
-        # ffmpeg postprocessing is broken locally (the probe missed it, or it
-        # broke mid-run). Latch it so later tracks skip the doomed cascade.
         _mark_ffmpeg_postprocess_broken()
-        # For m4a/opus targets the native YouTube stream is already in the
-        # wanted container, so try a direct download with no ffmpeg step at
-        # all before giving up.
         raw_captured = {}
         raw_file = _download_raw_audio(
             candidate, output_path, audio_format, is_music, config,
@@ -1764,9 +1721,6 @@ def download_youtube_candidate(
                 "duration_seconds": int(candidate["duration"]),
                 "source_format": _format_source_quality(raw_captured),
             }
-        # A postprocessing failure is a local ffmpeg/filesystem problem that
-        # every candidate would hit identically, so flag it: the caller stops
-        # trying more sources instead of repeating the same doomed conversion.
         last_line = (
             (str(last_err).strip().splitlines() or [str(last_err)])[-1]
             if last_err else "unknown error"

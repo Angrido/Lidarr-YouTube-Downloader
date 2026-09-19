@@ -2425,7 +2425,6 @@ class TestStopReporting:
         assert "download_success" not in logs
 
 
-# --- Retry backoff for repeatedly-failing tracks (issue #90) ---
 
 
 def _add_attempt(album_id, title, success, ts=None):
@@ -2464,7 +2463,6 @@ class TestTrackFailureCounts:
         _add_attempt(1, "Song", False, ts=now - 300)
         _add_attempt(1, "Song", False, ts=now - 200)
         _add_attempt(1, "Song", True, ts=now - 100)
-        # Only failures after the last success count.
         assert models.get_track_failure_counts(1) == {}
         _add_attempt(1, "Song", False, ts=now - 50)
         assert models.get_track_failure_counts(1)["Song"]["failures"] == 1
@@ -2492,7 +2490,6 @@ class TestComputeDeferredTracks:
         import time as _t
         import processing
         now = _t.time()
-        # 3 failures, last one 30h ago: wait is 24h * 2^2 = 96h -> deferred.
         for _ in range(3):
             _add_attempt(1, "Song", False, ts=now - 30 * 3600)
         tracks = [{"title": "Song"}]
@@ -2504,7 +2501,6 @@ class TestComputeDeferredTracks:
         import time as _t
         import processing
         now = _t.time()
-        # 1 failure 30h ago: wait is 24h -> already elapsed, so retry.
         _add_attempt(1, "Song", False, ts=now - 30 * 3600)
         tracks = [{"title": "Song"}]
         assert processing._compute_deferred_tracks(
@@ -2521,7 +2517,6 @@ class TestComputeDeferredTracks:
         deferred = processing._compute_deferred_tracks(
             1, tracks, self._cfg(max_track_retries=3),
         )
-        # Past the cap even though the backoff window has long elapsed.
         assert deferred["Song"]["retry_at"] is None
 
     def test_disabled_returns_nothing(self):
@@ -2546,8 +2541,6 @@ class TestComputeDeferredTracks:
         import time as _t
         import processing
         now = _t.time()
-        # A huge failure count must not produce an unbounded wait: 60 days
-        # since the last attempt is past the 30-day cap, so it retries.
         for _ in range(40):
             _add_attempt(1, "Song", False, ts=now - 60 * 24 * 3600)
         tracks = [{"title": "Song"}]
@@ -2608,7 +2601,6 @@ class TestDeferredAlbumSkipsNetworkWork:
             processing.models, "add_log",
             lambda **k: logs.append(k.get("log_type")),
         )
-        # Anything below here means we did avoidable network work.
         for name in (
             "get_itunes_artwork", "get_cover_art_archive_artwork",
             "get_deezer_artwork",
@@ -2631,7 +2623,6 @@ class TestDeferredAlbumSkipsNetworkWork:
     ):
         import time as _t
         import processing
-        # 4 failures an hour ago -> 24h*2^3 = 192h wait, so still deferred.
         for _ in range(4):
             _add_attempt(77, "Song", False, ts=_t.time() - 3600)
         calls, logs = [], []
@@ -2643,9 +2634,7 @@ class TestDeferredAlbumSkipsNetworkWork:
         )
         result = processing.process_album_download(77)
         assert result["message"] == "Skipped"
-        # No cover art, no YT Music, no per-track artist lookups.
         assert calls == []
-        # Still logged, so the scheduler cooldown keeps holding it back.
         assert "download_skipped" in logs
 
     def test_forced_add_bypasses_the_backoff(self, tmp_path, monkeypatch):
@@ -2668,6 +2657,5 @@ class TestDeferredAlbumSkipsNetworkWork:
             processing, "_handle_post_download", lambda *a, **k: {"ok": True},
         )
         result = processing.process_album_download(77, ignore_backoff=True)
-        # It got past the filter and did the real work.
         assert result == {"ok": True}
         assert "ytmusic" in calls

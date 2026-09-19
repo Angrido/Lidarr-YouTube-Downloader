@@ -147,14 +147,9 @@ def load_config():
         "scheduler_retry_after_hours": float(
             os.getenv("SCHEDULER_RETRY_AFTER_HOURS", "24")
         ),
-        # Back off retries of tracks that keep failing (see
-        # processing._compute_deferred_tracks). On by default: without it a
-        # song that simply isn't on YouTube is retried every cycle forever.
         "track_retry_backoff": (
             os.getenv("TRACK_RETRY_BACKOFF", "true").lower() == "true"
         ),
-        # Consecutive failures after which a track is given up on for good
-        # (0 = never give up, just keep backing off).
         "max_track_retries": int(os.getenv("MAX_TRACK_RETRIES", "0")),
         "telegram_enabled": (
             os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"
@@ -189,8 +184,6 @@ def load_config():
         "save_lyrics": (
             os.getenv("SAVE_LYRICS", "false").lower() == "true"
         ),
-        # Compute and write ReplayGain track tags (non-destructive volume
-        # normalization) instead of re-encoding the audio.
         "apply_replaygain": (
             os.getenv("APPLY_REPLAYGAIN", "false").lower() == "true"
         ),

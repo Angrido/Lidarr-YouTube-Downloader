@@ -16,7 +16,6 @@ import logging
 import threading
 import time
 
-# Milestone icons, used inline by the few messages that deserve one.
 ICON_APP = "🚀"
 ICON_ALBUM = "🎵"
 ICON_DONE = "🎉"
@@ -27,13 +26,12 @@ _LEVEL_ICONS = {
     logging.ERROR: "❌",
     logging.CRITICAL: "🔥",
 }
-# Terminal alignment rule: every icon used here must be East_Asian_Width
-# "W", i.e. exactly two columns in any terminal, so one trailing space
-# always lines the text up with the three spaces used when there is no
-# icon. This rules out the obvious warning triangle U+26A0 ("⚠"), which is
-# Ambiguous width — some terminals draw it in one column and some in two,
-# so it cannot be aligned and left a visible gap. A test enforces this.
-_NO_ICON = "   "
+# Every icon must be East_Asian_Width "W" (exactly two columns in any
+# terminal), so icon lines line up with the three-space indent of an album
+# sub-step. This rules out the obvious warning triangle U+26A0 ("⚠"),
+# whose width is Ambiguous: terminals disagree, so it cannot be aligned.
+# A test enforces it.
+_TEXT_COLUMN = 3
 
 
 class DedupeFilter(logging.Filter):
@@ -65,11 +63,6 @@ class DedupeFilter(logging.Filter):
             self._last = message
             self._repeats = 0
         if repeats and self._handler is not None:
-            # Report the streak as its own INFO line. Folding it into the
-            # record that broke the streak would give it that record's
-            # level, so a repeated info line could surface wearing an
-            # error's icon. Emit straight to the handler: handler.emit()
-            # does not re-run filters, so this cannot recurse.
             note = logging.LogRecord(
                 name=record.name, level=logging.INFO, pathname=record.pathname,
                 lineno=record.lineno,
@@ -105,30 +98,17 @@ def milestone(logger, msg, *args, icon=ICON_TRACK, **kwargs):
 
 
 class ConsoleFormatter(logging.Formatter):
-    """`HH:MM:SS  <icon>  message`, with the icon only when it earns one."""
+    """`HH:MM:SS <icon> message`, with the icon only when it earns one."""
 
     def format(self, record):
         stamp = time.strftime("%H:%M:%S", time.localtime(record.created))
-        # An explicit per-record icon (a milestone) wins over the level's,
-        # and crucially occupies the same column instead of being embedded
-        # in the message, where it would sit three columns further right.
         icon = getattr(record, "icon", None) or _LEVEL_ICONS.get(record.levelno)
         message = record.getMessage()
         if icon:
-            # Exactly one space between an icon and its text, always. Album
-            # sub-steps carry their own leading indent; keeping it here
-            # would push the text away from the icon by a varying amount.
-            # Dropping it also makes icon lines protrude from the indented
-            # flow, which is what you want for a milestone or a problem.
-            message = message.lstrip()
-            icon = f"{icon} "
-        else:
-            icon = _NO_ICON
-        # Multi-line messages keep their continuation lines aligned under
-        # the text column instead of hugging the left edge.
-        indent = " " * (len(stamp) + 2 + len(_NO_ICON))
+            message = f"{icon} {message.lstrip()}"
+        indent = " " * (len(stamp) + 1 + _TEXT_COLUMN)
         message = message.replace("\n", "\n" + indent)
-        line = f"{stamp}  {icon}{message}"
+        line = f"{stamp} {message}"
         if getattr(record, "section", False):
             line = "\n" + line
         if record.exc_info:

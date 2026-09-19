@@ -521,8 +521,6 @@ def _run_migrations(conn, current_version):
     }
     pending = [v for v in sorted(migrations) if current_version < v]
     if pending:
-        # One line for the whole upgrade instead of two per step: a fresh
-        # install otherwise opens with twenty lines of migration chatter.
         logger.info(
             "Upgrading database schema v%d \u2192 v%d\u2026",
             current_version, pending[-1],

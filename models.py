@@ -340,7 +340,6 @@ def get_insights(days=30):
         start_date.year, start_date.month, start_date.day
     ).timestamp()
 
-    # Overall totals within the window.
     row = conn.execute(
         "SELECT COUNT(*),"
         " SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END),"
@@ -362,7 +361,6 @@ def get_insights(days=30):
         "total_duration_seconds": (row[4] or 0) if row else 0,
     }
 
-    # Per-day success/failure over the window (local dates), zero-filled.
     rows = conn.execute(
         "SELECT strftime('%Y-%m-%d', timestamp, 'unixepoch', 'localtime') AS day,"
         " SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END),"
@@ -378,7 +376,6 @@ def get_insights(days=30):
         succ, fail = by_day.get(d, (0, 0))
         daily.append({"date": d, "success": succ, "failed": fail})
 
-    # Top artists by successful tracks within the window.
     rows = conn.execute(
         "SELECT artist_name, COUNT(*) AS c FROM track_downloads"
         " WHERE success = 1 AND artist_name != '' AND timestamp >= ?"
@@ -387,7 +384,6 @@ def get_insights(days=30):
     ).fetchall()
     top_artists = [{"artist": r[0], "count": r[1]} for r in rows]
 
-    # Audio-quality distribution from the recorded source_format.
     quality = {}
     rows = conn.execute(
         "SELECT source_format, COUNT(*) FROM track_downloads"

@@ -720,7 +720,6 @@ def test_add_track_download_source_format_defaults_empty():
     assert models.get_track_downloads_for_album(78)[0]["source_format"] == ""
 
 
-# --- Insights aggregation ---
 
 
 def _add_dl(**kw):
@@ -740,7 +739,6 @@ def test_get_insights_empty():
     assert data["totals"]["success_rate"] == 0.0
     assert data["top_artists"] == []
     assert data["quality"] == []
-    # Zero-filled daily series still has one entry per day.
     assert len(data["daily"]) == 7
     assert all(d["success"] == 0 and d["failed"] == 0 for d in data["daily"])
 
@@ -773,7 +771,6 @@ def test_get_insights_top_artists_and_quality():
             source_format="251 · opus · 160 kbps")
     _add_dl(artist_name="Artist Z", success=True, source_format="")
     data = models.get_insights(days=30)
-    # Top artist first, ordered by count desc.
     assert data["top_artists"][0] == {"artist": "Artist X", "count": 2}
     quality = {q["label"]: q["count"] for q in data["quality"]}
     assert quality["m4a"] == 2
@@ -791,8 +788,6 @@ def test_get_insights_daily_counts_today():
 
 
 def test_quality_bucket_handles_missing_format_id():
-    # No format id: "<container> · <bitrate>" — the middle is NOT the
-    # container, so a naive parts[1] would mislabel it as the bitrate.
     assert models._quality_bucket("m4a · 128 kbps") == "m4a"
     assert models._quality_bucket("140 · opus · 160 kbps") == "opus"
     assert models._quality_bucket("140") == "Unknown"
@@ -800,7 +795,6 @@ def test_quality_bucket_handles_missing_format_id():
 
 
 def test_get_insights_window_excludes_old_rows():
-    # Rows outside the window must not leak into any metric.
     conn = db.get_db()
     old_ts = time.time() - 40 * 86400
     rid = _add_dl(artist_name="Old Artist", success=True,
@@ -824,7 +818,6 @@ def test_get_insights_distinct_artists_ignores_empty():
     assert data["totals"]["distinct_artists"] == 1
 
 
-# --- Queue force flag (manual add bypasses retry backoff) ---
 
 
 def test_enqueue_album_defaults_to_not_forced():
@@ -840,7 +833,6 @@ def test_enqueue_album_force_marks_the_entry():
 
 
 def test_force_upgrades_an_already_queued_album():
-    # Scheduler queued it first; a manual add must not lose the intent.
     assert models.enqueue_album(13) is True
     assert models.enqueue_album(13, force=True) is False
     row = [r for r in models.get_queue() if r["album_id"] == 13][0]

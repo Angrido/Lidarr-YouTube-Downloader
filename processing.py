@@ -415,8 +415,6 @@ def process_album_download(
     """
     if state is None:
         state = download_process
-    # A Lidarr grab is an explicit request for this album, like a manual
-    # queue add, so it shouldn't be held back by the retry backoff.
     ignore_backoff = bool(ignore_backoff or client_grab)
     with queue_lock:
         if state["active"] or album_id in _active_states:
@@ -535,10 +533,6 @@ def process_album_download(
             album_folder_name = sanitized_album
         album_path = os.path.join(artist_path, album_folder_name)
 
-        # Decide what actually needs downloading *before* any network work.
-        # An album whose tracks are all present — or are backing off after
-        # repeated failures (issue #90) — must not cost a cover-art fetch, a
-        # per-track artist lookup and a YT Music resolution every cycle.
         cfg = load_config()
         deferred = (
             {} if (force or ignore_backoff)
@@ -558,9 +552,6 @@ def process_album_download(
                     "command",
                     data={"name": "RefreshArtist", "artistId": artist_id},
                 )
-            # Nothing was downloaded. Only report a storage path to Lidarr
-            # if the folder actually holds audio, so the download client
-            # doesn't ask Lidarr to import an empty directory.
             skip_path = album_path if _dir_has_audio(album_path) else ""
             return {
                 "success": True,
@@ -601,16 +592,12 @@ def process_album_download(
                 )
             }
 
-        # Resolve per-track artists only for the tracks we will actually
-        # fetch — this can cost one MusicBrainz/iTunes lookup per track.
         search_artist_source = cfg.get("search_artist_source", "album")
         _resolve_track_artists(
             tracks_to_download, artist_name, album_title,
             search_artist_source,
         )
 
-        # Cover bytes ride along in memory for ID3 + notifications,
-        # flushed to disk once the album directory exists below.
         logger.info(f"   Fetching album cover: {artist_name} - {album_title}")
         cover_sources = [
             ("iTunes (Apple Music)", lambda: get_itunes_artwork(
@@ -649,9 +636,6 @@ def process_album_download(
         if not cover_data:
             logger.info("   No album cover found in any source")
 
-        # Resolve the official YT Music album playlist once so per-track
-        # search can map directly to canonical entries instead of fishing
-        # in generic search results.
         ytmusic_album = None
         try:
             ytmusic_album = find_album_on_ytmusic(artist_name, album_title)
@@ -883,11 +867,7 @@ def _dir_has_audio(path):
         return False
 
 
-# A track that keeps failing is retried on an exponential backoff rather
-# than every cycle forever. Never wait longer than this between attempts, so
-# a song that only shows up on YouTube later is still eventually found.
 _TRACK_BACKOFF_MAX_SECONDS = 30 * 24 * 3600
-# Guard against absurd exponents on a track with a long failure history.
 _TRACK_BACKOFF_MAX_EXPONENT = 20
 
 
@@ -966,7 +946,6 @@ def _compute_deferred_tracks(album_id, tracks, cfg=None):
     """
     if cfg is None:
         cfg = load_config()
-    # Playlist imports (negative ids) are always explicit user requests.
     if album_id is None or album_id < 0:
         return {}
     backoff_on = bool(cfg.get("track_retry_backoff", True))
@@ -1114,9 +1093,6 @@ def _download_candidate_threaded(
 
     if not dl_result.get("success"):
         if dl_result.get("postprocess_error"):
-            # Local ffmpeg/filesystem failure — flag it so the candidate
-            # loop stops instead of retrying the identical conversion on
-            # every other candidate.
             track_state["postprocess_error"] = True
             track_state["error_message"] = dl_result.get("error_message", "")
         _cleanup_temp_files(attempt_temp)
@@ -1190,9 +1166,6 @@ def _accept_track_file(
     shutil.move(src_file, final_file)
     track_state["status"] = "done"
 
-    # Optional post-download enrichment. Never let a lyrics/ReplayGain
-    # hiccup (e.g. a broken ffmpeg) fail a track whose file is already in
-    # place — the download itself has succeeded by this point.
     if cfg.get("save_lyrics"):
         try:
             write_lyrics_sidecar(
@@ -1552,10 +1525,6 @@ def _download_tracks(
                 if track_state["status"] == "skipped":
                     return
                 if track_state.get("postprocess_error"):
-                    # ffmpeg can't produce the output file; every other
-                    # candidate downloads the same way and would fail
-                    # identically. Stop here so a bad ffmpeg/filesystem
-                    # setup can't spin through every candidate.
                     logger.error(
                         "Aborting remaining candidates for '%s': %s",
                         track_title,
@@ -2509,8 +2478,6 @@ def _dispatch_next_from_queue():
         models.dequeue_album(album_id)
         kwargs = {"state": job_state}
         if target is process_album_download:
-            # A hand-queued album skips the per-track retry backoff.
-            # (Client grabs bypass it via client_grab instead.)
             kwargs["ignore_backoff"] = forced
         threading.Thread(
             target=target,

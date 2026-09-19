@@ -642,8 +642,6 @@ class TestDownloadYoutubeCandidate:
     def test_postprocess_error_flags_and_bounds_retries(
         self, mock_config, mock_ydl_class,
     ):
-        # A persistent ffmpeg postprocessing failure must NOT be retried
-        # across every selector/client/candidate — it's a local problem.
         mock_config.return_value = {"yt_player_client": "android"}
         mock_ydl = mock_ydl_class.return_value.__enter__.return_value
         mock_ydl.download.side_effect = Exception(
@@ -657,8 +655,6 @@ class TestDownloadYoutubeCandidate:
         assert result["success"] is False
         assert result.get("postprocess_error") is True
         assert "postprocessing" in result["error_message"].lower()
-        # Bounded: a handful of attempts, not the full selector x client
-        # x candidate cascade (which was 20+).
         assert mock_ydl.download.call_count <= 3
 
     @patch("downloader.yt_dlp.YoutubeDL")
@@ -698,8 +694,6 @@ class TestDownloadYoutubeCandidate:
     def test_raw_fallback_when_ffmpeg_postprocessing_unavailable(
         self, mock_config, mock_ydl_class, tmp_path,
     ):
-        # ffmpeg can't convert (broken/emulated), but the native m4a stream
-        # should still be downloaded directly, with no ffmpeg step.
         import os
         mock_config.return_value = {
             "yt_player_client": "android", "audio_format": "m4a",
@@ -715,7 +709,6 @@ class TestDownloadYoutubeCandidate:
                     "ERROR: Postprocessing: audio conversion failed:"
                     " Error opening output files: Function not implemented"
                 )
-            # Raw fallback: yt-dlp writes the native m4a file, no ffmpeg.
             with open(out + ".m4a", "wb") as fh:
                 fh.write(b"\x00\x00\x00\x00")
             return 0
@@ -732,8 +725,6 @@ class TestDownloadYoutubeCandidate:
     def test_raw_fallback_skipped_for_mp3_target(
         self, mock_config, mock_ydl_class,
     ):
-        # mp3 has no native YouTube stream, so the raw fallback can't help
-        # and the call still reports a bounded postprocess failure.
         mock_config.return_value = {
             "yt_player_client": "android", "audio_format": "mp3",
         }
@@ -746,7 +737,6 @@ class TestDownloadYoutubeCandidate:
         result = download_youtube_candidate(candidate, "/tmp/output")
         assert result["success"] is False
         assert result.get("postprocess_error") is True
-        # No native-stream download attempts were made for mp3.
         assert mock_ydl.download.call_count <= 3
 
     @patch("downloader.yt_dlp.YoutubeDL")
@@ -754,8 +744,6 @@ class TestDownloadYoutubeCandidate:
     def test_early_raw_path_when_ffmpeg_known_broken(
         self, mock_config, mock_ydl_class, tmp_path,
     ):
-        # Once ffmpeg postprocessing is known broken, an m4a target must go
-        # straight to the native download — no wasted conversion cascade.
         import os
         downloader._ffmpeg_pp_state = False
         mock_config.return_value = {
@@ -785,7 +773,6 @@ class TestFfmpegProbe:
 
     @patch("downloader.subprocess.run")
     def test_probe_broken_when_no_output_file(self, mock_run):
-        # ffmpeg claims success but no file lands (the ENOSYS symptom).
         mock_run.return_value = MagicMock(returncode=0)
         assert downloader._probe_ffmpeg_can_write_audio(None) is False
 
@@ -809,7 +796,6 @@ class TestFfmpegProbe:
         cmd = mock_run.call_args[0][0]
         assert "-movflags" in cmd
         assert cmd[cmd.index("-movflags") + 1] == "+faststart"
-        # And it must still write a real file, not to a null sink.
         assert cmd[-1].endswith(".m4a")
 
     @patch("downloader.subprocess.run")
@@ -818,7 +804,6 @@ class TestFfmpegProbe:
         mock_run.return_value = MagicMock(returncode=1)
         assert downloader._ffmpeg_postprocess_works(None) is False
         assert downloader._ffmpeg_postprocess_works(None) is False
-        # Probe ran only once despite two queries.
         assert mock_run.call_count == 1
 
 
@@ -828,7 +813,6 @@ class TestPluginPreload:
         fake_plugins = MagicMock()
         try:
             with patch.object(downloader, "yt_dlp") as mock_ytdlp:
-                # Simulate the noisy loader writing to stderr on first load.
                 def _noisy():
                     import sys
                     sys.stderr.write("PoTokenProvider BgUtilHTTP already registered\n")
@@ -838,7 +822,6 @@ class TestPluginPreload:
                 downloader.preload_ytdlp_plugins_quietly()
         finally:
             downloader._plugins_preloaded = True
-        # Loaded exactly once, and its stderr noise was swallowed.
         assert fake_plugins.load_all_plugins.call_count == 1
         assert "already registered" not in capsys.readouterr().err
 
@@ -2093,8 +2076,6 @@ class TestFfmpegStatus:
 
     @patch("downloader.load_config")
     def test_working_ffmpeg_still_reports_a_verdict(self, mock_config):
-        # The Settings panel is always visible, so a healthy host needs a
-        # positive verdict to show — not an empty payload.
         mock_config.return_value = self._cfg("mp3")
         downloader._ffmpeg_pp_state = True
         st = downloader.ffmpeg_status()
@@ -2102,7 +2083,6 @@ class TestFfmpegStatus:
         assert st["downloads_work"] is True
         assert st["summary"]
         assert st["detail"]
-        # Nothing is wrong, so there is nothing to fix.
         assert "fixes" not in st
         assert "impact" not in st
 
@@ -2112,10 +2092,8 @@ class TestFfmpegStatus:
         downloader._ffmpeg_pp_state = False
         st = downloader.ffmpeg_status()
         assert st["ok"] is False
-        # m4a is served natively, so downloads keep working.
         assert st["downloads_work"] is True
         assert "ENOSYS" in st["detail"]
-        # Only the real fix is offered — switching format would change nothing.
         assert len(st["fixes"]) == 1
         assert "architecture" in st["fixes"][0]
 
@@ -2126,7 +2104,6 @@ class TestFfmpegStatus:
         st = downloader.ffmpeg_status()
         assert st["downloads_work"] is False
         assert "mp3" in st["impact"]
-        # The fix the user can apply without touching their setup comes first.
         assert "m4a" in st["fixes"][0]
         assert len(st["fixes"]) == 2
 
@@ -2136,10 +2113,8 @@ class TestFfmpegStatus:
         mock_config.return_value = self._cfg("m4a")
         downloader._ffmpeg_pp_state = True
         mock_run.return_value = MagicMock(returncode=1)
-        # Without refresh the cached "works" answer stands.
         assert downloader.ffmpeg_status(str(tmp_path))["ok"] is True
         assert mock_run.call_count == 0
-        # With refresh the probe actually runs again.
         assert downloader.ffmpeg_status(
             str(tmp_path), refresh=True
         )["ok"] is False

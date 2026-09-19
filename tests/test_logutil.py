@@ -13,11 +13,9 @@ def _record(msg, level=logging.INFO, args=()):
 
 
 class TestConsoleFormatter:
-    def test_info_has_no_icon_but_keeps_the_column(self):
+    def test_info_starts_right_after_the_timestamp(self):
         line = logutil.ConsoleFormatter().format(_record("hello"))
-        # "HH:MM:SS" + two spaces + the empty icon column.
-        assert line.endswith("hello")
-        assert line[8:] == "  " + logutil._NO_ICON + "hello"
+        assert line == line[:8] + " hello"
 
     def test_warning_and_error_get_icons(self):
         fmt = logutil.ConsoleFormatter()
@@ -45,8 +43,6 @@ class TestConsoleFormatter:
 
     def test_icon_is_followed_by_exactly_one_space(self):
         fmt = logutil.ConsoleFormatter()
-        # Album sub-steps carry their own indent; an icon line must not
-        # inherit it, or the gap after the emoji varies per message.
         line = fmt.format(_record("   indented step", logging.WARNING))
         icon = logutil._LEVEL_ICONS[logging.WARNING]
         assert icon + " indented step" in line
@@ -68,14 +64,23 @@ class TestConsoleFormatter:
         assert seen[0]["extra"]["icon"] == logutil.ICON_APP
         assert "section" not in seen[0]["extra"]
 
-    def test_icons_align_with_plain_lines(self):
-        # Every icon renders two columns, so the message must start at the
-        # same offset whether or not there is an icon.
+    def test_icon_lines_align_with_indented_sub_steps(self):
+        # An icon is two columns plus a space, matching the three-space
+        # indent a sub-step carries, so both start at the same terminal
+        # column. Measured in columns, not code points: an icon is one
+        # character but two columns wide.
+        import unicodedata
+
+        def column_of(line, needle):
+            return sum(
+                2 if unicodedata.east_asian_width(c) == "W" else 1
+                for c in line[:line.index(needle)]
+            )
+
         fmt = logutil.ConsoleFormatter()
-        plain = fmt.format(_record("x"))
-        err = fmt.format(_record("x", logging.ERROR))
-        # One code point wide icon + a space == the 3-space empty column.
-        assert plain.index("x") == err.index("x") + 1
+        sub = fmt.format(_record("   sub-step"))
+        err = fmt.format(_record("problem", logging.ERROR))
+        assert column_of(sub, "sub-step") == column_of(err, "problem")
 
     def test_multiline_messages_stay_indented(self):
         line = logutil.ConsoleFormatter().format(_record("a\nb"))
@@ -113,7 +118,6 @@ class TestDedupeFilter:
         f.filter(_record("same"))
         for _ in range(4):
             f.filter(_record("same"))
-        # An ERROR breaks the streak; the note must NOT inherit its level.
         assert f.filter(_record("boom", logging.ERROR)) is True
         assert len(emitted) == 1
         assert emitted[0].levelno == logging.INFO
@@ -156,7 +160,6 @@ class TestSectionBreaks:
         rec.section = True
         line = logutil.ConsoleFormatter().format(rec)
         assert line.startswith("\n")
-        # The blank line is a real blank line, not an indented one.
         assert line.split("\n")[0] == ""
         assert "Album X" in line
 

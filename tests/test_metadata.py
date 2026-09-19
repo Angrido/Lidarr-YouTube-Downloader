@@ -607,7 +607,6 @@ class TestReplayGain:
         mock_mp3.return_value = audio
         f = tmp_path / "track.mp3"
         f.write_bytes(b"x")
-        # reference (-18) - integrated (-20) = +2.00 dB
         assert metadata.apply_replaygain_tags(str(f)) == "2.00 dB"
         assert audio.tags.add.call_count == 2
         audio.save.assert_called_once()

@@ -69,8 +69,6 @@ logger = logging.getLogger(__name__)
 
 log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
-# Werkzeug prints its own multi-line banner straight to stdout, which
-# duplicates the startup lines we log ourselves.
 try:
     import flask.cli
     flask.cli.show_server_banner = lambda *a, **k: None
@@ -136,7 +134,6 @@ def favicon():
     )
 
 
-# --- PWA (installable web app) --------------------------------------------
 
 _PWA_MANIFEST = {
     "name": "Lidarr YouTube Downloader",
@@ -181,7 +178,6 @@ def pwa_manifest():
 @app.route("/sw.js")
 def service_worker():
     resp = Response(_SERVICE_WORKER_JS, mimetype="application/javascript")
-    # Allow the root-scoped worker even though it's served from /sw.js.
     resp.headers["Service-Worker-Allowed"] = "/"
     resp.headers["Cache-Control"] = "no-cache"
     return resp
@@ -311,9 +307,6 @@ def api_config_import():
 @app.route("/api/backup/export")
 def api_backup_export():
     """Download a consistent SQLite backup of the whole app database."""
-    # Write the copy next to the DB (on the persistent /config volume)
-    # rather than the system temp dir, which in containers is often a small
-    # tmpfs that a large DB backup could exhaust.
     db_dir = os.path.dirname(db.DB_PATH) or None
     fd, tmp = tempfile.mkstemp(suffix=".db", dir=db_dir)
     os.close(fd)
@@ -372,12 +365,6 @@ def api_backup_import():
     db_dir = os.path.dirname(db.DB_PATH) or "."
     fd, tmp = tempfile.mkstemp(suffix=".db", dir=db_dir)
     os.close(fd)
-    # Validate the upload is a sound SQLite database carrying a schema
-    # version this build can actually open. We read the version exactly the
-    # way init_db() does, and require 1 <= version <= our SCHEMA_VERSION:
-    # an empty/column-less schema_version table would otherwise re-run every
-    # migration on restart (bricking the app), and a newer-than-ours schema
-    # can't be migrated down.
     valid = False
     reason = "Not a valid Lidarr-YT backup database."
     try:
@@ -981,7 +968,6 @@ def api_download(album_id):
         current_id = download_process.get("album_id")
     if current_id == album_id:
         return jsonify({"success": False, "message": "Already in queue or downloading"})
-    # Manual request: bypass the per-track retry backoff.
     added = models.enqueue_album(album_id, force=True)
     if added:
         return jsonify({"success": True, "queued": True})
@@ -3628,8 +3614,6 @@ def _startup_ytdlp_update():
 
 
 if __name__ == "__main__":
-    # Identify the app before reporting what it is doing, so the startup
-    # block reads top-down instead of opening with migration chatter.
     logutil.section(logger, "Lidarr YouTube Downloader %s", VERSION)
     logger.info(
         "Download directory: %s",
@@ -3638,8 +3622,6 @@ if __name__ == "__main__":
     db.init_db()
     models.reset_downloading_to_queued()
     download_client.restore_jobs()
-    # Load yt-dlp plugins once, quietly, so the bgutil PO-token provider's
-    # harmless "already registered" import error never appears mid-download.
     preload_ytdlp_plugins_quietly()
     setup_scheduler()
     threading.Thread(target=run_scheduler, daemon=True).start()
