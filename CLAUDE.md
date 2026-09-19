@@ -156,6 +156,24 @@ line — background loops used to repeat the same sentence hundreds of times.
 Prefer fixing repetition at the source (log at DEBUG when nothing changed,
 as `lidarr_sync` does) and treat the filter as a safety net.
 
+### ffmpeg capability diagnostics
+
+Some hosts cannot run ffmpeg's audio conversion at all — most often the
+container is under CPU emulation (an arm64 image on an amd64 host or vice
+versa), where ffmpeg fails with ENOSYS ("Function not implemented") while
+everything else works. `downloader._probe_ffmpeg_can_write_audio()` detects
+it by encoding 0.1s of silence to m4a **with `-movflags +faststart`**, the
+flag yt-dlp appends to every output it writes — without it the probe tests a
+different code path and can pass where the real conversion fails.
+
+`downloader.ffmpeg_status()` turns that into guidance and is served by
+`/api/ffmpeg/status` (`?refresh=1` re-probes) and summarised as `ffmpeg_ok`
+in `/api/health`. Settings renders it as a panel that only appears when
+there is something to act on. Key distinction: with an `m4a`/`opus` target
+(`NATIVE_AUDIO_FORMATS`) downloads still work, because YouTube serves those
+containers directly and the native stream is kept as-is; with `mp3` nothing
+can be downloaded, so the panel offers switching format as the first fix.
+
 ### Notifications
 
 Telegram and Discord webhooks, filtered by `log_type` (e.g., `partial_success`, `album_error`).

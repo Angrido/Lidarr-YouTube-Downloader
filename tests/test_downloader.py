@@ -2083,3 +2083,58 @@ def test_format_source_quality():
     assert _format_source_quality({}) == ""
     assert _format_source_quality({"ext": "opus"}) == "opus"
     assert _format_source_quality({"format_id": "140", "abr": None}) == "140"
+
+
+class TestFfmpegStatus:
+    """The probe result turned into something the user can act on."""
+
+    def _cfg(self, fmt):
+        return {"audio_format": fmt, "yt_player_client": "android"}
+
+    @patch("downloader.load_config")
+    def test_working_ffmpeg_reports_nothing_to_do(self, mock_config):
+        mock_config.return_value = self._cfg("mp3")
+        downloader._ffmpeg_pp_state = True
+        st = downloader.ffmpeg_status()
+        assert st["ok"] is True
+        assert st["downloads_work"] is True
+        assert "fixes" not in st
+
+    @patch("downloader.load_config")
+    def test_broken_with_native_format_still_downloads(self, mock_config):
+        mock_config.return_value = self._cfg("m4a")
+        downloader._ffmpeg_pp_state = False
+        st = downloader.ffmpeg_status()
+        assert st["ok"] is False
+        # m4a is served natively, so downloads keep working.
+        assert st["downloads_work"] is True
+        assert "ENOSYS" in st["detail"]
+        # Only the real fix is offered — switching format would change nothing.
+        assert len(st["fixes"]) == 1
+        assert "architecture" in st["fixes"][0]
+
+    @patch("downloader.load_config")
+    def test_broken_with_mp3_offers_the_in_app_fix_first(self, mock_config):
+        mock_config.return_value = self._cfg("mp3")
+        downloader._ffmpeg_pp_state = False
+        st = downloader.ffmpeg_status()
+        assert st["downloads_work"] is False
+        assert "mp3" in st["impact"]
+        # The fix the user can apply without touching their setup comes first.
+        assert "m4a" in st["fixes"][0]
+        assert len(st["fixes"]) == 2
+
+    @patch("downloader.subprocess.run")
+    @patch("downloader.load_config")
+    def test_refresh_reruns_the_probe(self, mock_config, mock_run, tmp_path):
+        mock_config.return_value = self._cfg("m4a")
+        downloader._ffmpeg_pp_state = True
+        mock_run.return_value = MagicMock(returncode=1)
+        # Without refresh the cached "works" answer stands.
+        assert downloader.ffmpeg_status(str(tmp_path))["ok"] is True
+        assert mock_run.call_count == 0
+        # With refresh the probe actually runs again.
+        assert downloader.ffmpeg_status(
+            str(tmp_path), refresh=True
+        )["ok"] is False
+        assert mock_run.call_count == 1

@@ -14,6 +14,7 @@ import glob
 import logging
 import math
 import os
+import platform
 import re
 import subprocess
 import tempfile
@@ -349,6 +350,74 @@ def _ffmpeg_postprocess_works(probe_dir=None):
         if _ffmpeg_pp_state is None:
             _ffmpeg_pp_state = _probe_ffmpeg_can_write_audio(probe_dir)
         return _ffmpeg_pp_state
+
+
+#: Containers YouTube serves natively, so they need no ffmpeg conversion.
+NATIVE_AUDIO_FORMATS = ("m4a", "opus")
+
+
+def ffmpeg_status(probe_dir=None, refresh=False):
+    """Describe whether this host can convert audio, and what to do if not.
+
+    The probe tells us *that* conversion is impossible; this turns it into
+    something the user can act on, because the log alone leaves them with an
+    errno and no next step. ``refresh`` re-runs the probe so the UI can
+    re-check after the user changes something.
+    """
+    global _ffmpeg_pp_state
+    if refresh:
+        with _ffmpeg_pp_lock:
+            _ffmpeg_pp_state = None
+    audio_format = (load_config().get("audio_format", "mp3") or "").lower()
+    ok = _ffmpeg_postprocess_works(probe_dir)
+    native_ok = audio_format in NATIVE_AUDIO_FORMATS
+    status = {
+        "ok": bool(ok),
+        "machine": platform.machine(),
+        "audio_format": audio_format,
+        # Downloads still work when the wanted container is one YouTube
+        # already serves: we keep that stream instead of converting it.
+        "downloads_work": bool(ok or native_ok),
+        "native_formats": list(NATIVE_AUDIO_FORMATS),
+    }
+    if ok:
+        status["summary"] = "ffmpeg can convert audio normally."
+        return status
+    status["summary"] = (
+        "ffmpeg cannot write audio output on this host."
+    )
+    status["detail"] = (
+        "ffmpeg fails with ENOSYS (“Function not implemented”) when it"
+        " writes a converted file. That error comes from the system, not from"
+        " ffmpeg itself, and almost always means the container is running"
+        " under CPU emulation — typically an arm64 image on an amd64 host"
+        " or vice versa — where some system calls are unavailable."
+    )
+    if native_ok:
+        status["impact"] = (
+            f"Downloads still work: the native {audio_format} stream is kept"
+            " as-is, with no conversion and no quality loss."
+        )
+    else:
+        status["impact"] = (
+            f"Downloads cannot work with {audio_format or 'this format'},"
+            " because it has to be produced by converting the stream."
+        )
+    fixes = []
+    if not native_ok:
+        fixes.append(
+            "Set Audio Format to m4a (or opus) below — YouTube serves those"
+            " directly, so nothing has to be converted. This fixes downloads"
+            " immediately, without touching your setup."
+        )
+    fixes.append(
+        "Run an image built for this machine's architecture"
+        f" ({platform.machine()}). Pull or build it without emulation, e.g."
+        " `docker compose build --no-cache` on this host. That restores"
+        " ffmpeg fully, including mp3 and loudness normalisation."
+    )
+    status["fixes"] = fixes
+    return status
 
 
 def _mark_ffmpeg_postprocess_broken():

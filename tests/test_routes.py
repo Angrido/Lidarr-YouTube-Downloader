@@ -2359,3 +2359,25 @@ def test_backup_import_refused_while_downloading(client, monkeypatch):
         assert resp.status_code == 409
     finally:
         app_module.download_process["active"] = False
+
+
+class TestFfmpegStatusRoute:
+    def test_status_reports_ok(self, client, monkeypatch):
+        import downloader
+        monkeypatch.setattr(downloader, "_ffmpeg_pp_state", True)
+        resp = client.get("/api/ffmpeg/status")
+        assert resp.status_code == 200
+        assert resp.get_json()["ok"] is True
+
+    def test_status_explains_a_broken_host(self, client, monkeypatch):
+        import downloader
+        monkeypatch.setattr(downloader, "_ffmpeg_pp_state", False)
+        data = client.get("/api/ffmpeg/status").get_json()
+        assert data["ok"] is False
+        assert data["fixes"]
+        assert "machine" in data
+
+    def test_health_exposes_ffmpeg_state(self, client, monkeypatch):
+        import downloader
+        monkeypatch.setattr(downloader, "_ffmpeg_pp_state", True)
+        assert client.get("/api/health").get_json()["ffmpeg_ok"] is True

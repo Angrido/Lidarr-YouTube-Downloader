@@ -911,6 +911,16 @@
                     <option value="itunes">Track Artist (iTunes only)</option>
                 </select>
             </div>
+            <div id="ffmpegDiag" class="input-group" style="display:none;">
+                <div id="ffmpegDiagBox" style="padding:1rem 1.15rem; border-radius:12px; border:1px solid var(--border); background:var(--bg);">
+                    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+                        <strong id="ffmpegDiagTitle" style="font-size:1rem;">Checking audio conversion…</strong>
+                        <button class="btn" id="ffmpegDiagBtn" onclick="checkFfmpeg(true)"
+                                style="padding:0.35rem 0.8rem; font-size:0.8rem; margin-left:auto;">Re-check</button>
+                    </div>
+                    <div id="ffmpegDiagBody" style="margin-top:0.6rem; font-size:0.85rem; color:var(--text-dim); line-height:1.55;"></div>
+                </div>
+            </div>
             <div class="input-group">
                 <label for="audioFormatSelect">
                     Audio Format
@@ -1633,6 +1643,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             document.getElementById('downloadClientApiKey').value = conf.download_client_api_key || '';
             document.getElementById('downloadClientCategory').value = conf.download_client_category || 'music';
             document.getElementById('downloadClientConcurrentAlbums').value = String(conf.download_client_concurrent_albums || 1);
+            checkFfmpeg(false);
             updateTrackRetryBackoffBtn(conf.track_retry_backoff !== false);
             document.getElementById('maxTrackRetries').value = (
                 conf.max_track_retries != null ? conf.max_track_retries : 0
@@ -1869,6 +1880,67 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             const btn = document.getElementById('replayGainBtn');
             updateReplayGainBtn(btn.dataset.enabled !== '1');
             markSettingsDirty();
+        }
+
+        function renderFfmpegDiag(st) {
+            const wrap = document.getElementById('ffmpegDiag');
+            const box = document.getElementById('ffmpegDiagBox');
+            const title = document.getElementById('ffmpegDiagTitle');
+            const body = document.getElementById('ffmpegDiagBody');
+            if (!wrap) return;
+            if (st && st.ok) {
+                // Nothing to act on: don't spend the user's attention.
+                wrap.style.display = 'none';
+                return;
+            }
+            wrap.style.display = '';
+            const broken = st && st.ok === false;
+            const blocked = broken && st.downloads_work === false;
+            box.style.borderColor = blocked ? 'var(--danger)' : 'var(--warning)';
+            // Built with textContent rather than innerHTML: no escaping to
+            // get wrong, and nothing here needs markup.
+            title.textContent = (blocked ? '\u274c ' : '\u26a0\ufe0f ')
+                + (st && st.summary ? st.summary : 'Could not check ffmpeg.');
+            body.textContent = '';
+            const para = (text, bold) => {
+                const el = document.createElement('p');
+                el.style.margin = '0 0 0.5rem';
+                if (bold) {
+                    const b = document.createElement('strong');
+                    b.textContent = text;
+                    el.appendChild(b);
+                } else {
+                    el.textContent = text;
+                }
+                body.appendChild(el);
+            };
+            if (st && st.detail) para(st.detail, false);
+            if (st && st.impact) para(st.impact, true);
+            if (st && st.fixes && st.fixes.length) {
+                para('How to fix it:', true);
+                const ol = document.createElement('ol');
+                ol.style.margin = '0';
+                ol.style.paddingLeft = '1.2rem';
+                for (const fix of st.fixes) {
+                    const li = document.createElement('li');
+                    li.style.marginBottom = '0.3rem';
+                    li.textContent = fix;
+                    ol.appendChild(li);
+                }
+                body.appendChild(ol);
+            }
+        }
+
+        async function checkFfmpeg(refresh) {
+            const btn = document.getElementById('ffmpegDiagBtn');
+            if (refresh && btn) { btn.disabled = true; btn.innerText = 'Checking…'; }
+            try {
+                const res = await fetch('/api/ffmpeg/status' + (refresh ? '?refresh=1' : ''));
+                renderFfmpegDiag(await res.json());
+            } catch (e) {
+                renderFfmpegDiag(null);
+            }
+            if (btn) { btn.disabled = false; btn.innerText = 'Re-check'; }
         }
 
         function updateTrackRetryBackoffBtn(enabled) {

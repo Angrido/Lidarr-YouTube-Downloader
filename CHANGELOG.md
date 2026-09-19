@@ -31,6 +31,15 @@
   migration chatter is a single line, and Flask's duplicate startup banner
   is gone.
 
+- **Settings now explains it when this machine cannot convert audio.** The
+  app already detected the problem, but only mentioned it in the log, where
+  an errno is no help. A panel now appears (only when there is something to
+  act on) saying what fails, what it means, whether downloads still work,
+  and how to fix it — including the one fix that can be applied from inside
+  the app: switching Audio Format to m4a/opus, which YouTube serves
+  natively so nothing needs converting. There's a Re-check button, and
+  `/api/health` reports `ffmpeg_ok`.
+
 ### Fixed
 - **Tracks that can never be found stop being retried forever** (#90). A song
   that simply isn't on YouTube failed identically on every scheduler cycle,

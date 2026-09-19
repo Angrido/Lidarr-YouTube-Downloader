@@ -33,6 +33,7 @@ import download_client
 import models
 from config import ALLOWED_CONFIG_KEYS, load_config, save_config
 from downloader import (
+    ffmpeg_status,
     get_ytdlp_version,
     list_video_formats,
     download_youtube_candidate,
@@ -196,9 +197,42 @@ def api_health():
     except Exception:
         db_ok = False
     status = "ok" if db_ok else "degraded"
+    try:
+        audio = ffmpeg_status(DOWNLOAD_DIR or None)
+    except Exception:
+        audio = {"ok": None}
     return jsonify(
-        {"status": status, "version": VERSION, "db": db_ok}
+        {
+            "status": status,
+            "version": VERSION,
+            "db": db_ok,
+            "ffmpeg_ok": audio.get("ok"),
+        }
     ), (200 if db_ok else 503)
+
+
+@app.route("/api/ffmpeg/status")
+def api_ffmpeg_status():
+    """Whether audio conversion works here, and what the user can do if not.
+
+    The probe result alone is an errno in a log; this endpoint is what the
+    Settings page shows so the problem is actionable instead of cryptic.
+    """
+    refresh = request.args.get("refresh") == "1"
+    if refresh:
+        client_ip = request.remote_addr or "unknown"
+        if not check_rate_limit(
+            f"ffmpeg_probe:{client_ip}", rate_limit_store,
+            window=10, max_requests=3,
+        ):
+            return jsonify(
+                {"success": False, "message": "Too many requests"}
+            ), 429
+    try:
+        return jsonify(ffmpeg_status(DOWNLOAD_DIR or None, refresh=refresh))
+    except Exception as exc:
+        logger.warning("ffmpeg status check failed: %s", exc)
+        return jsonify({"ok": None, "summary": "Could not check ffmpeg."}), 500
 
 
 @app.route("/api/config", methods=["GET", "POST"])
