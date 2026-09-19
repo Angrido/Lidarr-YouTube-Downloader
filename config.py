@@ -53,11 +53,13 @@ ALLOWED_CONFIG_KEYS = {
     "min_match_score", "audio_format", "audio_quality", "ytdlp_format",
     "lidarr_rename_after_import", "save_cover_art_file",
     "scheduler_retry_after_hours",
+    "track_retry_backoff", "max_track_retries",
     "download_client_enabled", "download_client_api_key",
     "download_client_category", "download_client_concurrent_albums",
     "yt_po_token", "audio_normalize", "yt_pot_provider_url",
     "playlist_to_library",
     "search_artist_source",
+    "save_lyrics", "apply_replaygain",
 }
 
 # Valid values for search_artist_source: which artist to use when building
@@ -145,6 +147,10 @@ def load_config():
         "scheduler_retry_after_hours": float(
             os.getenv("SCHEDULER_RETRY_AFTER_HOURS", "24")
         ),
+        "track_retry_backoff": (
+            os.getenv("TRACK_RETRY_BACKOFF", "true").lower() == "true"
+        ),
+        "max_track_retries": int(os.getenv("MAX_TRACK_RETRIES", "0")),
         "telegram_enabled": (
             os.getenv("TELEGRAM_ENABLED", "false").lower() == "true"
         ),
@@ -172,6 +178,14 @@ def load_config():
         "yt_pot_provider_url": os.getenv("YT_POT_PROVIDER_URL", ""),
         "audio_normalize": (
             os.getenv("AUDIO_NORMALIZE", "false").lower() == "true"
+        ),
+        # Write a synced .lrc lyrics sidecar (fetched from LRCLIB) next to
+        # each downloaded track.
+        "save_lyrics": (
+            os.getenv("SAVE_LYRICS", "false").lower() == "true"
+        ),
+        "apply_replaygain": (
+            os.getenv("APPLY_REPLAYGAIN", "false").lower() == "true"
         ),
         "yt_retries": int(os.getenv("YT_RETRIES", "10")),
         "yt_fragment_retries": int(os.getenv("YT_FRAGMENT_RETRIES", "10")),
@@ -251,7 +265,7 @@ def load_config():
             "scheduler_interval", "duration_tolerance", "scheduler_max_albums",
             "concurrent_tracks", "yt_retries", "yt_fragment_retries",
             "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
-            "download_client_concurrent_albums",
+            "download_client_concurrent_albums", "max_track_retries",
         )
         for _k in _int_keys:
             if _k in config:

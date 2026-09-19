@@ -85,6 +85,7 @@ docker run -p 5005:5000 \
 | `scheduler.py` | Scheduled polling/auto-download |
 | `fingerprint.py` | AcoustID fingerprinting via fpcalc/chromaprint |
 | `download_client.py` | Lidarr download-client bridge: Newznab indexer + SABnzbd client emulation (Flask blueprint) |
+| `logutil.py` | Console log formatting: timestamp + level icon, consecutive-duplicate collapsing |
 | `utils.py` | Shared utilities |
 
 ### Key data flows
@@ -102,7 +103,7 @@ State is stored in SQLite at `/config/lidarr-downloader.db`. Tables: `schema_ver
 
 **`album_id` id space:** a positive `album_id` is a real Lidarr album id. YouTube playlist imports have no Lidarr album, so each import is assigned a **unique negative `album_id`** (`models.next_playlist_album_id()`), keeping its tracks distinct in the history / failed-track retry views. This negative space is disjoint from Lidarr's and must never be joined to Lidarr or sent to the Lidarr API (e.g. `download_client.py` assumes positive ids). Retry resolves a negative id's context from the stored `track_downloads` row instead of Lidarr.
 
-Current schema version: **9**. Migrations:
+Current schema version: **11**. Migrations:
 - V1→V2: Replaced `download_history` + `failed_tracks` with `track_downloads` (per-track download records with YouTube URL, match score, duration, album/track metadata).
 - V2→V3: Added AcoustID fingerprint columns to `track_downloads` (`acoustid_fingerprint_id`, `acoustid_score`, `acoustid_recording_id`, `acoustid_recording_title`).
 - V3→V4: Added `banned_urls` table for tracking banned YouTube URLs per album/track.
@@ -111,6 +112,8 @@ Current schema version: **9**. Migrations:
 - V6→V7: Added `download_client_jobs` table so the Lidarr download-client bridge (SABnzbd `nzo_id` jobs) survives restarts; `download_client.restore_jobs()` reloads them at startup and re-queues interrupted downloads.
 - V7→V8: Reassigned pre-existing YouTube playlist imports (recorded under the shared sentinel `album_id = 0`) to unique negative `album_id`s in `track_downloads` and `download_logs`, so old failed playlist tracks become retryable and distinct playlists stop colliding.
 - V8→V9: Added `track_artist` to `track_downloads`, storing the per-track artist resolved via `search_artist_source` (MusicBrainz/iTunes), distinct from the Lidarr album-level `artist_name`, so compilation ("Various Artists") tracks can be searched/retried with their real artist.
+- V9→V10: Added `source_format` to `track_downloads`, a human-readable summary of the YouTube source stream actually downloaded (format id · container · bitrate, e.g. `140 · m4a · 128 kbps`), for the per-track audio-quality report in the download history.
+- V10→V11: Added `force` to `download_queue`, marking an entry as an explicit user request (manual "Add to Queue"). A forced entry bypasses the per-track retry backoff; the scheduler enqueues without it.
 
 Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
@@ -125,7 +128,7 @@ Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
 ### Config
 
-Loaded from env vars + `/config/config.json`. File config overrides env vars. Saved via `save_config()`. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API. Notable config keys beyond the basics: `concurrent_tracks`, `yt_cookies_file`, `yt_force_ipv4`, `yt_player_client`, `yt_retries`, `yt_fragment_retries`, `yt_sleep_requests`, `yt_sleep_interval`, `yt_max_sleep_interval`, `discord_enabled`, `discord_webhook_url`, `discord_log_types`, `acoustid_enabled`, `acoustid_api_key`, `download_client_enabled`, `download_client_api_key`, `download_client_category`, `yt_po_token` (manual yt-dlp PO token(s), comma-separated), `audio_normalize` (EBU R128 loudnorm, forces re-encode), `yt_pot_provider_url` (URL of a bgutil PO-token provider sidecar for automatic PO tokens; `bgutil-ytdlp-pot-provider` plugin is in requirements and a sidecar is wired in docker-compose), `search_artist_source` (per-track YouTube search artist: `album` default, or `mb_itunes`/`itunes_mb`/`mb`/`itunes` to resolve the real artist for compilations).
+Loaded from env vars + `/config/config.json`. File config overrides env vars. Saved via `save_config()`. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API. Notable config keys beyond the basics: `concurrent_tracks`, `yt_cookies_file`, `yt_force_ipv4`, `yt_player_client`, `yt_retries`, `yt_fragment_retries`, `yt_sleep_requests`, `yt_sleep_interval`, `yt_max_sleep_interval`, `discord_enabled`, `discord_webhook_url`, `discord_log_types`, `acoustid_enabled`, `acoustid_api_key`, `download_client_enabled`, `download_client_api_key`, `download_client_category`, `yt_po_token` (manual yt-dlp PO token(s), comma-separated), `audio_normalize` (EBU R128 loudnorm, forces re-encode), `yt_pot_provider_url` (URL of a bgutil PO-token provider sidecar for automatic PO tokens; `bgutil-ytdlp-pot-provider` plugin is in requirements and a sidecar is wired in docker-compose), `search_artist_source` (per-track YouTube search artist: `album` default, or `mb_itunes`/`itunes_mb`/`mb`/`itunes` to resolve the real artist for compilations), `save_lyrics` (write a `.lrc` synced-lyrics sidecar per track, fetched from LRCLIB), `apply_replaygain` (measure loudness with ffmpeg and write ReplayGain track tags — non-destructive volume normalization), `track_retry_backoff` (default on; a track that keeps failing waits `scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days, instead of being retried every cycle forever — issue #90), `max_track_retries` (0 = never give up; otherwise drop a track after this many consecutive failures).
 
 ### Lidarr download-client bridge (`download_client.py`)
 
@@ -137,7 +140,63 @@ Downloads run in background threads. `queue_lock` (threading.Lock) in `processin
 
 ### Scheduler
 
-Optional `schedule` library job polls for missing albums and auto-downloads at configured intervals.
+Optional `schedule` library job polls for missing albums and auto-downloads at configured intervals. Albums attempted within `scheduler_retry_after_hours` are skipped (`models.get_attempted_album_ids_since`, which keys off **any** `download_logs` row for the album — so every early exit in `process_album_download` must still write a log, or the album is re-queued every cycle).
+
+**Retry backoff (issue #90):** `process_album_download` decides what to download *before* any network work — it computes `album_path`, calls `_compute_deferred_tracks()` + `_filter_tracks()`, and returns "Skipped" early if nothing is left. Tracks that keep failing back off exponentially (`scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days) from their consecutive-failure count in `track_downloads` (`models.get_track_failure_counts`), so a song that simply isn't on YouTube stops costing a cover-art fetch, per-track artist lookups and a YT Music resolution every cycle. Manual queue adds (`download_queue.force`) and Lidarr grabs (`client_grab`) bypass the backoff.
+
+### Logging
+
+`logutil.setup_logging()` (called from `app.py`) installs a console formatter
+for the `docker compose logs` stream: `HH:MM:SS`, then the message. Warnings
+and errors get an icon, which makes their line protrude rather than adding a
+column everything else has to pay for. Milestone messages (ready, album start,
+album complete) carry an inline icon from `logutil.ICON_*`. A `DedupeFilter`
+collapses consecutive identical lines and reports the streak as its own INFO
+line — background loops used to repeat the same sentence hundreds of times.
+Prefer fixing repetition at the source (log at DEBUG when nothing changed,
+as `lidarr_sync` does) and treat the filter as a safety net.
+
+`logutil.section(logger, ..., icon=...)` opens a visual block: the line is
+preceded by a blank line, so startup and each album run read as separate
+paragraphs rather than one flat scroll. `logutil.milestone()` adds an icon
+without the break. Messages that belong *inside* an album run are prefixed
+with three spaces so they sit under its header — keep that convention when
+adding album-flow logging; a line carrying an icon has that indent stripped,
+so icons always sit one space from their text and protrude from the flow.
+
+**Icons must be East_Asian_Width "W" (exactly two columns).** The alignment
+depends on it, and a test enforces it. This is why the warning icon is not
+the obvious "⚠" (U+26A0): that codepoint is Ambiguous width, so terminals
+disagree and it left a visible gap.
+
+### ffmpeg capability diagnostics
+
+Some hosts cannot run ffmpeg's audio conversion at all — most often the
+container is under CPU emulation (an arm64 image on an amd64 host or vice
+versa), where ffmpeg fails with ENOSYS ("Function not implemented") while
+everything else works. `downloader._probe_ffmpeg_can_write_audio()` detects
+it by running **both shapes yt-dlp uses** on the download filesystem —
+encoding 0.1s of silence to m4a, then stream-copying that m4a into another
+one — each **with `-movflags +faststart`**, the flag yt-dlp appends to every
+output it writes. All three details matter: a host can fail only the
+stream-copy (the path a native YouTube m4a takes), and omitting faststart
+tests a different code path again. Either omission makes the probe report
+healthy on a host where downloads fail.
+
+A probe can only ever approximate, so **a failed real conversion outranks
+it**: `_mark_ffmpeg_postprocess_broken()` sets `_ffmpeg_pp_observed_broken`,
+and `?refresh=1` deliberately cannot clear that — otherwise Re-check would
+erase measured knowledge and report "works" until the next download failed.
+It resets on restart, which is what happens when the image is fixed.
+
+`downloader.ffmpeg_status()` turns that into guidance and is served by
+`/api/ffmpeg/status` (`?refresh=1` re-probes) and summarised as `ffmpeg_ok`
+in `/api/health`. Settings renders it as a panel that is always
+visible and always states a verdict — hiding it when healthy made the
+Re-check button look like it had broken something. Key distinction: with an `m4a`/`opus` target
+(`NATIVE_AUDIO_FORMATS`) downloads still work, because YouTube serves those
+containers directly and the native stream is kept as-is; with `mp3` nothing
+can be downloaded, so the panel offers switching format as the first fix.
 
 ### Notifications
 
@@ -145,11 +204,16 @@ Telegram and Discord webhooks, filtered by `log_type` (e.g., `partial_success`, 
 
 ## Templates
 
-- `templates/index.html` — main dashboard, missing albums list
+- `templates/index.html` — main dashboard, missing albums list. Per-album checkboxes drive a floating **bulk-action bar** (multi-select → enqueue via `/api/download/queue/bulk`); `selectedAlbums` Set survives view re-renders.
 - `templates/downloads.html` — download queue and history
+- `templates/insights.html` — analytics dashboard (`/insights`); fetches `/api/insights?days=N` and draws dependency-free inline-SVG charts (daily success/fail stacked bars, success-rate donut, audio-quality distribution, top artists). Aggregation is `models.get_insights()`.
 - `templates/logs.html` — download log entries with retry support
-- `templates/settings.html` — configuration UI
+- `templates/settings.html` — configuration UI, incl. **Backup & Restore** (`/api/backup/export` streams a `sqlite3`-consistent copy of the DB; `/api/backup/import` validates the upload, atomically replaces the DB, and restarts — refused while a download is active)
+- `templates/youtube.html` — manual YouTube URL / playlist import
+- `templates/setup.html` — first-run setup wizard (`/setup`); the dashboard redirects unconfigured instances here (client-side, skippable)
+- `static/components.css` — shared UI component system (`.ui-btn`, `.ui-badge`, `.ui-input`, `.ui-card`, `.ui-modal`, `.ui-toast`), included by every page. Prefer these classes for new UI instead of ad-hoc inline styles.
 - `static/favicon.svg` — app icon
+- PWA: `/manifest.webmanifest` and `/sw.js` are served from the app root; every template head links the manifest and registers the (no-op-fetch) service worker so the UI is installable.
 
 ## Utility Tools (`tools/`)
 
@@ -171,7 +235,7 @@ Standalone scripts not part of the main app:
 
 ## Version Updates
 
-The version string is defined in `version.py`: `VERSION = "1.8.6"`. The README badge also references it and must be updated manually.
+The version string is defined in `version.py`: `VERSION = "1.9.0"`. The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 

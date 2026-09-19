@@ -7,6 +7,14 @@
     <title>Logs - Lidarr YouTube Downloader</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/components.css">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#09090b">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Lidarr YT">
+    <link rel="apple-touch-icon" href="/static/favicon.svg">
+    <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
     <style>
         :root {
             --bg: #09090b;
@@ -800,6 +808,7 @@
             <div class="nav-links">
                 <a href="/"><i class="fas fa-home"></i> Home</a>
                 <a href="/downloads"><i class="fas fa-download"></i> Downloads <span class="nav-badge" id="queueBadge">0</span></a>
+                <a href="/insights"><i class="fas fa-chart-line"></i> Insights</a>
                 <a href="/logs" class="active"><i class="fas fa-list"></i> Logs</a>
                 <a href="/youtube"><i class="fab fa-youtube"></i> YouTube</a>
                 <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
@@ -824,6 +833,7 @@
                     <option value="all">All Types</option>
                     <option value="download_started">Download Started</option>
                     <option value="download_success">Download Success</option>
+                    <option value="download_skipped">Skipped (nothing to do)</option>
                     <option value="partial_success">Partial Success</option>
                     <option value="import_success">Import Success</option>
                     <option value="import_partial">Import Partial</option>

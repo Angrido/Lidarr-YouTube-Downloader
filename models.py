@@ -8,7 +8,7 @@ import json
 import logging
 import math
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 
 import db
@@ -101,7 +101,7 @@ def add_track_download(
     duration_seconds, album_path, lidarr_album_path, cover_url,
     acoustid_fingerprint_id="", acoustid_score=0.0,
     acoustid_recording_id="", acoustid_recording_title="",
-    track_artist="",
+    track_artist="", source_format="",
 ):
     """Record a single track download attempt."""
     conn = db.get_db()
@@ -113,9 +113,9 @@ def add_track_download(
             album_path, lidarr_album_path, cover_url,
             acoustid_fingerprint_id, acoustid_score,
             acoustid_recording_id, acoustid_recording_title,
-            track_artist, timestamp)
+            track_artist, source_format, timestamp)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                   ?, ?, ?, ?, ?, ?)""",
+                   ?, ?, ?, ?, ?, ?, ?)""",
         (
             album_id, album_title, artist_name, track_title,
             track_number, int(success), error_message, youtube_url,
@@ -123,7 +123,7 @@ def add_track_download(
             album_path, lidarr_album_path, cover_url,
             acoustid_fingerprint_id, acoustid_score,
             acoustid_recording_id, acoustid_recording_title,
-            track_artist, time.time(),
+            track_artist, source_format, time.time(),
         ),
     )
     conn.commit()
@@ -176,6 +176,45 @@ def get_album_history(page=1, per_page=50):
         "SELECT COUNT(DISTINCT album_id) FROM track_downloads"
     )
     return _paginate(query, count_query, (), page, per_page)
+
+
+def get_track_failure_counts(album_id):
+    """Consecutive failed attempts per track, since that track last worked.
+
+    Returns ``{track_title: {"failures": int, "last_failure": float}}``.
+    Only failures newer than the track's most recent success are counted, so
+    a track that succeeded starts from zero again if it later fails (e.g.
+    its file was deleted). Tracks whose latest attempt succeeded are absent.
+
+    Track identity is ``(album_id, track_title)``, matching
+    ``get_failed_tracks_for_retry``.
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        """
+        SELECT f.track_title AS track_title,
+               COUNT(*) AS failures,
+               MAX(f.timestamp) AS last_failure
+        FROM track_downloads AS f
+        WHERE f.album_id = ?
+          AND f.success = 0
+          AND f.timestamp > COALESCE((
+                SELECT MAX(s.timestamp) FROM track_downloads AS s
+                WHERE s.album_id = f.album_id
+                  AND s.track_title = f.track_title
+                  AND s.success = 1
+              ), 0)
+        GROUP BY f.track_title
+        """,
+        (album_id,),
+    ).fetchall()
+    return {
+        row["track_title"]: {
+            "failures": row["failures"],
+            "last_failure": row["last_failure"] or 0.0,
+        }
+        for row in rows
+    }
 
 
 def get_failed_tracks_for_retry(album_id):
@@ -262,6 +301,111 @@ def get_history_album_ids_since(since_timestamp):
         (since_timestamp,),
     ).fetchall()
     return {row[0] for row in rows}
+
+
+def _quality_bucket(source_format):
+    """Reduce a stored source_format to a coarse container/codec label for
+    the quality distribution chart.
+
+    ``source_format`` is built by ``downloader._format_source_quality`` as
+    ``"<format_id> · <container> · <bitrate> kbps"`` with any part omitted
+    when unknown, so the container is not at a fixed position. Pick the
+    first token that is neither the numeric format id nor the bitrate.
+    """
+    if not source_format:
+        return "Unknown"
+    for part in source_format.split("·"):
+        token = part.strip()
+        if not token or token.isdigit() or token.lower().endswith("kbps"):
+            continue
+        return token
+    return "Unknown"
+
+
+def get_insights(days=30):
+    """Aggregate download analytics for the insights dashboard.
+
+    Every metric is scoped to the same window — the last ``days`` calendar
+    days up to and including today (local time) — so the whole page reflects
+    the selector. Returns windowed totals, a zero-filled per-day
+    success/failure series, the top artists by successful tracks, and an
+    audio-quality breakdown derived from the recorded ``source_format``.
+    """
+    conn = db.get_db()
+    today = datetime.now().date()
+    start_date = today - timedelta(days=days - 1)
+    # Local midnight of the earliest displayed day, so the query window and
+    # the zero-filled day range line up exactly (no boundary day dropped).
+    since = datetime(
+        start_date.year, start_date.month, start_date.day
+    ).timestamp()
+
+    row = conn.execute(
+        "SELECT COUNT(*),"
+        " SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END),"
+        " COUNT(DISTINCT album_id),"
+        " COUNT(DISTINCT NULLIF(artist_name, '')),"
+        " SUM(CASE WHEN success = 1 THEN duration_seconds ELSE 0 END)"
+        " FROM track_downloads WHERE timestamp >= ?",
+        (since,),
+    ).fetchone()
+    total = (row[0] if row else 0) or 0
+    successful = (row[1] if row else 0) or 0
+    totals = {
+        "total_tracks": total,
+        "successful": successful,
+        "failed": total - successful,
+        "success_rate": round(successful / total * 100, 1) if total else 0.0,
+        "distinct_albums": (row[2] or 0) if row else 0,
+        "distinct_artists": (row[3] or 0) if row else 0,
+        "total_duration_seconds": (row[4] or 0) if row else 0,
+    }
+
+    rows = conn.execute(
+        "SELECT strftime('%Y-%m-%d', timestamp, 'unixepoch', 'localtime') AS day,"
+        " SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END),"
+        " SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END)"
+        " FROM track_downloads WHERE timestamp >= ?"
+        " GROUP BY day",
+        (since,),
+    ).fetchall()
+    by_day = {r[0]: ((r[1] or 0), (r[2] or 0)) for r in rows}
+    daily = []
+    for i in range(days - 1, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        succ, fail = by_day.get(d, (0, 0))
+        daily.append({"date": d, "success": succ, "failed": fail})
+
+    rows = conn.execute(
+        "SELECT artist_name, COUNT(*) AS c FROM track_downloads"
+        " WHERE success = 1 AND artist_name != '' AND timestamp >= ?"
+        " GROUP BY artist_name ORDER BY c DESC, artist_name LIMIT 10",
+        (since,),
+    ).fetchall()
+    top_artists = [{"artist": r[0], "count": r[1]} for r in rows]
+
+    quality = {}
+    rows = conn.execute(
+        "SELECT source_format, COUNT(*) FROM track_downloads"
+        " WHERE success = 1 AND timestamp >= ? GROUP BY source_format",
+        (since,),
+    ).fetchall()
+    for fmt, count in rows:
+        label = _quality_bucket(fmt)
+        quality[label] = quality.get(label, 0) + count
+    quality_list = sorted(
+        ({"label": k, "count": v} for k, v in quality.items()),
+        key=lambda x: x["count"],
+        reverse=True,
+    )
+
+    return {
+        "totals": totals,
+        "daily": daily,
+        "top_artists": top_artists,
+        "quality": quality_list,
+        "window_days": days,
+    }
 
 
 def get_attempted_album_ids_since(since_timestamp):
@@ -503,19 +647,32 @@ def get_banned_urls_for_album(album_id):
 # --- Queue ---
 
 
-def enqueue_album(album_id):
-    """Add an album to the download queue. Returns False if duplicate."""
+def enqueue_album(album_id, force=False):
+    """Add an album to the download queue. Returns False if duplicate.
+
+    ``force`` marks the entry as explicitly requested by the user, which
+    makes the download bypass the per-track retry backoff. Re-adding an
+    album that is already queued still returns False, but a forced request
+    upgrades the existing entry so the manual intent isn't lost.
+    """
     conn = db.get_db()
     max_pos = conn.execute(
         "SELECT COALESCE(MAX(position), 0) FROM download_queue"
     ).fetchone()[0]
     cursor = conn.execute(
-        "INSERT OR IGNORE INTO download_queue (album_id, position, status)"
-        " VALUES (?, ?, ?)",
-        (album_id, max_pos + 1, QUEUE_STATUS_QUEUED),
+        "INSERT OR IGNORE INTO download_queue"
+        " (album_id, position, status, force)"
+        " VALUES (?, ?, ?, ?)",
+        (album_id, max_pos + 1, QUEUE_STATUS_QUEUED, 1 if force else 0),
     )
+    added = cursor.rowcount > 0
+    if not added and force:
+        conn.execute(
+            "UPDATE download_queue SET force = 1 WHERE album_id = ?",
+            (album_id,),
+        )
     conn.commit()
-    return cursor.rowcount > 0
+    return added
 
 
 def dequeue_album(album_id):

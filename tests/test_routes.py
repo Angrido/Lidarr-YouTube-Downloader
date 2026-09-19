@@ -438,6 +438,46 @@ class TestTemplateRoutes:
         resp = client.get("/logs")
         assert resp.status_code == 200
 
+    def test_insights_page(self, client):
+        resp = client.get("/insights")
+        assert resp.status_code == 200
+
+
+class TestInsightsRoute:
+    """GET /api/insights returns aggregate analytics."""
+
+    def test_insights_empty(self, client):
+        resp = client.get("/api/insights")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["totals"]["total_tracks"] == 0
+        assert data["window_days"] == 30
+        assert isinstance(data["daily"], list)
+
+    def test_insights_with_data(self, client):
+        import models
+
+        _add_track(models, album_id=1, artist_name="Artist X",
+                   success=True, duration_seconds=200,
+                   source_format="140 · m4a · 128 kbps")
+        _add_track(models, album_id=1, artist_name="Artist X",
+                   success=False)
+        resp = client.get("/api/insights?days=7")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["window_days"] == 7
+        assert len(data["daily"]) == 7
+        assert data["totals"]["total_tracks"] == 2
+        assert data["totals"]["successful"] == 1
+        assert data["totals"]["success_rate"] == 50.0
+        assert data["top_artists"][0]["artist"] == "Artist X"
+
+    def test_insights_days_clamped(self, client):
+        assert len(client.get("/api/insights?days=0")
+                   .get_json()["daily"]) == 1
+        assert len(client.get("/api/insights?days=9999")
+                   .get_json()["daily"]) == 365
+
 
 class TestSkipTrackRoute:
     """POST /api/download/skip-track sets skip flag."""
@@ -2179,3 +2219,162 @@ class TestYtdlpFormatsRoute:
         monkeypatch.setattr("app.list_video_formats", fake)
         client.post("/api/ytdlp/formats", json={"url": "dQw4w9WgXcQ"})
         assert received == ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"]
+
+
+def test_pwa_manifest(client):
+    import json as _json
+    resp = client.get("/manifest.webmanifest")
+    assert resp.status_code == 200
+    assert "manifest" in resp.mimetype
+    m = _json.loads(resp.get_data(as_text=True))
+    assert m["start_url"] == "/"
+    assert m["display"] == "standalone"
+    assert m["icons"] and m["icons"][0]["src"].endswith(".svg")
+
+
+def test_service_worker(client):
+    resp = client.get("/sw.js")
+    assert resp.status_code == 200
+    assert "javascript" in resp.mimetype
+    assert resp.headers.get("Service-Worker-Allowed") == "/"
+    assert "addEventListener('fetch'" in resp.get_data(as_text=True)
+
+
+def test_setup_page_renders(client):
+    resp = client.get("/setup")
+    assert resp.status_code == 200
+    body = resp.get_data(as_text=True)
+    assert "downloadPath" in body and "lidarrPath" in body
+    assert "testConnection" in body
+    assert "/static/components.css" in body
+
+
+def test_components_css_served(client):
+    resp = client.get("/static/components.css")
+    assert resp.status_code == 200
+    assert ".ui-btn" in resp.get_data(as_text=True)
+
+
+def test_backup_export_returns_sqlite(client, tmp_path):
+    resp = client.get("/api/backup/export")
+    assert resp.status_code == 200
+    data = resp.get_data()
+    assert data[:16] == b"SQLite format 3\x00"
+    import sqlite3
+    f = tmp_path / "dl.db"
+    f.write_bytes(data)
+    con = sqlite3.connect(str(f))
+    has = con.execute(
+        "SELECT name FROM sqlite_master"
+        " WHERE type='table' AND name='schema_version'"
+    ).fetchone()
+    con.close()
+    assert has is not None
+
+
+def test_backup_import_rejects_invalid(client, monkeypatch):
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    import io
+    data = {"file": (io.BytesIO(b"not a database"), "bad.db")}
+    resp = client.post(
+        "/api/backup/import", data=data, content_type="multipart/form-data"
+    )
+    assert resp.status_code == 400
+    assert resp.get_json()["success"] is False
+
+
+def test_backup_import_valid_restarts(client, monkeypatch, tmp_path):
+    import io
+    import sqlite3
+    import app as app_module
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    restarted = []
+    monkeypatch.setattr(app_module, "_exec_restart", lambda: restarted.append(1))
+    bak = tmp_path / "backup.db"
+    con = sqlite3.connect(str(bak))
+    con.execute("CREATE TABLE schema_version (version INTEGER, applied_at REAL)")
+    con.execute("INSERT INTO schema_version VALUES (10, 0)")
+    con.commit()
+    con.close()
+    data = {"file": (io.BytesIO(bak.read_bytes()), "backup.db")}
+    resp = client.post(
+        "/api/backup/import", data=data, content_type="multipart/form-data"
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["success"] is True
+
+
+def test_backup_import_rejects_empty_schema_version(client, monkeypatch, tmp_path):
+    # A DB whose schema_version table exists but has no rows must be
+    # rejected: restoring it would make init_db re-run every migration and
+    # crash-loop the app on restart.
+    import io
+    import sqlite3
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    bak = tmp_path / "empty.db"
+    con = sqlite3.connect(str(bak))
+    con.execute("CREATE TABLE schema_version (version INTEGER, applied_at REAL)")
+    con.commit()
+    con.close()
+    data = {"file": (io.BytesIO(bak.read_bytes()), "empty.db")}
+    resp = client.post(
+        "/api/backup/import", data=data, content_type="multipart/form-data"
+    )
+    assert resp.status_code == 400
+    assert resp.get_json()["success"] is False
+
+
+def test_backup_import_rejects_future_schema(client, monkeypatch, tmp_path):
+    import io
+    import sqlite3
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    bak = tmp_path / "future.db"
+    con = sqlite3.connect(str(bak))
+    con.execute("CREATE TABLE schema_version (version INTEGER, applied_at REAL)")
+    con.execute("INSERT INTO schema_version VALUES (999, 0)")
+    con.commit()
+    con.close()
+    data = {"file": (io.BytesIO(bak.read_bytes()), "future.db")}
+    resp = client.post(
+        "/api/backup/import", data=data, content_type="multipart/form-data"
+    )
+    assert resp.status_code == 400
+    assert "not supported" in resp.get_json()["message"].lower()
+
+
+def test_backup_import_refused_while_downloading(client, monkeypatch):
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    import app as app_module
+    import io
+    app_module.download_process["active"] = True
+    try:
+        data = {"file": (io.BytesIO(b"x"), "b.db")}
+        resp = client.post(
+            "/api/backup/import", data=data,
+            content_type="multipart/form-data",
+        )
+        assert resp.status_code == 409
+    finally:
+        app_module.download_process["active"] = False
+
+
+class TestFfmpegStatusRoute:
+    def test_status_reports_ok(self, client, monkeypatch):
+        import downloader
+        monkeypatch.setattr(downloader, "_ffmpeg_pp_state", True)
+        resp = client.get("/api/ffmpeg/status")
+        assert resp.status_code == 200
+        assert resp.get_json()["ok"] is True
+
+    def test_status_explains_a_broken_host(self, client, monkeypatch):
+        import downloader
+        monkeypatch.setattr(downloader, "_ffmpeg_pp_state", False)
+        data = client.get("/api/ffmpeg/status").get_json()
+        assert data["ok"] is False
+        assert data["fixes"]
+        assert "machine" in data
+
+    def test_health_exposes_ffmpeg_state(self, client, monkeypatch):
+        import downloader
+        monkeypatch.setattr(downloader, "_ffmpeg_pp_state", True)
+        assert client.get("/api/health").get_json()["ffmpeg_ok"] is True

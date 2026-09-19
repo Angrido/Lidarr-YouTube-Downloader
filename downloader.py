@@ -10,10 +10,15 @@ Public API:
     download_track_youtube()    -- thin wrapper combining both
 """
 
+import glob
 import logging
 import math
 import os
+import platform
 import re
+import subprocess
+import tempfile
+import threading
 from difflib import SequenceMatcher
 
 import yt_dlp
@@ -198,6 +203,7 @@ class _SilentYDLLogger:
         # android client commonly returns this even with valid cookies;
         # music/web clients recover on the next attempt.
         "please sign in",
+        "postprocessing:",
     )
 
     def debug(self, msg):
@@ -266,6 +272,220 @@ def _build_common_opts(player_client=None):
 
 
 MAX_CANDIDATES = 10
+
+_ffmpeg_pp_state = None
+# Set when a real download's conversion failed. That is proof, unlike the
+# probe's approximation, so Re-check must not be able to clear it.
+_ffmpeg_pp_observed_broken = False
+_ffmpeg_pp_lock = threading.Lock()
+_normalize_skip_warned = False
+
+
+def _run_ffmpeg(args, timeout=30):
+    return subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-y", *args],
+        capture_output=True, text=True, timeout=timeout,
+    )
+
+
+def _probe_ffmpeg_can_write_audio(probe_dir=None):
+    """Return True if ffmpeg can write the audio files a download produces.
+
+    Runs both shapes yt-dlp uses, on the filesystem the downloads land on:
+    encoding to m4a, then stream-copying that m4a into another one. A host
+    can fail only the second, which is the one a native YouTube stream takes,
+    so testing the encode alone reports healthy where downloads still fail.
+    """
+    probe_dir = probe_dir if (probe_dir and os.path.isdir(probe_dir)) else None
+    paths = []
+    try:
+        for _ in range(2):
+            fd, path = tempfile.mkstemp(suffix=".m4a", dir=probe_dir)
+            os.close(fd)
+            os.remove(path)
+            paths.append(path)
+    except OSError as e:
+        for path in paths:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+        logger.info("Could not set up the ffmpeg probe (%s).", e)
+        return True
+    encoded, remuxed = paths
+
+    def wrote(path, proc):
+        return (
+            proc.returncode == 0
+            and os.path.exists(path)
+            and os.path.getsize(path) > 0
+        )
+
+    try:
+        # yt-dlp appends +faststart to every output it writes
+        # (FFmpegPostProcessor.real_run_ffmpeg); without it the probe tests a
+        # different code path and passes on hosts where downloads fail.
+        proc = _run_ffmpeg([
+            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+            "-t", "0.1", "-c:a", "aac", "-movflags", "+faststart", encoded,
+        ])
+        ok = wrote(encoded, proc)
+        if ok:
+            proc = _run_ffmpeg([
+                "-i", encoded, "-vn", "-acodec", "copy",
+                "-movflags", "+faststart", remuxed,
+            ])
+            ok = wrote(remuxed, proc)
+        if not ok:
+            logger.info(
+                "ffmpeg cannot write audio output on this host; downloads"
+                " will keep the native stream (no conversion). This is an"
+                " environment issue (often an emulated CPU architecture)."
+            )
+        return ok
+    except Exception as e:
+        logger.info(
+            "ffmpeg output probe failed (%s); keeping native streams"
+            " without conversion.", e,
+        )
+        return False
+    finally:
+        for path in paths:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
+def _ffmpeg_postprocess_works(probe_dir=None):
+    """Cached, thread-safe check of whether ffmpeg can write audio here."""
+    global _ffmpeg_pp_state
+    with _ffmpeg_pp_lock:
+        if _ffmpeg_pp_state is None:
+            _ffmpeg_pp_state = _probe_ffmpeg_can_write_audio(probe_dir)
+        return _ffmpeg_pp_state
+
+
+NATIVE_AUDIO_FORMATS = ("m4a", "opus")
+
+
+def ffmpeg_status(probe_dir=None, refresh=False):
+    """Describe whether this host can convert audio, and what to do if not.
+
+    The probe tells us *that* conversion is impossible; this turns it into
+    something the user can act on, because the log alone leaves them with an
+    errno and no next step. ``refresh`` re-runs the probe so the UI can
+    re-check after the user changes something.
+    """
+    global _ffmpeg_pp_state
+    if refresh:
+        with _ffmpeg_pp_lock:
+            if not _ffmpeg_pp_observed_broken:
+                _ffmpeg_pp_state = None
+    audio_format = (load_config().get("audio_format", "mp3") or "").lower()
+    ok = _ffmpeg_postprocess_works(probe_dir)
+    native_ok = audio_format in NATIVE_AUDIO_FORMATS
+    status = {
+        "ok": bool(ok),
+        "machine": platform.machine(),
+        "audio_format": audio_format,
+        "downloads_work": bool(ok or native_ok),
+        "observed": _ffmpeg_pp_observed_broken,
+        "native_formats": list(NATIVE_AUDIO_FORMATS),
+    }
+    if ok:
+        status["summary"] = "Audio conversion works on this host."
+        status["detail"] = (
+            "ffmpeg encoded and wrote a test file successfully, so every"
+            " audio format is available — including mp3 — and"
+            " loudness normalisation can be applied."
+        )
+        return status
+    status["summary"] = (
+        "ffmpeg cannot write audio output on this host."
+    )
+    status["detail"] = (
+        "A download has already failed to convert on this host, so this is"
+        " measured, not predicted. Re-checking cannot clear it; restart the"
+        " container once you have changed the image. "
+        if _ffmpeg_pp_observed_broken else ""
+    ) + (
+        "ffmpeg fails with ENOSYS (“Function not implemented”) when it"
+        " writes a converted file. That error comes from the system, not from"
+        " ffmpeg itself, and almost always means the container is running"
+        " under CPU emulation — typically an arm64 image on an amd64 host"
+        " or vice versa — where some system calls are unavailable."
+    )
+    if native_ok:
+        status["impact"] = (
+            f"Downloads still work: the native {audio_format} stream is kept"
+            " as-is, with no conversion and no quality loss."
+        )
+    else:
+        status["impact"] = (
+            f"Downloads cannot work with {audio_format or 'this format'},"
+            " because it has to be produced by converting the stream."
+        )
+    fixes = []
+    if not native_ok:
+        fixes.append(
+            "Set Audio Format to m4a (or opus) below — YouTube serves those"
+            " directly, so nothing has to be converted. This fixes downloads"
+            " immediately, without touching your setup."
+        )
+    fixes.append(
+        "Run an image built for this machine's architecture"
+        f" ({platform.machine()}). Pull or build it without emulation, e.g."
+        " `docker compose build --no-cache` on this host. That restores"
+        " ffmpeg fully, including mp3 and loudness normalisation."
+    )
+    status["fixes"] = fixes
+    return status
+
+
+def _mark_ffmpeg_postprocess_broken():
+    """Record that a real conversion failed, which settles the question."""
+    global _ffmpeg_pp_state, _ffmpeg_pp_observed_broken
+    with _ffmpeg_pp_lock:
+        _ffmpeg_pp_state = False
+        _ffmpeg_pp_observed_broken = True
+
+
+_plugins_preloaded = False
+_plugins_preload_lock = threading.Lock()
+
+
+def preload_ytdlp_plugins_quietly():
+    """Load yt-dlp's plugins once with stderr muted.
+
+    The bgutil PO-token provider registers under both of yt-dlp's plugin
+    mechanisms, so the first plugin load prints a harmless (but alarming)
+    "PoTokenProvider ... already registered" import error with a traceback.
+    Trigger that one-time load here with stderr captured, so it never
+    surfaces mid-download. The provider still ends up registered (the first
+    registration wins), so PO-token support is unaffected. Idempotent and
+    thread-safe.
+    """
+    global _plugins_preloaded
+    import contextlib
+    import io
+    with _plugins_preload_lock:
+        if _plugins_preloaded:
+            return
+        _plugins_preloaded = True
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                plugins = getattr(yt_dlp, "plugins", None)
+                if plugins and hasattr(plugins, "load_all_plugins"):
+                    plugins.load_all_plugins()
+                else:  # older yt-dlp: YoutubeDL construction triggers load
+                    with yt_dlp.YoutubeDL(
+                        {"quiet": True, "no_warnings": True,
+                         "logger": _SILENT_YDL_LOGGER}
+                    ):
+                        pass
+        except Exception:
+            pass
 
 # YouTube Music auto-generates an album-browse playlist for every release
 # uploaded by a label; its id always starts with this prefix. Discovering
@@ -1185,9 +1405,122 @@ def list_video_formats(url):
     return {"title": info.get("title", "") or "", "formats": out}
 
 
+def _is_postprocess_error(msg_low):
+    """True when a yt-dlp failure comes from the ffmpeg postprocessing step
+    (audio extraction/conversion) rather than the download itself.
+
+    These are local ffmpeg/filesystem problems (e.g. "Error opening output
+    files: Function not implemented") that are independent of the source
+    stream, the player client and the format selector, so retrying those
+    dimensions just repeats the identical failure.
+    """
+    return (
+        "postprocessing" in msg_low
+        or "conversion failed" in msg_low
+        or "error opening output" in msg_low
+    )
+
+
+def _format_source_quality(fmt):
+    """Human-readable summary of the downloaded source stream for the
+    per-track quality report, e.g. ``"140 · m4a · 128 kbps"``. Empty when
+    nothing was captured.
+    """
+    if not fmt:
+        return ""
+    parts = []
+    if fmt.get("format_id"):
+        parts.append(str(fmt["format_id"]))
+    if fmt.get("ext"):
+        parts.append(str(fmt["ext"]))
+    abr = fmt.get("abr")
+    if abr:
+        try:
+            parts.append(f"{round(float(abr))} kbps")
+        except (TypeError, ValueError):
+            pass
+    return " · ".join(parts)
+
+
+def _download_raw_audio(
+    candidate, output_path, audio_format, is_music, config,
+    progress_hook=None, skip_check=None, captured_fmt=None,
+):
+    """Download the native audio stream with NO ffmpeg postprocessing.
+
+    Last-resort fallback for when ffmpeg postprocessing fails locally (e.g.
+    a broken/emulated ffmpeg that can't open output files). For m4a/opus
+    targets the matching YouTube stream (format 140 = m4a, 251 = opus) is
+    already in the wanted container, so downloading it directly — with the
+    automatic ffmpeg fixups disabled — yields a valid file without invoking
+    ffmpeg at all. Returns the produced ``output_path.<audio_format>`` path,
+    or None when no native stream matches the target container.
+    """
+    if audio_format == "m4a":
+        selector = "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]"
+    elif audio_format == "opus":
+        selector = "bestaudio[ext=webm][acodec=opus]/bestaudio[acodec=opus]"
+    else:
+        return None
+
+    target_file = f"{output_path}.{audio_format}"
+    if captured_fmt is None:
+        captured_fmt = {}
+
+    def _cap(d, _c=captured_fmt):
+        if d.get("status") in ("downloading", "finished"):
+            info = d.get("info_dict") or {}
+            if info.get("format_id") or info.get("abr"):
+                _c["format_id"] = info.get("format_id")
+                _c["ext"] = info.get("ext")
+                _c["abr"] = info.get("abr")
+                _c["acodec"] = info.get("acodec")
+
+    hooks = [_cap]
+    if progress_hook:
+        hooks.append(progress_hook)
+
+    for pc in _client_fallback_chain(config, is_music) + [None]:
+        if skip_check and skip_check():
+            return None
+        for leftover in glob.glob(output_path + ".*"):
+            try:
+                os.remove(leftover)
+            except OSError:
+                pass
+        opts = {
+            **_build_common_opts(player_client=pc),
+            "outtmpl": output_path + ".%(ext)s",
+            "format": selector,
+            # Disable yt-dlp's automatic FFmpegFixup* postprocessors — they
+            # would invoke the same broken ffmpeg we are trying to avoid.
+            "fixup": "never",
+            "progress_hooks": hooks,
+        }
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                ydl.download([candidate["url"]])
+        except Exception as e:
+            logger.debug(
+                "   Raw-audio fallback failed (client=%s): %s",
+                pc or "default", str(e)[:160],
+            )
+            continue
+        if os.path.exists(target_file):
+            return target_file
+        for leftover in glob.glob(output_path + ".*"):
+            try:
+                os.remove(leftover)
+            except OSError:
+                pass
+        return None
+    return None
+
+
 def download_youtube_candidate(
     candidate, output_path, progress_hook=None, skip_check=None,
 ):
+    preload_ytdlp_plugins_quietly()
     if skip_check and skip_check():
         return {"skipped": True}
 
@@ -1248,6 +1581,37 @@ def download_youtube_candidate(
     )
     clients_to_try = _client_fallback_chain(config, is_music) + [None]
 
+    probe_dir = os.path.dirname(output_path)
+    ffmpeg_ok = _ffmpeg_postprocess_works(probe_dir)
+    if not ffmpeg_ok and audio_format in ("m4a", "opus"):
+        global _normalize_skip_warned
+        if normalize_audio and not _normalize_skip_warned:
+            _normalize_skip_warned = True
+            logger.warning(
+                "Loudness normalisation needs ffmpeg, which cannot write"
+                " output on this host \u2014 downloading without it."
+            )
+        raw_captured = {}
+        raw_file = _download_raw_audio(
+            candidate, output_path, audio_format, is_music, config,
+            progress_hook=progress_hook, skip_check=skip_check,
+            captured_fmt=raw_captured,
+        )
+        if raw_file:
+            logger.info(
+                "   Downloaded '%s' as native %s (ffmpeg postprocessing is"
+                " unavailable on this host).",
+                candidate["title"], audio_format,
+            )
+            return {
+                "success": True,
+                "youtube_url": display_url,
+                "youtube_title": candidate["title"],
+                "match_score": round(candidate["score"], 4),
+                "duration_seconds": int(candidate["duration"]),
+                "source_format": _format_source_quality(raw_captured),
+            }
+
     # Selector-outer / client-inner: ``android`` often only sees the
     # combined 360p mp4 (22k audio) while ``web`` exposes the 130k DASH
     # m4a. The obvious "exhaust selectors per client" order would
@@ -1255,6 +1619,8 @@ def download_youtube_candidate(
     last_err = None
     any_403 = False
     format_unavailable_errors = 0
+    conversion_errors = 0
+    abort_conversion = False
     extract_pp = [
         {
             "key": "FFmpegExtractAudio",
@@ -1263,10 +1629,14 @@ def download_youtube_candidate(
         }
     ]
     for sel_idx, selector in enumerate(format_selectors):
+        if abort_conversion or not _ffmpeg_postprocess_works(probe_dir):
+            break
         pp_variants = [extract_pp]
         if sel_idx >= len(format_selectors) - 2:
             pp_variants.append(None)
         for postprocessors in pp_variants:
+            if abort_conversion:
+                break
             for pc in clients_to_try:
                 if skip_check and skip_check():
                     return {"skipped": True}
@@ -1291,13 +1661,26 @@ def download_youtube_candidate(
                 # format_sort, so drop it on the last two fallbacks.
                 if sel_idx >= len(format_selectors) - 2:
                     ydl_opts_download.pop("format_sort", None)
+                captured_fmt = {}
+
+                def _capture_source_format(d, _c=captured_fmt):
+                    if d.get("status") in ("downloading", "finished"):
+                        info = d.get("info_dict") or {}
+                        if info.get("format_id") or info.get("abr"):
+                            _c["format_id"] = info.get("format_id")
+                            _c["ext"] = info.get("ext")
+                            _c["abr"] = info.get("abr")
+                            _c["acodec"] = info.get("acodec")
+
+                hooks = [_capture_source_format]
                 if progress_hook:
-                    ydl_opts_download["progress_hooks"] = [progress_hook]
+                    hooks.append(progress_hook)
+                ydl_opts_download["progress_hooks"] = hooks
                 try:
                     with yt_dlp.YoutubeDL(ydl_opts_download) as ydl_dl:
                         ydl_dl.download([download_url])
                     logger.info(
-                        "Downloaded '%s' via player_client=%s",
+                        "   Downloaded '%s' via player_client=%s",
                         candidate["title"], pc or "default",
                     )
                     return {
@@ -1306,6 +1689,7 @@ def download_youtube_candidate(
                         "youtube_title": candidate["title"],
                         "match_score": round(candidate["score"], 4),
                         "duration_seconds": int(candidate["duration"]),
+                        "source_format": _format_source_quality(captured_fmt),
                     }
                 except Exception as e:
                     last_err = e
@@ -1330,11 +1714,64 @@ def download_youtube_candidate(
                             selector, pc or "default",
                         )
                         continue
+                    if _is_postprocess_error(msg_low):
+                        conversion_errors += 1
+                        last_line = (msg.strip().splitlines() or [msg])[-1]
+                        if conversion_errors == 1:
+                            logger.warning(
+                                "   Audio postprocessing failed for '%s': %s",
+                                candidate["title"], last_line[:160],
+                            )
+                        abort_conversion = True
+                        break
                     logger.debug(
                         f"   Failed with player_client={pc or 'default'}"
                         f" selector='{selector}'; {msg[:180]}"
                     )
                     continue
+
+    if conversion_errors:
+        _mark_ffmpeg_postprocess_broken()
+        raw_captured = {}
+        raw_file = _download_raw_audio(
+            candidate, output_path, audio_format, is_music, config,
+            progress_hook=progress_hook, skip_check=skip_check,
+            captured_fmt=raw_captured,
+        )
+        if raw_file:
+            logger.info(
+                "   Downloaded '%s' without conversion (ffmpeg postprocessing"
+                " unavailable) — kept the native %s stream.",
+                candidate["title"], audio_format,
+            )
+            return {
+                "success": True,
+                "youtube_url": display_url,
+                "youtube_title": candidate["title"],
+                "match_score": round(candidate["score"], 4),
+                "duration_seconds": int(candidate["duration"]),
+                "source_format": _format_source_quality(raw_captured),
+            }
+        last_line = (
+            (str(last_err).strip().splitlines() or [str(last_err)])[-1]
+            if last_err else "unknown error"
+        )
+        logger.warning(
+            "Giving up on '%s': audio postprocessing failed %d time(s)"
+            " — local ffmpeg/filesystem issue, not a source problem.",
+            candidate["title"], conversion_errors,
+        )
+        return {
+            "success": False,
+            "postprocess_error": True,
+            "error_message": (
+                "Audio postprocessing failed — ffmpeg could not write the"
+                f" converted file ({last_line[:140]}). This is a local"
+                " ffmpeg/filesystem problem (not a YouTube one); check the"
+                " ffmpeg build and that the download path supports the"
+                " operation."
+            ),
+        }
 
     if last_err:
         # Surface PO-token state on failure so users can tell whether a

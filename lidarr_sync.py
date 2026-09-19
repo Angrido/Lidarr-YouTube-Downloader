@@ -16,6 +16,9 @@ from lidarr import lidarr_request
 
 logger = logging.getLogger(__name__)
 
+# Last (synced, pruned) reported at INFO, so an unchanged sync stays quiet.
+_last_sync_summary = None
+
 PAGE_SIZE = 100
 MAX_RETRIES = 4
 INITIAL_BACKOFF_SECONDS = 2
@@ -107,10 +110,21 @@ def _run_sync():
         last_full_sync_at=time.time(),
         last_error="",
     )
-    logger.info(
-        "Lidarr sync complete: %d albums cached (pruned %d stale)",
-        synced, pruned,
-    )
+    # This runs on a loop; logging the same sentence every cycle buries the
+    # rest of the log. Only speak up when the result actually changed.
+    global _last_sync_summary
+    summary = (synced, pruned)
+    if summary != _last_sync_summary or pruned:
+        logger.info(
+            "Lidarr sync: %d albums missing%s",
+            synced,
+            f" (pruned {pruned} stale)" if pruned else "",
+        )
+        _last_sync_summary = summary
+    else:
+        logger.debug(
+            "Lidarr sync complete: %d albums cached (unchanged)", synced,
+        )
 
 
 def trigger_sync():

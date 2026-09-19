@@ -9,8 +9,10 @@ import logging
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -22,6 +24,7 @@ from flask import (
     jsonify,
     render_template,
     request,
+    send_file,
     send_from_directory,
 )
 
@@ -30,9 +33,11 @@ import download_client
 import models
 from config import ALLOWED_CONFIG_KEYS, load_config, save_config
 from downloader import (
+    ffmpeg_status,
     get_ytdlp_version,
     list_video_formats,
     download_youtube_candidate,
+    preload_ytdlp_plugins_quietly,
 )
 from fingerprint import fingerprint_track
 from lidarr import get_missing_albums, lidarr_request
@@ -56,15 +61,19 @@ from utils import (
     sanitize_filename,
     set_permissions,
 )
+import logutil
 from version import USER_AGENT, VERSION
 
-logging.basicConfig(
-    level=logging.INFO, format="%(message)s", handlers=[logging.StreamHandler()]
-)
+logutil.setup_logging(logging.INFO)
 logger = logging.getLogger(__name__)
 
 log = logging.getLogger("werkzeug")
 log.setLevel(logging.ERROR)
+try:
+    import flask.cli
+    flask.cli.show_server_banner = lambda *a, **k: None
+except Exception:
+    pass
 
 app = Flask(__name__)
 app.register_blueprint(download_client.bp)
@@ -101,9 +110,19 @@ def settings():
     return render_template("settings.html")
 
 
+@app.route("/setup")
+def setup():
+    return render_template("setup.html")
+
+
 @app.route("/logs")
 def logs():
     return render_template("logs.html")
+
+
+@app.route("/insights")
+def insights():
+    return render_template("insights.html")
 
 
 @app.route("/favicon.ico")
@@ -113,6 +132,55 @@ def favicon():
         "favicon.svg",
         mimetype="image/svg+xml",
     )
+
+
+
+_PWA_MANIFEST = {
+    "name": "Lidarr YouTube Downloader",
+    "short_name": "Lidarr YT",
+    "description": (
+        "Download missing albums from YouTube into your Lidarr library."
+    ),
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "background_color": "#09090b",
+    "theme_color": "#09090b",
+    "icons": [
+        {
+            "src": "/static/favicon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any maskable",
+        }
+    ],
+}
+
+# Minimal service worker: a no-op fetch handler is enough for the browser
+# to treat the app as installable, without intercepting requests (so SSE
+# progress streams and audio range requests keep working untouched).
+_SERVICE_WORKER_JS = (
+    "self.addEventListener('install', () => self.skipWaiting());\n"
+    "self.addEventListener('activate', (e) =>"
+    " e.waitUntil(self.clients.claim()));\n"
+    "self.addEventListener('fetch', () => {});\n"
+)
+
+
+@app.route("/manifest.webmanifest")
+def pwa_manifest():
+    return Response(
+        json.dumps(_PWA_MANIFEST),
+        mimetype="application/manifest+json",
+    )
+
+
+@app.route("/sw.js")
+def service_worker():
+    resp = Response(_SERVICE_WORKER_JS, mimetype="application/javascript")
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @app.route("/api/health")
@@ -125,9 +193,42 @@ def api_health():
     except Exception:
         db_ok = False
     status = "ok" if db_ok else "degraded"
+    try:
+        audio = ffmpeg_status(DOWNLOAD_DIR or None)
+    except Exception:
+        audio = {"ok": None}
     return jsonify(
-        {"status": status, "version": VERSION, "db": db_ok}
+        {
+            "status": status,
+            "version": VERSION,
+            "db": db_ok,
+            "ffmpeg_ok": audio.get("ok"),
+        }
     ), (200 if db_ok else 503)
+
+
+@app.route("/api/ffmpeg/status")
+def api_ffmpeg_status():
+    """Whether audio conversion works here, and what the user can do if not.
+
+    The probe result alone is an errno in a log; this endpoint is what the
+    Settings page shows so the problem is actionable instead of cryptic.
+    """
+    refresh = request.args.get("refresh") == "1"
+    if refresh:
+        client_ip = request.remote_addr or "unknown"
+        if not check_rate_limit(
+            f"ffmpeg_probe:{client_ip}", rate_limit_store,
+            window=10, max_requests=3,
+        ):
+            return jsonify(
+                {"success": False, "message": "Too many requests"}
+            ), 429
+    try:
+        return jsonify(ffmpeg_status(DOWNLOAD_DIR or None, refresh=refresh))
+    except Exception as exc:
+        logger.warning("ffmpeg status check failed: %s", exc)
+        return jsonify({"ok": None, "summary": "Could not check ffmpeg."}), 500
 
 
 @app.route("/api/config", methods=["GET", "POST"])
@@ -201,6 +302,133 @@ def api_config_import():
             ),
         }
     )
+
+
+@app.route("/api/backup/export")
+def api_backup_export():
+    """Download a consistent SQLite backup of the whole app database."""
+    db_dir = os.path.dirname(db.DB_PATH) or None
+    fd, tmp = tempfile.mkstemp(suffix=".db", dir=db_dir)
+    os.close(fd)
+    try:
+        dst = sqlite3.connect(tmp)
+        try:
+            db.get_db().backup(dst)
+        finally:
+            dst.close()
+    except Exception as e:
+        logger.error("Backup export failed: %s", e, exc_info=True)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return jsonify({"success": False, "message": "Backup failed"}), 500
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    resp = send_file(
+        tmp,
+        as_attachment=True,
+        download_name=f"lidarr-yt-backup-{ts}.db",
+        mimetype="application/octet-stream",
+    )
+
+    @resp.call_on_close
+    def _cleanup_backup_tmp():
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+    return resp
+
+
+@app.route("/api/backup/import", methods=["POST"])
+def api_backup_import():
+    """Restore the app database from an uploaded backup, then restart.
+
+    Validates the upload is a sound SQLite database with our schema before
+    replacing the live DB, refuses while a download is active, and restarts
+    so every worker reconnects to the new database.
+    """
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"backup_import:{client_ip}", rate_limit_store, window=30, max_requests=2
+    ):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
+    if download_process.get("active"):
+        return jsonify({
+            "success": False,
+            "message": "A download is in progress. Stop it before restoring.",
+        }), 409
+    if "file" not in request.files:
+        return jsonify({"success": False, "message": "No file uploaded"}), 400
+
+    db_dir = os.path.dirname(db.DB_PATH) or "."
+    fd, tmp = tempfile.mkstemp(suffix=".db", dir=db_dir)
+    os.close(fd)
+    valid = False
+    reason = "Not a valid Lidarr-YT backup database."
+    try:
+        request.files["file"].save(tmp)
+        con = sqlite3.connect(tmp)
+        try:
+            integrity = con.execute("PRAGMA integrity_check").fetchone()
+            ver_row = con.execute(
+                "SELECT version FROM schema_version"
+                " ORDER BY version DESC LIMIT 1"
+            ).fetchone()
+        finally:
+            con.close()
+        if not (integrity and integrity[0] == "ok"):
+            reason = "Backup file is corrupted."
+        elif not ver_row or not isinstance(ver_row[0], int):
+            reason = "Not a valid Lidarr-YT backup database."
+        elif ver_row[0] < 1 or ver_row[0] > db.SCHEMA_VERSION:
+            reason = (
+                "Backup schema version %s is not supported by this "
+                "version of the app." % ver_row[0]
+            )
+        else:
+            valid = True
+    except sqlite3.DatabaseError:
+        valid = False
+    except Exception as e:
+        logger.error("Backup validation failed: %s", e, exc_info=True)
+        valid = False
+    if not valid:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return jsonify({"success": False, "message": reason}), 400
+
+    try:
+        # Swap the live DB. Drop this thread's connection, put the restored
+        # file in place, then clear the WAL/SHM sidecars *last* — the
+        # restored backup is self-contained (checkpointed by .backup()), so
+        # any leftover sidecar belongs to the old database and must not be
+        # replayed against the new file. A restart follows immediately, so
+        # background threads still holding old connections are torn down.
+        db.close_db()
+        os.replace(tmp, db.DB_PATH)
+        for ext in ("-wal", "-shm"):
+            try:
+                os.remove(db.DB_PATH + ext)
+            except OSError:
+                pass
+    except Exception as e:
+        logger.error("Backup restore failed: %s", e, exc_info=True)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return jsonify({"success": False, "message": "Restore failed"}), 500
+
+    def _do_restart():
+        time.sleep(0.8)
+        _exec_restart()
+
+    threading.Thread(target=_do_restart, daemon=True).start()
+    return jsonify({"success": True, "restart_required": True})
 
 
 @app.route("/api/download-client/info")
@@ -740,7 +968,7 @@ def api_download(album_id):
         current_id = download_process.get("album_id")
     if current_id == album_id:
         return jsonify({"success": False, "message": "Already in queue or downloading"})
-    added = models.enqueue_album(album_id)
+    added = models.enqueue_album(album_id, force=True)
     if added:
         return jsonify({"success": True, "queued": True})
     return jsonify({"success": False, "message": "Already in queue or downloading"})
@@ -941,7 +1169,7 @@ def api_add_to_queue():
     with queue_lock:
         current_id = download_process.get("album_id")
     if current_id != album_id:
-        models.enqueue_album(album_id)
+        models.enqueue_album(album_id, force=True)
     return jsonify({"success": True, "queue_length": models.get_queue_length()})
 
 
@@ -965,7 +1193,7 @@ def api_add_to_queue_bulk():
         current_id = download_process.get("album_id")
     for album_id in album_ids:
         if isinstance(album_id, int) and album_id != current_id:
-            if models.enqueue_album(album_id):
+            if models.enqueue_album(album_id, force=True):
                 added += 1
     return jsonify(
         {
@@ -1112,6 +1340,16 @@ def api_stats():
             "downloaded_today": downloaded_today,
         }
     )
+
+
+@app.route("/api/insights")
+def api_insights():
+    days = request.args.get("days", 30, type=int)
+    if days < 1:
+        days = 1
+    if days > 365:
+        days = 365
+    return jsonify(models.get_insights(days=days))
 
 
 @app.route("/api/logs", methods=["GET"])
@@ -3376,15 +3614,15 @@ def _startup_ytdlp_update():
 
 
 if __name__ == "__main__":
-    db.init_db()
-    models.reset_downloading_to_queued()
-    download_client.restore_jobs()
-    logger.info("Starting Lidarr YouTube Downloader...")
-    logger.info("Version: %s", VERSION)
+    logutil.section(logger, "Lidarr YouTube Downloader %s", VERSION)
     logger.info(
         "Download directory: %s",
         DOWNLOAD_DIR if DOWNLOAD_DIR else "Not set (check DOWNLOAD_PATH env)",
     )
+    db.init_db()
+    models.reset_downloading_to_queued()
+    download_client.restore_jobs()
+    preload_ytdlp_plugins_quietly()
     setup_scheduler()
     threading.Thread(target=run_scheduler, daemon=True).start()
     threading.Thread(target=process_download_queue, daemon=True).start()
@@ -3393,7 +3631,10 @@ if __name__ == "__main__":
     lidarr_sync.trigger_sync()
     flask_host = os.environ.get("FLASK_HOST", "0.0.0.0")
     flask_port = int(os.environ.get("FLASK_PORT", "5000"))
-    logger.info(
-        "Application started successfully on http://%s:%d", flask_host, flask_port
+    logutil.milestone(
+        logger,
+        "Ready on http://%s:%d",
+        flask_host, flask_port,
+        icon=logutil.ICON_APP,
     )
     app.run(host=flask_host, port=flask_port, debug=False, use_reloader=False)

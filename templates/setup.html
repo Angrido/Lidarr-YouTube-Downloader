@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setup - Lidarr YouTube Downloader</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/components.css">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#09090b">
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
+      rel="stylesheet"
+      integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg=="
+      crossorigin="anonymous" referrerpolicy="no-referrer">
+    <style>
+        :root {
+            --bg: #09090b;
+            --surface: rgba(255, 255, 255, 0.04);
+            --surface-hover: rgba(255, 255, 255, 0.08);
+            --border: rgba(255, 255, 255, 0.12);
+            --text: #e5e7eb;
+            --text-dim: #9ca3af;
+            --primary: #10b981;
+            --primary-hover: #059669;
+            --danger: #ef4444;
+            --radius: 12px;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at 20% 0%, rgba(16,185,129,0.10), transparent 40%),
+                var(--bg);
+            color: var(--text);
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px 16px;
+        }
+        .wizard {
+            width: 100%;
+            max-width: 560px;
+        }
+        .wizard-head {
+            text-align: center;
+            margin-bottom: 1.5rem;
+        }
+        .wizard-head h1 {
+            font-size: 1.4rem;
+            margin: 0.4rem 0 0.2rem;
+        }
+        .wizard-head .logo { font-size: 2rem; }
+        .wizard-head p { color: var(--text-dim); margin: 0; font-size: 0.9rem; }
+        .steps {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+            margin-bottom: 1.25rem;
+        }
+        .step-dot {
+            width: 32px;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--border);
+        }
+        .step-dot.active { background: var(--primary); }
+        .step { display: none; }
+        .step.active { display: block; }
+        .step h2 { font-size: 1.05rem; margin: 0 0 0.35rem; }
+        .step p.desc { color: var(--text-dim); font-size: 0.85rem; margin: 0 0 1rem; }
+        label { display: block; font-size: 0.85rem; margin: 0.9rem 0 0.35rem; }
+        code {
+            background: rgba(255,255,255,0.06);
+            padding: 0.05rem 0.35rem;
+            border-radius: 5px;
+            font-size: 0.82rem;
+        }
+        .status-line {
+            margin-top: 0.8rem;
+            font-size: 0.86rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .status-ok { color: var(--primary); }
+        .status-err { color: var(--danger); }
+        .env-note {
+            margin-top: 0.8rem;
+            font-size: 0.82rem;
+            color: var(--text-dim);
+            border-left: 2px solid var(--border);
+            padding-left: 0.75rem;
+        }
+        .actions {
+            display: flex;
+            gap: 0.6rem;
+            margin-top: 1.5rem;
+        }
+        .actions .spacer { flex: 1 1 auto; }
+        .skip {
+            display: block;
+            text-align: center;
+            margin-top: 1rem;
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            text-decoration: none;
+        }
+        .skip:hover { color: var(--text); }
+    </style>
+</head>
+<body>
+    <div class="wizard">
+        <div class="wizard-head">
+            <div class="logo">🎵</div>
+            <h1>Welcome</h1>
+            <p>Let's get Lidarr YouTube Downloader set up.</p>
+        </div>
+
+        <div class="steps">
+            <div class="step-dot active" data-dot="0"></div>
+            <div class="step-dot" data-dot="1"></div>
+            <div class="step-dot" data-dot="2"></div>
+        </div>
+
+        <div class="ui-card">
+            <!-- Step 1: Lidarr connection -->
+            <div class="step active" data-step="0">
+                <h2>1 · Connect to Lidarr</h2>
+                <p class="desc">Check that the app can reach your Lidarr instance.</p>
+                <div class="ui-row ui-row-wrap">
+                    <button class="ui-btn ui-btn-primary" type="button" onclick="testConnection()">
+                        <i class="fa-solid fa-plug"></i> Test connection
+                    </button>
+                    <span id="lidarrUrlLabel" class="ui-muted" style="font-size:.8rem;"></span>
+                </div>
+                <div class="status-line" id="connStatus"></div>
+                <div class="env-note" id="envNote" hidden>
+                    Lidarr's <strong>URL</strong> and <strong>API key</strong> are configured through
+                    environment variables — <code>LIDARR_URL</code> and <code>LIDARR_API_KEY</code>.
+                    Set them in your <code>docker-compose.yml</code> / <code>.env</code> and restart the
+                    container, then test again.
+                </div>
+            </div>
+
+            <!-- Step 2: Paths -->
+            <div class="step" data-step="1">
+                <h2>2 · Folders</h2>
+                <p class="desc">Where downloads are written, and where your Lidarr music library lives.</p>
+                <label for="downloadPath">Download path</label>
+                <input class="ui-input" type="text" id="downloadPath" placeholder="/DATA/Downloads">
+                <label for="lidarrPath">Lidarr music library path</label>
+                <input class="ui-input" type="text" id="lidarrPath" placeholder="/music">
+                <div class="env-note">
+                    These must be the same paths Lidarr sees (matching your volume mounts), so imports land in the
+                    right place. You can change them later in Settings.
+                </div>
+            </div>
+
+            <!-- Step 3: Done -->
+            <div class="step" data-step="2">
+                <h2>3 · All set</h2>
+                <p class="desc">Save your folders and jump into the dashboard. Everything else can be tuned in Settings.</p>
+                <div id="saveStatus" class="status-line"></div>
+            </div>
+
+            <div class="actions">
+                <button class="ui-btn ui-btn-ghost" type="button" id="backBtn" onclick="prevStep()" hidden>
+                    <i class="fa-solid fa-arrow-left"></i> Back
+                </button>
+                <div class="spacer"></div>
+                <button class="ui-btn ui-btn-primary" type="button" id="nextBtn" onclick="nextStep()">
+                    Next <i class="fa-solid fa-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+
+        <a class="skip" href="#" onclick="skipSetup(event)">Skip setup for now</a>
+    </div>
+
+    <script>
+        let step = 0;
+        const STEPS = 3;
+
+        function render() {
+            document.querySelectorAll('.step').forEach((el) => {
+                el.classList.toggle('active', Number(el.dataset.step) === step);
+            });
+            document.querySelectorAll('.step-dot').forEach((el) => {
+                el.classList.toggle('active', Number(el.dataset.dot) <= step);
+            });
+            document.getElementById('backBtn').hidden = step === 0;
+            const next = document.getElementById('nextBtn');
+            next.innerHTML = step === STEPS - 1
+                ? '<i class="fa-solid fa-check"></i> Save & Finish'
+                : 'Next <i class="fa-solid fa-arrow-right"></i>';
+        }
+
+        function prevStep() {
+            if (step > 0) { step--; render(); }
+        }
+
+        async function nextStep() {
+            if (step < STEPS - 1) {
+                step++;
+                render();
+                return;
+            }
+            await saveAndFinish();
+        }
+
+        async function testConnection() {
+            const s = document.getElementById('connStatus');
+            const envNote = document.getElementById('envNote');
+            s.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Testing…';
+            s.className = 'status-line';
+            try {
+                const data = await (await fetch('/api/test-connection')).json();
+                if (data.status === 'success') {
+                    s.className = 'status-line status-ok';
+                    s.innerHTML = '<i class="fa-solid fa-circle-check"></i> Connected to Lidarr '
+                        + (data.lidarr_version || '');
+                    envNote.hidden = true;
+                } else {
+                    s.className = 'status-line status-err';
+                    s.innerHTML = '<i class="fa-solid fa-circle-xmark"></i> '
+                        + (data.message || 'Could not reach Lidarr');
+                    envNote.hidden = false;
+                }
+            } catch (e) {
+                s.className = 'status-line status-err';
+                s.textContent = 'Could not reach Lidarr';
+                envNote.hidden = false;
+            }
+        }
+
+        async function saveAndFinish() {
+            const s = document.getElementById('saveStatus');
+            s.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
+            s.className = 'status-line';
+            try {
+                await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        download_path: document.getElementById('downloadPath').value.trim(),
+                        lidarr_path: document.getElementById('lidarrPath').value.trim(),
+                    }),
+                });
+            } catch (_) {}
+            try { localStorage.setItem('setupDone', '1'); } catch (_) {}
+            window.location.href = '/';
+        }
+
+        function skipSetup(e) {
+            e.preventDefault();
+            try { localStorage.setItem('setupDone', '1'); } catch (_) {}
+            window.location.href = '/';
+        }
+
+        (async () => {
+            try {
+                const c = await (await fetch('/api/config')).json();
+                document.getElementById('downloadPath').value = c.download_path || '';
+                document.getElementById('lidarrPath').value = c.lidarr_path || '';
+                const url = (c.lidarr_url || '').trim();
+                document.getElementById('lidarrUrlLabel').textContent =
+                    url ? url : 'LIDARR_URL not set';
+            } catch (_) {}
+            testConnection();
+            render();
+        })();
+    </script>
+</body>
+</html>

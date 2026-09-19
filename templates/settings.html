@@ -7,6 +7,14 @@
     <title>Settings - Lidarr YouTube Downloader</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/components.css">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#09090b">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Lidarr YT">
+    <link rel="apple-touch-icon" href="/static/favicon.svg">
+    <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
     <style>
         :root {
             --bg: #09090b;
@@ -690,6 +698,53 @@
                 padding: 1.5rem;
             }
         }
+
+        /* Settings search + collapsible sections */
+        .settings-search-wrap {
+            position: relative;
+            margin-bottom: 1.25rem;
+        }
+        .settings-search-wrap i {
+            position: absolute;
+            left: 0.9rem;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-dim);
+            pointer-events: none;
+        }
+        #settingsSearch {
+            width: 100%;
+            padding: 0.7rem 0.9rem 0.7rem 2.4rem;
+            border-radius: 10px;
+            border: 1px solid var(--border, var(--border-glass));
+            background: var(--surface, rgba(255,255,255,0.03));
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+        #settingsSearch:focus { outline: none; border-color: var(--primary); }
+        .settings-section .section-header {
+            cursor: pointer;
+            user-select: none;
+        }
+        .section-chevron {
+            margin-left: auto;
+            color: var(--text-dim);
+            transition: transform 0.15s ease;
+            font-size: 1rem !important;
+        }
+        .settings-section.collapsed .section-chevron {
+            transform: rotate(-90deg);
+        }
+        .settings-section.collapsed .section-header {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+        .settings-section.collapsed > *:not(.section-header) {
+            display: none !important;
+        }
+        .settings-section.search-hidden { display: none !important; }
+        .input-group.search-hidden { display: none !important; }
     </style>
 </head>
 
@@ -708,6 +763,7 @@
             <div class="nav-links">
                 <a href="/"><i class="fas fa-home"></i> Home</a>
                 <a href="/downloads"><i class="fas fa-download"></i> Downloads <span class="nav-badge" id="queueBadge">0</span></a>
+                <a href="/insights"><i class="fas fa-chart-line"></i> Insights</a>
                 <a href="/logs"><i class="fas fa-list"></i> Logs</a>
                 <a href="/youtube"><i class="fab fa-youtube"></i> YouTube</a>
                 <a href="/settings" class="active"><i class="fas fa-cog"></i> Settings</a>
@@ -721,6 +777,10 @@
     </header>
 
     <div class="container">
+        <div class="settings-search-wrap">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="settingsSearch" placeholder="Search settings…" autocomplete="off" aria-label="Search settings">
+        </div>
         <div class="settings-section">
             <div class="section-header">
                 <i class="fa-solid fa-robot"></i>
@@ -760,6 +820,20 @@
                     <div class="label-description">Skip auto-downloading an album that was already attempted (success or failure) within this many hours, so the scheduler works through the rest of the library before retrying the same one. Set to 0 to disable.</div>
                 </label>
                 <input type="number" id="schedulerRetryAfterHours" value="24" min="0" step="1" style="max-width:120px;">
+            </div>
+            <div class="input-group">
+                <label>
+                    Back Off Failing Tracks
+                    <div class="label-description">A track that keeps failing (e.g. a song that simply isn't on YouTube) waits twice as long after each failure instead of being retried every cycle forever &mdash; capped at 30 days, so it is still found if it appears later. Turn off to retry every run.</div>
+                </label>
+                <button class="toggle-btn" id="trackRetryBackoffBtn" onclick="toggleTrackRetryBackoff()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    Max Retries per Track
+                    <div class="label-description">Give up on a track for good after this many consecutive failures. Set to 0 to never give up (just keep backing off). Adding an album to the queue by hand always retries everything immediately.</div>
+                </label>
+                <input type="number" id="maxTrackRetries" value="0" min="0" step="1" style="max-width:120px;">
             </div>
         </div>
 
@@ -837,6 +911,16 @@
                     <option value="itunes">Track Artist (iTunes only)</option>
                 </select>
             </div>
+            <div id="ffmpegDiag" class="input-group">
+                <div id="ffmpegDiagBox" style="padding:1rem 1.15rem; border-radius:12px; border:1px solid var(--border); background:var(--bg);">
+                    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+                        <strong id="ffmpegDiagTitle" style="font-size:1rem;">Checking audio conversion…</strong>
+                        <button class="btn" id="ffmpegDiagBtn" onclick="checkFfmpeg(true)"
+                                style="padding:0.35rem 0.8rem; font-size:0.8rem; margin-left:auto;">Re-check</button>
+                    </div>
+                    <div id="ffmpegDiagBody" style="margin-top:0.6rem; font-size:0.85rem; color:var(--text-dim); line-height:1.55;"></div>
+                </div>
+            </div>
             <div class="input-group">
                 <label for="audioFormatSelect">
                     Audio Format
@@ -880,6 +964,20 @@
                     <div class="label-description">Apply EBU R128 loudness normalization (−14 LUFS) so volume is consistent across tracks. Forces a re-encode (M4A/Opus won't stream-copy when enabled).</div>
                 </label>
                 <button class="toggle-btn" id="audioNormalizeBtn" onclick="toggleAudioNormalize()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    ReplayGain Tags
+                    <div class="label-description">Measure each track's loudness and write ReplayGain tags (<code>REPLAYGAIN_TRACK_GAIN</code>/<code>PEAK</code>) so players like Jellyfin/Navidrome can normalize volume — <strong>without re-encoding</strong> the audio (non-destructive, unlike Loudness Normalization). Adds a short ffmpeg analysis pass per track.</div>
+                </label>
+                <button class="toggle-btn" id="replayGainBtn" onclick="toggleReplayGain()">Loading...</button>
+            </div>
+            <div class="input-group">
+                <label>
+                    Save Synced Lyrics (.lrc)
+                    <div class="label-description">Fetch time-synced lyrics from <a href="https://lrclib.net" target="_blank" rel="noopener">LRCLIB</a> and write a <code>.lrc</code> file next to each track, so Jellyfin/Navidrome/Plex can show synced lyrics. Falls back to plain lyrics when synced aren't available.</div>
+                </label>
+                <button class="toggle-btn" id="saveLyricsBtn" onclick="toggleSaveLyrics()">Loading...</button>
             </div>
             <div class="input-group">
                 <label>
@@ -1197,6 +1295,25 @@
                     <i class="fa-solid fa-upload"></i> Import config.json
                 </button>
             </div>
+            <div class="input-group">
+                <label>
+                    Backup Database
+                    <div class="label-description">Download a full backup of the app database — download history, logs, queue, banned URLs and playlist imports. Keep it safe to restore after a reset or on a new install. (Your <code>config.json</code> is exported separately, above.)</div>
+                </label>
+                <button class="btn" onclick="exportBackup()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                    <i class="fa-solid fa-database"></i> Download backup (.db)
+                </button>
+            </div>
+            <div class="input-group">
+                <label>
+                    Restore Database
+                    <div class="label-description">Upload a previously downloaded backup to <strong>replace</strong> the current database. The app restarts to apply it. Not available while a download is running.</div>
+                </label>
+                <input type="file" id="backupFileInput" accept=".db,.sqlite,.sqlite3" style="display: none;" onchange="handleBackupImport(event)">
+                <button class="btn" onclick="document.getElementById('backupFileInput').click()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                    <i class="fa-solid fa-upload"></i> Restore backup (.db)
+                </button>
+            </div>
         </div>
 
         <div class="settings-section">
@@ -1346,7 +1463,93 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             loadConfig();
             loadYtdlpVersion();
             installDirtyListeners();
+            initSettingsSearchAndCollapse();
         });
+
+        // Collapsible sections + live search. Runs entirely on the rendered
+        // DOM (no change to field ids / save wiring). Collapse state per
+        // section persists in localStorage.
+        function initSettingsSearchAndCollapse() {
+            const sections = Array.from(
+                document.querySelectorAll('.settings-section')
+            );
+            let collapsedState = {};
+            try {
+                collapsedState = JSON.parse(
+                    localStorage.getItem('settingsCollapsed') || '{}'
+                );
+            } catch (_) { collapsedState = {}; }
+
+            const sectionKey = (section) => {
+                const h = section.querySelector('.section-header h2');
+                return h ? h.textContent.trim() : '';
+            };
+
+            sections.forEach((section) => {
+                const header = section.querySelector('.section-header');
+                if (!header) return;
+                const chevron = document.createElement('i');
+                chevron.className = 'fa-solid fa-chevron-down section-chevron';
+                header.appendChild(chevron);
+                const key = sectionKey(section);
+                if (key && collapsedState[key]) {
+                    section.classList.add('collapsed');
+                }
+                header.addEventListener('click', () => {
+                    // Don't toggle while a search filter is active.
+                    if (document.getElementById('settingsSearch').value.trim()) {
+                        return;
+                    }
+                    section.classList.toggle('collapsed');
+                    const k = sectionKey(section);
+                    if (k) {
+                        collapsedState[k] = section.classList.contains(
+                            'collapsed'
+                        );
+                        try {
+                            localStorage.setItem(
+                                'settingsCollapsed',
+                                JSON.stringify(collapsedState)
+                            );
+                        } catch (_) {}
+                    }
+                });
+            });
+
+            const search = document.getElementById('settingsSearch');
+            search.addEventListener('input', () => {
+                const q = search.value.trim().toLowerCase();
+                sections.forEach((section) => {
+                    if (!q) {
+                        // Restore default view: clear search flags, reapply
+                        // saved collapse state.
+                        section.classList.remove('search-hidden');
+                        section.querySelectorAll('.input-group').forEach(
+                            (g) => g.classList.remove('search-hidden')
+                        );
+                        const k = sectionKey(section);
+                        section.classList.toggle(
+                            'collapsed', !!(k && collapsedState[k])
+                        );
+                        return;
+                    }
+                    const header = section.querySelector('.section-header');
+                    const headerText = header
+                        ? header.textContent.toLowerCase() : '';
+                    let anyVisible = false;
+                    section.querySelectorAll('.input-group').forEach((g) => {
+                        const match = g.textContent.toLowerCase().includes(q)
+                            || headerText.includes(q);
+                        g.classList.toggle('search-hidden', !match);
+                        if (match) anyVisible = true;
+                    });
+                    // While searching, expand matching sections and hide
+                    // sections with no matches.
+                    section.classList.remove('collapsed');
+                    section.classList.toggle('search-hidden', !anyVisible);
+                });
+            });
+        }
 
         function toggleTheme() {
             const toggle = document.getElementById('themeToggle');
@@ -1410,6 +1613,8 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             document.getElementById('ytdlpFormat').value = conf.ytdlp_format || '';
             updateAudioNormalizeBtn(conf.audio_normalize === true);
             updatePlaylistToLibraryBtn(conf.playlist_to_library === true);
+            updateReplayGainBtn(conf.apply_replaygain === true);
+            updateSaveLyricsBtn(conf.save_lyrics === true);
             document.getElementById('ytPoToken').value = conf.yt_po_token || '';
             document.getElementById('ytPotProviderUrl').value = conf.yt_pot_provider_url || '';
             const ytCookiesInput = document.getElementById('ytCookiesFile');
@@ -1438,6 +1643,11 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             document.getElementById('downloadClientApiKey').value = conf.download_client_api_key || '';
             document.getElementById('downloadClientCategory').value = conf.download_client_category || 'music';
             document.getElementById('downloadClientConcurrentAlbums').value = String(conf.download_client_concurrent_albums || 1);
+            checkFfmpeg(false);
+            updateTrackRetryBackoffBtn(conf.track_retry_backoff !== false);
+            document.getElementById('maxTrackRetries').value = (
+                conf.max_track_retries != null ? conf.max_track_retries : 0
+            );
             document.getElementById('schedulerRetryAfterHours').value = (
                 conf.scheduler_retry_after_hours != null
                     ? conf.scheduler_retry_after_hours
@@ -1659,6 +1869,118 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             markSettingsDirty();
         }
 
+        function updateReplayGainBtn(enabled) {
+            const btn = document.getElementById('replayGainBtn');
+            btn.dataset.enabled = enabled ? '1' : '0';
+            btn.innerText = enabled ? '✓ ReplayGain ON' : 'ReplayGain OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        function toggleReplayGain() {
+            const btn = document.getElementById('replayGainBtn');
+            updateReplayGainBtn(btn.dataset.enabled !== '1');
+            markSettingsDirty();
+        }
+
+        function renderFfmpegDiag(st) {
+            const box = document.getElementById('ffmpegDiagBox');
+            const title = document.getElementById('ffmpegDiagTitle');
+            const body = document.getElementById('ffmpegDiagBody');
+            if (!box) return;
+            // Always render a verdict. Hiding the panel when all is well
+            // made "Re-check" look like it had broken something.
+            const unknown = !st || st.ok === null || st.ok === undefined;
+            const ok = !unknown && st.ok === true;
+            const blocked = !unknown && !ok && st.downloads_work === false;
+            box.style.borderColor = ok ? 'var(--primary)'
+                : (blocked ? 'var(--danger)' : 'var(--warning)');
+            const icon = unknown ? '\u2753' : (ok ? '\u2705'
+                : (blocked ? '\u274c' : '\u2757'));
+            // Built with textContent, not innerHTML: nothing here needs
+            // markup and there is no escaping to get wrong.
+            title.textContent = icon + ' ' + (
+                unknown ? 'Could not check audio conversion.'
+                        : (st.summary || ''));
+            body.textContent = '';
+            const para = (text, bold) => {
+                const el = document.createElement('p');
+                el.style.margin = '0 0 0.5rem';
+                if (bold) {
+                    const b = document.createElement('strong');
+                    b.textContent = text;
+                    el.appendChild(b);
+                } else {
+                    el.textContent = text;
+                }
+                body.appendChild(el);
+            };
+            if (unknown) {
+                para('The check could not be run. Try again, and see the'
+                     + ' container log if it keeps failing.', false);
+                return;
+            }
+            if (st.detail) para(st.detail, false);
+            if (st.impact) para(st.impact, true);
+            if (st.fixes && st.fixes.length) {
+                para('How to fix it:', true);
+                const ol = document.createElement('ol');
+                ol.style.margin = '0';
+                ol.style.paddingLeft = '1.2rem';
+                for (const fix of st.fixes) {
+                    const li = document.createElement('li');
+                    li.style.marginBottom = '0.3rem';
+                    li.textContent = fix;
+                    ol.appendChild(li);
+                }
+                body.appendChild(ol);
+            }
+            if (st.machine) {
+                const foot = document.createElement('p');
+                foot.style.cssText = 'margin:0.6rem 0 0; font-size:0.78rem; opacity:0.7;';
+                foot.textContent = 'Architecture: ' + st.machine
+                    + ' \u00b7 Audio format: ' + (st.audio_format || '?');
+                body.appendChild(foot);
+            }
+        }
+
+        async function checkFfmpeg(refresh) {
+            const btn = document.getElementById('ffmpegDiagBtn');
+            if (refresh && btn) { btn.disabled = true; btn.innerText = 'Checking…'; }
+            try {
+                const res = await fetch('/api/ffmpeg/status' + (refresh ? '?refresh=1' : ''));
+                renderFfmpegDiag(await res.json());
+            } catch (e) {
+                renderFfmpegDiag(null);
+            }
+            if (btn) { btn.disabled = false; btn.innerText = 'Re-check'; }
+        }
+
+        function updateTrackRetryBackoffBtn(enabled) {
+            const btn = document.getElementById('trackRetryBackoffBtn');
+            btn.dataset.enabled = enabled ? '1' : '0';
+            btn.innerText = enabled ? '✓ Retry Backoff ON' : 'Retry Backoff OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        function toggleTrackRetryBackoff() {
+            const btn = document.getElementById('trackRetryBackoffBtn');
+            updateTrackRetryBackoffBtn(btn.dataset.enabled !== '1');
+            markSettingsDirty();
+        }
+
+        function updateSaveLyricsBtn(enabled) {
+            const btn = document.getElementById('saveLyricsBtn');
+            btn.dataset.enabled = enabled ? '1' : '0';
+            btn.innerText = enabled ? '✓ Lyrics ON' : 'Lyrics OFF';
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+        }
+
+        function toggleSaveLyrics() {
+            const btn = document.getElementById('saveLyricsBtn');
+            updateSaveLyricsBtn(btn.dataset.enabled !== '1');
+            markSettingsDirty();
+        }
+
         function updateDownloadClientBtn(enabled) {
             const btn = document.getElementById('downloadClientBtn');
             btn.innerText = enabled ? '✓ Download Client ON' : 'Download Client OFF';
@@ -1754,6 +2076,40 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
 
         function exportConfig() {
             window.location.href = '/api/config/export';
+        }
+
+        function exportBackup() {
+            window.location.href = '/api/backup/export';
+        }
+
+        async function handleBackupImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const ok = confirm(
+                'Restore will REPLACE your current database with this backup '
+                + 'and restart the app. This cannot be undone. Continue?'
+            );
+            if (!ok) { event.target.value = ''; return; }
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const res = await fetch('/api/backup/import', {
+                    method: 'POST', body: formData,
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('success', 'Restoring',
+                        'Database restored — the app is restarting…');
+                    setTimeout(() => window.location.reload(), 4500);
+                } else {
+                    showToast('error', 'Restore failed',
+                        data.message || 'Could not restore the backup');
+                }
+            } catch (e) {
+                showToast('info', 'Restarting', 'The app is restarting…');
+                setTimeout(() => window.location.reload(), 4500);
+            }
+            event.target.value = '';
         }
 
         async function sendTelegramTest() {
@@ -1908,6 +2264,8 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     scheduler_interval: document.getElementById('interval').value,
                     scheduler_max_albums: parseInt(document.getElementById('schedulerMaxAlbums').value) || 0,
                     scheduler_retry_after_hours: parseFloat(document.getElementById('schedulerRetryAfterHours').value) || 0,
+                    track_retry_backoff: document.getElementById('trackRetryBackoffBtn').dataset.enabled === '1',
+                    max_track_retries: parseInt(document.getElementById('maxTrackRetries').value, 10) || 0,
                     telegram_bot_token: document.getElementById('botToken').value,
                     telegram_chat_id: document.getElementById('chatId').value,
                     telegram_enabled: !!document.getElementById('botToken').value,
@@ -1928,6 +2286,8 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     ytdlp_format: (document.getElementById('ytdlpFormat').value || '').trim(),
                     audio_normalize: document.getElementById('audioNormalizeBtn').dataset.enabled === '1',
                     playlist_to_library: document.getElementById('playlistToLibraryBtn').dataset.enabled === '1',
+                    apply_replaygain: document.getElementById('replayGainBtn').dataset.enabled === '1',
+                    save_lyrics: document.getElementById('saveLyricsBtn').dataset.enabled === '1',
                     yt_po_token: (document.getElementById('ytPoToken').value || '').trim(),
                     yt_pot_provider_url: (document.getElementById('ytPotProviderUrl').value || '').trim(),
                     yt_cookies_file: (document.getElementById('ytCookiesFile').value || '').trim(),

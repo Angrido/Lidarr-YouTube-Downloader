@@ -1,5 +1,8 @@
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+import downloader
 from downloader import (
     _build_common_opts,
     _candidate_display_url,
@@ -15,6 +18,22 @@ from downloader import (
     match_album_track,
     search_youtube_candidates,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_ffmpeg_pp_state():
+    # download_youtube_candidate caches whether ffmpeg can write output.
+    # Force "works" around every test so the normal path is exercised
+    # without running a real ffmpeg probe (individual tests override it),
+    # and so the cached state can't leak between tests or test modules.
+    # Also mark yt-dlp plugins as already loaded so the quiet preload is a
+    # no-op and never touches the real yt-dlp during tests.
+    downloader._ffmpeg_pp_state = True
+    downloader._ffmpeg_pp_observed_broken = False
+    downloader._plugins_preloaded = True
+    yield
+    downloader._ffmpeg_pp_state = True
+    downloader._ffmpeg_pp_observed_broken = False
 
 
 def test_looks_like_music_video():
@@ -619,6 +638,194 @@ class TestDownloadYoutubeCandidate:
         assert result["success"] is False
         assert "format" in result["error_message"].lower() \
             or "no downloadable" in result["error_message"].lower()
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_postprocess_error_flags_and_bounds_retries(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "ERROR: Postprocessing: audio conversion failed:"
+            " Error opening output files: Function not implemented"
+        )
+        candidate = {
+            "url": "u", "title": "t", "duration": 200, "score": 0.9,
+        }
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result["success"] is False
+        assert result.get("postprocess_error") is True
+        assert "postprocessing" in result["error_message"].lower()
+        assert mock_ydl.download.call_count <= 3
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_cascade_stops_at_the_first_conversion_error(
+        self, mock_config, mock_ydl_class,
+    ):
+        # One failure is proof enough: neither the player client nor the
+        # format selector can make ffmpeg able to write its output, so the
+        # remaining combinations must not be tried (they only produce
+        # identical error lines).
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "mp3",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "ERROR: Postprocessing: Error opening output files:"
+            " Function not implemented"
+        )
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result.get("postprocess_error") is True
+        assert mock_ydl.download.call_count == 1
+
+    def test_is_postprocess_error_classifier(self):
+        from downloader import _is_postprocess_error
+        assert _is_postprocess_error(
+            "error opening output files: function not implemented"
+        )
+        assert _is_postprocess_error("postprocessing: audio conversion failed")
+        assert _is_postprocess_error("conversion failed")
+        assert not _is_postprocess_error("http error 403 forbidden")
+        assert not _is_postprocess_error("requested format is not available")
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_raw_fallback_when_ffmpeg_postprocessing_unavailable(
+        self, mock_config, mock_ydl_class, tmp_path,
+    ):
+        import os
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "m4a",
+        }
+        out = str(tmp_path / "output")
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        calls = {"n": 0}
+
+        def _dl(urls):
+            calls["n"] += 1
+            if calls["n"] <= 3:
+                raise Exception(
+                    "ERROR: Postprocessing: audio conversion failed:"
+                    " Error opening output files: Function not implemented"
+                )
+            with open(out + ".m4a", "wb") as fh:
+                fh.write(b"\x00\x00\x00\x00")
+            return 0
+
+        mock_ydl.download.side_effect = _dl
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, out)
+        assert result["success"] is True
+        assert result.get("postprocess_error") is None
+        assert os.path.exists(out + ".m4a")
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_raw_fallback_skipped_for_mp3_target(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "mp3",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "ERROR: Postprocessing: Error opening output files:"
+            " Function not implemented"
+        )
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result["success"] is False
+        assert result.get("postprocess_error") is True
+        assert mock_ydl.download.call_count <= 3
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_early_raw_path_when_ffmpeg_known_broken(
+        self, mock_config, mock_ydl_class, tmp_path,
+    ):
+        import os
+        downloader._ffmpeg_pp_state = False
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "m4a",
+        }
+        out = str(tmp_path / "output")
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+
+        def _dl(urls):
+            with open(out + ".m4a", "wb") as fh:
+                fh.write(b"\x00\x00")
+            return 0
+
+        mock_ydl.download.side_effect = _dl
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, out)
+        assert result["success"] is True
+        assert mock_ydl.download.call_count == 1
+        assert os.path.exists(out + ".m4a")
+
+
+class TestFfmpegProbe:
+    @patch("downloader.subprocess.run")
+    def test_probe_broken_when_ffmpeg_returns_error(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=1)
+        assert downloader._probe_ffmpeg_can_write_audio(None) is False
+
+    @patch("downloader.subprocess.run")
+    def test_probe_broken_when_no_output_file(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+        assert downloader._probe_ffmpeg_can_write_audio(None) is False
+
+    @patch("downloader.subprocess.run")
+    def test_probe_ok_when_ffmpeg_writes_file(self, mock_run, tmp_path):
+        def _run(cmd, **kw):
+            with open(cmd[-1], "wb") as fh:
+                fh.write(b"\x00" * 64)
+            return MagicMock(returncode=0)
+        mock_run.side_effect = _run
+        assert downloader._probe_ffmpeg_can_write_audio(str(tmp_path)) is True
+
+    @patch("downloader.subprocess.run")
+    def test_probe_uses_the_same_flags_as_yt_dlp(self, mock_run, tmp_path):
+        # Regression guard: yt-dlp appends "-movflags +faststart" to every
+        # output it writes. A probe without it exercises a different code
+        # path and passed on a host where the real conversion failed,
+        # which let the whole doomed cascade run for every track.
+        mock_run.return_value = MagicMock(returncode=1)
+        downloader._probe_ffmpeg_can_write_audio(str(tmp_path))
+        cmd = mock_run.call_args[0][0]
+        assert "-movflags" in cmd
+        assert cmd[cmd.index("-movflags") + 1] == "+faststart"
+        assert cmd[-1].endswith(".m4a")
+
+    @patch("downloader.subprocess.run")
+    def test_postprocess_works_caches_probe(self, mock_run):
+        downloader._ffmpeg_pp_state = None
+        mock_run.return_value = MagicMock(returncode=1)
+        assert downloader._ffmpeg_postprocess_works(None) is False
+        assert downloader._ffmpeg_postprocess_works(None) is False
+        assert mock_run.call_count == 1
+
+
+class TestPluginPreload:
+    def test_preload_runs_once_and_mutes_stderr(self, capsys):
+        downloader._plugins_preloaded = False
+        fake_plugins = MagicMock()
+        try:
+            with patch.object(downloader, "yt_dlp") as mock_ytdlp:
+                def _noisy():
+                    import sys
+                    sys.stderr.write("PoTokenProvider BgUtilHTTP already registered\n")
+                mock_ytdlp.plugins = fake_plugins
+                fake_plugins.load_all_plugins.side_effect = _noisy
+                downloader.preload_ytdlp_plugins_quietly()
+                downloader.preload_ytdlp_plugins_quietly()
+        finally:
+            downloader._plugins_preloaded = True
+        assert fake_plugins.load_all_plugins.call_count == 1
+        assert "already registered" not in capsys.readouterr().err
 
 
 class TestYouTubeMusicSourceAcceptedWithoutChannel:
@@ -1848,3 +2055,141 @@ class TestPoTokenClientPriority:
             "player_client" in r.message and "MyTrack" in r.message
             for r in caplog.records
         )
+
+
+def test_format_source_quality():
+    from downloader import _format_source_quality
+    assert _format_source_quality(
+        {"format_id": "140", "ext": "m4a", "abr": 128}
+    ) == "140 · m4a · 128 kbps"
+    assert _format_source_quality(
+        {"format_id": "251", "ext": "webm", "abr": 143.6}
+    ) == "251 · webm · 144 kbps"
+    assert _format_source_quality({}) == ""
+    assert _format_source_quality({"ext": "opus"}) == "opus"
+    assert _format_source_quality({"format_id": "140", "abr": None}) == "140"
+
+
+class TestFfmpegStatus:
+    """The probe result turned into something the user can act on."""
+
+    def _cfg(self, fmt):
+        return {"audio_format": fmt, "yt_player_client": "android"}
+
+    @patch("downloader.load_config")
+    def test_working_ffmpeg_still_reports_a_verdict(self, mock_config):
+        mock_config.return_value = self._cfg("mp3")
+        downloader._ffmpeg_pp_state = True
+        st = downloader.ffmpeg_status()
+        assert st["ok"] is True
+        assert st["downloads_work"] is True
+        assert st["summary"]
+        assert st["detail"]
+        assert "fixes" not in st
+        assert "impact" not in st
+
+    @patch("downloader.load_config")
+    def test_broken_with_native_format_still_downloads(self, mock_config):
+        mock_config.return_value = self._cfg("m4a")
+        downloader._ffmpeg_pp_state = False
+        st = downloader.ffmpeg_status()
+        assert st["ok"] is False
+        assert st["downloads_work"] is True
+        assert "ENOSYS" in st["detail"]
+        assert len(st["fixes"]) == 1
+        assert "architecture" in st["fixes"][0]
+
+    @patch("downloader.load_config")
+    def test_broken_with_mp3_offers_the_in_app_fix_first(self, mock_config):
+        mock_config.return_value = self._cfg("mp3")
+        downloader._ffmpeg_pp_state = False
+        st = downloader.ffmpeg_status()
+        assert st["downloads_work"] is False
+        assert "mp3" in st["impact"]
+        assert "m4a" in st["fixes"][0]
+        assert len(st["fixes"]) == 2
+
+    @patch("downloader.subprocess.run")
+    @patch("downloader.load_config")
+    def test_refresh_reruns_the_probe(self, mock_config, mock_run, tmp_path):
+        mock_config.return_value = self._cfg("m4a")
+        downloader._ffmpeg_pp_state = True
+        mock_run.return_value = MagicMock(returncode=1)
+        assert downloader.ffmpeg_status(str(tmp_path))["ok"] is True
+        assert mock_run.call_count == 0
+        assert downloader.ffmpeg_status(
+            str(tmp_path), refresh=True
+        )["ok"] is False
+        assert mock_run.call_count == 1
+
+
+class TestObservedFailureIsAuthoritative:
+    """A failed real conversion outranks the probe's approximation."""
+
+    def _cfg(self):
+        return {"audio_format": "m4a", "yt_player_client": "android"}
+
+    @patch("downloader._run_ffmpeg")
+    @patch("downloader.load_config")
+    def test_recheck_cannot_clear_an_observed_failure(
+        self, mock_config, mock_ffmpeg, tmp_path,
+    ):
+        # The reported bug: Re-check reported "works" after a download had
+        # already proved otherwise, then went red again on the next song.
+        mock_config.return_value = self._cfg()
+        downloader._mark_ffmpeg_postprocess_broken()
+
+        def _pass(args, timeout=30):
+            open(args[-1], "wb").write(b"\0" * 64)
+            return MagicMock(returncode=0)
+
+        mock_ffmpeg.side_effect = _pass
+        st = downloader.ffmpeg_status(str(tmp_path), refresh=True)
+        assert st["ok"] is False
+        assert st["observed"] is True
+        assert "measured, not predicted" in st["detail"]
+
+    @patch("downloader._run_ffmpeg")
+    @patch("downloader.load_config")
+    def test_recheck_still_works_without_an_observed_failure(
+        self, mock_config, mock_ffmpeg, tmp_path,
+    ):
+        mock_config.return_value = self._cfg()
+        downloader._ffmpeg_pp_state = False
+
+        def _pass(args, timeout=30):
+            open(args[-1], "wb").write(b"\0" * 64)
+            return MagicMock(returncode=0)
+
+        mock_ffmpeg.side_effect = _pass
+        st = downloader.ffmpeg_status(str(tmp_path), refresh=True)
+        assert st["ok"] is True
+        assert st["observed"] is False
+
+
+class TestProbeCoversBothFfmpegShapes:
+    @patch("downloader._run_ffmpeg")
+    def test_a_failing_stream_copy_is_caught(self, mock_ffmpeg, tmp_path):
+        # A native YouTube m4a is stream-copied, not encoded. A host that
+        # can encode but not copy must not be reported as healthy.
+        calls = {"n": 0}
+
+        def _run(args, timeout=30):
+            calls["n"] += 1
+            if "copy" in args:
+                return MagicMock(returncode=1)
+            open(args[-1], "wb").write(b"\0" * 64)
+            return MagicMock(returncode=0)
+
+        mock_ffmpeg.side_effect = _run
+        assert downloader._probe_ffmpeg_can_write_audio(str(tmp_path)) is False
+        assert calls["n"] == 2
+
+    @patch("downloader._run_ffmpeg")
+    def test_both_shapes_passing_reports_healthy(self, mock_ffmpeg, tmp_path):
+        def _run(args, timeout=30):
+            open(args[-1], "wb").write(b"\0" * 64)
+            return MagicMock(returncode=0)
+
+        mock_ffmpeg.side_effect = _run
+        assert downloader._probe_ffmpeg_can_write_audio(str(tmp_path)) is True

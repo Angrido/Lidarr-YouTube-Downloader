@@ -694,3 +694,146 @@ class TestCandidateAttempts:
         rows = models.get_candidate_attempts(td_id)
         assert rows[0]["youtube_title"] == "Earlier"
         assert rows[1]["youtube_title"] == "Later"
+
+
+def test_add_track_download_stores_source_format():
+    models.add_track_download(
+        album_id=77, album_title="A", artist_name="Ar",
+        track_title="T", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0, album_path="/d",
+        lidarr_album_path="", cover_url="",
+        source_format="140 · m4a · 128 kbps",
+    )
+    rows = models.get_track_downloads_for_album(77)
+    assert rows[0]["source_format"] == "140 · m4a · 128 kbps"
+
+
+def test_add_track_download_source_format_defaults_empty():
+    models.add_track_download(
+        album_id=78, album_title="A", artist_name="Ar",
+        track_title="T", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0, album_path="/d",
+        lidarr_album_path="", cover_url="",
+    )
+    assert models.get_track_downloads_for_album(78)[0]["source_format"] == ""
+
+
+
+
+def _add_dl(**kw):
+    base = dict(
+        album_id=1, album_title="A", artist_name="X", track_title="T",
+        track_number=1, success=True, error_message="", youtube_url="",
+        youtube_title="", match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    base.update(kw)
+    return models.add_track_download(**base)
+
+
+def test_get_insights_empty():
+    data = models.get_insights(days=7)
+    assert data["totals"]["total_tracks"] == 0
+    assert data["totals"]["success_rate"] == 0.0
+    assert data["top_artists"] == []
+    assert data["quality"] == []
+    assert len(data["daily"]) == 7
+    assert all(d["success"] == 0 and d["failed"] == 0 for d in data["daily"])
+
+
+def test_get_insights_totals_and_rate():
+    _add_dl(album_id=1, artist_name="Artist X", success=True,
+            duration_seconds=200, source_format="140 · m4a · 128 kbps")
+    _add_dl(album_id=1, artist_name="Artist X", success=False,
+            error_message="no match")
+    _add_dl(album_id=2, album_title="B", artist_name="Artist Y",
+            success=True, duration_seconds=180,
+            source_format="251 · opus · 160 kbps")
+    data = models.get_insights(days=30)
+    t = data["totals"]
+    assert t["total_tracks"] == 3
+    assert t["successful"] == 2
+    assert t["failed"] == 1
+    assert t["success_rate"] == 66.7
+    assert t["distinct_albums"] == 2
+    assert t["distinct_artists"] == 2
+    assert t["total_duration_seconds"] == 380
+
+
+def test_get_insights_top_artists_and_quality():
+    _add_dl(artist_name="Artist X", success=True,
+            source_format="140 · m4a · 128 kbps")
+    _add_dl(artist_name="Artist X", success=True,
+            source_format="140 · m4a · 128 kbps")
+    _add_dl(artist_name="Artist Y", success=True,
+            source_format="251 · opus · 160 kbps")
+    _add_dl(artist_name="Artist Z", success=True, source_format="")
+    data = models.get_insights(days=30)
+    assert data["top_artists"][0] == {"artist": "Artist X", "count": 2}
+    quality = {q["label"]: q["count"] for q in data["quality"]}
+    assert quality["m4a"] == 2
+    assert quality["opus"] == 1
+    assert quality["Unknown"] == 1
+
+
+def test_get_insights_daily_counts_today():
+    _add_dl(success=True)
+    _add_dl(success=False)
+    data = models.get_insights(days=7)
+    today = data["daily"][-1]
+    assert today["success"] == 1
+    assert today["failed"] == 1
+
+
+def test_quality_bucket_handles_missing_format_id():
+    assert models._quality_bucket("m4a · 128 kbps") == "m4a"
+    assert models._quality_bucket("140 · opus · 160 kbps") == "opus"
+    assert models._quality_bucket("140") == "Unknown"
+    assert models._quality_bucket("") == "Unknown"
+
+
+def test_get_insights_window_excludes_old_rows():
+    conn = db.get_db()
+    old_ts = time.time() - 40 * 86400
+    rid = _add_dl(artist_name="Old Artist", success=True,
+                  source_format="140 · m4a · 128 kbps")
+    conn.execute("UPDATE track_downloads SET timestamp=? WHERE id=?",
+                 (old_ts, rid))
+    conn.commit()
+    _add_dl(artist_name="Recent Artist", success=True,
+            source_format="251 · opus · 160 kbps")
+    data = models.get_insights(days=7)
+    assert data["totals"]["total_tracks"] == 1
+    assert data["totals"]["successful"] == 1
+    assert [a["artist"] for a in data["top_artists"]] == ["Recent Artist"]
+    assert {q["label"] for q in data["quality"]} == {"opus"}
+
+
+def test_get_insights_distinct_artists_ignores_empty():
+    _add_dl(artist_name="Real Artist", success=True)
+    _add_dl(artist_name="", success=False)
+    data = models.get_insights(days=30)
+    assert data["totals"]["distinct_artists"] == 1
+
+
+
+
+def test_enqueue_album_defaults_to_not_forced():
+    models.enqueue_album(11)
+    row = [r for r in models.get_queue() if r["album_id"] == 11][0]
+    assert row["force"] == 0
+
+
+def test_enqueue_album_force_marks_the_entry():
+    models.enqueue_album(12, force=True)
+    row = [r for r in models.get_queue() if r["album_id"] == 12][0]
+    assert row["force"] == 1
+
+
+def test_force_upgrades_an_already_queued_album():
+    assert models.enqueue_album(13) is True
+    assert models.enqueue_album(13, force=True) is False
+    row = [r for r in models.get_queue() if r["album_id"] == 13][0]
+    assert row["force"] == 1

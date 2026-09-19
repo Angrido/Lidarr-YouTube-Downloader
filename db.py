@@ -9,7 +9,7 @@ import time
 logger = logging.getLogger(__name__)
 
 DB_PATH = "/config/lidarr-downloader.db"
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 11
 
 _local = threading.local()
 
@@ -477,6 +477,34 @@ def _migrate_v8_to_v9(conn):
     )
 
 
+def _migrate_v9_to_v10(conn):
+    """Add source_format to track_downloads.
+
+    Stores a human-readable summary of the YouTube source stream that was
+    actually downloaded (format id, container, bitrate — e.g. "140 · m4a ·
+    128 kbps"), so the download history / logs can show a per-track audio
+    quality report.
+    """
+    conn.execute(
+        "ALTER TABLE track_downloads"
+        " ADD COLUMN source_format TEXT DEFAULT ''"
+    )
+
+
+def _migrate_v10_to_v11(conn):
+    """Add force to download_queue.
+
+    Marks a queue entry as explicitly requested by the user (manual "Add to
+    Queue") rather than produced by the scheduler. Such an entry bypasses
+    the per-track retry backoff, so asking for an album by hand always
+    attempts every missing track right away.
+    """
+    conn.execute(
+        "ALTER TABLE download_queue"
+        " ADD COLUMN force INTEGER NOT NULL DEFAULT 0"
+    )
+
+
 def _run_migrations(conn, current_version):
     """Run any pending schema migrations sequentially."""
     migrations = {
@@ -488,10 +516,18 @@ def _run_migrations(conn, current_version):
         7: _migrate_v6_to_v7,
         8: _migrate_v7_to_v8,
         9: _migrate_v8_to_v9,
+        10: _migrate_v9_to_v10,
+        11: _migrate_v10_to_v11,
     }
+    pending = [v for v in sorted(migrations) if current_version < v]
+    if pending:
+        logger.info(
+            "Upgrading database schema v%d \u2192 v%d\u2026",
+            current_version, pending[-1],
+        )
     for version in sorted(migrations):
         if current_version < version:
-            logger.info(
+            logger.debug(
                 "Running migration to schema version %d...", version
             )
             try:
@@ -503,7 +539,7 @@ def _run_migrations(conn, current_version):
                     (version, time.time()),
                 )
                 conn.commit()
-                logger.info("Migration to version %d complete", version)
+                logger.debug("Migration to version %d complete", version)
             except Exception:
                 conn.rollback()
                 logger.error(

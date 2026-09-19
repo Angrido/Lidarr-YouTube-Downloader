@@ -1,5 +1,129 @@
 # Changelog
 
+## 1.9.0
+
+### Added
+- **Insights dashboard** (`/insights`): a new analytics page with
+  dependency-free inline-SVG charts — downloads over time (successful vs
+  failed per day), overall success-rate donut, audio-quality distribution
+  (from the per-track source format) and your most-downloaded artists —
+  plus headline stats (tracks attempted, success rate, albums, artists,
+  total listening time). Pick a 7 / 30 / 90 / 365-day window.
+- **Bulk actions on the library**: select multiple missing albums with the
+  new per-album checkboxes (in every view — cards, list and table) and queue
+  them all at once from a floating action bar, instead of adding them one by
+  one.
+- **Backup & Restore** (Settings → Import / Export): download a consistent
+  snapshot of the whole database (settings, history, queue) as a single
+  `.db` file, and restore it later by uploading it. The restore validates
+  the file, swaps the database atomically and restarts the app; it's
+  refused while a download is in progress to avoid corruption.
+
+### Improved
+- **The container log is readable again.** Every line now carries a
+  timestamp, warnings and errors are marked with an icon so they stand out,
+  and a handful of milestones (ready, album started, album finished) get one
+  too — the rest stays plain. Consecutive identical lines are collapsed into
+  a single "repeated N×" note: the periodic Lidarr sync used to print the
+  same sentence hundreds of times in a row, and now only speaks up when the
+  result actually changes. ffmpeg postprocessing failures are no longer
+  printed twice (once by yt-dlp and once by us), the ten-line schema
+  migration chatter is a single line, and Flask's duplicate startup banner
+  is gone. Startup and each album download are separated by a blank line
+  and read as their own block, with the steps of a download indented
+  under the album they belong to.
+
+- **Settings now explains it when this machine cannot convert audio.** The
+  app already detected the problem, but only mentioned it in the log, where
+  an errno is no help. A panel now appears (only when there is something to
+  act on) saying what fails, what it means, whether downloads still work,
+  and how to fix it — including the one fix that can be applied from inside
+  the app: switching Audio Format to m4a/opus, which YouTube serves
+  natively so nothing needs converting. The panel always states a verdict,
+  good or bad, and shows the detected architecture and audio format, so
+  the Re-check button always answers rather than leaving you guessing.
+  `/api/health` reports `ffmpeg_ok`.
+
+### Fixed
+- **Tracks that can never be found stop being retried forever** (#90). A song
+  that simply isn't on YouTube failed identically on every scheduler cycle,
+  forever. Each consecutive failure now doubles the wait before that track is
+  tried again (capped at 30 days), so the futile work decays instead of
+  repeating daily — but it is still retried eventually, in case the track
+  shows up later. Set *Max Retries per Track* to give up for good instead.
+  Adding an album to the queue by hand always retries everything immediately.
+- **Albums with nothing to download no longer cost a full round of API
+  calls.** The "what needs downloading" check now runs *before* the cover-art
+  fetch, the per-track artist lookups and the YouTube Music album
+  resolution, so an album that is already complete (or fully backed off)
+  exits immediately instead of burning those every cycle. Per-track artist
+  lookups are also limited to the tracks actually being fetched.
+- **The ffmpeg check now matches what yt-dlp actually runs.** The probe
+  that decides whether audio conversion is possible wrote its test file
+  without `-movflags +faststart`, which yt-dlp appends to every output it
+  produces. On hosts where that is the operation that fails, the probe
+  passed while every real conversion failed, so each track still ran the
+  full format-selector cascade before falling back. The probe now uses the
+  same flags, a single failure is enough to stop the cascade (no client or
+  selector can make ffmpeg able to write its output), and concurrent
+  downloads notice as soon as another track has proved it. Loudness
+  normalisation, which needs a re-encode, now warns once and downloads
+  without it instead of failing every track.
+- **Downloads survive a broken/emulated ffmpeg.** On hosts where ffmpeg
+  can't write output files (e.g. an emulated CPU architecture, or a
+  download filesystem returning ENOSYS for the mp4 muxer), audio conversion
+  failed for every track. The app now probes ffmpeg once at first download
+  and, when conversion isn't possible, downloads the native m4a/opus stream
+  directly with no ffmpeg step — so downloads still succeed, without the
+  endless "Postprocessing: Error opening output files" retry loop that
+  previously had to be stopped by hand.
+- **Quiet yt-dlp plugin loading.** The bgutil PO-token provider registered
+  under both of yt-dlp's plugin mechanisms, printing an alarming
+  "PoTokenProvider ... already registered" traceback on the first download.
+  Plugins are now loaded once at startup with that harmless message
+  suppressed; PO-token support is unaffected.
+
+## 1.8.8
+
+### Added
+- **First-run setup wizard** (`/setup`): a short guided flow that tests the
+  Lidarr connection (and explains the `LIDARR_URL`/`LIDARR_API_KEY` env vars
+  when it can't reach it) and lets you set your download/library folders.
+  Unconfigured instances are sent here automatically (skippable).
+- **Per-track audio quality report**: the download history now shows the
+  actual YouTube source stream each track was downloaded from — format id,
+  container and bitrate (e.g. `140 · m4a · 128 kbps`) — so it's obvious at a
+  glance when a track came from a low-bitrate source. Stored per track
+  (schema v10).
+
+### Improved
+- **Shared UI component system** (`static/components.css`): a consistent set
+  of buttons, badges, inputs, cards, modals and toasts (`.ui-*`) used by the
+  new wizard and adopted across the retry UI, so the interface stays visually
+  consistent instead of drifting per page.
+
+## 1.8.7
+
+### Added
+- **Installable web app (PWA)** — the UI now ships a web manifest and a
+  minimal service worker, so you can "Add to Home Screen" on Android/iOS
+  and run it as a standalone app with its own icon and theme color.
+- **ReplayGain tags** (Settings → "ReplayGain Tags", env `APPLY_REPLAYGAIN`,
+  default off): measures each track's loudness with ffmpeg and writes
+  `REPLAYGAIN_TRACK_GAIN`/`PEAK` tags (MP3/M4A/Opus) so players like
+  Jellyfin/Navidrome can normalize volume **without re-encoding** the audio
+  — non-destructive, unlike Loudness Normalization.
+- **Synced lyrics `.lrc` sidecars** (Settings → "Save Synced Lyrics", env
+  `SAVE_LYRICS`, default off): fetches time-synced lyrics from
+  [LRCLIB](https://lrclib.net) and writes a `.lrc` next to each track (falls
+  back to plain lyrics), so Jellyfin/Navidrome/Plex can display lyrics.
+
+### Improved
+- **Settings page is searchable and collapsible** — a search box filters
+  options live as you type, and each section can be collapsed (state
+  remembered per section), so the long settings page is much easier to
+  navigate.
+
 ## 1.8.6
 
 ### Added

@@ -534,3 +534,23 @@ def test_migrate_v7_to_v8_reassigns_playlist_ids(temp_db):
     assert conn.execute(
         "SELECT COUNT(*) FROM track_downloads WHERE album_id = 0"
     ).fetchone()[0] == 0
+
+
+def test_migrate_v9_to_v10_adds_source_format(temp_db):
+    init_db()
+    conn = get_db()
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(track_downloads)")]
+    assert "source_format" in cols
+
+
+def test_v10_to_v11_adds_queue_force_column():
+    """download_queue gains the force flag used to bypass retry backoff."""
+    init_db()
+    conn = get_db()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(download_queue)")}
+    assert "force" in cols
+    version = conn.execute(
+        "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
+    ).fetchone()[0]
+    assert version == SCHEMA_VERSION == 11
+    close_db()
