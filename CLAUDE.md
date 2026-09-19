@@ -156,11 +156,18 @@ line — background loops used to repeat the same sentence hundreds of times.
 Prefer fixing repetition at the source (log at DEBUG when nothing changed,
 as `lidarr_sync` does) and treat the filter as a safety net.
 
-`logutil.section(logger, ...)` opens a visual block: the line is preceded by
-a blank line, so startup and each album run read as separate paragraphs
-rather than one flat scroll. Messages that belong *inside* an album run are
-prefixed with three spaces so they sit under its header — keep that
-convention when adding album-flow logging.
+`logutil.section(logger, ..., icon=...)` opens a visual block: the line is
+preceded by a blank line, so startup and each album run read as separate
+paragraphs rather than one flat scroll. `logutil.milestone()` adds an icon
+without the break. Messages that belong *inside* an album run are prefixed
+with three spaces so they sit under its header — keep that convention when
+adding album-flow logging; a line carrying an icon has that indent stripped,
+so icons always sit one space from their text and protrude from the flow.
+
+**Icons must be East_Asian_Width "W" (exactly two columns).** The alignment
+depends on it, and a test enforces it. This is why the warning icon is not
+the obvious "⚠" (U+26A0): that codepoint is Ambiguous width, so terminals
+disagree and it left a visible gap.
 
 ### ffmpeg capability diagnostics
 

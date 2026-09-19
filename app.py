@@ -3649,8 +3649,10 @@ if __name__ == "__main__":
     lidarr_sync.trigger_sync()
     flask_host = os.environ.get("FLASK_HOST", "0.0.0.0")
     flask_port = int(os.environ.get("FLASK_PORT", "5000"))
-    logger.info(
-        "%s Ready on http://%s:%d",
-        logutil.ICON_APP, flask_host, flask_port,
+    logutil.milestone(
+        logger,
+        "Ready on http://%s:%d",
+        flask_host, flask_port,
+        icon=logutil.ICON_APP,
     )
     app.run(host=flask_host, port=flask_port, debug=False, use_reloader=False)

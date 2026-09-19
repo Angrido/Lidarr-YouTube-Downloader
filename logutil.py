@@ -23,13 +23,16 @@ ICON_DONE = "🎉"
 ICON_TRACK = "✅"
 
 _LEVEL_ICONS = {
-    logging.WARNING: "⚠️",
+    logging.WARNING: "❗",
     logging.ERROR: "❌",
     logging.CRITICAL: "🔥",
 }
-# Every icon above renders two columns wide, so one trailing space lines the
-# message text up with the three spaces used when there is no icon. Padding
-# with str.ljust would not work: "⚠️" is two code points but two columns.
+# Terminal alignment rule: every icon used here must be East_Asian_Width
+# "W", i.e. exactly two columns in any terminal, so one trailing space
+# always lines the text up with the three spaces used when there is no
+# icon. This rules out the obvious warning triangle U+26A0 ("⚠"), which is
+# Ambiguous width — some terminals draw it in one column and some in two,
+# so it cannot be aligned and left a visible gap. A test enforces this.
 _NO_ICON = "   "
 
 
@@ -80,14 +83,24 @@ class DedupeFilter(logging.Filter):
         return True
 
 
-def section(logger, msg, *args, **kwargs):
+def section(logger, msg, *args, icon=None, **kwargs):
     """Log an INFO line that opens a new block, preceded by a blank line.
 
     A container log is read as one long scroll; without breathing room the
     start of an album run is indistinguishable from the chatter around it.
+    ``icon`` puts a milestone icon in the icon column.
     """
     extra = dict(kwargs.pop("extra", None) or {})
     extra["section"] = True
+    if icon:
+        extra["icon"] = icon
+    logger.info(msg, *args, extra=extra, **kwargs)
+
+
+def milestone(logger, msg, *args, icon=ICON_TRACK, **kwargs):
+    """Log an INFO line carrying a milestone icon, without a block break."""
+    extra = dict(kwargs.pop("extra", None) or {})
+    extra["icon"] = icon
     logger.info(msg, *args, extra=extra, **kwargs)
 
 
@@ -96,9 +109,21 @@ class ConsoleFormatter(logging.Formatter):
 
     def format(self, record):
         stamp = time.strftime("%H:%M:%S", time.localtime(record.created))
-        icon = _LEVEL_ICONS.get(record.levelno)
-        icon = f"{icon} " if icon else _NO_ICON
+        # An explicit per-record icon (a milestone) wins over the level's,
+        # and crucially occupies the same column instead of being embedded
+        # in the message, where it would sit three columns further right.
+        icon = getattr(record, "icon", None) or _LEVEL_ICONS.get(record.levelno)
         message = record.getMessage()
+        if icon:
+            # Exactly one space between an icon and its text, always. Album
+            # sub-steps carry their own leading indent; keeping it here
+            # would push the text away from the icon by a varying amount.
+            # Dropping it also makes icon lines protrude from the indented
+            # flow, which is what you want for a milestone or a problem.
+            message = message.lstrip()
+            icon = f"{icon} "
+        else:
+            icon = _NO_ICON
         # Multi-line messages keep their continuation lines aligned under
         # the text column instead of hugging the left edge.
         indent = " " * (len(stamp) + 2 + len(_NO_ICON))

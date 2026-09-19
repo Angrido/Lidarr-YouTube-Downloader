@@ -447,10 +447,10 @@ def process_album_download(
 
         logutil.section(
             logger,
-            "%s %s \u2014 %s",
-            logutil.ICON_ALBUM,
+            "%s \u2014 %s",
             album.get("artist", {}).get("artistName", "Unknown"),
             album.get("title", "Unknown"),
+            icon=logutil.ICON_ALBUM,
         )
 
         if not DOWNLOAD_DIR:
@@ -764,9 +764,10 @@ def process_album_download(
         # let Lidarr's completed-download handling import them. Skip the
         # copy-to-library, RefreshArtist, rename and cleanup steps.
         if client_grab:
-            logger.info(
-                "%s Album complete: %s \u2014 %s (Lidarr will import)",
-                logutil.ICON_DONE, artist_name, album_title,
+            logutil.milestone(
+                logger,
+                "Album complete: %s \u2014 %s (Lidarr will import)",
+                artist_name, album_title, icon=logutil.ICON_DONE,
             )
             _log_import_result(
                 failed_tracks, album_id, album_title, artist_name,
@@ -787,9 +788,10 @@ def process_album_download(
             album_folder_name,
         )
 
-        logger.info(
-            "%s Album complete: %s \u2014 %s",
-            logutil.ICON_DONE, artist_name, album_title,
+        logutil.milestone(
+            logger,
+            "Album complete: %s \u2014 %s",
+            artist_name, album_title, icon=logutil.ICON_DONE,
         )
 
         _log_import_result(

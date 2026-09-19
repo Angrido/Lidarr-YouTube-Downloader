@@ -23,8 +23,50 @@ class TestConsoleFormatter:
         fmt = logutil.ConsoleFormatter()
         warn = fmt.format(_record("careful", logging.WARNING))
         err = fmt.format(_record("broken", logging.ERROR))
-        assert "⚠️" in warn and "careful" in warn
-        assert "❌" in err and "broken" in err
+        assert logutil._LEVEL_ICONS[logging.WARNING] in warn
+        assert "careful" in warn
+        assert logutil._LEVEL_ICONS[logging.ERROR] in err
+        assert "broken" in err
+
+    def test_every_icon_is_exactly_two_columns_wide(self):
+        # The whole alignment scheme assumes it. U+26A0 ("⚠") is Ambiguous
+        # width — terminals disagree — which left a visible gap after the
+        # warning icon. Fail here rather than shipping a misaligned log.
+        import unicodedata
+        icons = list(logutil._LEVEL_ICONS.values()) + [
+            logutil.ICON_APP, logutil.ICON_ALBUM,
+            logutil.ICON_DONE, logutil.ICON_TRACK,
+        ]
+        for icon in icons:
+            assert len(icon) == 1, f"{icon!r} has a variation selector"
+            assert unicodedata.east_asian_width(icon) == "W", (
+                f"{icon!r} is not two columns wide"
+            )
+
+    def test_icon_is_followed_by_exactly_one_space(self):
+        fmt = logutil.ConsoleFormatter()
+        # Album sub-steps carry their own indent; an icon line must not
+        # inherit it, or the gap after the emoji varies per message.
+        line = fmt.format(_record("   indented step", logging.WARNING))
+        icon = logutil._LEVEL_ICONS[logging.WARNING]
+        assert icon + " indented step" in line
+
+    def test_explicit_icon_beats_the_level_icon(self):
+        rec = _record("done", logging.INFO)
+        rec.icon = logutil.ICON_DONE
+        line = logutil.ConsoleFormatter().format(rec)
+        assert logutil.ICON_DONE + " done" in line
+
+    def test_milestone_helper_sets_the_icon(self):
+        seen = []
+
+        class _L:
+            def info(self, msg, *args, **kwargs):
+                seen.append(kwargs)
+
+        logutil.milestone(_L(), "hi", icon=logutil.ICON_APP)
+        assert seen[0]["extra"]["icon"] == logutil.ICON_APP
+        assert "section" not in seen[0]["extra"]
 
     def test_icons_align_with_plain_lines(self):
         # Every icon renders two columns, so the message must start at the
