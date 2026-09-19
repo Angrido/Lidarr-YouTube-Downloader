@@ -282,6 +282,8 @@ MAX_CANDIDATES = 10
 # first track, so no doomed conversion is ever attempted. Reset on restart.
 _ffmpeg_pp_state = None
 _ffmpeg_pp_lock = threading.Lock()
+# One-shot so the 'normalisation needs ffmpeg' notice isn't repeated per track.
+_normalize_skip_warned = False
 
 
 def _probe_ffmpeg_can_write_audio(probe_dir=None):
@@ -304,7 +306,14 @@ def _probe_ffmpeg_can_write_audio(probe_dir=None):
             [
                 "ffmpeg", "-hide_banner", "-nostats", "-y",
                 "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-                "-t", "0.1", "-c:a", "aac", path,
+                "-t", "0.1", "-c:a", "aac",
+                # yt-dlp appends this to *every* output it writes
+                # (FFmpegPostProcessor.real_run_ffmpeg). Without it the
+                # probe exercises a different code path than the real
+                # conversion and can pass on a host where the real one
+                # fails, which is exactly what it must not do.
+                "-movflags", "+faststart",
+                path,
             ],
             capture_output=True, text=True, timeout=30,
         )
@@ -1491,9 +1500,19 @@ def download_youtube_candidate(
     # m4a/opus the native stream needs no conversion, so go straight to the
     # no-ffmpeg path from the very first track. (mp3 has no native stream and
     # loudnorm needs a re-encode, so those still take the normal path.)
-    ffmpeg_ok = _ffmpeg_postprocess_works(os.path.dirname(output_path))
-    if not ffmpeg_ok and audio_format in ("m4a", "opus") \
-            and not normalize_audio:
+    probe_dir = os.path.dirname(output_path)
+    ffmpeg_ok = _ffmpeg_postprocess_works(probe_dir)
+    if not ffmpeg_ok and audio_format in ("m4a", "opus"):
+        global _normalize_skip_warned
+        if normalize_audio and not _normalize_skip_warned:
+            # Loudness normalisation needs a re-encode, which is exactly
+            # what this host cannot do. Keeping the audio un-normalised
+            # beats failing every single track.
+            _normalize_skip_warned = True
+            logger.warning(
+                "Loudness normalisation needs ffmpeg, which cannot write"
+                " output on this host \u2014 downloading without it."
+            )
         raw_captured = {}
         raw_file = _download_raw_audio(
             candidate, output_path, audio_format, is_music, config,
@@ -1534,7 +1553,9 @@ def download_youtube_candidate(
         }
     ]
     for sel_idx, selector in enumerate(format_selectors):
-        if abort_conversion:
+        # Another track may have proved ffmpeg broken while we were mid-run
+        # (tracks download concurrently); stop as soon as that is known.
+        if abort_conversion or not _ffmpeg_postprocess_works(probe_dir):
             break
         pp_variants = [extract_pp]
         if sel_idx >= len(format_selectors) - 2:
@@ -1624,20 +1645,17 @@ def download_youtube_candidate(
                     if _is_postprocess_error(msg_low):
                         conversion_errors += 1
                         last_line = (msg.strip().splitlines() or [msg])[-1]
-                        logger.warning(
-                            "   Audio postprocessing failed for '%s'"
-                            " (selector='%s'): %s",
-                            candidate["title"], selector, last_line[:160],
-                        )
-                        # ffmpeg couldn't write the output file. The player
-                        # client can't change that, so stop cycling clients
-                        # for this stream; a couple of other selectors get a
-                        # chance (a directly-copyable stream may dodge the
-                        # failing transcode) before we give up — this is a
-                        # local ffmpeg/filesystem issue, not something more
-                        # sources can fix.
-                        if conversion_errors >= 3:
-                            abort_conversion = True
+                        if conversion_errors == 1:
+                            logger.warning(
+                                "   Audio postprocessing failed for '%s': %s",
+                                candidate["title"], last_line[:160],
+                            )
+                        # ffmpeg could not write an output file. Neither the
+                        # player client nor the format selector changes that,
+                        # so stop the cascade here instead of repeating the
+                        # identical failure for every combination — the
+                        # no-ffmpeg fallback below handles it.
+                        abort_conversion = True
                         break
                     logger.debug(
                         f"   Failed with player_client={pc or 'default'}"

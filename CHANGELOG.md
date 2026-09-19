@@ -45,6 +45,17 @@
   resolution, so an album that is already complete (or fully backed off)
   exits immediately instead of burning those every cycle. Per-track artist
   lookups are also limited to the tracks actually being fetched.
+- **The ffmpeg check now matches what yt-dlp actually runs.** The probe
+  that decides whether audio conversion is possible wrote its test file
+  without `-movflags +faststart`, which yt-dlp appends to every output it
+  produces. On hosts where that is the operation that fails, the probe
+  passed while every real conversion failed, so each track still ran the
+  full format-selector cascade before falling back. The probe now uses the
+  same flags, a single failure is enough to stop the cascade (no client or
+  selector can make ffmpeg able to write its output), and concurrent
+  downloads notice as soon as another track has proved it. Loudness
+  normalisation, which needs a re-encode, now warns once and downloads
+  without it instead of failing every track.
 - **Downloads survive a broken/emulated ffmpeg.** On hosts where ffmpeg
   can't write output files (e.g. an emulated CPU architecture, or a
   download filesystem returning ENOSYS for the mp4 muxer), audio conversion

@@ -661,6 +661,28 @@ class TestDownloadYoutubeCandidate:
         # x candidate cascade (which was 20+).
         assert mock_ydl.download.call_count <= 3
 
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_cascade_stops_at_the_first_conversion_error(
+        self, mock_config, mock_ydl_class,
+    ):
+        # One failure is proof enough: neither the player client nor the
+        # format selector can make ffmpeg able to write its output, so the
+        # remaining combinations must not be tried (they only produce
+        # identical error lines).
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "mp3",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "ERROR: Postprocessing: Error opening output files:"
+            " Function not implemented"
+        )
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result.get("postprocess_error") is True
+        assert mock_ydl.download.call_count == 1
+
     def test_is_postprocess_error_classifier(self):
         from downloader import _is_postprocess_error
         assert _is_postprocess_error(
@@ -775,6 +797,20 @@ class TestFfmpegProbe:
             return MagicMock(returncode=0)
         mock_run.side_effect = _run
         assert downloader._probe_ffmpeg_can_write_audio(str(tmp_path)) is True
+
+    @patch("downloader.subprocess.run")
+    def test_probe_uses_the_same_flags_as_yt_dlp(self, mock_run, tmp_path):
+        # Regression guard: yt-dlp appends "-movflags +faststart" to every
+        # output it writes. A probe without it exercises a different code
+        # path and passed on a host where the real conversion failed,
+        # which let the whole doomed cascade run for every track.
+        mock_run.return_value = MagicMock(returncode=1)
+        downloader._probe_ffmpeg_can_write_audio(str(tmp_path))
+        cmd = mock_run.call_args[0][0]
+        assert "-movflags" in cmd
+        assert cmd[cmd.index("-movflags") + 1] == "+faststart"
+        # And it must still write a real file, not to a null sink.
+        assert cmd[-1].endswith(".m4a")
 
     @patch("downloader.subprocess.run")
     def test_postprocess_works_caches_probe(self, mock_run):
