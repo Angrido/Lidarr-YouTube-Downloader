@@ -39,7 +39,9 @@
   act on) saying what fails, what it means, whether downloads still work,
   and how to fix it — including the one fix that can be applied from inside
   the app: switching Audio Format to m4a/opus, which YouTube serves
-  natively so nothing needs converting. There's a Re-check button, and
+  natively so nothing needs converting. The panel always states a verdict,
+  good or bad, and shows the detected architecture and audio format, so
+  the Re-check button always answers rather than leaving you guessing.
   `/api/health` reports `ffmpeg_ok`.
 
 ### Fixed

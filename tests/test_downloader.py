@@ -2092,13 +2092,19 @@ class TestFfmpegStatus:
         return {"audio_format": fmt, "yt_player_client": "android"}
 
     @patch("downloader.load_config")
-    def test_working_ffmpeg_reports_nothing_to_do(self, mock_config):
+    def test_working_ffmpeg_still_reports_a_verdict(self, mock_config):
+        # The Settings panel is always visible, so a healthy host needs a
+        # positive verdict to show — not an empty payload.
         mock_config.return_value = self._cfg("mp3")
         downloader._ffmpeg_pp_state = True
         st = downloader.ffmpeg_status()
         assert st["ok"] is True
         assert st["downloads_work"] is True
+        assert st["summary"]
+        assert st["detail"]
+        # Nothing is wrong, so there is nothing to fix.
         assert "fixes" not in st
+        assert "impact" not in st
 
     @patch("downloader.load_config")
     def test_broken_with_native_format_still_downloads(self, mock_config):

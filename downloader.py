@@ -381,7 +381,12 @@ def ffmpeg_status(probe_dir=None, refresh=False):
         "native_formats": list(NATIVE_AUDIO_FORMATS),
     }
     if ok:
-        status["summary"] = "ffmpeg can convert audio normally."
+        status["summary"] = "Audio conversion works on this host."
+        status["detail"] = (
+            "ffmpeg encoded and wrote a test file successfully, so every"
+            " audio format is available — including mp3 — and"
+            " loudness normalisation can be applied."
+        )
         return status
     status["summary"] = (
         "ffmpeg cannot write audio output on this host."

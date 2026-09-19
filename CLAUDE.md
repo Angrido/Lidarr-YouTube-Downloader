@@ -181,8 +181,9 @@ different code path and can pass where the real conversion fails.
 
 `downloader.ffmpeg_status()` turns that into guidance and is served by
 `/api/ffmpeg/status` (`?refresh=1` re-probes) and summarised as `ffmpeg_ok`
-in `/api/health`. Settings renders it as a panel that only appears when
-there is something to act on. Key distinction: with an `m4a`/`opus` target
+in `/api/health`. Settings renders it as a panel that is always
+visible and always states a verdict — hiding it when healthy made the
+Re-check button look like it had broken something. Key distinction: with an `m4a`/`opus` target
 (`NATIVE_AUDIO_FORMATS`) downloads still work, because YouTube serves those
 containers directly and the native stream is kept as-is; with `mp3` nothing
 can be downloaded, so the panel offers switching format as the first fix.

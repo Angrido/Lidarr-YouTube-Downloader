@@ -911,7 +911,7 @@
                     <option value="itunes">Track Artist (iTunes only)</option>
                 </select>
             </div>
-            <div id="ffmpegDiag" class="input-group" style="display:none;">
+            <div id="ffmpegDiag" class="input-group">
                 <div id="ffmpegDiagBox" style="padding:1rem 1.15rem; border-radius:12px; border:1px solid var(--border); background:var(--bg);">
                     <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
                         <strong id="ffmpegDiagTitle" style="font-size:1rem;">Checking audio conversion…</strong>
@@ -1883,24 +1883,24 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
         }
 
         function renderFfmpegDiag(st) {
-            const wrap = document.getElementById('ffmpegDiag');
             const box = document.getElementById('ffmpegDiagBox');
             const title = document.getElementById('ffmpegDiagTitle');
             const body = document.getElementById('ffmpegDiagBody');
-            if (!wrap) return;
-            if (st && st.ok) {
-                // Nothing to act on: don't spend the user's attention.
-                wrap.style.display = 'none';
-                return;
-            }
-            wrap.style.display = '';
-            const broken = st && st.ok === false;
-            const blocked = broken && st.downloads_work === false;
-            box.style.borderColor = blocked ? 'var(--danger)' : 'var(--warning)';
-            // Built with textContent rather than innerHTML: no escaping to
-            // get wrong, and nothing here needs markup.
-            title.textContent = (blocked ? '\u274c ' : '\u26a0\ufe0f ')
-                + (st && st.summary ? st.summary : 'Could not check ffmpeg.');
+            if (!box) return;
+            // Always render a verdict. Hiding the panel when all is well
+            // made "Re-check" look like it had broken something.
+            const unknown = !st || st.ok === null || st.ok === undefined;
+            const ok = !unknown && st.ok === true;
+            const blocked = !unknown && !ok && st.downloads_work === false;
+            box.style.borderColor = ok ? 'var(--primary)'
+                : (blocked ? 'var(--danger)' : 'var(--warning)');
+            const icon = unknown ? '\u2753' : (ok ? '\u2705'
+                : (blocked ? '\u274c' : '\u2757'));
+            // Built with textContent, not innerHTML: nothing here needs
+            // markup and there is no escaping to get wrong.
+            title.textContent = icon + ' ' + (
+                unknown ? 'Could not check audio conversion.'
+                        : (st.summary || ''));
             body.textContent = '';
             const para = (text, bold) => {
                 const el = document.createElement('p');
@@ -1914,9 +1914,14 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 }
                 body.appendChild(el);
             };
-            if (st && st.detail) para(st.detail, false);
-            if (st && st.impact) para(st.impact, true);
-            if (st && st.fixes && st.fixes.length) {
+            if (unknown) {
+                para('The check could not be run. Try again, and see the'
+                     + ' container log if it keeps failing.', false);
+                return;
+            }
+            if (st.detail) para(st.detail, false);
+            if (st.impact) para(st.impact, true);
+            if (st.fixes && st.fixes.length) {
                 para('How to fix it:', true);
                 const ol = document.createElement('ol');
                 ol.style.margin = '0';
@@ -1928,6 +1933,13 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     ol.appendChild(li);
                 }
                 body.appendChild(ol);
+            }
+            if (st.machine) {
+                const foot = document.createElement('p');
+                foot.style.cssText = 'margin:0.6rem 0 0; font-size:0.78rem; opacity:0.7;';
+                foot.textContent = 'Architecture: ' + st.machine
+                    + ' \u00b7 Audio format: ' + (st.audio_format || '?');
+                body.appendChild(foot);
             }
         }
 
