@@ -49,6 +49,8 @@ ALLOWED_CONFIG_KEYS = {
     "yt_player_client", "yt_retries", "yt_fragment_retries",
     "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
     "discord_enabled", "discord_webhook_url", "discord_log_types",
+    "ntfy_enabled", "ntfy_url", "ntfy_topic", "ntfy_token", "ntfy_priority",
+    "ntfy_log_types",
     "acoustid_enabled", "acoustid_api_key", "acoustid_accept_score",
     "min_match_score", "audio_format", "audio_quality", "ytdlp_format",
     "lidarr_rename_after_import", "save_cover_art_file",
@@ -199,6 +201,19 @@ def load_config():
         ),
         "discord_webhook_url": os.getenv("DISCORD_WEBHOOK_URL", ""),
         "discord_log_types": [
+            "partial_success",
+            "import_partial",
+            "album_error",
+            "manual_download",
+        ],
+        "ntfy_enabled": (
+            os.getenv("NTFY_ENABLED", "false").lower() == "true"
+        ),
+        "ntfy_url": os.getenv("NTFY_URL", "https://ntfy.sh").rstrip("/"),
+        "ntfy_topic": os.getenv("NTFY_TOPIC", ""),
+        "ntfy_token": os.getenv("NTFY_TOKEN", ""),
+        "ntfy_priority": os.getenv("NTFY_PRIORITY", "default"),
+        "ntfy_log_types": [
             "partial_success",
             "import_partial",
             "album_error",

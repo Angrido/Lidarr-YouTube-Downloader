@@ -611,6 +611,54 @@ def api_notifications_test_discord():
     }), status_code
 
 
+@app.route("/api/notifications/test/ntfy", methods=["POST"])
+def api_notifications_test_ntfy():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"notif_test_ntfy:{client_ip}",
+        rate_limit_store,
+        window=10,
+        max_requests=3,
+    ):
+        return jsonify(
+            {"success": False, "message": "Too many test requests"}
+        ), 429
+    payload = request.get_json(silent=True) or {}
+    topic = (payload.get("topic") or "").strip()
+    server_url = (payload.get("server_url") or "").strip()
+    token = payload.get("token")
+    priority = payload.get("priority")
+    if not topic or not server_url:
+        cfg = load_config()
+        topic = topic or cfg.get("ntfy_topic", "")
+        server_url = server_url or cfg.get("ntfy_url", "https://ntfy.sh")
+        if token is None:
+            token = cfg.get("ntfy_token", "")
+        if priority is None:
+            priority = cfg.get("ntfy_priority", "default")
+    if not topic:
+        return jsonify({
+            "success": False,
+            "message": "Missing Ntfy topic",
+        }), 400
+    if not server_url.startswith(("http://", "https://")):
+        return jsonify({
+            "success": False,
+            "message": "Server URL must start with http:// or https://",
+        }), 400
+    from notifications import send_ntfy_test
+    result = send_ntfy_test(server_url, topic, token=token, priority=priority)
+    status_code = 200 if result.get("success") else 400
+    return jsonify({
+        "success": result.get("success", False),
+        "message": (
+            "Test message sent successfully"
+            if result.get("success")
+            else result.get("error", "Unknown error")
+        ),
+    }), status_code
+
+
 @app.route("/api/missing-albums")
 def api_missing_albums():
     return jsonify(get_missing_albums())

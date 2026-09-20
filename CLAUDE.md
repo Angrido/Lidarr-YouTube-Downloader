@@ -200,7 +200,7 @@ can be downloaded, so the panel offers switching format as the first fix.
 
 ### Notifications
 
-Telegram and Discord webhooks, filtered by `log_type` (e.g., `partial_success`, `album_error`).
+Telegram, Discord webhooks, and Ntfy push notifications, filtered by `log_type` (e.g., `partial_success`, `album_error`).
 
 ## Templates
 

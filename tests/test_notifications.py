@@ -495,3 +495,167 @@ def test_send_discord_test_http_error_returns_status(mock_post):
     result = notifications.send_discord_test("https://x/y")
     assert result["success"] is False
     assert "404" in result["error"]
+
+
+# --- send_ntfy & send_ntfy_test ---
+
+
+@pytest.fixture
+def mock_ntfy_config():
+    return {
+        "ntfy_enabled": True,
+        "ntfy_url": "https://ntfy.sh",
+        "ntfy_topic": "test-topic",
+        "ntfy_token": "tk_123",
+        "ntfy_priority": "default",
+        "ntfy_log_types": ["album_error", "partial_success", "download_success"],
+    }
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_ntfy_sends_message(mock_cfg, mock_post, mock_ntfy_config):
+    mock_cfg.return_value = mock_ntfy_config
+    notifications.send_ntfy("Download completed", log_type="download_success")
+    mock_post.assert_called_once()
+    url = mock_post.call_args[0][0]
+    assert url == "https://ntfy.sh/test-topic"
+    payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
+    headers = mock_post.call_args.kwargs.get("headers") or mock_post.call_args[1].get("headers")
+    assert payload["message"] == "Download completed"
+    assert payload["topic"] == "test-topic"
+    assert "cd" in payload["tags"]
+    assert headers["Authorization"] == "Bearer tk_123"
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_ntfy_filters_log_type(mock_cfg, mock_post, mock_ntfy_config):
+    mock_cfg.return_value = mock_ntfy_config
+    notifications.send_ntfy("Starting download", log_type="download_started")
+    mock_post.assert_not_called()
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_ntfy_disabled_does_not_send(mock_cfg, mock_post, mock_ntfy_config):
+    mock_ntfy_config["ntfy_enabled"] = False
+    mock_cfg.return_value = mock_ntfy_config
+    notifications.send_ntfy("msg", log_type="album_error")
+    mock_post.assert_not_called()
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_ntfy_missing_topic_does_not_send(mock_cfg, mock_post, mock_ntfy_config):
+    mock_ntfy_config["ntfy_topic"] = ""
+    mock_cfg.return_value = mock_ntfy_config
+    notifications.send_ntfy("msg", log_type="album_error")
+    mock_post.assert_not_called()
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_ntfy_handles_attachment_and_click(mock_cfg, mock_post, mock_ntfy_config):
+    mock_cfg.return_value = mock_ntfy_config
+    notifications.send_ntfy(
+        "msg",
+        log_type="album_error",
+        title="Custom Title",
+        click_url="https://youtube.com/watch?v=123",
+        attach_url="https://cover.art/img.jpg",
+    )
+    mock_post.assert_called_once()
+    payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
+    assert payload["title"] == "Custom Title"
+    assert payload["click"] == "https://youtube.com/watch?v=123"
+    assert payload["attach"] == "https://cover.art/img.jpg"
+    assert payload["priority"] == "high"
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_ntfy_handles_http_error(mock_cfg, mock_post, mock_ntfy_config, caplog):
+    mock_cfg.return_value = mock_ntfy_config
+    mock_post.return_value = MagicMock(status_code=500, text="Internal Server Error")
+    notifications.send_ntfy("msg", log_type="album_error")
+    assert "Ntfy returned 500" in caplog.text
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_ntfy_handles_exception(mock_cfg, mock_post, mock_ntfy_config, caplog):
+    mock_cfg.return_value = mock_ntfy_config
+    mock_post.side_effect = Exception("connection refused")
+    notifications.send_ntfy("msg", log_type="album_error")
+    assert "Ntfy notification failed: connection refused" in caplog.text
+
+
+@patch("notifications.requests.post")
+def test_send_ntfy_test_success(mock_post):
+    mock_post.return_value = MagicMock(status_code=200, text="")
+    result = notifications.send_ntfy_test(
+        "https://ntfy.sh", "my-topic", token="tk_abc", priority="high",
+    )
+    assert result["success"] is True
+    assert result["error"] == ""
+    url = mock_post.call_args[0][0]
+    assert url == "https://ntfy.sh/my-topic"
+    headers = mock_post.call_args.kwargs.get("headers") or mock_post.call_args[1].get("headers")
+    assert headers["Authorization"] == "Bearer tk_abc"
+
+
+def test_send_ntfy_test_missing_topic():
+    result = notifications.send_ntfy_test("https://ntfy.sh", "")
+    assert result["success"] is False
+    assert "Missing Ntfy topic" in result["error"]
+
+
+def test_send_ntfy_test_invalid_url():
+    result = notifications.send_ntfy_test("ftp://bad-url", "topic")
+    assert result["success"] is False
+    assert "Server URL must start with http://" in result["error"]
+
+
+@patch("notifications.requests.post")
+def test_send_ntfy_test_http_error(mock_post):
+    mock_post.return_value = MagicMock(status_code=403, text="Forbidden")
+    result = notifications.send_ntfy_test("https://ntfy.sh", "topic")
+    assert result["success"] is False
+    assert "HTTP 403: Forbidden" in result["error"]
+
+
+@patch("notifications.requests.post")
+def test_send_ntfy_test_timeout(mock_post):
+    import requests
+    mock_post.side_effect = requests.exceptions.Timeout()
+    result = notifications.send_ntfy_test("https://ntfy.sh", "topic")
+    assert result["success"] is False
+    assert "timed out after 10s" in result["error"]
+
+
+@patch("notifications.send_ntfy")
+@patch("notifications.send_discord")
+@patch("notifications.send_telegram")
+def test_send_notifications_dispatches_to_ntfy(mock_tg, mock_dc, mock_ntfy):
+    embed = {
+        "title": "Album Downloaded",
+        "url": "https://music.youtube.com",
+        "thumbnail": "https://img/cover.jpg",
+    }
+    notifications.send_notifications(
+        "Album is ready",
+        log_type="album_success",
+        embed_data=embed,
+        photo_url="https://img/photo.jpg",
+    )
+    mock_tg.assert_called_once()
+    mock_dc.assert_called_once()
+    mock_ntfy.assert_called_once_with(
+        "Album is ready",
+        log_type="album_success",
+        title="Album Downloaded",
+        click_url="https://music.youtube.com",
+        attach_url="https://img/photo.jpg",
+    )
+

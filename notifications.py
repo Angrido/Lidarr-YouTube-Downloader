@@ -1,4 +1,4 @@
-"""Telegram and Discord webhook notifications."""
+"""Telegram, Discord, and Ntfy notifications."""
 
 import logging
 
@@ -184,6 +184,88 @@ def send_discord(message, log_type=None, embed_data=None):
         logger.warning(f"Discord notification failed: {e}")
 
 
+
+def send_ntfy(
+    message, log_type=None, *, title=None, priority=None,
+    tags=None, click_url=None, attach_url=None,
+):
+    """Send a notification via Ntfy.
+
+    Args:
+        message: Plain-text / Markdown message body.
+        log_type: If set, only send when this type is in the
+            configured ntfy_log_types list.
+        title: Optional notification title.
+        priority: Optional priority override (1-5 or min/low/default/high/urgent).
+        tags: Optional list of tag strings or comma-separated string.
+        click_url: Optional URL to open when clicking the notification.
+        attach_url: Optional URL of an attachment/image to display.
+    """
+    config = load_config()
+    if not config.get("ntfy_enabled"):
+        return
+    topic = (config.get("ntfy_topic") or "").strip()
+    if not topic:
+        return
+    if log_type is not None:
+        allowed_types = config.get("ntfy_log_types", [])
+        if log_type not in allowed_types:
+            return
+
+    server_url = (config.get("ntfy_url") or "https://ntfy.sh").strip().rstrip("/")
+    token = (config.get("ntfy_token") or "").strip()
+    cfg_priority = config.get("ntfy_priority", "default")
+
+    effective_priority = priority or cfg_priority
+    effective_tags = []
+    if tags:
+        if isinstance(tags, str):
+            effective_tags = [t.strip() for t in tags.split(",") if t.strip()]
+        elif isinstance(tags, (list, tuple)):
+            effective_tags = list(tags)
+    elif log_type == "album_error":
+        effective_tags = ["warning", "x"]
+        if not priority:
+            effective_priority = "high"
+    elif log_type in ("partial_success", "import_partial"):
+        effective_tags = ["warning", "cd"]
+    elif log_type in ("download_success", "import_success"):
+        effective_tags = ["sparkles", "cd"]
+    elif log_type == "manual_download":
+        effective_tags = ["musical_note"]
+    else:
+        effective_tags = ["musical_note"]
+
+    payload = {
+        "topic": topic,
+        "message": message,
+        "title": title or "Lidarr YouTube Downloader",
+    }
+    if effective_priority:
+        payload["priority"] = effective_priority
+    if effective_tags:
+        payload["tags"] = effective_tags
+    if click_url:
+        payload["click"] = click_url
+    if attach_url:
+        payload["attach"] = attach_url
+
+    headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+
+    try:
+        url = f"{server_url}/{topic}"
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        if res.status_code >= 300:
+            logger.warning(
+                "Ntfy returned %d: %s",
+                res.status_code, (res.text or "")[:500],
+            )
+    except Exception as e:
+        logger.warning(f"Ntfy notification failed: {e}")
+
+
 def send_notifications(
     message, log_type=None, embed_data=None, *,
     telegram_message=None, telegram_parse_mode=None,
@@ -192,7 +274,7 @@ def send_notifications(
     """Send a notification to all configured channels.
 
     Args:
-        message: Plain-text fallback used by both channels when no
+        message: Plain-text fallback used by configured channels when no
             channel-specific override is provided.
         log_type: Filter key for per-channel log type filtering.
         embed_data: Optional Discord embed payload (see ``send_discord``).
@@ -206,7 +288,7 @@ def send_notifications(
         photo_url: Optional cover-art URL. Telegram will render it via
             ``sendPhoto`` with the message as the caption. Discord
             already receives the same URL via ``embed_data['thumbnail']``
-            when set by the caller.
+            when set by the caller. Ntfy receives it via attachment URL.
         disable_notification: Telegram-only silent delivery flag.
     """
     send_telegram(
@@ -217,6 +299,18 @@ def send_notifications(
         disable_notification=disable_notification,
     )
     send_discord(message, log_type=log_type, embed_data=embed_data)
+
+    ntfy_title = embed_data.get("title") if embed_data else None
+    ntfy_click = embed_data.get("url") if embed_data else None
+    ntfy_attach = photo_url or (embed_data.get("thumbnail") if embed_data else None)
+    send_ntfy(
+        message,
+        log_type=log_type,
+        title=ntfy_title,
+        click_url=ntfy_click,
+        attach_url=ntfy_attach,
+    )
+
 
 
 def send_telegram_test(bot_token, chat_id, message=None):
@@ -281,3 +375,53 @@ def send_discord_test(webhook_url, message=None):
         return {"success": False, "error": "Request timed out after 10s"}
     except Exception as exc:
         return {"success": False, "error": str(exc)}
+
+
+def send_ntfy_test(
+    server_url, topic, token=None, priority=None, message=None,
+):
+    """Send a one-off Ntfy test message and return a status dict.
+
+    Bypasses ``load_config()`` so the UI can validate credentials entered
+    in the form *before* persisting them. Returns ``{"success": bool, "error": str}``.
+    """
+    topic = (topic or "").strip()
+    if not topic:
+        return {"success": False, "error": "Missing Ntfy topic"}
+    server = (server_url or "https://ntfy.sh").strip().rstrip("/")
+    if not server.startswith(("http://", "https://")):
+        return {
+            "success": False,
+            "error": "Server URL must start with http:// or https://",
+        }
+
+    body = message or (
+        "✅ **Lidarr YouTube Downloader — test notification**\n"
+        "If you can see this, your Ntfy server is configured correctly."
+    )
+    payload = {
+        "topic": topic,
+        "message": body,
+        "title": "Lidarr YouTube Downloader — Test",
+        "tags": ["white_check_mark", "musical_note"],
+        "priority": priority or "default",
+    }
+    headers = {}
+    if token and str(token).strip():
+        headers["Authorization"] = f"Bearer {str(token).strip()}"
+
+    try:
+        url = f"{server}/{topic}"
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        if 200 <= res.status_code < 300:
+            return {"success": True, "error": ""}
+        snippet = (res.text or "")[:300]
+        return {
+            "success": False,
+            "error": f"HTTP {res.status_code}: {snippet}",
+        }
+    except requests.exceptions.Timeout:
+        return {"success": False, "error": "Request timed out after 10s"}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
