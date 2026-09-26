@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.9.1
+
+### Added
+- **Ntfy push notifications** (Settings → "Ntfy Notifications", env
+  `NTFY_ENABLED` / `NTFY_TOPIC`, default off): a third notification channel
+  alongside Telegram and Discord, using [ntfy](https://ntfy.sh) — an
+  open-source HTTP pub-sub service you can self-host or use through the
+  public server, with apps for Android, iOS and the browser. Set a topic
+  and you get push notifications on your phone, with no bot to register and
+  no webhook to create. Supports a custom server (`NTFY_URL`, default
+  `https://ntfy.sh`), an optional bearer token for protected topics
+  (`NTFY_TOKEN`), a default priority (`NTFY_PRIORITY`) and the same
+  per-event filters as the other channels — download started, download
+  success/partial, import success/partial and album errors. A "Send Ntfy
+  test" button verifies the setup before you save it.
+  (#92 — thanks @pheonix14)
+
 ## 1.9.0
 
 ### Added
