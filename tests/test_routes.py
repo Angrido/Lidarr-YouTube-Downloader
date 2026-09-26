@@ -957,6 +957,7 @@ class TestManualTrackDownload:
     ):
         dl_path = str(tmp_path / "downloads")
         monkeypatch.setattr("app.DOWNLOAD_DIR", dl_path)
+        monkeypatch.setattr("downloader._ffmpeg_postprocess_works", lambda *a, **kw: True)
         monkeypatch.setattr("app.load_config", lambda: {
             "acoustid_enabled": True,
             "acoustid_api_key": "test-key",
@@ -994,10 +995,11 @@ class TestManualTrackDownload:
             outtmpl = self_ydl.params.get("outtmpl", "")
             if isinstance(outtmpl, dict):
                 outtmpl = outtmpl.get("default", "")
-            mp3_path = outtmpl + ".mp3"
-            os.makedirs(os.path.dirname(mp3_path), exist_ok=True)
-            with open(mp3_path, "wb") as f:
-                f.write(b"\x00" * 100)
+            for ext in (".mp3", ".m4a"):
+                path = outtmpl + ext
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "wb") as f:
+                    f.write(b"\x00" * 100)
 
         def fake_extract(self_ydl, url, download=True):
             return {"title": "Fake Video Title"}
@@ -2378,3 +2380,78 @@ class TestFfmpegStatusRoute:
         import downloader
         monkeypatch.setattr(downloader, "_ffmpeg_pp_state", True)
         assert client.get("/api/health").get_json()["ffmpeg_ok"] is True
+
+
+class TestNtfyNotificationRoute:
+    @pytest.fixture(autouse=True)
+    def reset_rate_limit(self):
+        import app
+        app.rate_limit_store.clear()
+        yield
+        app.rate_limit_store.clear()
+
+    def test_test_ntfy_route_success(self, client):
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            resp = client.post(
+                "/api/notifications/test/ntfy",
+                json={
+                    "server_url": "https://ntfy.sh",
+                    "topic": "my-topic",
+                    "token": "tk_test",
+                    "priority": "high",
+                },
+            )
+            assert resp.status_code == 200
+            data = resp.get_json()
+            assert data["success"] is True
+            assert data["message"] == "Test message sent successfully"
+            mock_test.assert_called_once_with(
+                "https://ntfy.sh", "my-topic", token="tk_test", priority="high",
+            )
+
+    def test_test_ntfy_route_missing_topic(self, client, monkeypatch):
+        monkeypatch.setattr("app.load_config", lambda: {"ntfy_topic": ""})
+        resp = client.post(
+            "/api/notifications/test/ntfy",
+            json={"server_url": "https://ntfy.sh", "topic": ""},
+        )
+        assert resp.status_code == 400
+        assert "Missing Ntfy topic" in resp.get_json()["message"]
+
+    def test_test_ntfy_route_invalid_url(self, client):
+        resp = client.post(
+            "/api/notifications/test/ntfy",
+            json={"server_url": "ftp://bad-url", "topic": "mytopic"},
+        )
+        assert resp.status_code == 400
+        assert "Server URL must start with http://" in resp.get_json()["message"]
+
+    def test_test_ntfy_route_failure_from_service(self, client):
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": False, "error": "HTTP 401: Unauthorized"}
+            resp = client.post(
+                "/api/notifications/test/ntfy",
+                json={"server_url": "https://ntfy.sh", "topic": "private-topic"},
+            )
+            assert resp.status_code == 400
+            data = resp.get_json()
+            assert data["success"] is False
+            assert "Unauthorized" in data["message"]
+
+    def test_test_ntfy_route_rate_limiting(self, client):
+        with patch("notifications.send_ntfy_test", return_value={"success": True, "error": ""}):
+            for _ in range(3):
+                resp = client.post(
+                    "/api/notifications/test/ntfy",
+                    json={"server_url": "https://ntfy.sh", "topic": "t"},
+                )
+                assert resp.status_code == 200
+            resp = client.post(
+                "/api/notifications/test/ntfy",
+                json={"server_url": "https://ntfy.sh", "topic": "t"},
+            )
+            assert resp.status_code == 429
+            assert "Too many test requests" in resp.get_json()["message"]
+
+

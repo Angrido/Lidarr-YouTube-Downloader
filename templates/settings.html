@@ -1273,6 +1273,80 @@
 
         <div class="settings-section">
             <div class="section-header">
+                <i class="fa-solid fa-bell"></i>
+                <h2>Ntfy Notifications</h2>
+            </div>
+            <div class="input-group">
+                <label>
+                    Topic
+                    <div class="label-description">Your Ntfy topic name (e.g. lidarr-music)</div>
+                </label>
+                <input type="text" id="ntfyTopic" placeholder="lidarr-downloads">
+            </div>
+            <div class="input-group">
+                <label>
+                    Server URL
+                    <div class="label-description">Ntfy server URL (default: https://ntfy.sh, or your self-hosted instance)</div>
+                </label>
+                <input type="text" id="ntfyUrl" placeholder="https://ntfy.sh">
+            </div>
+            <div class="input-group">
+                <label>
+                    Access Token (Optional)
+                    <div class="label-description">Bearer token if your Ntfy topic requires authentication</div>
+                </label>
+                <input type="password" id="ntfyToken" placeholder="tk_...">
+            </div>
+            <div class="input-group">
+                <label>
+                    Priority
+                    <div class="label-description">Default notification priority</div>
+                </label>
+                <select id="ntfyPriority">
+                    <option value="min">1 - Min</option>
+                    <option value="low">2 - Low</option>
+                    <option value="default" selected>3 - Default</option>
+                    <option value="high">4 - High</option>
+                    <option value="urgent">5 - Urgent</option>
+                </select>
+            </div>
+            <div class="input-group">
+                <label>
+                    Notification Filters
+                    <div class="label-description">Choose which events to receive via Ntfy</div>
+                </label>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; margin-top: 0.5rem;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="ntfy_log_download_started" value="download_started" style="width: auto; cursor: pointer;">
+                        <span>🎵 Download Started</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="ntfy_log_download_outcome" value="download_outcome" style="width: auto; cursor: pointer;">
+                        <span>✅ Download Success / Partial</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="ntfy_log_import_outcome" value="import_outcome" style="width: auto; cursor: pointer;">
+                        <span>✅ Import Success / Partial</span>
+                    </label>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="ntfy_log_album_error" value="album_error" style="width: auto; cursor: pointer;">
+                        <span>❌ Album Error</span>
+                    </label>
+                </div>
+            </div>
+            <div class="input-group">
+                <label>
+                    Send Test Message
+                    <div class="label-description">Verify your Ntfy setup by sending a test notification right now</div>
+                </label>
+                <button class="btn" id="ntfyTestBtn" type="button" onclick="sendNtfyTest()" style="padding: 0.5rem 1rem; font-size: 0.85rem;">
+                    <i class="fa-solid fa-paper-plane"></i> Send Ntfy test
+                </button>
+            </div>
+        </div>
+
+        <div class="settings-section">
+            <div class="section-header">
                 <i class="fa-solid fa-file-import"></i>
                 <h2>Import / Export Configuration</h2>
             </div>
@@ -1631,6 +1705,20 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             if (dDlOutcome) dDlOutcome.checked = discordLogTypes.includes('download_success') || discordLogTypes.includes('partial_success');
             const dImpOutcome = document.getElementById('discord_log_import_outcome');
             if (dImpOutcome) dImpOutcome.checked = discordLogTypes.includes('import_success') || discordLogTypes.includes('import_partial');
+
+            document.getElementById('ntfyTopic').value = conf.ntfy_topic || '';
+            document.getElementById('ntfyUrl').value = conf.ntfy_url || 'https://ntfy.sh';
+            document.getElementById('ntfyToken').value = conf.ntfy_token || '';
+            document.getElementById('ntfyPriority').value = conf.ntfy_priority || 'default';
+            const ntfyLogTypes = conf.ntfy_log_types || [];
+            ['download_started', 'album_error'].forEach(type => {
+                const cb = document.getElementById(`ntfy_log_${type}`);
+                if (cb) cb.checked = ntfyLogTypes.includes(type);
+            });
+            const nDlOutcome = document.getElementById('ntfy_log_download_outcome');
+            if (nDlOutcome) nDlOutcome.checked = ntfyLogTypes.includes('download_success') || ntfyLogTypes.includes('partial_success');
+            const nImpOutcome = document.getElementById('ntfy_log_import_outcome');
+            if (nImpOutcome) nImpOutcome.checked = ntfyLogTypes.includes('import_success') || ntfyLogTypes.includes('import_partial');
 
             updateSchedulerBtn(conf.scheduler_enabled);
             updateAutoDlBtn(conf.scheduler_auto_download);
@@ -2173,6 +2261,44 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             }
         }
 
+        async function sendNtfyTest() {
+            const btn = document.getElementById('ntfyTestBtn');
+            const topic = document.getElementById('ntfyTopic').value.trim();
+            const serverUrl = document.getElementById('ntfyUrl').value.trim() || 'https://ntfy.sh';
+            const token = document.getElementById('ntfyToken').value.trim();
+            const priority = document.getElementById('ntfyPriority').value;
+            if (!topic) {
+                showToast('error', 'Missing field', 'Enter a Ntfy topic first.');
+                return;
+            }
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Sending...';
+            try {
+                const res = await fetch('/api/notifications/test/ntfy', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        topic: topic,
+                        server_url: serverUrl,
+                        token: token,
+                        priority: priority,
+                    }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('success', 'Ntfy test sent', 'Check the configured topic.');
+                } else {
+                    showToast('error', 'Ntfy test failed', data.message || 'Unknown error');
+                }
+            } catch (e) {
+                showToast('error', 'Ntfy test failed', 'Network error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        }
+
         async function handleConfigImport(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -2255,6 +2381,20 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 discordSelectedLogTypes.push('import_partial');
             }
 
+            const ntfySelectedLogTypes = [];
+            ['download_started', 'album_error'].forEach(type => {
+                const cb = document.getElementById(`ntfy_log_${type}`);
+                if (cb && cb.checked) ntfySelectedLogTypes.push(type);
+            });
+            if (document.getElementById('ntfy_log_download_outcome').checked) {
+                ntfySelectedLogTypes.push('download_success');
+                ntfySelectedLogTypes.push('partial_success');
+            }
+            if (document.getElementById('ntfy_log_import_outcome').checked) {
+                ntfySelectedLogTypes.push('import_success');
+                ntfySelectedLogTypes.push('import_partial');
+            }
+
             await fetch('/api/config', {
                 method: 'POST',
                 headers: {
@@ -2273,6 +2413,12 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     discord_webhook_url: document.getElementById('discordWebhook').value,
                     discord_enabled: !!document.getElementById('discordWebhook').value,
                     discord_log_types: discordSelectedLogTypes,
+                    ntfy_topic: document.getElementById('ntfyTopic').value,
+                    ntfy_url: document.getElementById('ntfyUrl').value,
+                    ntfy_token: document.getElementById('ntfyToken').value,
+                    ntfy_priority: document.getElementById('ntfyPriority').value,
+                    ntfy_enabled: !!document.getElementById('ntfyTopic').value,
+                    ntfy_log_types: ntfySelectedLogTypes,
                     download_path: document.getElementById('downloadPath').value,
                     lidarr_path: document.getElementById('lidarrPath').value,
                     forbidden_words: forbiddenWords,
