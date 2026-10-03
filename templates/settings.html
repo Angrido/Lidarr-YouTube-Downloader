@@ -11,7 +11,7 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#09090b">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Lidarr YT">
     <link rel="apple-touch-icon" href="/static/favicon.svg">
     <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
@@ -30,6 +30,14 @@
             --radius: 16px;
             --shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
             --glow: 0 0 20px rgba(16, 185, 129, 0.3);
+            --muted: #a1a1aa;
+            --text-muted: #a1a1aa;
+            --danger: #ef4444;
+            --danger-text: #f87171;
+            --warning: #f59e0b;
+            --warning-text: #fbbf24;
+            --success-text: #34d399;
+            --on-primary: #0b1220;
         }
 
         body.light {
@@ -39,7 +47,15 @@
             --surface-glass: rgba(255, 255, 255, 0.7);
             --surface-hover: #f4f4f5;
             --text: #18181b;
-            --text-dim: #71717a;
+            --text-dim: #52525b;
+            --primary: #047857;
+            --muted: #52525b;
+            --text-muted: #52525b;
+            --danger: #dc2626;
+            --danger-text: #b91c1c;
+            --warning: #d97706;
+            --warning-text: #b45309;
+            --success-text: #047857;
             --border: #e4e4e7;
             --border-glass: rgba(0, 0, 0, 0.1);
             --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
@@ -334,7 +350,7 @@
         .btn {
             background: linear-gradient(135deg, #10b981, #06d6a0, #0891b2);
             background-size: 200% 200%;
-            color: white;
+            color: var(--on-primary);
             border: none;
             padding: 0.8rem 1.5rem;
             border-radius: 10px;
@@ -346,7 +362,6 @@
             position: relative;
             overflow: hidden;
             box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
-            animation: gradient-shift 3s ease infinite;
         }
 
         @keyframes gradient-shift {
@@ -485,14 +500,13 @@
             padding: 0.85rem 1.5rem;
             border-radius: 999px;
             border: none;
-            color: white;
+            color: var(--on-primary);
             font-size: 0.95rem;
             font-weight: 600;
             cursor: pointer;
             background: linear-gradient(135deg, #10b981, #06d6a0, #0891b2);
             background-size: 200% 200%;
             box-shadow: 0 10px 30px rgba(16, 185, 129, 0.45);
-            animation: gradient-shift 3s ease infinite;
             transform: translateY(140%);
             opacity: 0;
             pointer-events: none;
@@ -525,10 +539,9 @@
         .toggle-btn.active {
             background: linear-gradient(135deg, #10b981, #06d6a0, #0891b2);
             background-size: 200% 200%;
-            color: white;
+            color: var(--on-primary);
             border: none;
             box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
-            animation: gradient-shift 3s ease infinite;
         }
 
         footer {
@@ -598,8 +611,8 @@
         }
 
         .toast-success .toast-icon { color: var(--primary); }
-        .toast-error .toast-icon { color: #ef4444; }
-        .toast-warning .toast-icon { color: #f59e0b; }
+        .toast-error .toast-icon { color: var(--danger-text); }
+        .toast-warning .toast-icon { color: var(--warning-text); }
 
         .toast-success { border-left: 3px solid var(--primary); }
         .toast-error { border-left: 3px solid #ef4444; }
@@ -745,11 +758,66 @@
         }
         .settings-section.search-hidden { display: none !important; }
         .input-group.search-hidden { display: none !important; }
+        .settings-section .section-header:focus-visible,
+        .theme-toggle:focus-visible,
+        .toggle-btn:focus-visible,
+        .btn:focus-visible,
+        .floating-save:focus-visible,
+        .toast-close:focus-visible {
+            outline: 2px solid var(--primary);
+            outline-offset: 3px;
+        }
+        .toggle-btn:disabled,
+        .btn:disabled,
+        .floating-save:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        [aria-busy="true"] {
+            cursor: wait !important;
+        }
+        input[readonly] {
+            opacity: 0.75;
+            cursor: not-allowed;
+        }
+        .env-hint {
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            margin-top: 0.4rem;
+        }
+        body.light .section-header h2 {
+            background: none;
+            color: var(--primary);
+            -webkit-text-fill-color: var(--primary);
+        }
+        @media (max-width: 768px) {
+            .toast-container {
+                left: 1rem;
+                right: 1rem;
+            }
+            .toast {
+                min-width: 0;
+                max-width: none;
+            }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+            .logo {
+                animation: none !important;
+            }
+        }
     </style>
 </head>
 
 <body>
-    <div class="toast-container" id="toastContainer"></div>
+    <div class="toast-container" id="toastContainer" role="status" aria-live="polite"></div>
     <header>
         <div class="nav-container">
             <a href="/" style="text-decoration: none;">
@@ -769,7 +837,7 @@
                 <a href="/settings" class="active"><i class="fas fa-cog"></i> Settings</a>
             </div>
             <div class="controls">
-                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
+                <button class="theme-toggle" id="themeToggle" type="button" onclick="toggleTheme()" aria-label="Switch to light theme">
                     <i class="fa-solid fa-moon" id="themeIcon"></i>
                 </button>
             </div>
@@ -791,31 +859,31 @@
                     Scheduler Status
                     <div class="label-description">Enable automatic periodic checks for missing albums</div>
                 </label>
-                <button class="toggle-btn" id="toggleBtn" onclick="toggleScheduler()">Loading...</button>
+                <button type="button" class="toggle-btn" id="toggleBtn" onclick="toggleScheduler()">Loading...</button>
             </div>
             <div class="input-group">
                 <label>
                     Auto Download
                     <div class="label-description">Automatically download missing albums when found</div>
                 </label>
-                <button class="toggle-btn" id="autoDlBtn" onclick="toggleAutoDl()">Loading...</button>
+                <button type="button" class="toggle-btn" id="autoDlBtn" onclick="toggleAutoDl()">Loading...</button>
             </div>
             <div class="input-group">
-                <label>
+                <label for="interval">
                     Check Interval (Minutes)
                     <div class="label-description">How often to check for missing albums</div>
                 </label>
                 <input type="number" id="interval" value="60" min="1" max="1440">
             </div>
             <div class="input-group">
-                <label>
+                <label for="schedulerMaxAlbums">
                     Max Albums per Cycle
                     <div class="label-description">Maximum number of albums to queue per scheduler run. Set to 0 for unlimited.</div>
                 </label>
                 <input type="number" id="schedulerMaxAlbums" value="0" min="0" style="max-width:120px;">
             </div>
             <div class="input-group">
-                <label>
+                <label for="schedulerRetryAfterHours">
                     Retry After (Hours)
                     <div class="label-description">Skip auto-downloading an album that was already attempted (success or failure) within this many hours, so the scheduler works through the rest of the library before retrying the same one. Set to 0 to disable.</div>
                 </label>
@@ -826,10 +894,10 @@
                     Back Off Failing Tracks
                     <div class="label-description">A track that keeps failing (e.g. a song that simply isn't on YouTube) waits twice as long after each failure instead of being retried every cycle forever &mdash; capped at 30 days, so it is still found if it appears later. Turn off to retry every run.</div>
                 </label>
-                <button class="toggle-btn" id="trackRetryBackoffBtn" onclick="toggleTrackRetryBackoff()">Loading...</button>
+                <button type="button" class="toggle-btn" id="trackRetryBackoffBtn" onclick="toggleTrackRetryBackoff()">Loading...</button>
             </div>
             <div class="input-group">
-                <label>
+                <label for="maxTrackRetries">
                     Max Retries per Track
                     <div class="label-description">Give up on a track for good after this many consecutive failures. Set to 0 to never give up (just keep backing off). Adding an album to the queue by hand always retries everything immediately.</div>
                 </label>
@@ -848,45 +916,45 @@
                     <div class="label-description">Generate XML metadata files alongside audio files (useful for Lidarr
                         integration)</div>
                 </label>
-                <button class="toggle-btn" id="xmlMetadataBtn" onclick="toggleXmlMetadata()">Loading...</button>
+                <button type="button" class="toggle-btn" id="xmlMetadataBtn" onclick="toggleXmlMetadata()">Loading...</button>
             </div>
             <div class="input-group">
                 <label>
                     Save cover.jpg in Album Folder
                     <div class="label-description">Write the album artwork as cover.jpg next to the audio files. Disable to save disk space if you don't want artwork stored on disk. (Cover is still embedded in ID3 tags and used for notifications regardless.)</div>
                 </label>
-                <button class="toggle-btn" id="coverArtBtn" onclick="toggleCoverArt()">Loading...</button>
+                <button type="button" class="toggle-btn" id="coverArtBtn" onclick="toggleCoverArt()">Loading...</button>
             </div>
             <div class="input-group">
                 <label>
                     Trigger Lidarr Rename After Import
                     <div class="label-description">After files are imported into Lidarr, send a RenameFiles command so Lidarr applies its configured naming convention (also fires Lidarr's "on rename" connections).</div>
                 </label>
-                <button class="toggle-btn" id="lidarrRenameBtn" onclick="toggleLidarrRename()">Loading...</button>
+                <button type="button" class="toggle-btn" id="lidarrRenameBtn" onclick="toggleLidarrRename()">Loading...</button>
             </div>
             <div class="input-group">
                 <label>
                     Save YouTube Playlist Imports to Library
                     <div class="label-description">For "Playlist creation from YouTube": write the downloaded tracks into your Lidarr music library path (instead of only the download folder) and ask Lidarr to scan them, so they show up in Jellyfin/Lidarr (Lidarr imports whatever it can match). Requires LIDARR_PATH configured. Off keeps the files in the download folder only.</div>
                 </label>
-                <button class="toggle-btn" id="playlistToLibraryBtn" onclick="togglePlaylistToLibrary()">Loading...</button>
+                <button type="button" class="toggle-btn" id="playlistToLibraryBtn" onclick="togglePlaylistToLibrary()">Loading...</button>
             </div>
             <div class="input-group">
                 <label>
                     AcoustID Fingerprinting
                     <div class="label-description">Fingerprint downloaded tracks and look up MusicBrainz recording IDs via AcoustID</div>
                 </label>
-                <button class="toggle-btn" id="acoustidBtn" onclick="toggleAcoustid()">Loading...</button>
+                <button type="button" class="toggle-btn" id="acoustidBtn" onclick="toggleAcoustid()">Loading...</button>
             </div>
             <div class="input-group">
-                <label>
+                <label for="acoustidApiKey">
                     AcoustID API Key
                     <div class="label-description">Get a free key at <a href="https://acoustid.org/new-application" target="_blank" rel="noopener">acoustid.org</a></div>
                 </label>
                 <input type="text" id="acoustidApiKey" placeholder="Enter AcoustID API key">
 	    </div>
 	    <div class="input-group">
-		<label>
+		<label for="concurrentTracks">
                     Concurrent Track Downloads
                     <div class="label-description">Number of tracks downloaded simultaneously per album. Higher values speed up downloads but increase the risk of being rate-limited or banned by YouTube. Recommended: 2.</div>
                 </label>
@@ -924,7 +992,7 @@
             <div class="input-group">
                 <label for="audioFormatSelect">
                     Audio Format
-                    <div class="label-description">M4A and Opus prefer the native YouTube stream and stream-copy without re-encoding (no quality loss). MP3 always transcodes.</div>
+                    <div class="label-description">M4A and Opus prefer the native YouTube stream and stream-copy it without re-encoding (no quality loss) &mdash; unless Loudness Normalization is on, which re-encodes the audio. MP3 always transcodes.</div>
                 </label>
                 <select id="audioFormatSelect" onchange="saveAudioFormat(this.value)" style="max-width:260px;">
                     <option value="mp3">MP3 (transcoded)</option>
@@ -935,7 +1003,7 @@
             <div class="input-group">
                 <label for="audioQualitySelect">
                     Audio Quality (kbps)
-                    <div class="label-description">Target bitrate when transcoding (MP3 always, M4A/Opus only if the native codec isn't available). Stream-copied audio keeps the YouTube source bitrate regardless of this setting.</div>
+                    <div class="label-description">Target bitrate when transcoding or re-encoding (MP3 always; M4A/Opus when the native codec isn't available or Loudness Normalization is on). Only stream-copied audio keeps the YouTube source bitrate regardless of this setting.</div>
                 </label>
                 <select id="audioQualitySelect" style="max-width:160px;">
                     <option value="128">128</option>
@@ -961,33 +1029,33 @@
             <div class="input-group">
                 <label>
                     Loudness Normalization
-                    <div class="label-description">Apply EBU R128 loudness normalization (−14 LUFS) so volume is consistent across tracks. Forces a re-encode (M4A/Opus won't stream-copy when enabled).</div>
+                    <div class="label-description">Apply EBU R128 loudness normalization (−14 LUFS) so volume is consistent across tracks. Runs a separate re-encode pass, so the audio is re-encoded at the Audio Quality bitrate (M4A/Opus won't keep the original stream when enabled).</div>
                 </label>
-                <button class="toggle-btn" id="audioNormalizeBtn" onclick="toggleAudioNormalize()">Loading...</button>
+                <button type="button" class="toggle-btn" id="audioNormalizeBtn" onclick="toggleAudioNormalize()">Loading...</button>
             </div>
             <div class="input-group">
                 <label>
                     ReplayGain Tags
                     <div class="label-description">Measure each track's loudness and write ReplayGain tags (<code>REPLAYGAIN_TRACK_GAIN</code>/<code>PEAK</code>) so players like Jellyfin/Navidrome can normalize volume — <strong>without re-encoding</strong> the audio (non-destructive, unlike Loudness Normalization). Adds a short ffmpeg analysis pass per track.</div>
                 </label>
-                <button class="toggle-btn" id="replayGainBtn" onclick="toggleReplayGain()">Loading...</button>
+                <button type="button" class="toggle-btn" id="replayGainBtn" onclick="toggleReplayGain()">Loading...</button>
             </div>
             <div class="input-group">
                 <label>
                     Save Synced Lyrics (.lrc)
                     <div class="label-description">Fetch time-synced lyrics from <a href="https://lrclib.net" target="_blank" rel="noopener">LRCLIB</a> and write a <code>.lrc</code> file next to each track, so Jellyfin/Navidrome/Plex can show synced lyrics. Falls back to plain lyrics when synced aren't available.</div>
                 </label>
-                <button class="toggle-btn" id="saveLyricsBtn" onclick="toggleSaveLyrics()">Loading...</button>
+                <button type="button" class="toggle-btn" id="saveLyricsBtn" onclick="toggleSaveLyrics()">Loading...</button>
             </div>
             <div class="input-group">
-                <label>
+                <label for="ytPoToken">
                     YouTube PO Token
                     <div class="label-description">Optional. Helps with "Sign in to confirm you're not a bot" / format-unavailable errors. Paste one or more <code>po_token</code> values (comma-separated) from yt-dlp. Leave empty unless you hit those errors.</div>
                 </label>
                 <input type="text" id="ytPoToken" placeholder="e.g. web.gvs+XXXX...">
             </div>
             <div class="input-group">
-                <label>
+                <label for="ytPotProviderUrl">
                     PO Token Provider URL
                     <div class="label-description">Optional, recommended over a manual token: URL of a <a href="https://github.com/Brainicism/bgutil-ytdlp-pot-provider" target="_blank" rel="noopener">bgutil PO token provider</a> run as a sidecar (e.g. <code>http://bgutil-provider:4416</code>). yt-dlp fetches tokens automatically when needed. See the bundled docker-compose.</div>
                 </label>
@@ -1080,7 +1148,7 @@
                 </div>
             </div>
             <div class="input-group">
-                <label>
+                <label for="customForbiddenInput">
                     Custom Forbidden Words
                     <div class="label-description">Add your own words to filter out (e.g. "slowed and reverb"). Matched against the YouTube title using the same rules as the built-in list.</div>
                 </label>
@@ -1093,7 +1161,7 @@
                 <div id="customForbiddenList" class="custom-fw-list"></div>
             </div>
             <div class="input-group">
-                <label>
+                <label for="durationTolerance">
                     Duration Tolerance (seconds)
                     <div class="label-description">Allowed difference between track duration and YouTube video length.
                         Recommended: 5-15 seconds.</div>
@@ -1101,7 +1169,7 @@
                 <input type="number" id="durationTolerance" value="10" min="1" max="60">
             </div>
             <div class="input-group">
-                <label>
+                <label for="minMatchScore">
                     Minimum Match Score
                     <div class="label-description">Minimum YouTube match score (0.0–1.0) required to accept a
                         track when AcoustID verification is unavailable. Recommended: 0.8.</div>
@@ -1123,7 +1191,7 @@
                 <input type="text" id="ytCookiesFile" placeholder="/config/cookies.txt">
             </div>
             <div class="input-group">
-                <label>
+                <label for="cookiesUploadInput">
                     Upload cookies.txt
                     <div class="label-description">Pick a Netscape-format cookies.txt exported from your browser (e.g. "Get cookies.txt LOCALLY" extension). It will be saved to <code>/config/cookies.txt</code> and the path above will be set automatically.</div>
                 </label>
@@ -1171,14 +1239,14 @@
                 <h2>Telegram Notifications</h2>
             </div>
             <div class="input-group">
-                <label>
+                <label for="botToken">
                     Bot Token
                     <div class="label-description">Your Telegram Bot API token from @BotFather</div>
                 </label>
                 <input type="text" id="botToken" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
             </div>
             <div class="input-group">
-                <label>
+                <label for="chatId">
                     Chat ID
                     <div class="label-description">The chat ID where notifications will be sent</div>
                 </label>
@@ -1230,7 +1298,7 @@
                 <h2>Discord Notifications</h2>
             </div>
             <div class="input-group">
-                <label>
+                <label for="discordWebhook">
                     Webhook URL
                     <div class="label-description">Your Discord channel webhook URL (Server Settings > Integrations > Webhooks)</div>
                 </label>
@@ -1277,28 +1345,28 @@
                 <h2>Ntfy Notifications</h2>
             </div>
             <div class="input-group">
-                <label>
+                <label for="ntfyTopic">
                     Topic
                     <div class="label-description">Your Ntfy topic name (e.g. lidarr-music)</div>
                 </label>
                 <input type="text" id="ntfyTopic" placeholder="lidarr-downloads">
             </div>
             <div class="input-group">
-                <label>
+                <label for="ntfyUrl">
                     Server URL
                     <div class="label-description">Ntfy server URL (default: https://ntfy.sh, or your self-hosted instance)</div>
                 </label>
                 <input type="text" id="ntfyUrl" placeholder="https://ntfy.sh">
             </div>
             <div class="input-group">
-                <label>
+                <label for="ntfyToken">
                     Access Token (Optional)
                     <div class="label-description">Bearer token if your Ntfy topic requires authentication</div>
                 </label>
                 <input type="password" id="ntfyToken" placeholder="tk_...">
             </div>
             <div class="input-group">
-                <label>
+                <label for="ntfyPriority">
                     Priority
                     <div class="label-description">Default notification priority</div>
                 </label>
@@ -1412,22 +1480,22 @@
                     Enable Download Client
                     <div class="label-description">Turn on the Newznab + SABnzbd endpoints so Lidarr can use this app.</div>
                 </label>
-                <button class="toggle-btn" id="downloadClientBtn" onclick="toggleDownloadClient()">Loading...</button>
+                <button type="button" class="toggle-btn" id="downloadClientBtn" onclick="toggleDownloadClient()">Loading...</button>
             </div>
             <div class="input-group">
-                <label>
+                <label for="downloadClientApiKey">
                     API Key
                     <div class="label-description">Use this same key for both the Newznab indexer and the SABnzbd client in Lidarr.</div>
                 </label>
                 <div style="display:flex; gap:.5rem; align-items:center;">
                     <input type="text" id="downloadClientApiKey" placeholder="Generate or paste a key" style="flex:1 1 auto; min-width:0;">
-                    <button class="btn" type="button" onclick="generateDownloadClientKey()" title="Generate API key" style="white-space:nowrap; flex:0 0 auto; width:auto; padding:.45rem .7rem; font-size:.85rem;">
+                    <button class="btn" type="button" id="downloadClientKeyBtn" onclick="generateDownloadClientKey()" title="Generate a new API key" style="white-space:nowrap; flex:0 0 auto; width:auto; padding:.45rem .7rem; font-size:.85rem;">
                         <i class="fa-solid fa-rotate"></i> Generate
                     </button>
                 </div>
             </div>
             <div class="input-group">
-                <label>
+                <label for="downloadClientCategory">
                     Category
                     <div class="label-description">SABnzbd category Lidarr should target (must match the category set on the Lidarr download client).</div>
                 </label>
@@ -1468,14 +1536,15 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 </p>
             </div>
             <div class="input-group">
-                <label>
+                <label for="downloadPath">
                     Download Path
                     <div class="label-description">Temporary folder for downloads (e.g., /downloads)</div>
                 </label>
                 <input type="text" id="downloadPath" placeholder="/downloads">
+                <div class="env-hint" id="downloadPathEnvHint" hidden>Set via the DOWNLOAD_PATH environment variable</div>
             </div>
             <div class="input-group">
-                <label>
+                <label for="lidarrPath">
                     Lidarr Music Path
                     <div class="label-description">Lidarr's music library folder - leave empty to use download path
                         (e.g., /music)</div>
@@ -1484,12 +1553,12 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             </div>
         </div>
 
-        <div class="settings-section">
+        <div class="settings-section settings-actions">
             <div class="section-header">
                 <i class="fa-solid fa-floppy-disk"></i>
                 <h2>Save Changes</h2>
             </div>
-            <button class="btn" onclick="saveConfig()">
+            <button class="btn" id="saveAllBtn" type="button" onclick="saveConfig()">
                 <i class="fa-solid fa-check"></i> Save All Settings
             </button>
         </div>
@@ -1502,7 +1571,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
 
     <footer>
         <div>Made with love ❤️ • {{ APP_VERSION }}</div>
-        <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
+        <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github" aria-label="Lidarr YouTube Downloader on GitHub"><i class="fa-brands fa-github" aria-hidden="true"></i></a>
     </footer>
 
     <script>
@@ -1512,15 +1581,40 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             const toast = document.createElement('div');
             toast.className = `toast toast-${type}`;
             toast.style.position = 'relative';
-            toast.innerHTML = `
-                <div class="toast-icon"><i class="fa-solid ${icons[type] || icons.success}"></i></div>
-                <div class="toast-body">
-                    <div class="toast-title">${title}</div>
-                    <div class="toast-message">${message}</div>
-                </div>
-                <button class="toast-close" onclick="this.closest('.toast').remove()"><i class="fa-solid fa-xmark"></i></button>
-                <div class="toast-progress" style="animation-duration:${duration}ms"></div>
-            `;
+            if (type === 'error') toast.setAttribute('role', 'alert');
+            const iconWrap = document.createElement('div');
+            iconWrap.className = 'toast-icon';
+            const icon = document.createElement('i');
+            icon.className = 'fa-solid ' + (icons[type] || icons.success);
+            icon.setAttribute('aria-hidden', 'true');
+            iconWrap.appendChild(icon);
+            const body = document.createElement('div');
+            body.className = 'toast-body';
+            const titleEl = document.createElement('div');
+            titleEl.className = 'toast-title';
+            titleEl.textContent = title == null ? '' : String(title);
+            const msgEl = document.createElement('div');
+            msgEl.className = 'toast-message';
+            msgEl.textContent = message == null ? '' : String(message);
+            body.appendChild(titleEl);
+            body.appendChild(msgEl);
+            const close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'toast-close';
+            close.setAttribute('aria-label', 'Dismiss notification');
+            close.innerHTML = '<i class="fa-solid fa-xmark" aria-hidden="true"></i>';
+            close.onclick = () => toast.remove();
+            const progress = document.createElement('div');
+            progress.className = 'toast-progress';
+            progress.style.animationDuration = duration + 'ms';
+            toast.appendChild(iconWrap);
+            toast.appendChild(body);
+            toast.appendChild(close);
+            toast.appendChild(progress);
+            const header = document.querySelector('header');
+            if (header) {
+                container.style.top = Math.max(16, Math.round(header.getBoundingClientRect().bottom) + 12) + 'px';
+            }
             container.appendChild(toast);
             setTimeout(() => {
                 toast.classList.add('toast-out');
@@ -1528,12 +1622,25 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             }, duration);
         }
 
+        function applyThemeChrome() {
+            const isLight = document.body.classList.contains('light');
+            document.getElementById('themeIcon').className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+            document.getElementById('themeToggle').setAttribute('aria-label', isLight ? 'Switch to dark theme' : 'Switch to light theme');
+            const meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute('content', isLight ? '#f4f4f5' : '#09090b');
+        }
+
+        window.addEventListener('beforeunload', (e) => {
+            if (!_settingsDirty) return;
+            e.preventDefault();
+            e.returnValue = '';
+        });
+
         document.addEventListener('DOMContentLoaded', () => {
-            const saved = localStorage.getItem('theme') || 'dark';
-            if (saved === 'light') {
-                document.body.classList.add('light');
-                document.getElementById('themeIcon').className = 'fa-solid fa-sun';
-            }
+            let saved = 'dark';
+            try { saved = localStorage.getItem('theme') || 'dark'; } catch (_) {}
+            document.body.classList.toggle('light', saved === 'light');
+            applyThemeChrome();
             loadConfig();
             loadYtdlpVersion();
             installDirtyListeners();
@@ -1559,22 +1666,40 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 return h ? h.textContent.trim() : '';
             };
 
+            const syncExpanded = (section) => {
+                const header = section.querySelector('.section-header');
+                if (header) {
+                    header.setAttribute('aria-expanded', section.classList.contains('collapsed') ? 'false' : 'true');
+                }
+            };
+
             sections.forEach((section) => {
                 const header = section.querySelector('.section-header');
                 if (!header) return;
                 const chevron = document.createElement('i');
                 chevron.className = 'fa-solid fa-chevron-down section-chevron';
+                chevron.setAttribute('aria-hidden', 'true');
                 header.appendChild(chevron);
+                header.setAttribute('role', 'button');
+                header.setAttribute('tabindex', '0');
                 const key = sectionKey(section);
                 if (key && collapsedState[key]) {
                     section.classList.add('collapsed');
                 }
+                syncExpanded(section);
+                header.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        header.click();
+                    }
+                });
                 header.addEventListener('click', () => {
                     // Don't toggle while a search filter is active.
                     if (document.getElementById('settingsSearch').value.trim()) {
                         return;
                     }
                     section.classList.toggle('collapsed');
+                    syncExpanded(section);
                     const k = sectionKey(section);
                     if (k) {
                         collapsedState[k] = section.classList.contains(
@@ -1605,22 +1730,28 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                         section.classList.toggle(
                             'collapsed', !!(k && collapsedState[k])
                         );
+                        syncExpanded(section);
                         return;
                     }
                     const header = section.querySelector('.section-header');
-                    const headerText = header
-                        ? header.textContent.toLowerCase() : '';
-                    let anyVisible = false;
-                    section.querySelectorAll('.input-group').forEach((g) => {
-                        const match = g.textContent.toLowerCase().includes(q)
-                            || headerText.includes(q);
+                    const headerMatch = !!header
+                        && header.textContent.toLowerCase().includes(q);
+                    const groups = section.querySelectorAll('.input-group');
+                    let anyVisible = headerMatch
+                        || section.classList.contains('settings-actions');
+                    groups.forEach((g) => {
+                        const match = headerMatch
+                            || g.textContent.toLowerCase().includes(q);
                         g.classList.toggle('search-hidden', !match);
                         if (match) anyVisible = true;
                     });
-                    // While searching, expand matching sections and hide
-                    // sections with no matches.
+                    if (!groups.length
+                        && section.textContent.toLowerCase().includes(q)) {
+                        anyVisible = true;
+                    }
                     section.classList.remove('collapsed');
                     section.classList.toggle('search-hidden', !anyVisible);
+                    syncExpanded(section);
                 });
             });
         }
@@ -1631,16 +1762,47 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             setTimeout(() => {
                 document.body.classList.toggle('light');
                 const isLight = document.body.classList.contains('light');
-                localStorage.setItem('theme', isLight ? 'light' : 'dark');
-                document.getElementById('themeIcon').className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+                try { localStorage.setItem('theme', isLight ? 'light' : 'dark'); } catch (_) {}
+                applyThemeChrome();
             }, 250);
             setTimeout(() => toggle.classList.remove('spin'), 500);
         }
 
+        let _configLoaded = false;
+        let _loadedPaths = { download: '', lidarr: '' };
+        let _savedAudioFormat = null;
+
+        function showConfigLoadError(message) {
+            document.querySelectorAll('.toggle-btn').forEach((btn) => {
+                if (btn.innerText.trim() === 'Loading...') {
+                    btn.innerText = 'Unavailable';
+                    btn.disabled = true;
+                }
+            });
+            showToast('error', 'Could not load settings', message + ' Saving is disabled \u2014 reload the page to try again.', 10000);
+        }
+
         async function loadConfig() {
             _suppressDirty = true;
-            const res = await fetch('/api/config');
-            const conf = await res.json();
+            let loaded = false;
+            try {
+                const res = await fetch('/api/config');
+                if (!res.ok) throw new Error('The server returned HTTP ' + res.status + '.');
+                const conf = await res.json();
+                applyConfig(conf);
+                loaded = true;
+                _configLoaded = true;
+            } catch (e) {
+                showConfigLoadError(e && e.message && !/fetch|JSON/i.test(e.message) ? e.message : 'The server could not be reached.');
+            } finally {
+                setTimeout(() => {
+                    _suppressDirty = false;
+                    if (loaded) clearSettingsDirty();
+                }, 0);
+            }
+        }
+
+        function applyConfig(conf) {
             document.getElementById('interval').value = conf.scheduler_interval || 60;
             document.getElementById('schedulerMaxAlbums').value = conf.scheduler_max_albums != null ? conf.scheduler_max_albums : 0;
             document.getElementById('botToken').value = conf.telegram_bot_token || '';
@@ -1663,8 +1825,21 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 impOutcome.checked = logTypes.includes('import_success') || logTypes.includes('import_partial');
             }
 
-            document.getElementById('downloadPath').value = conf.download_path || '';
+            const dlPathInput = document.getElementById('downloadPath');
+            dlPathInput.value = conf.download_path || '';
+            const dlFromEnv = !!(conf.download_path || '').trim();
+            dlPathInput.readOnly = dlFromEnv;
+            if (dlFromEnv) {
+                dlPathInput.setAttribute('aria-describedby', 'downloadPathEnvHint');
+            } else {
+                dlPathInput.removeAttribute('aria-describedby');
+            }
+            document.getElementById('downloadPathEnvHint').hidden = !dlFromEnv;
             document.getElementById('lidarrPath').value = conf.lidarr_path || '';
+            _loadedPaths = {
+                download: (conf.download_path || '').trim(),
+                lidarr: (conf.lidarr_path || '').trim(),
+            };
 
             const forbiddenWords = conf.forbidden_words || ["remix", "cover", "mashup", "bootleg", "live", "dj mix", "karaoke", "slowed", "reverb", "nightcore", "sped up", "instrumental", "acapella", "tribute", "reaction", "8d audio"];
             const forbiddenWordIds = ['fw_remix', 'fw_cover', 'fw_mashup', 'fw_bootleg', 'fw_live', 'fw_djmix', 'fw_karaoke', 'fw_slowed', 'fw_reverb', 'fw_nightcore', 'fw_spedup', 'fw_instrumental', 'fw_acapella', 'fw_tribute', 'fw_reaction', 'fw_8daudio'];
@@ -1683,6 +1858,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             document.getElementById('concurrentTracks').value = conf.concurrent_tracks || 2;
             document.getElementById('searchArtistSource').value = conf.search_artist_source || 'album';
             document.getElementById('audioFormatSelect').value = conf.audio_format || 'mp3';
+            _savedAudioFormat = document.getElementById('audioFormatSelect').value;
             document.getElementById('audioQualitySelect').value = String(conf.audio_quality || '320');
             document.getElementById('ytdlpFormat').value = conf.ytdlp_format || '';
             updateAudioNormalizeBtn(conf.audio_normalize === true);
@@ -1741,89 +1917,91 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     ? conf.scheduler_retry_after_hours
                     : 24
             );
-            // Defer clearing so any change events from programmatic
-            // assignments above don't immediately re-mark dirty.
-            setTimeout(() => { _suppressDirty = false; clearSettingsDirty(); }, 0);
+        }
+
+        function setToggleBtn(btn, enabled, onText, offText) {
+            btn.dataset.enabled = enabled ? '1' : '0';
+            btn.innerText = enabled ? onText : offText;
+            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+            btn.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+        }
+
+        async function postToggle(btnId, url, apply) {
+            const btn = document.getElementById(btnId);
+            if (!btn || btn.disabled) return null;
+            btn.disabled = true;
+            btn.setAttribute('aria-busy', 'true');
+            try {
+                const res = await fetch(url, { method: 'POST' });
+                let data = {};
+                try { data = await res.json(); } catch (_) {}
+                if (!res.ok || typeof data.enabled !== 'boolean') {
+                    throw new Error(data.message || data.error || ('The server returned HTTP ' + res.status + '.'));
+                }
+                apply(data.enabled, data);
+                return data;
+            } catch (e) {
+                const msg = e instanceof TypeError ? 'Network error \u2014 the setting was not changed.' : e.message;
+                showToast('error', 'Setting not changed', msg);
+                return null;
+            } finally {
+                btn.disabled = false;
+                btn.removeAttribute('aria-busy');
+            }
         }
 
         function updateSchedulerBtn(enabled) {
             const btn = document.getElementById('toggleBtn');
-            btn.innerText = enabled ? '✓ Scheduler Active' : 'Enable Scheduler';
-            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+            setToggleBtn(btn, enabled, '✓ Scheduler ON', 'Scheduler OFF');
         }
 
         function updateAutoDlBtn(enabled) {
             const btn = document.getElementById('autoDlBtn');
-            btn.innerText = enabled ? '✓ Auto Download ON' : 'Auto Download OFF';
-            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+            setToggleBtn(btn, enabled, '✓ Auto Download ON', 'Auto Download OFF');
         }
 
         async function toggleScheduler() {
-            const res = await fetch('/api/scheduler/toggle', {
-                method: 'POST'
-            });
-            const data = await res.json();
-            updateSchedulerBtn(data.enabled);
+            await postToggle('toggleBtn', '/api/scheduler/toggle', updateSchedulerBtn);
         }
 
         async function toggleAutoDl() {
-            const res = await fetch('/api/scheduler/autodownload/toggle', {
-                method: 'POST'
-            });
-            const data = await res.json();
-            updateAutoDlBtn(data.enabled);
+            await postToggle('autoDlBtn', '/api/scheduler/autodownload/toggle', updateAutoDlBtn);
         }
 
         function updateXmlMetadataBtn(enabled) {
             const btn = document.getElementById('xmlMetadataBtn');
-            btn.innerText = enabled ? '✓ XML Metadata ON' : 'XML Metadata OFF';
-            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+            setToggleBtn(btn, enabled, '✓ XML Metadata ON', 'XML Metadata OFF');
         }
 
         async function toggleXmlMetadata() {
-            const res = await fetch('/api/xmlmetadata/toggle', {
-                method: 'POST'
-            });
-            const data = await res.json();
-            updateXmlMetadataBtn(data.enabled);
+            await postToggle('xmlMetadataBtn', '/api/xmlmetadata/toggle', updateXmlMetadataBtn);
         }
 
         function updateAcoustidBtn(enabled) {
             const btn = document.getElementById('acoustidBtn');
-            btn.innerText = enabled ? '✓ AcoustID ON' : 'AcoustID OFF';
-            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+            setToggleBtn(btn, enabled, '✓ AcoustID ON', 'AcoustID OFF');
         }
 
         async function toggleAcoustid() {
-            const res = await fetch('/api/acoustid/toggle', {
-                method: 'POST'
-            });
-            const data = await res.json();
-            updateAcoustidBtn(data.enabled);
+            await postToggle('acoustidBtn', '/api/acoustid/toggle', updateAcoustidBtn);
         }
 
         function updateLidarrRenameBtn(enabled) {
             const btn = document.getElementById('lidarrRenameBtn');
-            btn.innerText = enabled ? '✓ Lidarr Rename ON' : 'Lidarr Rename OFF';
-            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+            setToggleBtn(btn, enabled, '✓ Lidarr Rename ON', 'Lidarr Rename OFF');
         }
 
         async function toggleLidarrRename() {
-            const res = await fetch('/api/lidarr_rename/toggle', { method: 'POST' });
-            const data = await res.json();
-            updateLidarrRenameBtn(data.enabled);
+            await postToggle('lidarrRenameBtn', '/api/lidarr_rename/toggle', updateLidarrRenameBtn);
         }
 
         function updateCoverArtBtn(enabled) {
             const btn = document.getElementById('coverArtBtn');
-            btn.innerText = enabled ? '✓ Save cover.jpg ON' : 'Save cover.jpg OFF';
-            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+            setToggleBtn(btn, enabled, '✓ Save cover.jpg ON', 'Save cover.jpg OFF');
         }
 
         async function toggleCoverArt() {
-            const res = await fetch('/api/cover_art/toggle', { method: 'POST' });
-            const data = await res.json();
-            updateCoverArtBtn(data.enabled);
+            await postToggle('coverArtBtn', '/api/cover_art/toggle', updateCoverArtBtn);
         }
 
         async function testPotProvider() {
@@ -1839,10 +2017,10 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 });
                 const data = await res.json();
                 result.textContent = data.message || (data.success ? 'OK' : 'Failed');
-                result.style.color = data.success ? '#22c55e' : '#ef4444';
+                result.style.color = data.success ? 'var(--success-text)' : 'var(--danger-text)';
             } catch (e) {
                 result.textContent = 'Test failed';
-                result.style.color = '#ef4444';
+                result.style.color = 'var(--danger-text)';
             }
         }
 
@@ -1858,7 +2036,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             const url = (document.getElementById('ytdlpFormatTestUrl').value || '').trim();
             if (!url) {
                 result.textContent = 'Enter a YouTube video URL or ID first.';
-                result.style.color = '#ef4444';
+                result.style.color = 'var(--danger-text)';
                 return;
             }
             ytdlpFormatsInFlight = true;
@@ -1874,13 +2052,13 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 const data = await res.json();
                 if (!data.success) {
                     result.textContent = data.message || 'Failed to list formats';
-                    result.style.color = '#ef4444';
+                    result.style.color = 'var(--danger-text)';
                     return;
                 }
                 renderYtdlpFormats(data);
             } catch (e) {
                 result.textContent = 'Failed to list formats';
-                result.style.color = '#ef4444';
+                result.style.color = 'var(--danger-text)';
             } finally {
                 ytdlpFormatsInFlight = false;
                 if (btn) btn.disabled = false;
@@ -1933,9 +2111,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
 
         function updateAudioNormalizeBtn(enabled) {
             const btn = document.getElementById('audioNormalizeBtn');
-            btn.dataset.enabled = enabled ? '1' : '0';
-            btn.innerText = enabled ? '✓ Normalization ON' : 'Normalization OFF';
-            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+            setToggleBtn(btn, enabled, '✓ Normalization ON', 'Normalization OFF');
         }
 
         function toggleAudioNormalize() {
@@ -1946,9 +2122,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
 
         function updatePlaylistToLibraryBtn(enabled) {
             const btn = document.getElementById('playlistToLibraryBtn');
-            btn.dataset.enabled = enabled ? '1' : '0';
-            btn.innerText = enabled ? '✓ Save to Library ON' : 'Save to Library OFF';
-            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+            setToggleBtn(btn, enabled, '✓ Save to Library ON', 'Save to Library OFF');
         }
 
         function togglePlaylistToLibrary() {
@@ -1959,9 +2133,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
 
         function updateReplayGainBtn(enabled) {
             const btn = document.getElementById('replayGainBtn');
-            btn.dataset.enabled = enabled ? '1' : '0';
-            btn.innerText = enabled ? '✓ ReplayGain ON' : 'ReplayGain OFF';
-            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+            setToggleBtn(btn, enabled, '✓ ReplayGain ON', 'ReplayGain OFF');
         }
 
         function toggleReplayGain() {
@@ -2045,9 +2217,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
 
         function updateTrackRetryBackoffBtn(enabled) {
             const btn = document.getElementById('trackRetryBackoffBtn');
-            btn.dataset.enabled = enabled ? '1' : '0';
-            btn.innerText = enabled ? '✓ Retry Backoff ON' : 'Retry Backoff OFF';
-            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+            setToggleBtn(btn, enabled, '✓ Retry Backoff ON', 'Retry Backoff OFF');
         }
 
         function toggleTrackRetryBackoff() {
@@ -2058,9 +2228,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
 
         function updateSaveLyricsBtn(enabled) {
             const btn = document.getElementById('saveLyricsBtn');
-            btn.dataset.enabled = enabled ? '1' : '0';
-            btn.innerText = enabled ? '✓ Lyrics ON' : 'Lyrics OFF';
-            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+            setToggleBtn(btn, enabled, '✓ Lyrics ON', 'Lyrics OFF');
         }
 
         function toggleSaveLyrics() {
@@ -2071,27 +2239,40 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
 
         function updateDownloadClientBtn(enabled) {
             const btn = document.getElementById('downloadClientBtn');
-            btn.innerText = enabled ? '✓ Download Client ON' : 'Download Client OFF';
-            btn.className = enabled ? 'toggle-btn active' : 'toggle-btn';
+            setToggleBtn(btn, enabled, '✓ Download Client ON', 'Download Client OFF');
         }
 
         async function toggleDownloadClient() {
-            const res = await fetch('/api/download-client/toggle', { method: 'POST' });
-            const data = await res.json();
-            updateDownloadClientBtn(data.enabled);
-            if (data.api_key) {
-                document.getElementById('downloadClientApiKey').value = data.api_key;
-            }
+            await postToggle('downloadClientBtn', '/api/download-client/toggle', (enabled, data) => {
+                updateDownloadClientBtn(enabled);
+                if (data.api_key) {
+                    document.getElementById('downloadClientApiKey').value = data.api_key;
+                }
+            });
         }
 
         async function generateDownloadClientKey() {
-            const res = await fetch('/api/download-client/generate-key', { method: 'POST' });
-            const data = await res.json();
-            if (data.success) {
-                document.getElementById('downloadClientApiKey').value = data.api_key;
-                showToast('success', 'API Key Generated', 'Save settings, then use this key in Lidarr.');
-            } else {
-                showToast('error', 'Error', data.message || 'Could not generate key');
+            const btn = document.getElementById('downloadClientKeyBtn');
+            if (btn && btn.disabled) return;
+            const hasKey = !!(document.getElementById('downloadClientApiKey').value || '').trim();
+            if (hasKey && !confirm('Generate a new API key?\n\nThe current key stops working immediately. Lidarr\'s Newznab indexer and SABnzbd download client will fail until you paste the new key into both.')) {
+                return;
+            }
+            if (btn) btn.disabled = true;
+            try {
+                const res = await fetch('/api/download-client/generate-key', { method: 'POST' });
+                let data = {};
+                try { data = await res.json(); } catch (_) {}
+                if (res.ok && data.success && data.api_key) {
+                    document.getElementById('downloadClientApiKey').value = data.api_key;
+                    showToast('success', 'New API key is active', 'New key is active now \u2014 update it in Lidarr (Newznab indexer and SABnzbd download client).', 8000);
+                } else {
+                    showToast('error', 'Key not generated', data.message || ('The server returned HTTP ' + res.status + '.'));
+                }
+            } catch (e) {
+                showToast('error', 'Key not generated', 'Network error \u2014 the existing key is unchanged.');
+            } finally {
+                if (btn) btn.disabled = false;
             }
         }
 
@@ -2332,7 +2513,24 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             event.target.value = '';
         }
 
+        let _savingConfig = false;
+
+        function setSaveButtonsBusy(busy) {
+            ['floatingSaveBtn', 'saveAllBtn'].forEach((id) => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                btn.disabled = busy;
+                if (busy) btn.setAttribute('aria-busy', 'true');
+                else btn.removeAttribute('aria-busy');
+            });
+        }
+
         async function saveConfig() {
+            if (_savingConfig) return;
+            if (!_configLoaded) {
+                showToast('error', 'Settings not saved', 'The current settings could not be loaded, so saving is disabled to avoid overwriting them. Reload the page and try again.');
+                return;
+            }
             const selectedLogTypes = [];
 
             ['download_started', 'album_error'].forEach(type => {
@@ -2352,10 +2550,14 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 selectedLogTypes.push('import_partial');
             }
 
-            const dPath = document.getElementById('downloadPath').value.trim().replace(/\\/g, '/').toLowerCase();
-            const lPath = document.getElementById('lidarrPath').value.trim().replace(/\\/g, '/').toLowerCase();
+            const rawDownloadPath = document.getElementById('downloadPath').value.trim();
+            const rawLidarrPath = document.getElementById('lidarrPath').value.trim();
+            const pathsChanged = rawDownloadPath !== _loadedPaths.download
+                || rawLidarrPath !== _loadedPaths.lidarr;
+            const dPath = rawDownloadPath.replace(/\\/g, '/').toLowerCase();
+            const lPath = rawLidarrPath.replace(/\\/g, '/').toLowerCase();
 
-            if (dPath && lPath && dPath === lPath) {
+            if (pathsChanged && dPath && lPath && dPath === lPath) {
                 if (!confirm("⚠️ WARNING: Download Path and Lidarr Path are identical.\n\nThis will disable the auto-cleanup feature to prevent file deletion. Are you sure you want to proceed?")) {
                     return;
                 }
@@ -2395,56 +2597,75 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 ntfySelectedLogTypes.push('import_partial');
             }
 
-            await fetch('/api/config', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    scheduler_interval: document.getElementById('interval').value,
-                    scheduler_max_albums: parseInt(document.getElementById('schedulerMaxAlbums').value) || 0,
-                    scheduler_retry_after_hours: parseFloat(document.getElementById('schedulerRetryAfterHours').value) || 0,
-                    track_retry_backoff: document.getElementById('trackRetryBackoffBtn').dataset.enabled === '1',
-                    max_track_retries: parseInt(document.getElementById('maxTrackRetries').value, 10) || 0,
-                    telegram_bot_token: document.getElementById('botToken').value,
-                    telegram_chat_id: document.getElementById('chatId').value,
-                    telegram_enabled: !!document.getElementById('botToken').value,
-                    telegram_log_types: selectedLogTypes,
-                    discord_webhook_url: document.getElementById('discordWebhook').value,
-                    discord_enabled: !!document.getElementById('discordWebhook').value,
-                    discord_log_types: discordSelectedLogTypes,
-                    ntfy_topic: document.getElementById('ntfyTopic').value,
-                    ntfy_url: document.getElementById('ntfyUrl').value,
-                    ntfy_token: document.getElementById('ntfyToken').value,
-                    ntfy_priority: document.getElementById('ntfyPriority').value,
-                    ntfy_enabled: !!document.getElementById('ntfyTopic').value,
-                    ntfy_log_types: ntfySelectedLogTypes,
-                    download_path: document.getElementById('downloadPath').value,
-                    lidarr_path: document.getElementById('lidarrPath').value,
-                    forbidden_words: forbiddenWords,
-                    forbidden_words_custom: getCustomForbiddenWords(),
-                    duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10,
-                    min_match_score: parseFloat(document.getElementById('minMatchScore').value) || 0.8,
-                    concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
-                    search_artist_source: document.getElementById('searchArtistSource').value || 'album',
-                    audio_format: document.getElementById('audioFormatSelect').value || 'mp3',
-                    audio_quality: document.getElementById('audioQualitySelect').value || '320',
-                    ytdlp_format: (document.getElementById('ytdlpFormat').value || '').trim(),
-                    audio_normalize: document.getElementById('audioNormalizeBtn').dataset.enabled === '1',
-                    playlist_to_library: document.getElementById('playlistToLibraryBtn').dataset.enabled === '1',
-                    apply_replaygain: document.getElementById('replayGainBtn').dataset.enabled === '1',
-                    save_lyrics: document.getElementById('saveLyricsBtn').dataset.enabled === '1',
-                    yt_po_token: (document.getElementById('ytPoToken').value || '').trim(),
-                    yt_pot_provider_url: (document.getElementById('ytPotProviderUrl').value || '').trim(),
-                    yt_cookies_file: (document.getElementById('ytCookiesFile').value || '').trim(),
-                    acoustid_api_key: document.getElementById('acoustidApiKey').value,
-                    download_client_api_key: (document.getElementById('downloadClientApiKey').value || '').trim(),
-                    download_client_category: (document.getElementById('downloadClientCategory').value || 'music').trim(),
-                    download_client_concurrent_albums: parseInt(document.getElementById('downloadClientConcurrentAlbums').value) || 1
-                })
-            });
-            clearSettingsDirty();
-            showToast('success', 'Configuration Saved!', 'Changes to Download Path and Lidarr Path require an application restart.');
+            const payload = {
+                scheduler_interval: document.getElementById('interval').value,
+                scheduler_max_albums: parseInt(document.getElementById('schedulerMaxAlbums').value) || 0,
+                scheduler_retry_after_hours: parseFloat(document.getElementById('schedulerRetryAfterHours').value) || 0,
+                track_retry_backoff: document.getElementById('trackRetryBackoffBtn').dataset.enabled === '1',
+                max_track_retries: parseInt(document.getElementById('maxTrackRetries').value, 10) || 0,
+                telegram_bot_token: document.getElementById('botToken').value,
+                telegram_chat_id: document.getElementById('chatId').value,
+                telegram_enabled: !!document.getElementById('botToken').value,
+                telegram_log_types: selectedLogTypes,
+                discord_webhook_url: document.getElementById('discordWebhook').value,
+                discord_enabled: !!document.getElementById('discordWebhook').value,
+                discord_log_types: discordSelectedLogTypes,
+                ntfy_topic: document.getElementById('ntfyTopic').value,
+                ntfy_url: document.getElementById('ntfyUrl').value,
+                ntfy_token: document.getElementById('ntfyToken').value,
+                ntfy_priority: document.getElementById('ntfyPriority').value,
+                ntfy_enabled: !!document.getElementById('ntfyTopic').value,
+                ntfy_log_types: ntfySelectedLogTypes,
+                download_path: document.getElementById('downloadPath').value,
+                lidarr_path: document.getElementById('lidarrPath').value,
+                forbidden_words: forbiddenWords,
+                forbidden_words_custom: getCustomForbiddenWords(),
+                duration_tolerance: parseInt(document.getElementById('durationTolerance').value) || 10,
+                min_match_score: parseFloat(document.getElementById('minMatchScore').value) || 0.8,
+                concurrent_tracks: parseInt(document.getElementById('concurrentTracks').value) || 2,
+                search_artist_source: document.getElementById('searchArtistSource').value || 'album',
+                audio_format: document.getElementById('audioFormatSelect').value || 'mp3',
+                audio_quality: document.getElementById('audioQualitySelect').value || '320',
+                ytdlp_format: (document.getElementById('ytdlpFormat').value || '').trim(),
+                audio_normalize: document.getElementById('audioNormalizeBtn').dataset.enabled === '1',
+                playlist_to_library: document.getElementById('playlistToLibraryBtn').dataset.enabled === '1',
+                apply_replaygain: document.getElementById('replayGainBtn').dataset.enabled === '1',
+                save_lyrics: document.getElementById('saveLyricsBtn').dataset.enabled === '1',
+                yt_po_token: (document.getElementById('ytPoToken').value || '').trim(),
+                yt_pot_provider_url: (document.getElementById('ytPotProviderUrl').value || '').trim(),
+                yt_cookies_file: (document.getElementById('ytCookiesFile').value || '').trim(),
+                acoustid_api_key: document.getElementById('acoustidApiKey').value,
+                download_client_api_key: (document.getElementById('downloadClientApiKey').value || '').trim(),
+                download_client_category: (document.getElementById('downloadClientCategory').value || 'music').trim(),
+                download_client_concurrent_albums: parseInt(document.getElementById('downloadClientConcurrentAlbums').value) || 1
+            };
+
+            _savingConfig = true;
+            setSaveButtonsBusy(true);
+            try {
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                let data = {};
+                try { data = await res.json(); } catch (_) {}
+                if (!res.ok || data.success === false) {
+                    showToast('error', 'Settings not saved', data.message || ('The server returned HTTP ' + res.status + '.'), 8000);
+                    return;
+                }
+                _loadedPaths = { download: rawDownloadPath, lidarr: rawLidarrPath };
+                _savedAudioFormat = payload.audio_format;
+                clearSettingsDirty();
+                showToast('success', 'Configuration Saved!', pathsChanged
+                    ? 'Restart the application for the path changes to take full effect.'
+                    : 'Your settings have been saved.');
+            } catch (e) {
+                showToast('error', 'Settings not saved', 'Network error \u2014 your changes are still on this page. Try again.');
+            } finally {
+                _savingConfig = false;
+                setSaveButtonsBusy(false);
+            }
         }
 
         async function updateQueueBadge() {
@@ -2491,6 +2712,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             btn.type = 'button';
             btn.innerHTML = '&times;';
             btn.title = 'Remove';
+            btn.setAttribute('aria-label', 'Remove forbidden word "' + word + '"');
             btn.onclick = () => {
                 chip.remove();
                 markSettingsDirty();
@@ -2535,15 +2757,19 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             'ytdlpFormatTestUrl',
         ]);
 
+        const IMMEDIATE_SAVE_INPUT_IDS = new Set([
+            'audioFormatSelect',
+            'cookiesUploadInput',
+            'configFileInput',
+            'backupFileInput',
+        ]);
+
         function installDirtyListeners() {
             const root = document.querySelector('.container') || document.body;
-            // Inputs, selects, checkboxes — anything the user can change
-            // and that requires the explicit "Save All Settings" action.
-            // Toggle buttons (.toggle-btn) persist immediately via their
-            // own POST and don't need to mark the form dirty.
             const ignore = (e) => (
                 e.target.closest('.toggle-btn')
                 || NON_SETTING_INPUT_IDS.has(e.target.id)
+                || IMMEDIATE_SAVE_INPUT_IDS.has(e.target.id)
             );
             root.addEventListener('input', (e) => {
                 if (ignore(e)) return;
@@ -2555,20 +2781,39 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             });
         }
 
-        function saveAudioFormat(val) {
-            fetch('/api/config', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({audio_format: val})
-            });
+        async function saveAudioFormat(val) {
+            const select = document.getElementById('audioFormatSelect');
+            const previous = _savedAudioFormat;
+            select.disabled = true;
+            try {
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({audio_format: val})
+                });
+                let data = {};
+                try { data = await res.json(); } catch (_) {}
+                if (!res.ok || data.success === false) {
+                    throw new Error(data.message || ('The server returned HTTP ' + res.status + '.'));
+                }
+                _savedAudioFormat = val;
+                showToast('success', 'Audio format saved', 'New downloads will use ' + select.options[select.selectedIndex].text + '.');
+                checkFfmpeg(false);
+            } catch (e) {
+                if (previous) select.value = previous;
+                const msg = e instanceof TypeError ? 'Network error.' : e.message;
+                showToast('error', 'Audio format not changed', msg);
+            } finally {
+                select.disabled = false;
+            }
         }
 
         function setCookiesStatus(text, kind) {
             const el = document.getElementById('cookiesStatus');
             if (!el) return;
             const palette = {
-                ok: 'var(--primary)',
-                err: '#ef4444',
+                ok: 'var(--success-text)',
+                err: 'var(--danger-text)',
                 info: 'var(--muted)'
             };
             el.style.color = palette[kind] || palette.info;
@@ -2612,7 +2857,6 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 }
                 const ytCookiesInput = document.getElementById('ytCookiesFile');
                 if (ytCookiesInput) ytCookiesInput.value = j.path;
-                clearSettingsDirty();
                 setCookiesStatus(`Saved to ${j.path}. Testing...`, 'info');
                 await testCookies();
             } catch (e) {
