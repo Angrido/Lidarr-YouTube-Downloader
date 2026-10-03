@@ -11,7 +11,7 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#09090b">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Lidarr YT">
     <link rel="apple-touch-icon" href="/static/favicon.svg">
     <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
@@ -29,6 +29,7 @@
             --danger: #ef4444;
             --warning: #f59e0b;
             --accent: #0891b2;
+            --track: #27272a;
             --border: #27272a;
             --border-glass: rgba(255, 255, 255, 0.1);
             --radius: 16px;
@@ -43,7 +44,12 @@
             --surface-glass: rgba(255, 255, 255, 0.7);
             --surface-hover: #f4f4f5;
             --text: #18181b;
-            --text-dim: #71717a;
+            --text-dim: #52525b;
+            --primary: #047857;
+            --primary-hover: #065f46;
+            --danger: #b91c1c;
+            --warning: #b45309;
+            --track: #d4d4d8;
             --border: #e4e4e7;
             --border-glass: rgba(0, 0, 0, 0.1);
             --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
@@ -347,16 +353,17 @@
         }
 
         .chart-svg {
-            width: 100%;
-            height: auto;
             display: block;
+            max-width: 100%;
         }
+
+        .daily-chart { width: 100%; min-height: 200px; }
 
         /* SVG element theming */
         .bar-success { fill: var(--primary); transition: opacity 0.15s ease; }
         .bar-failed { fill: var(--danger); transition: opacity 0.15s ease; }
         .bar-success:hover, .bar-failed:hover { opacity: 0.75; }
-        .axis-text { fill: var(--text-dim); font-size: 11px; font-family: inherit; }
+        .axis-text { fill: var(--text-dim); font-size: 11px; font-family: inherit; font-variant-numeric: tabular-nums; }
         .grid-line { stroke: var(--border-glass); stroke-width: 1; }
 
         .legend {
@@ -385,7 +392,7 @@
             text-overflow: ellipsis;
         }
         .hbar-track {
-            background: var(--surface-hover);
+            background: var(--track);
             border-radius: 6px;
             height: 12px;
             overflow: hidden;
@@ -415,7 +422,7 @@
             flex-wrap: wrap;
         }
         .donut-center-value {
-            font-size: 1.9rem;
+            font-size: 26px;
             font-weight: 800;
             fill: var(--text);
         }
@@ -438,6 +445,9 @@
             padding: 3rem 1rem;
             color: var(--text-dim);
         }
+
+        body.light .page-title,
+        body.light .logo { background-image: linear-gradient(135deg, var(--primary), var(--primary-hover)); }
 
         @media (max-width: 900px) {
             .chart-grid { grid-template-columns: 1fr; }
@@ -462,6 +472,15 @@
             .container { padding: 1rem; }
             .page-title { font-size: 1.5rem; }
         }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
     </style>
 </head>
 
@@ -485,7 +504,7 @@
                 <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
             </div>
             <div class="controls">
-                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle light/dark theme">
                     <i class="fas fa-moon" id="theme-icon"></i>
                 </button>
             </div>
@@ -529,8 +548,14 @@
                     icon.classList.add('fa-moon');
                     localStorage.setItem('theme', 'dark');
                 }
+                syncThemeColor();
             }, 250);
             setTimeout(() => toggle.classList.remove('spin'), 500);
+        }
+
+        function syncThemeColor() {
+            const meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute('content', document.body.classList.contains('light') ? '#f4f4f5' : '#09090b');
         }
 
         if (localStorage.getItem('theme') === 'light') {
@@ -538,6 +563,7 @@
             document.getElementById('theme-icon').classList.remove('fa-moon');
             document.getElementById('theme-icon').classList.add('fa-sun');
         }
+        syncThemeColor();
 
         function escapeHtml(str) {
             return String(str == null ? '' : str)
@@ -591,27 +617,52 @@
                 ${statCard('fa-triangle-exclamation', fmtInt(t.failed), 'Failed', 'var(--danger)')}
                 ${statCard('fa-compact-disc', fmtInt(t.distinct_albums), 'Albums', 'var(--accent)')}
                 ${statCard('fa-user', fmtInt(t.distinct_artists), 'Artists', 'var(--accent)')}
-                ${statCard('fa-clock', fmtDuration(t.total_duration_seconds), 'Listening time', 'var(--warning)')}
+                ${statCard('fa-clock', fmtDuration(t.total_duration_seconds), 'Downloaded audio', 'var(--warning)')}
             </div>`;
         }
 
         // Stacked daily bar chart (success + failed per day).
+        let dailyData = null;
+        let dailyWidth = 0;
+
+        function niceScale(max, maxTicks) {
+            const raw = Math.max(1, max) / maxTicks;
+            const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+            const norm = raw / mag;
+            const mults = mag >= 10 ? [1, 2, 2.5, 5, 10] : [1, 2, 5, 10];
+            const step = Math.max(1, mults.find(m => norm <= m) * mag);
+            return { top: Math.max(step, Math.ceil(Math.max(1, max) / step) * step), step };
+        }
+
         function buildDailyChart(daily) {
-            const W = 720, H = 260, pl = 36, pr = 12, pt = 14, pb = 26;
+            dailyData = daily;
+            return `<div class="daily-chart" id="dailyChart"></div>
+                    <div class="legend">
+                        <span class="legend-item"><span class="legend-dot" style="background:var(--primary)"></span>Downloaded</span>
+                        <span class="legend-item"><span class="legend-dot" style="background:var(--danger)"></span>Failed</span>
+                    </div>`;
+        }
+
+        function drawDailyChart() {
+            const el = document.getElementById('dailyChart');
+            if (!el || !dailyData || !dailyData.length) return;
+            const W = Math.max(240, Math.floor(el.clientWidth));
+            if (W === dailyWidth && el.firstChild) return;
+            dailyWidth = W;
+            const daily = dailyData;
+            const H = W < 520 ? 200 : 260, pl = 40, pr = 12, pt = 14, pb = 26;
             const plotW = W - pl - pr, plotH = H - pt - pb;
             const n = daily.length;
-            const maxTotal = Math.max(1, ...daily.map(d => d.success + d.failed));
+            const scale = niceScale(Math.max(...daily.map(d => d.success + d.failed)), H < 260 ? 4 : 5);
+            const maxTotal = scale.top;
             const slot = plotW / n;
-            const barW = Math.max(2, Math.min(26, slot * 0.62));
+            const barW = Math.max(2, Math.min(24, slot * 0.62));
 
-            // Y gridlines at 0, 50%, 100% of max.
             let grid = '';
-            for (let g = 0; g <= 2; g++) {
-                const frac = g / 2;
-                const y = pt + plotH - frac * plotH;
-                const val = Math.round(maxTotal * frac);
-                grid += `<line x1="${pl}" y1="${y}" x2="${W - pr}" y2="${y}" class="grid-line" ${g === 0 ? '' : 'stroke-dasharray="3 4"'}/>`;
-                grid += `<text x="${pl - 6}" y="${y + 3}" text-anchor="end" class="axis-text">${val}</text>`;
+            for (let val = 0; val <= maxTotal; val += scale.step) {
+                const y = pt + plotH - (val / maxTotal) * plotH;
+                grid += `<line x1="${pl}" y1="${y.toFixed(1)}" x2="${W - pr}" y2="${y.toFixed(1)}" class="grid-line"/>`;
+                grid += `<text x="${pl - 6}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="axis-text">${val.toLocaleString()}</text>`;
             }
 
             let bars = '';
@@ -621,27 +672,37 @@
                 const fH = (d.failed / maxTotal) * plotH;
                 const yS = pt + plotH - sH;
                 const yF = yS - fH;
-                if (sH > 0) bars += `<rect x="${x.toFixed(1)}" y="${yS.toFixed(1)}" width="${barW.toFixed(1)}" height="${sH.toFixed(1)}" rx="1.5" class="bar-success"><title>${d.date}: ${d.success} downloaded</title></rect>`;
-                if (fH > 0) bars += `<rect x="${x.toFixed(1)}" y="${yF.toFixed(1)}" width="${barW.toFixed(1)}" height="${fH.toFixed(1)}" rx="1.5" class="bar-failed"><title>${d.date}: ${d.failed} failed</title></rect>`;
+                if (sH > 0) bars += `<rect x="${x.toFixed(1)}" y="${yS.toFixed(1)}" width="${barW.toFixed(1)}" height="${sH.toFixed(1)}" rx="1.5" class="bar-success"><title>${escapeHtml(d.date)}: ${d.success} downloaded</title></rect>`;
+                if (fH > 0) bars += `<rect x="${x.toFixed(1)}" y="${yF.toFixed(1)}" width="${barW.toFixed(1)}" height="${fH.toFixed(1)}" rx="1.5" class="bar-failed"><title>${escapeHtml(d.date)}: ${d.failed} failed</title></rect>`;
             });
 
-            // X labels: first, middle, last.
             let xlabels = '';
             const idxs = n <= 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
             [...new Set(idxs)].forEach(i => {
                 const x = pl + i * slot + slot / 2;
-                const short = daily[i].date.slice(5); // MM-DD
-                const anchor = i === 0 ? 'start' : (i === n - 1 ? 'end' : 'middle');
-                xlabels += `<text x="${x.toFixed(1)}" y="${H - 8}" text-anchor="${anchor}" class="axis-text">${short}</text>`;
+                const short = String(daily[i].date).slice(5);
+                const anchor = n > 1 && i === 0 ? 'start' : (n > 1 && i === n - 1 ? 'end' : 'middle');
+                const lx = anchor === 'start' ? Math.max(x - slot / 2, pl) : (anchor === 'end' ? Math.min(x + slot / 2, W - pr) : x);
+                xlabels += `<text x="${lx.toFixed(1)}" y="${H - 8}" text-anchor="${anchor}" class="axis-text">${escapeHtml(short)}</text>`;
             });
 
-            return `<svg viewBox="0 0 ${W} ${H}" class="chart-svg" role="img" aria-label="Downloads over time">
+            el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="chart-svg" role="img" aria-label="Downloads over time">
                         ${grid}${bars}${xlabels}
-                    </svg>
-                    <div class="legend">
-                        <span class="legend-item"><span class="legend-dot" style="background:var(--primary)"></span>Downloaded</span>
-                        <span class="legend-item"><span class="legend-dot" style="background:var(--danger)"></span>Failed</span>
-                    </div>`;
+                    </svg>`;
+        }
+
+        let resizeTimer = null;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(drawDailyChart, 100);
+        });
+
+        function fitDonutValue() {
+            const el = document.querySelector('.donut-center-value');
+            if (!el || !el.getComputedTextLength) return;
+            const maxW = 92;
+            const w = el.getComputedTextLength();
+            if (w > maxW) el.style.fontSize = Math.floor(26 * maxW / w) + 'px';
         }
 
         // Success-rate donut.
@@ -652,14 +713,14 @@
             const dash = circ * rate;
             return `<div class="donut-wrap">
                     <svg viewBox="0 0 ${size} ${size}" style="width:150px;height:150px;flex-shrink:0" role="img" aria-label="Success rate ${t.success_rate}%">
-                        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--surface-hover)" stroke-width="${sw}"/>
+                        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--track)" stroke-width="${sw}"/>
                         <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--primary)" stroke-width="${sw}"
                             stroke-linecap="round" stroke-dasharray="${dash.toFixed(1)} ${(circ - dash).toFixed(1)}"
                             transform="rotate(-90 ${cx} ${cy})"/>
-                        <text x="${cx}" y="${cy - 2}" text-anchor="middle" class="donut-center-value">${t.success_rate}%</text>
-                        <text x="${cx}" y="${cy + 16}" text-anchor="middle" class="donut-center-label">success</text>
+                        <text x="${cx}" y="${cy + 2}" text-anchor="middle" class="donut-center-value">${t.success_rate}%</text>
+                        <text x="${cx}" y="${cy + 20}" text-anchor="middle" class="donut-center-label">success</text>
                     </svg>
-                    <div style="flex:1;min-width:130px">
+                    <div style="flex:1;min-width:150px">
                         <div class="hbar-row" style="grid-template-columns:1fr auto">
                             <span class="hbar-label"><i class="fas fa-circle" style="color:var(--primary);font-size:0.6rem"></i> Downloaded</span>
                             <span class="hbar-value">${fmtInt(t.successful)}</span>
@@ -727,6 +788,9 @@
                         ${buildHBars(data.top_artists, 'artist', 'count', false)}
                     </div>
                 </div>`;
+            dailyWidth = 0;
+            drawDailyChart();
+            fitDonutValue();
             // Animate horizontal bars in from their rendered 0 width.
             requestAnimationFrame(() => {
                 document.querySelectorAll('.hbar-fill').forEach(el => {
@@ -753,6 +817,8 @@
         }
 
         updateQueueBadge();
+        setInterval(() => { if (!document.hidden) updateQueueBadge(); }, 5000);
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) updateQueueBadge(); });
         loadInsights();
     </script>
 </body>

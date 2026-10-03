@@ -10,7 +10,7 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#09090b">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Lidarr YT">
     <link rel="apple-touch-icon" href="/static/favicon.svg">
     <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
@@ -41,7 +41,11 @@
             --surface-glass: rgba(255, 255, 255, 0.7);
             --surface-hover: #f4f4f5;
             --text: #18181b;
-            --text-dim: #71717a;
+            --text-dim: #52525b;
+            --primary: #047857;
+            --primary-hover: #065f46;
+            --danger: #b91c1c;
+            --warning: #b45309;
             --border: #e4e4e7;
             --border-glass: rgba(0, 0, 0, 0.1);
             --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
@@ -331,6 +335,8 @@
         .alert-error { background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); }
         .alert-success { background: rgba(16, 185, 129, 0.1); color: var(--primary); border: 1px solid rgba(16, 185, 129, 0.2); }
         .alert-info { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.2); }
+        body.light .alert-error { color: var(--danger); }
+        body.light .alert-info { color: #1d4ed8; }
         .hidden { display: none !important; }
 
         .playlist-info-bar {
@@ -383,6 +389,8 @@
 
         .playlist-badge.playlist { background: rgba(255,0,0,0.12); color: #ff4444; }
         .playlist-badge.video { background: rgba(59,130,246,0.12); color: #60a5fa; }
+        body.light .playlist-badge.playlist { color: #b91c1c; }
+        body.light .playlist-badge.video { color: #1d4ed8; }
 
         .fields-row {
             display: grid;
@@ -537,7 +545,14 @@
             display: flex;
             align-items: center;
             gap: 0.4rem;
+            min-width: 0;
+            max-width: 100%;
+            overflow-wrap: anywhere;
         }
+
+        #pathStructureHint { min-width: 0; overflow-wrap: anywhere; }
+        #pathStructureText, #downloadPathHintText { min-width: 0; }
+        #pathStructureHint i, .path-hint i { flex-shrink: 0; }
 
         .progress-bar-wrap {
             background: var(--surface);
@@ -573,7 +588,7 @@
 
         .recent-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
             gap: 0.75rem;
             margin-top: 0.5rem;
         }
@@ -675,6 +690,7 @@
 
         .tp-icon.pending { background: var(--border); color: var(--text-dim); }
         .tp-icon.searching, .tp-icon.downloading { background: rgba(59,130,246,0.15); color: #60a5fa; }
+        body.light .tp-icon.searching, body.light .tp-icon.downloading { color: #1d4ed8; }
         .tp-icon.tagging, .tp-icon.verifying, .tp-icon.fingerprinting { background: rgba(245,158,11,0.15); color: var(--warning); }
         .tp-icon.done { background: rgba(16,185,129,0.15); color: var(--primary); }
         .tp-icon.failed { background: rgba(239,68,68,0.15); color: var(--danger); }
@@ -709,16 +725,38 @@
 
         .footer-github:hover { color: var(--text); }
 
+        body.light .logo,
+        body.light .section-title { background-image: linear-gradient(135deg, var(--primary), var(--primary-hover)); }
+
         @media (max-width: 768px) {
-            .nav-container { padding: 0 1rem; }
+            .nav-container {
+                height: auto;
+                flex-wrap: wrap;
+                padding: 0.75rem 1rem;
+                gap: 0.5rem;
+            }
+            .logo { font-size: 1rem; }
+            .nav-links {
+                width: 100%;
+                justify-content: center;
+                flex-wrap: wrap;
+                gap: 0.15rem;
+                order: 3;
+            }
+            .nav-links a { padding: 0.35rem 0.7rem; font-size: 0.8rem; }
             .container { padding: 1rem; }
             .fields-row { grid-template-columns: 1fr; }
             .url-row { flex-direction: column; }
             .download-footer { flex-direction: column; align-items: flex-start; }
         }
 
-        @media (max-width: 600px) {
-            .nav-links a span { display: none; }
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
         }
     </style>
 </head>
@@ -742,7 +780,7 @@
             <a href="/settings"><i class="fas fa-cog"></i> <span>Settings</span></a>
         </div>
         <div class="controls">
-            <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
+            <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle light/dark theme">
                 <i class="fa-solid fa-moon" id="themeIcon"></i>
             </button>
         </div>
@@ -751,7 +789,7 @@
 
 <div class="container">
 
-    <div id="alertBox" class="alert hidden"></div>
+    <div id="alertBox" class="alert hidden" role="status" aria-live="polite"></div>
 
     <div class="section">
         <div class="section-title">
@@ -801,11 +839,11 @@
 
         <div class="fields-row">
             <div class="field-group">
-                <label class="field-label" id="artistLabel" for="artistInput">Artist Name <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
+                <label class="field-label" id="artistLabel" for="artistInput"><span id="artistLabelText">Artist Name</span> <span style="font-weight:400;opacity:0.6;">(at least one required)</span></label>
                 <input type="text" id="artistInput" class="field-input" placeholder="e.g. Daft Punk" oninput="updatePathHint()">
             </div>
             <div class="field-group">
-                <label class="field-label" for="albumInput">Album / Collection Title <span style="font-weight:400;opacity:0.6;">(optional)</span></label>
+                <label class="field-label" for="albumInput">Album / Collection Title <span style="font-weight:400;opacity:0.6;">(at least one required)</span></label>
                 <input type="text" id="albumInput" class="field-input" placeholder="e.g. Random Access Memories" oninput="updatePathHint()">
             </div>
         </div>
@@ -846,7 +884,7 @@
         </div>
         <div class="progress-header-row">
             <div class="progress-label" id="progLabel">Downloading...</div>
-            <button class="btn btn-danger btn-sm" onclick="stopDownload()">
+            <button class="btn btn-danger btn-sm" id="stopBtn" onclick="stopDownload()">
                 <i class="fas fa-stop"></i> Stop
             </button>
         </div>
@@ -860,7 +898,7 @@
 
 <footer>
     <div>Made with love ❤️ • {{ APP_VERSION }}</div>
-    <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
+    <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github" aria-label="GitHub repository" title="GitHub repository"><i class="fa-brands fa-github"></i></a>
 </footer>
 
 <script>
@@ -868,6 +906,15 @@
     let fetchedThumbnail = '';
     let fetchedSourceUrl = '';
     let sseSource = null;
+    let sseErrors = 0;
+    let statusPollTimer = null;
+    let statusPollErrors = 0;
+    let alertTimer = null;
+    const fieldsEdited = { artist: false, album: false };
+
+    function scrollBehavior() {
+        return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
+    }
 
     function escapeHtml(str) {
         if (!str) return '';
@@ -920,8 +967,14 @@
             const isLight = document.body.classList.contains('light');
             localStorage.setItem('theme', isLight ? 'light' : 'dark');
             document.getElementById('themeIcon').className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+            syncThemeColor();
         }, 250);
         setTimeout(() => toggle.classList.remove('spin'), 500);
+    }
+
+    function syncThemeColor() {
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', document.body.classList.contains('light') ? '#f4f4f5' : '#09090b');
     }
 
     (function initTheme() {
@@ -929,14 +982,23 @@
             document.body.classList.add('light');
             document.getElementById('themeIcon').className = 'fa-solid fa-sun';
         }
+        syncThemeColor();
     })();
 
     function showAlert(msg, type) {
         const box = document.getElementById('alertBox');
         const icons = { error: 'fa-circle-xmark', success: 'fa-circle-check', info: 'fa-circle-info' };
+        clearTimeout(alertTimer);
+        alertTimer = null;
         box.className = 'alert alert-' + type;
         box.innerHTML = '<i class="fas ' + (icons[type] || icons.info) + '"></i> ' + escapeHtml(msg);
-        if (type !== 'error') setTimeout(() => box.classList.add('hidden'), 6000);
+        if (type !== 'error') alertTimer = setTimeout(() => box.classList.add('hidden'), 6000);
+    }
+
+    function hideAlert() {
+        clearTimeout(alertTimer);
+        alertTimer = null;
+        document.getElementById('alertBox').classList.add('hidden');
     }
 
     function cleanArtistName(channel) {
@@ -1023,7 +1085,7 @@
         if (!url) { showAlert('Please enter a YouTube URL.', 'error'); return; }
         fetchedSourceUrl = url;
 
-        document.getElementById('alertBox').classList.add('hidden');
+        hideAlert();
         const btn = document.getElementById('fetchBtn');
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-circle-notch spin-anim"></i> Fetching...';
@@ -1067,20 +1129,24 @@
 
             const channels = new Set(entries.map(e => e.channel || '').filter(Boolean));
             const isMixed = channels.size > 1;
-            const artistLabel = document.getElementById('artistLabel');
+            const artistLabelText = document.getElementById('artistLabelText');
             const artistInput = document.getElementById('artistInput');
             const albumInput = document.getElementById('albumInput');
+            const useArtist = !fieldsEdited.artist || !artistInput.value.trim();
+            const useAlbum = !fieldsEdited.album || !albumInput.value.trim();
 
             if (isMixed) {
-                artistLabel.textContent = 'Playlist Name';
-                if (!artistInput.value) artistInput.value = data.title || '';
-                if (!albumInput.value) albumInput.value = data.title || '';
+                artistLabelText.textContent = 'Playlist Name';
+                if (useArtist) artistInput.value = data.title || '';
+                if (useAlbum) albumInput.value = '';
             } else {
-                artistLabel.textContent = 'Artist Name';
+                artistLabelText.textContent = 'Artist Name';
                 const rawChannel = data.channel || (channels.size === 1 ? [...channels][0] : '');
-                if (!artistInput.value) artistInput.value = cleanArtistName(rawChannel);
-                if (!albumInput.value) albumInput.value = data.title || '';
+                if (useArtist) artistInput.value = cleanArtistName(rawChannel);
+                if (useAlbum) albumInput.value = data.title || '';
             }
+            if (useArtist) fieldsEdited.artist = false;
+            if (useAlbum) fieldsEdited.album = false;
 
             document.getElementById('tracksCountLabel').textContent =
                 entries.length + ' track' + (entries.length !== 1 ? 's' : '');
@@ -1121,7 +1187,11 @@
     async function startDownload() {
         const artist = document.getElementById('artistInput').value.trim();
         const album = document.getElementById('albumInput').value.trim();
-        if (!artist && !album) { showAlert('Fill in at least Artist Name or Album Title.', 'error'); return; }
+        if (!artist && !album) {
+            const first = document.getElementById('artistLabelText').textContent;
+            showAlert('Fill in ' + first + ' or Album / Collection Title (at least one is required).', 'error');
+            return;
+        }
 
         const cbs = document.querySelectorAll('.track-cb');
         const selected = Array.from(cbs)
@@ -1130,7 +1200,7 @@
 
         if (!selected.length) { showAlert('Select at least one track.', 'error'); return; }
 
-        document.getElementById('alertBox').classList.add('hidden');
+        hideAlert();
         const btn = document.getElementById('downloadBtn');
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-circle-notch spin-anim"></i> Starting...';
@@ -1158,7 +1228,7 @@
 
             initProgressPanel(selected);
             document.getElementById('progressSection').classList.remove('hidden');
-            document.getElementById('progressSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            document.getElementById('progressSection').scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
             startSSE();
             showAlert(data.message, 'success');
 
@@ -1185,6 +1255,7 @@
         });
         document.getElementById('progBar').style.width = '0%';
         document.getElementById('progLabel').textContent = 'Downloading...';
+        resetStopButton();
         const sicon = document.getElementById('progSectionIcon');
         sicon.className = 'fas fa-circle-notch spin-anim prog-section-icon';
         sicon.style.cssText = '-webkit-text-fill-color: var(--primary); background: none;';
@@ -1202,76 +1273,155 @@
         skipped: '<i class="fas fa-forward"></i>',
     };
 
-    function startSSE() {
-        if (sseSource) sseSource.close();
-        sseSource = new EventSource('/api/download/stream');
+    function restoreDownloadButton() {
+        const btn = document.getElementById('downloadBtn');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-download"></i> Download Selected';
+    }
 
-        sseSource.onmessage = function(ev) {
+    function resetStopButton() {
+        const stopBtn = document.getElementById('stopBtn');
+        stopBtn.disabled = false;
+        stopBtn.innerHTML = '<i class="fas fa-stop"></i> Stop';
+    }
+
+    function finishProgress(done, total) {
+        stopStreams();
+        document.getElementById('progBar').style.width = '100%';
+        document.getElementById('progLabel').textContent =
+            'Complete — ' + done + '/' + total + ' tracks';
+        document.getElementById('progSectionIcon').className =
+            'fas fa-check prog-section-icon';
+        document.getElementById('progSectionIcon').style.cssText =
+            '-webkit-text-fill-color: var(--primary); background: none;';
+        restoreDownloadButton();
+        resetStopButton();
+        document.getElementById('stopBtn').disabled = true;
+        showAlert('Download complete! ' + done + '/' + total + ' tracks. Returning to import page…', 'success');
+        loadRecentImports();
+        setTimeout(() => {
+            document.getElementById('progressSection').classList.add('hidden');
+            document.getElementById('resultSection').classList.add('hidden');
+            window.scrollTo({ top: 0, behavior: scrollBehavior() });
+            setTimeout(() => {
+                document.getElementById('recentSection').scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+            }, 400);
+        }, 4000);
+    }
+
+    function applyStatus(st) {
+        const tracks = st.tracks || [];
+
+        if (!st.active && !tracks.length) return;
+
+        const done = tracks.filter(t => ['done','failed','skipped'].includes(t.status)).length;
+        const total = tracks.length;
+        const prog = st.progress || {};
+        const pct = prog.overall_percent != null
+            ? prog.overall_percent
+            : (total ? Math.round(done / total * 100) : 0);
+        document.getElementById('progBar').style.width = pct + '%';
+
+        if (!st.active && total > 0) {
+            finishProgress(done, total);
+            return;
+        } else if (!st.active) {
+            return;
+        }
+
+        document.getElementById('progLabel').textContent =
+            'Downloading — ' + done + '/' + total + ' tracks';
+
+        tracks.forEach((t, i) => {
+            const iconEl = document.getElementById('tpi-' + i);
+            const extraEl = document.getElementById('tpe-' + i);
+            if (!iconEl) return;
+            const s = t.status || 'pending';
+            iconEl.className = 'tp-icon ' + s;
+            iconEl.innerHTML = STATUS_ICONS[s] || STATUS_ICONS.pending;
+            if (s === 'downloading') {
+                extraEl.textContent = [t.progress_percent, t.progress_speed].filter(Boolean).join(' · ');
+            } else {
+                extraEl.textContent = '';
+            }
+        });
+    }
+
+    function stopStreams() {
+        if (sseSource) { sseSource.close(); sseSource = null; }
+        if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+    }
+
+    function startStatusPolling() {
+        if (statusPollTimer) return;
+        statusPollErrors = 0;
+        statusPollTimer = setInterval(async () => {
+            try {
+                const resp = await fetch('/api/download/status');
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const st = await resp.json();
+                if (!statusPollTimer) return;
+                statusPollErrors = 0;
+                applyStatus(st);
+            } catch (_) {
+                if (!statusPollTimer) return;
+                statusPollErrors++;
+                if (statusPollErrors >= 5) {
+                    stopStreams();
+                    restoreDownloadButton();
+                    document.getElementById('progLabel').textContent = 'Progress unavailable';
+                    document.getElementById('progSectionIcon').className =
+                        'fas fa-triangle-exclamation prog-section-icon';
+                    showAlert('Lost connection to the server, so live progress stopped. The import may still be running: check the Downloads page.', 'error');
+                }
+            }
+        }, 2000);
+    }
+
+    function startSSE() {
+        stopStreams();
+        sseErrors = 0;
+        if (typeof EventSource === 'undefined') { startStatusPolling(); return; }
+        const source = new EventSource('/api/download/stream');
+        sseSource = source;
+
+        source.onopen = function() { sseErrors = 0; };
+
+        source.onmessage = function(ev) {
             try {
                 const payload = JSON.parse(ev.data);
-                const st = payload.status || {};
-                const tracks = st.tracks || [];
-
-                if (!st.active && !tracks.length) return;
-
-                const prog = st.progress || {};
-                const pct = prog.overall_percent || 0;
-                document.getElementById('progBar').style.width = pct + '%';
-
-                const done = tracks.filter(t => ['done','failed','skipped'].includes(t.status)).length;
-                const total = tracks.length;
-
-                if (!st.active && total > 0) {
-                    document.getElementById('progBar').style.width = '100%';
-                    document.getElementById('progLabel').textContent =
-                        'Complete — ' + done + '/' + total + ' tracks';
-                    document.getElementById('progSectionIcon').className =
-                        'fas fa-check prog-section-icon';
-                    document.getElementById('progSectionIcon').style.cssText =
-                        '-webkit-text-fill-color: var(--primary); background: none;';
-                    document.getElementById('downloadBtn').disabled = false;
-                    document.getElementById('downloadBtn').innerHTML =
-                        '<i class="fas fa-download"></i> Download Selected';
-                    sseSource.close();
-                    showAlert('Download complete! ' + done + '/' + total + ' tracks. Returning to import page…', 'success');
-                    loadRecentImports();
-                    setTimeout(() => {
-                        document.getElementById('progressSection').classList.add('hidden');
-                        document.getElementById('resultSection').classList.add('hidden');
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                        setTimeout(() => {
-                            document.getElementById('recentSection').scrollIntoView({ behavior: 'smooth', block: 'start' });
-                        }, 400);
-                    }, 4000);
-                    return;
-                } else if (!st.active) {
-                    return;
-                }
-
-                document.getElementById('progLabel').textContent =
-                    'Downloading — ' + done + '/' + total + ' tracks';
-
-                tracks.forEach((t, i) => {
-                    const iconEl = document.getElementById('tpi-' + i);
-                    const extraEl = document.getElementById('tpe-' + i);
-                    if (!iconEl) return;
-                    const s = t.status || 'pending';
-                    iconEl.className = 'tp-icon ' + s;
-                    iconEl.innerHTML = STATUS_ICONS[s] || STATUS_ICONS.pending;
-                    if (s === 'downloading') {
-                        extraEl.textContent = [t.progress_percent, t.progress_speed].filter(Boolean).join(' · ');
-                    } else {
-                        extraEl.textContent = '';
-                    }
-                });
+                applyStatus(payload.status || {});
             } catch (_) {}
         };
 
-        sseSource.onerror = function() { sseSource.close(); };
+        source.onerror = function() {
+            if (sseSource !== source) return;
+            sseErrors++;
+            if (source.readyState === EventSource.CLOSED || sseErrors >= 3) {
+                source.close();
+                sseSource = null;
+                startStatusPolling();
+            }
+        };
     }
 
     async function stopDownload() {
-        await fetch('/api/download/stop', { method: 'POST' });
+        if (!confirm('Stop this import? Tracks that already finished are kept.')) return;
+        const stopBtn = document.getElementById('stopBtn');
+        stopBtn.disabled = true;
+        stopBtn.innerHTML = '<i class="fas fa-circle-notch spin-anim"></i> Stopping...';
+        try {
+            const resp = await fetch('/api/download/stop', { method: 'POST' });
+            let data = {};
+            try { data = await resp.json(); } catch (_) {}
+            if (!resp.ok || data.success === false) {
+                throw new Error(data.message || ('HTTP ' + resp.status));
+            }
+            showAlert('Stop requested: the import ends after the current track.', 'info');
+        } catch (e) {
+            resetStopButton();
+            showAlert('Could not stop the import: ' + e.message, 'error');
+        }
     }
 
     async function loadRecentImports() {
@@ -1292,11 +1442,13 @@
                 const thumbHtml = safeThumb
                     ? `<img class="recent-card-thumb" src="${safeThumb}" alt="" loading="lazy" onerror="swapToPlaceholder(this, 'recent-card-thumb-placeholder', 'fab fa-youtube')">`
                     : `<div class="recent-card-thumb-placeholder"><i class="fab fa-youtube"></i></div>`;
+                const title = item.album_title || item.artist_name || 'YouTube import';
+                const sub = [item.album_title ? item.artist_name : '', (item.success_count || 0) + ' tracks'].filter(Boolean).join(' · ');
                 card.innerHTML = `
                     ${thumbHtml}
                     <div class="recent-card-body">
-                        <div class="recent-card-title" title="${escapeHtml(item.album_title)}">${escapeHtml(item.album_title)}</div>
-                        <div class="recent-card-sub">${escapeHtml(item.artist_name)} · ${item.success_count || 0} tracks</div>
+                        <div class="recent-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
+                        <div class="recent-card-sub" title="${escapeHtml(sub)}">${escapeHtml(sub)}</div>
                     </div>
                 `;
                 grid.appendChild(card);
@@ -1308,6 +1460,9 @@
     document.getElementById('urlInput').addEventListener('keydown', function(e) {
         if (e.key === 'Enter') fetchInfo();
     });
+
+    document.getElementById('artistInput').addEventListener('input', function() { fieldsEdited.artist = true; });
+    document.getElementById('albumInput').addEventListener('input', function() { fieldsEdited.album = true; });
 
     async function checkResumeProgress() {
         try {
@@ -1360,7 +1515,8 @@
         } catch (e) {}
     }
     updateQueueBadge();
-    setInterval(updateQueueBadge, 5000);
+    setInterval(() => { if (!document.hidden) updateQueueBadge(); }, 5000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) updateQueueBadge(); });
 
     loadRecentImports();
     checkResumeProgress();

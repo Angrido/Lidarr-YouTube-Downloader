@@ -11,7 +11,7 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#09090b">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Lidarr YT">
     <link rel="apple-touch-icon" href="/static/favicon.svg">
     <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
@@ -42,7 +42,11 @@
             --surface-glass: rgba(255, 255, 255, 0.7);
             --surface-hover: #f4f4f5;
             --text: #18181b;
-            --text-dim: #71717a;
+            --text-dim: #52525b;
+            --primary: #047857;
+            --primary-hover: #065f46;
+            --danger: #b91c1c;
+            --warning: #b45309;
             --border: #e4e4e7;
             --border-glass: rgba(0, 0, 0, 0.1);
             --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
@@ -381,6 +385,10 @@
         .log-row.track_failure { border-left-color: var(--danger); }
         .log-row.track_download { border-left-color: var(--primary); }
         .log-row.url_banned { border-left-color: #f97316; }
+        .log-row.download_skipped { border-left-color: var(--text-dim); }
+
+        .logs-container.no-anim .log-row { animation: none; }
+        .logs-container.is-loading { opacity: 0.5; pointer-events: none; }
 
         .candidate-row {
             display: flex;
@@ -449,6 +457,7 @@
 
         .log-row-title {
             font-weight: 600;
+            max-width: 100%;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -457,7 +466,8 @@
         .log-row-meta {
             color: var(--text-dim);
             font-size: 0.85rem;
-            white-space: nowrap;
+            min-width: 0;
+            overflow-wrap: anywhere;
         }
 
         .log-row-actions {
@@ -492,6 +502,8 @@
             border-radius: 10px;
             font-size: 0.75rem;
             font-weight: 500;
+            font-family: inherit;
+            border: 1px solid var(--border-glass);
             background: rgba(255, 255, 255, 0.06);
             color: var(--text-dim);
             cursor: pointer;
@@ -508,6 +520,12 @@
             background: rgba(255, 255, 255, 0.10);
             color: var(--text);
         }
+
+        body.light .attempts-pill { background: rgba(0, 0, 0, 0.05); }
+        body.light .attempts-pill:hover,
+        body.light .attempts-pill.open { background: rgba(0, 0, 0, 0.1); }
+
+        .attempts-pill:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
         .attempts-pill .pill-chevron {
             font-size: 0.55rem;
@@ -604,6 +622,7 @@
             gap: 0.3rem;
         }
         .btn-unban:hover { background: rgba(249,115,22,0.12); }
+        body.light .btn-unban { color: #c2410c; border-color: #c2410c; }
         .ban-url-link {
             color: var(--primary);
             text-decoration: none;
@@ -624,6 +643,8 @@
             border-radius: 6px;
             margin-left: 0.5rem;
         }
+
+        body.light .log-file-size { color: #1d4ed8; }
 
         .btn-icon {
             background: transparent;
@@ -687,6 +708,10 @@
             border-color: transparent;
         }
 
+        body.light .pagination button.active { background: var(--primary); }
+        body.light .page-title,
+        body.light .logo { background-image: linear-gradient(135deg, var(--primary), var(--primary-hover)); }
+
         .pagination button:disabled {
             opacity: 0.4;
             cursor: not-allowed;
@@ -713,6 +738,19 @@
         .empty-state-text {
             color: var(--text-dim);
         }
+
+        .empty-state .btn {
+            margin: 1.25rem auto 0;
+            width: auto;
+        }
+
+        .btn-secondary {
+            background: var(--surface);
+            color: var(--text);
+            border: 1px solid var(--border-glass);
+        }
+
+        .btn-secondary:hover { border-color: var(--primary); color: var(--primary); }
 
         footer {
             text-align: center;
@@ -791,6 +829,15 @@
                 width: 100%;
             }
         }
+
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
     </style>
 </head>
 
@@ -814,7 +861,7 @@
                 <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
             </div>
             <div class="controls">
-                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle light/dark theme">
                     <i class="fas fa-moon" id="theme-icon"></i>
                 </button>
             </div>
@@ -824,7 +871,7 @@
     <div class="container">
         <div class="page-header">
             <h1 class="page-title">📋 Logs</h1>
-            <p class="page-subtitle">Track errors and issues during downloads</p>
+            <p class="page-subtitle">Every download event: album runs, per-track results, imports and banned URLs</p>
         </div>
 
         <div class="controls-row">
@@ -845,9 +892,9 @@
                     <option value="url_banned">URL Banned</option>
                 </select>
             </div>
-            <button class="btn btn-danger" onclick="clearAllLogs()">
+            <button class="btn btn-danger" id="clearLogsBtn" onclick="clearAllLogs()" title="Clear log entries (banned URLs are kept)">
                 <i class="fas fa-trash"></i>
-                Clear All Logs
+                Clear Log Entries
             </button>
             <button class="btn btn-danger" id="unbanAllBtn" style="display:none;" onclick="unbanAll()">
                 <i class="fas fa-ban"></i>
@@ -857,27 +904,31 @@
 
         <div id="logsFileSize" style="text-align:center;color:var(--text-dim);font-size:0.8rem;margin-bottom:1rem;display:none;">
             <i class="fas fa-database" style="margin-right:0.3rem;"></i>
-            Log file size: <strong id="logsSizeValue">—</strong>
+            Log data size: <strong id="logsSizeValue">—</strong>
         </div>
 
-        <div class="logs-container" id="logsContainer">
+        <div class="logs-container" id="logsContainer" aria-live="polite">
 
         </div>
 
         <div id="logsPagination"></div>
 
-        <div class="empty-state" id="emptyState" style="display: none;">
+        <div class="empty-state" id="emptyState" role="status">
             <div class="empty-state-icon">
-                <i class="fas fa-check-circle"></i>
+                <i class="fas fa-spinner fa-spin" id="emptyStateIcon"></i>
             </div>
-            <h2 class="empty-state-title">No Errors Found</h2>
-            <p class="empty-state-text">All downloads completed successfully! 🎉</p>
+            <h2 class="empty-state-title" id="emptyStateTitle">Loading log entries…</h2>
+            <p class="empty-state-text" id="emptyStateText"></p>
+            <button class="btn btn-secondary" id="emptyStateRetry" style="display: none;" onclick="fetchLogs()">
+                <i class="fas fa-rotate-right"></i>
+                Retry
+            </button>
         </div>
     </div>
 
     <footer>
         <div>Made with love ❤️ • {{ APP_VERSION }}</div>
-        <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
+        <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github" aria-label="GitHub repository" title="GitHub repository"><i class="fa-brands fa-github"></i></a>
     </footer>
 
     <script>
@@ -927,8 +978,14 @@
                     icon.classList.add('fa-moon');
                     localStorage.setItem('theme', 'dark');
                 }
+                syncThemeColor();
             }, 250);
             setTimeout(() => toggle.classList.remove('spin'), 500);
+        }
+
+        function syncThemeColor() {
+            const meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) meta.setAttribute('content', document.body.classList.contains('light') ? '#f4f4f5' : '#09090b');
         }
 
         if (localStorage.getItem('theme') === 'light') {
@@ -936,8 +993,7 @@
             document.getElementById('theme-icon').classList.remove('fa-moon');
             document.getElementById('theme-icon').classList.add('fa-sun');
         }
-
-        let failedAlbumId = null;
+        syncThemeColor();
 
         function buildPageNumbers(current, total) {
             if (total <= 7) {
@@ -1014,82 +1070,91 @@
             fetchLogs();
         }
 
-        async function fetchLogs() {
-            if (currentFilter === 'url_banned') {
-                try {
-                    const res = await fetch(
-                        '/api/banned-urls?page=' + logsCurrentPage + '&per_page=' + LOGS_PER_PAGE
-                    );
-                    const data = await res.json();
-                    logsTotalPages = data.pages;
-                    logsTotal = data.total;
-                    var transformed = data.items.map(function(ban) {
-                        return {
-                            id: 'ban_' + ban.id,
-                            _ban_id: ban.id,
-                            type: 'url_banned',
-                            album_id: ban.album_id,
-                            album_title: ban.album_title,
-                            artist_name: ban.artist_name,
-                            timestamp: ban.banned_at,
-                            youtube_url: ban.youtube_url,
-                            track_title: ban.track_title,
-                            track_number: ban.track_number,
-                        };
-                    });
-                    renderLogs(transformed, data.total);
-                } catch (error) {
-                    console.error('Error fetching banned URLs:', error);
+        let logsFetchSeq = 0;
+        let lastLogsSignature = '';
+
+        function banToLogEntry(ban) {
+            return {
+                id: 'ban_' + ban.id,
+                _ban_id: ban.id,
+                type: 'url_banned',
+                album_id: ban.album_id,
+                album_title: ban.album_title,
+                artist_name: ban.artist_name,
+                timestamp: ban.banned_at,
+                youtube_url: ban.youtube_url,
+                track_title: ban.track_title,
+                track_number: ban.track_number,
+            };
+        }
+
+        function showLogsState(kind) {
+            const states = {
+                loading: { icon: 'fa-spinner fa-spin', title: 'Loading log entries\u2026', text: '' },
+                error: { icon: 'fa-triangle-exclamation', title: 'Could not load log entries', text: 'The server did not respond. Check that the app is running, then retry.' },
+                empty: currentFilter === 'all'
+                    ? { icon: 'fa-inbox', title: 'No log entries yet', text: 'Download events will appear here as albums are processed.' }
+                    : (currentFilter === 'url_banned'
+                        ? { icon: 'fa-inbox', title: 'No banned URLs', text: 'URLs you ban from a download will be listed here.' }
+                        : { icon: 'fa-filter', title: 'No log entries match this filter', text: 'Choose another type, or All Types to see every entry.' }),
+            };
+            const st = states[kind];
+            document.getElementById('emptyStateIcon').className = 'fas ' + st.icon;
+            document.getElementById('emptyStateTitle').textContent = st.title;
+            document.getElementById('emptyStateText').textContent = st.text;
+            document.getElementById('emptyStateRetry').style.display = kind === 'error' ? '' : 'none';
+            document.getElementById('emptyState').style.display = 'block';
+        }
+
+        async function fetchLogs(opts) {
+            const background = !!(opts && opts.background);
+            const seq = ++logsFetchSeq;
+            const container = document.getElementById('logsContainer');
+            if (!background) {
+                if (container.children.length) {
+                    container.classList.add('is-loading');
+                    container.setAttribute('aria-busy', 'true');
+                } else {
+                    showLogsState('loading');
                 }
-                return;
             }
             try {
-                let url = `/api/logs?page=${logsCurrentPage}&per_page=${LOGS_PER_PAGE}`;
-                if (currentFilter !== 'all') {
-                    url += `&type=${encodeURIComponent(currentFilter)}`;
+                let url;
+                if (currentFilter === 'url_banned') {
+                    url = '/api/banned-urls?page=' + logsCurrentPage + '&per_page=' + LOGS_PER_PAGE;
+                } else {
+                    url = `/api/logs?page=${logsCurrentPage}&per_page=${LOGS_PER_PAGE}`;
+                    if (currentFilter !== 'all') {
+                        url += `&type=${encodeURIComponent(currentFilter)}`;
+                    }
                 }
                 const response = await fetch(url);
+                if (!response.ok) throw new Error('HTTP ' + response.status);
                 const data = await response.json();
-
-                if (currentFilter === 'all') {
-                    try {
-                        const banRes = await fetch('/api/banned-urls?page=1&per_page=200');
-                        const banData = await banRes.json();
-                        var banItems = banData.items.map(function(ban) {
-                            return {
-                                id: 'ban_' + ban.id,
-                                _ban_id: ban.id,
-                                type: 'url_banned',
-                                album_id: ban.album_id,
-                                album_title: ban.album_title,
-                                artist_name: ban.artist_name,
-                                timestamp: ban.banned_at,
-                                youtube_url: ban.youtube_url,
-                                track_title: ban.track_title,
-                                track_number: ban.track_number,
-                            };
-                        });
-                        var merged = data.items.concat(banItems);
-                        merged.sort(function(a, b) { return b.timestamp - a.timestamp; });
-                        logsTotal = data.total + banData.total;
-                        logsTotalPages = Math.max(1, Math.ceil(logsTotal / LOGS_PER_PAGE));
-                        logsCurrentPage = data.page;
-                        renderLogs(merged.slice(0, LOGS_PER_PAGE), logsTotal);
-                    } catch (_) {
-                        logsTotal = data.total;
-                        logsTotalPages = data.pages;
-                        logsCurrentPage = data.page;
-                        renderLogs(data.items, data.total);
-                    }
-                } else {
-                    logsTotal = data.total;
-                    logsTotalPages = data.pages;
-                    logsCurrentPage = data.page;
-                    renderLogs(data.items, data.total);
-                }
+                if (seq !== logsFetchSeq) return;
+                const items = currentFilter === 'url_banned'
+                    ? (data.items || []).map(banToLogEntry)
+                    : (data.items || []);
+                logsTotal = data.total || 0;
+                logsTotalPages = Math.max(1, data.pages || 1);
+                logsCurrentPage = data.page || logsCurrentPage;
+                const signature = JSON.stringify([currentFilter, logsCurrentPage, logsTotal, items]);
+                container.classList.remove('is-loading');
+                container.removeAttribute('aria-busy');
+                if (background && signature === lastLogsSignature) return;
+                lastLogsSignature = signature;
+                renderLogs(items, logsTotal, background);
                 fetchLogsSize();
             } catch (error) {
+                if (seq !== logsFetchSeq) return;
                 console.error('Error fetching logs:', error);
+                container.classList.remove('is-loading');
+                container.removeAttribute('aria-busy');
+                if (background) return;
+                lastLogsSignature = '';
+                container.textContent = '';
+                document.getElementById('logsPagination').textContent = '';
+                showLogsState('error');
             }
         }
 
@@ -1130,6 +1195,7 @@
                 'album_error': { name: 'Album Error', icon: 'fa-exclamation-circle' },
                 'manual_download': { name: 'Manual Download', icon: 'fa-hand-pointer' },
                 'url_banned': { name: 'URL Banned', icon: 'fa-ban' },
+                'download_skipped': { name: 'Skipped', icon: 'fa-forward' },
                 'track_failure': { name: 'Track Failure', icon: 'fa-xmark' },
                 'track_download': { name: 'Track Download', icon: 'fa-check' },
             };
@@ -1167,7 +1233,7 @@
                 + '</div>'
                 + '<div class="log-row-actions">'
                 + '<button class="btn-icon" onclick="dismissLog(\'' + escapeHtml(String(log.id))
-                + '\')" title="Dismiss"><i class="fas fa-times"></i></button>'
+                + '\')" title="Dismiss" aria-label="Dismiss"><i class="fas fa-times"></i></button>'
                 + '</div></div>';
         }
 
@@ -1175,10 +1241,11 @@
             var hasCandidates = log.candidates && log.candidates.length > 0;
             var safeId = escapeHtml(String(log.id));
             var attemptsPill = hasCandidates
-                ? ' <span class="attempts-pill" id="pill-' + safeId
+                ? ' <button type="button" class="attempts-pill" id="pill-' + safeId
+                  + '" aria-expanded="false" aria-controls="candidates-' + safeId
                   + '" onclick="toggleCandidates(\'' + safeId + '\')">'
                   + log.candidates.length + (log.candidates.length === 1 ? ' attempt' : ' attempts')
-                  + ' <i class="fas fa-chevron-right pill-chevron"></i></span>'
+                  + ' <i class="fas fa-chevron-right pill-chevron" aria-hidden="true"></i></button>'
                 : '';
             var html = '<div class="log-entry-group">'
                 + '<div class="log-row track_failure" id="log-' + safeId + '">'
@@ -1193,7 +1260,7 @@
                 + '</div>'
                 + '<div class="log-row-actions">'
                 + '<button class="btn-icon" onclick="dismissLog(\'' + safeId
-                + '\')" title="Dismiss"><i class="fas fa-times"></i></button>'
+                + '\')" title="Dismiss" aria-label="Dismiss"><i class="fas fa-times"></i></button>'
                 + '</div></div>';
 
             if (hasCandidates) {
@@ -1211,10 +1278,11 @@
             var hasCandidates = log.candidates && log.candidates.length > 0;
             var safeId = escapeHtml(String(log.id));
             var attemptsPill = hasCandidates
-                ? ' <span class="attempts-pill" id="pill-' + safeId
+                ? ' <button type="button" class="attempts-pill" id="pill-' + safeId
+                  + '" aria-expanded="false" aria-controls="candidates-' + safeId
                   + '" onclick="toggleCandidates(\'' + safeId + '\')">'
                   + log.candidates.length + (log.candidates.length === 1 ? ' attempt' : ' attempts')
-                  + ' <i class="fas fa-chevron-right pill-chevron"></i></span>'
+                  + ' <i class="fas fa-chevron-right pill-chevron" aria-hidden="true"></i></button>'
                 : '';
             var html = '<div class="log-entry-group">'
                 + '<div class="log-row track_download" id="log-' + safeId + '">'
@@ -1229,7 +1297,7 @@
                 + '</div>'
                 + '<div class="log-row-actions">'
                 + '<button class="btn-icon" onclick="dismissLog(\'' + safeId
-                + '\')" title="Dismiss"><i class="fas fa-times"></i></button>'
+                + '\')" title="Dismiss" aria-label="Dismiss"><i class="fas fa-times"></i></button>'
                 + '</div></div>';
 
             if (hasCandidates) {
@@ -1335,6 +1403,8 @@
             currentFilter = document.getElementById('filterType').value;
             logsCurrentPage = 1;
             updateUnbanAllVisibility();
+            document.getElementById('logsContainer').textContent = '';
+            document.getElementById('logsPagination').textContent = '';
             fetchLogs();
         }
 
@@ -1343,6 +1413,11 @@
             if (btn) {
                 btn.style.display =
                     currentFilter === 'url_banned' ? '' : 'none';
+            }
+            var clearBtn = document.getElementById('clearLogsBtn');
+            if (clearBtn) {
+                clearBtn.style.display =
+                    currentFilter === 'url_banned' ? 'none' : '';
             }
         }
 
@@ -1380,23 +1455,27 @@
                 var container = document.getElementById('candidates-' + id);
                 var pill = document.getElementById('pill-' + id);
                 if (container) container.classList.add('expanded');
-                if (pill) pill.classList.add('open');
+                if (pill) {
+                    pill.classList.add('open');
+                    pill.setAttribute('aria-expanded', 'true');
+                }
             });
         }
 
-        function renderLogs(logs, total) {
+        function renderLogs(logs, total, background) {
             const container = document.getElementById('logsContainer');
             const emptyState = document.getElementById('emptyState');
 
             if (logs.length === 0) {
                 container.textContent = '';
-                emptyState.style.display = 'block';
+                showLogsState('empty');
                 document.getElementById('logsPagination').textContent = '';
                 return;
             }
 
             var expandedIds = getExpandedIds();
             emptyState.style.display = 'none';
+            container.classList.toggle('no-anim', !!background);
             /* renderLogEntry only interpolates escapeHtml()-sanitised
                values and hardcoded class literals — safe for innerHTML. */
             container.innerHTML = logs.map(renderLogEntry).join('');  // eslint-disable-line -- pre-sanitised HTML, see renderLogEntry
@@ -1435,7 +1514,10 @@
             var pill = document.getElementById('pill-' + logId);
             if (!container) return;
             container.classList.toggle('expanded');
-            if (pill) pill.classList.toggle('open');
+            if (pill) {
+                pill.classList.toggle('open');
+                pill.setAttribute('aria-expanded', container.classList.contains('expanded') ? 'true' : 'false');
+            }
         }
 
         async function dismissLog(logId) {
@@ -1465,7 +1547,7 @@
         }
 
         async function clearAllLogs() {
-            if (!confirm('Are you sure you want to clear all logs? This action cannot be undone.')) return;
+            if (!confirm('Clear all log entries? Banned URLs are kept (manage them under the "URL Banned" filter). This cannot be undone.')) return;
 
             try {
                 const response = await fetch('/api/logs/clear', {
@@ -1494,16 +1576,7 @@
         `;
         document.head.appendChild(style);
 
-        (async () => {
-            try {
-                const res = await fetch('/api/download/failed');
-                const data = await res.json();
-                if (data.failed_tracks && data.failed_tracks.length > 0) {
-                    failedAlbumId = data.album_id;
-                }
-            } catch (_) {}
-            fetchLogs();
-        })();
+        fetchLogs();
 
         async function updateQueueBadge() {
             try {
@@ -1524,9 +1597,15 @@
             } catch (e) {}
         }
         updateQueueBadge();
-        setInterval(updateQueueBadge, 5000);
+        setInterval(() => { if (!document.hidden) updateQueueBadge(); }, 5000);
 
-        setInterval(fetchLogs, 30000);
+        setInterval(() => { if (!document.hidden) fetchLogs({ background: true }); }, 30000);
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) return;
+            updateQueueBadge();
+            fetchLogs({ background: true });
+        });
 
     </script>
 </body>
