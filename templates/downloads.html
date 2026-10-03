@@ -11,7 +11,7 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#09090b">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Lidarr YT">
     <link rel="apple-touch-icon" href="/static/favicon.svg">
     <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
@@ -31,6 +31,10 @@
             --radius: 16px;
             --shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
             --glow: 0 0 20px rgba(16, 185, 129, 0.3);
+            --score-good: #6ee7b7;
+            --score-warn: #fbbf24;
+            --link: #60a5fa;
+            --on-primary: #0b1220;
         }
 
         body.light {
@@ -40,11 +44,20 @@
             --surface-glass: rgba(255, 255, 255, 0.7);
             --surface-hover: #f4f4f5;
             --text: #18181b;
-            --text-dim: #71717a;
+            --text-dim: #52525b;
             --border: #e4e4e7;
             --border-glass: rgba(0, 0, 0, 0.1);
             --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
             --glow: 0 0 20px rgba(16, 185, 129, 0.2);
+            --score-good: #047857;
+            --score-warn: #92400e;
+            --link: #1d4ed8;
+            --ui-text: var(--text);
+            --ui-text-dim: var(--text-dim);
+            --ui-border: var(--border);
+            --ui-surface: var(--surface);
+            --ui-surface-hover: var(--surface-hover);
+            --ui-bg: var(--bg);
         }
 
         * {
@@ -453,7 +466,7 @@
             width: 32px;
             height: 32px;
             background: var(--primary);
-            color: white;
+            color: var(--on-primary);
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -490,6 +503,8 @@
 
         .queue-album-info {
             flex: 1;
+            min-width: 0;
+            overflow-wrap: anywhere;
         }
 
         .queue-album-title {
@@ -613,6 +628,8 @@
 
         .history-info {
             flex: 1;
+            min-width: 0;
+            overflow-wrap: anywhere;
         }
 
         .history-title {
@@ -651,10 +668,16 @@
         .track-detail-header,
         .track-detail-row {
             display: grid;
-            grid-template-columns: 40px 1.5fr 2fr 60px 70px 55px 100px 40px;
+            grid-template-columns: 40px minmax(0, 1.5fr) minmax(0, 2fr) 60px 70px 55px 100px 52px;
             padding: 0.4rem 0.75rem;
             align-items: center;
             font-size: 0.8rem;
+        }
+
+        .track-detail-header > *,
+        .track-detail-row > * {
+            min-width: 0;
+            overflow-wrap: anywhere;
         }
 
         .track-detail-header {
@@ -674,7 +697,8 @@
         }
 
         .track-detail-row a {
-            color: #3b82f6;
+            display: block;
+            color: var(--link);
             text-decoration: none;
             font-size: 0.75rem;
             overflow: hidden;
@@ -695,18 +719,17 @@
         @media (max-width: 768px) {
             .track-detail-header,
             .track-detail-row {
-                grid-template-columns: 30px 1fr 60px 40px;
+                grid-template-columns: 30px minmax(0, 1fr) 44px 52px;
+                padding: 0.4rem 0.5rem;
             }
             .track-detail-header > :nth-child(3),
             .track-detail-header > :nth-child(4),
             .track-detail-header > :nth-child(5),
             .track-detail-header > :nth-child(7),
-            .track-detail-header > :nth-child(8),
             .track-detail-row > :nth-child(3),
             .track-detail-row > :nth-child(4),
             .track-detail-row > :nth-child(5),
-            .track-detail-row > :nth-child(7),
-            .track-detail-row > :nth-child(8) {
+            .track-detail-row > :nth-child(7) {
                 display: none;
             }
         }
@@ -941,7 +964,7 @@
 
         .pagination button.active {
             background: linear-gradient(135deg, var(--primary), #06d6a0);
-            color: white;
+            color: var(--on-primary);
             border-color: transparent;
         }
 
@@ -1055,6 +1078,36 @@
                 width: 56px;
                 height: 56px;
             }
+
+            .current-progress-row {
+                flex-wrap: wrap;
+            }
+
+            .progress-bar-area {
+                flex: 1 1 140px;
+            }
+
+            .current-stop-btn {
+                width: 100%;
+                justify-content: center;
+            }
+
+            .queue-album-info {
+                flex-basis: calc(100% - 150px);
+            }
+
+            .history-item {
+                flex-wrap: wrap;
+                gap: 0.75rem;
+            }
+
+            .history-info {
+                flex-basis: calc(100% - 5rem);
+            }
+
+            .history-track-badge {
+                margin-left: calc(20px + 0.75rem);
+            }
         }
 
         .current-track-grid {
@@ -1066,7 +1119,7 @@
         }
         .current-track-row {
             display: grid;
-            grid-template-columns: 40px 1fr 1.2fr 80px 60px;
+            grid-template-columns: 40px minmax(0, 1fr) minmax(0, 1.2fr) 80px 60px;
             gap: 12px;
             align-items: center;
             padding: 6px 8px;
@@ -1115,6 +1168,7 @@
             text-align: center;
         }
         .current-track-yt a { color: var(--primary); text-decoration: none; }
+        body.light .current-track-yt a { color: var(--score-good); }
         .current-track-status { font-size: 0.8rem; text-align: center; }
         .status-done { color: #22c55e; }
         .status-failed { color: #ef4444; }
@@ -1124,6 +1178,16 @@
         .status-fingerprinting { color: #c084fc; }
         .status-verifying { color: #c084fc; }
         .status-downloading { color: var(--primary); }
+        body.light .status-done, body.light .status-downloading { color: #047857; }
+        body.light .status-failed { color: #b91c1c; }
+        body.light .status-skipped { color: #92400e; }
+        body.light .status-searching { color: #1d4ed8; }
+        body.light .status-tagging, body.light .status-fingerprinting, body.light .status-verifying { color: #7e22ce; }
+        body.light .btn-retry-failed { color: #92400e; border-color: #b45309; }
+        body.light .btn-unban-track { color: #9a3412; border-color: #c2410c; }
+        body.light .history-track-badge.badge-success { color: #047857; }
+        body.light .history-track-badge.badge-partial { color: #92400e; }
+        body.light .history-track-badge.badge-error { color: #b91c1c; }
         .current-track-skip-btn {
             background: transparent;
             border: 1px solid var(--border-glass);
@@ -1193,6 +1257,68 @@
         .btn-retry-failed:hover {
             background: rgba(245, 158, 11, 0.15);
         }
+
+        @media (max-width: 768px) {
+            .current-track-row {
+                grid-template-columns: 28px minmax(0, 1fr) auto auto;
+                gap: 8px;
+                padding: 6px 4px;
+            }
+
+            .current-track-yt {
+                display: none;
+            }
+
+            .current-track-progress {
+                min-width: 48px;
+            }
+
+            .queue-item-header {
+                flex-wrap: wrap;
+            }
+
+            .queue-track-list {
+                padding-left: 12px;
+            }
+        }
+
+        .history-album-row:focus-visible,
+        .queue-item-header:focus-visible {
+            outline: 2px solid var(--primary);
+            outline-offset: 2px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .logo,
+            .nav-badge,
+            .theme-toggle.spin i {
+                animation: none;
+            }
+            .nav-links a,
+            .nav-links a::after,
+            .theme-toggle,
+            .theme-toggle i,
+            .queue-item,
+            .history-item,
+            .history-expand-icon,
+            .queue-expand-icon,
+            .btn-danger,
+            .btn-clear-history,
+            .footer-github,
+            .progress-fill,
+            .current-track-progress-fill {
+                transition: none;
+            }
+            .theme-toggle:hover,
+            .theme-toggle:active,
+            .btn-danger:hover,
+            .btn-danger:active,
+            .btn-clear-history:hover,
+            .btn-clear-history:active,
+            .footer-github:hover {
+                transform: none;
+            }
+        }
     </style>
 </head>
 
@@ -1216,7 +1342,7 @@
                 <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
             </div>
             <div class="controls">
-                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle light/dark theme">
                     <i class="fa-solid fa-moon" id="themeIcon"></i>
                 </button>
             </div>
@@ -1257,7 +1383,7 @@
 
     <footer>
         <div>Made with love ❤️ • {{ APP_VERSION }}</div>
-        <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
+        <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github" aria-label="GitHub repository"><i class="fa-brands fa-github" aria-hidden="true"></i></a>
     </footer>
 
     <script>
@@ -1336,15 +1462,42 @@
         // (/api/download/failed, /api/youtube/search, /api/download/manual).
         let retryFailedData = [];
         let retryFailedAlbumId = null;
+        const modalOpeners = {};
+
+        function showModal(id) {
+            const modal = document.getElementById(id);
+            if (modal.classList.contains('hidden')) {
+                modalOpeners[id] = document.activeElement;
+            }
+            modal.classList.remove('hidden');
+            const closeBtn = modal.querySelector('.modal-close');
+            if (closeBtn) closeBtn.focus();
+        }
+
+        function hideModal(id) {
+            const modal = document.getElementById(id);
+            if (modal.classList.contains('hidden')) return;
+            modal.classList.add('hidden');
+            const opener = modalOpeners[id];
+            modalOpeners[id] = null;
+            if (opener && opener.isConnected && typeof opener.focus === 'function') {
+                opener.focus();
+            }
+        }
+
+        function makeBdi(text) {
+            const el = document.createElement('bdi');
+            el.textContent = text;
+            return el;
+        }
 
         async function openRetryModal(albumId) {
-            const modal = document.getElementById('retryFailedModal');
             const subtitle = document.getElementById('retryModalSubtitle');
             const list = document.getElementById('retryModalList');
             retryFailedAlbumId = albumId;
             subtitle.textContent = 'Loading…';
             list.innerHTML = '';
-            modal.classList.remove('hidden');
+            showModal('retryFailedModal');
             try {
                 const res = await fetch(
                     '/api/download/failed?album_id=' + encodeURIComponent(albumId)
@@ -1358,10 +1511,17 @@
                     return;
                 }
                 const who = [data.artist_name, data.album_title]
-                    .filter(Boolean).join(' — ');
-                subtitle.textContent = (who ? who + ' · ' : '')
+                    .filter(Boolean);
+                subtitle.textContent = '';
+                who.forEach(function (part, idx) {
+                    if (idx) subtitle.appendChild(document.createTextNode(' — '));
+                    subtitle.appendChild(makeBdi(part));
+                });
+                subtitle.appendChild(document.createTextNode(
+                    (who.length ? ' · ' : '')
                     + count + ' failed track' + (count > 1 ? 's' : '')
-                    + '. Search YouTube or paste a link to retry.';
+                    + '. Search YouTube or paste a link to retry.'
+                ));
                 renderRetryList(data);
             } catch (e) {
                 subtitle.textContent = 'Failed to load failed tracks.';
@@ -1369,7 +1529,7 @@
         }
 
         function closeRetryModal() {
-            document.getElementById('retryFailedModal').classList.add('hidden');
+            hideModal('retryFailedModal');
         }
 
         function renderRetryList(data) {
@@ -1412,6 +1572,7 @@
                 });
                 const searchBtn = document.createElement('button');
                 searchBtn.type = 'button';
+                searchBtn.id = 'retrySearchBtn' + i;
                 searchBtn.className = 'ui-btn ui-btn-primary';
                 searchBtn.style.flex = '0 0 auto';
                 searchBtn.innerHTML = '<i class="fa-solid fa-search"></i> Search';
@@ -1432,6 +1593,7 @@
                 });
                 const dlBtn = document.createElement('button');
                 dlBtn.type = 'button';
+                dlBtn.id = 'retryDl' + i;
                 dlBtn.className = 'ui-btn ui-btn-primary';
                 dlBtn.style.flex = '0 0 auto';
                 dlBtn.innerHTML = '<i class="fa-solid fa-download"></i> Download';
@@ -1450,9 +1612,14 @@
         }
 
         async function searchRetryTrack(i) {
+            const track = retryFailedData[i];
+            if (!track || track.retrySearching || track.retryBusy || track.retryDone) return;
             const q = document.getElementById('retrySearch' + i).value.trim();
             if (!q) return;
             const results = document.getElementById('retryResults' + i);
+            const searchBtn = document.getElementById('retrySearchBtn' + i);
+            track.retrySearching = true;
+            if (searchBtn) searchBtn.disabled = true;
             results.innerHTML = '<div style="color:var(--text-dim); '
                 + 'font-size:.8rem;"><i class="fa-solid fa-spinner fa-spin">'
                 + '</i> Searching…</div>';
@@ -1508,12 +1675,28 @@
             } catch (e) {
                 results.innerHTML = '<div style="color:var(--danger); '
                     + 'font-size:.8rem;">Search failed.</div>';
+            } finally {
+                track.retrySearching = false;
+                if (searchBtn && !track.retryDone) searchBtn.disabled = false;
+            }
+        }
+
+        function setRetryRowDisabled(i, disabled, includeSearch) {
+            const ids = ['retryUrl', 'retryDl'];
+            if (includeSearch) ids.push('retrySearch', 'retrySearchBtn');
+            ids.forEach(function (prefix) {
+                const el = document.getElementById(prefix + i);
+                if (el) el.disabled = disabled;
+            });
+            const results = document.getElementById('retryResults' + i);
+            if (results && includeSearch) {
+                results.querySelectorAll('button').forEach(function (b) { b.disabled = disabled; });
             }
         }
 
         async function downloadRetryTrack(i) {
             const track = retryFailedData[i];
-            if (!track) return;
+            if (!track || track.retryBusy || track.retryDone) return;
             const results = document.getElementById('retryResults' + i);
             const url = sanitizeUrl(
                 document.getElementById('retryUrl' + i).value.trim()
@@ -1527,6 +1710,8 @@
             results.innerHTML = '<div style="color:var(--text-dim); '
                 + 'font-size:.8rem;"><i class="fa-solid fa-spinner fa-spin">'
                 + '</i> Downloading and tagging…</div>';
+            track.retryBusy = true;
+            setRetryRowDisabled(i, true, false);
             try {
                 const res = await fetch('/api/download/manual', {
                     method: 'POST',
@@ -1540,11 +1725,13 @@
                 });
                 const data = await res.json();
                 if (data.success) {
+                    track.retryDone = true;
                     const item = document.getElementById('retryTrack' + i);
                     if (item) item.style.opacity = '0.6';
                     results.innerHTML = '<div style="color:var(--primary); '
                         + 'font-size:.8rem;"><i class="fa-solid fa-circle-check">'
                         + '</i> Downloaded successfully</div>';
+                    setRetryRowDisabled(i, true, true);
                     updateHistory();
                 } else {
                     results.innerHTML = '<div style="color:var(--danger); '
@@ -1555,25 +1742,58 @@
             } catch (e) {
                 results.innerHTML = '<div style="color:var(--danger); '
                     + 'font-size:.8rem;">Download failed.</div>';
+            } finally {
+                track.retryBusy = false;
+                if (!track.retryDone) setRetryRowDisabled(i, false, false);
             }
         }
 
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') closeRetryModal();
+            if (e.key !== 'Escape') return;
+            const top = ['deleteTrackModal', 'retryFailedModal'].find(function (id) {
+                return !document.getElementById(id).classList.contains('hidden');
+            });
+            if (!top) return;
+            e.preventDefault();
+            if (top === 'deleteTrackModal') closeDeleteModal();
+            else closeRetryModal();
         });
 
+        function syncThemeColor() {
+            const meta = document.querySelector('meta[name="theme-color"]');
+            if (meta) {
+                meta.setAttribute('content', document.body.classList.contains('light') ? '#f4f4f5' : '#09090b');
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
-            const saved = localStorage.getItem('theme') || 'dark';
+            let saved = 'dark';
+            try { saved = localStorage.getItem('theme') || 'dark'; } catch (e) {}
             if (saved === 'light') {
                 document.body.classList.add('light');
                 document.getElementById('themeIcon').className = 'fa-solid fa-sun';
             }
+            syncThemeColor();
             updateHistory();
             connectSSE();
         });
 
+        let sseReconnectTimer = null;
+
+        function disconnectSSE() {
+            if (sseReconnectTimer !== null) {
+                clearTimeout(sseReconnectTimer);
+                sseReconnectTimer = null;
+            }
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        }
+
         function connectSSE() {
-            if (eventSource) eventSource.close();
+            disconnectSSE();
+            if (document.hidden) return;
             eventSource = new EventSource('/api/download/stream');
             eventSource.onmessage = (event) => {
                 try {
@@ -1583,10 +1803,19 @@
                 } catch (e) {}
             };
             eventSource.onerror = () => {
-                eventSource.close();
-                setTimeout(connectSSE, 3000);
+                disconnectSSE();
+                sseReconnectTimer = setTimeout(connectSSE, 3000);
             };
         }
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                disconnectSSE();
+            } else {
+                connectSSE();
+                updateHistory();
+            }
+        });
 
         function toggleTheme() {
             const toggle = document.getElementById('themeToggle');
@@ -1594,53 +1823,49 @@
             setTimeout(() => {
                 document.body.classList.toggle('light');
                 const isLight = document.body.classList.contains('light');
-                localStorage.setItem('theme', isLight ? 'light' : 'dark');
+                try { localStorage.setItem('theme', isLight ? 'light' : 'dark'); } catch (e) {}
                 document.getElementById('themeIcon').className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
+                syncThemeColor();
             }, 250);
             setTimeout(() => toggle.classList.remove('spin'), 500);
         }
 
         let lastWasActive = false;
+        var currentView = null;
+        var ACTIVE_TRACK_STATUSES = ['downloading', 'searching', 'tagging', 'fingerprinting', 'verifying'];
+        var SKIPPABLE_TRACK_STATUSES = ['pending', 'searching', 'downloading', 'verifying'];
+        var TRACK_STATUS_LABELS = {
+            done: ['status-done', '✓ Done'],
+            failed: ['status-failed', '✗ Failed'],
+            skipped: ['status-skipped', '↷ Skipped'],
+            searching: ['status-searching', 'Searching...'],
+            tagging: ['status-tagging', 'Tagging...'],
+            fingerprinting: ['status-fingerprinting', 'Fingerprinting...'],
+            verifying: ['status-verifying', 'Verifying...'],
+        };
 
-        function updateCurrentFromSSE(data) {
-            var container = document.getElementById('currentDownload');
+        function showCurrentEmpty(container) {
+            var icon = document.createElement('i');
+            icon.className = 'fa-solid fa-cloud-arrow-down';
+            var p = document.createElement('p');
+            p.textContent = 'No active download';
+            container.classList.add('empty-state');
+            container.replaceChildren(icon, p);
+        }
 
-            if (!data.active) {
-                if (lastWasActive) {
-                    updateHistory();
-                    lastWasActive = false;
-                }
-                var empty = document.createElement('div');
-                empty.className = 'empty-state';
-                var icon = document.createElement('i');
-                icon.className = 'fa-solid fa-cloud-arrow-down';
-                var p = document.createElement('p');
-                p.textContent = 'No active download';
-                empty.appendChild(icon);
-                empty.appendChild(p);
-                container.replaceChildren(empty);
-                return;
-            }
-            lastWasActive = true;
-
-            var tracks = data.tracks || [];
-            var doneCount = tracks.filter(function(t) {
-                return t.status === 'done' || t.status === 'failed' || t.status === 'skipped';
-            }).length;
-            var overallPercent = tracks.length > 0
-                ? Math.round((doneCount / tracks.length) * 100) : 0;
+        function buildCurrentView(data, tracks) {
+            var view = {key: JSON.stringify([data.album_id, tracks.length, data.cover_url || '']), rows: []};
 
             var wrapper = document.createElement('div');
             wrapper.className = 'current-download';
+            view.wrapper = wrapper;
 
             var details = document.createElement('div');
             details.className = 'current-album-details';
-            var h3 = document.createElement('h3');
-            h3.textContent = data.album_title || 'Unknown Album';
-            var pArtist = document.createElement('p');
-            pArtist.textContent = data.artist_name || 'Unknown Artist';
-            details.appendChild(h3);
-            details.appendChild(pArtist);
+            view.h3 = document.createElement('h3');
+            view.artist = document.createElement('p');
+            details.appendChild(view.h3);
+            details.appendChild(view.artist);
             wrapper.appendChild(details);
 
             var progRow = document.createElement('div');
@@ -1668,137 +1893,172 @@
 
             var progArea = document.createElement('div');
             progArea.className = 'progress-bar-area';
-            var trackCount = document.createElement('span');
-            trackCount.className = 'progress-track-count';
-            trackCount.textContent = 'Track ' + doneCount + '/' + tracks.length;
+            view.trackCount = document.createElement('span');
+            view.trackCount.className = 'progress-track-count';
             var progBar = document.createElement('div');
             progBar.className = 'progress-bar';
-            var progFill = document.createElement('div');
-            progFill.className = 'progress-fill';
-            progFill.style.width = overallPercent + '%';
-            progBar.appendChild(progFill);
-            var percentEl = document.createElement('span');
-            percentEl.className = 'progress-percent';
-            percentEl.textContent = overallPercent + '%';
-            progArea.appendChild(trackCount);
+            progBar.setAttribute('role', 'progressbar');
+            progBar.setAttribute('aria-label', 'Album progress');
+            progBar.setAttribute('aria-valuemin', '0');
+            progBar.setAttribute('aria-valuemax', '100');
+            view.progBar = progBar;
+            view.progFill = document.createElement('div');
+            view.progFill.className = 'progress-fill';
+            progBar.appendChild(view.progFill);
+            view.percent = document.createElement('span');
+            view.percent.className = 'progress-percent';
+            progArea.appendChild(view.trackCount);
             progArea.appendChild(progBar);
-            progArea.appendChild(percentEl);
+            progArea.appendChild(view.percent);
             progRow.appendChild(progArea);
 
             var stopBtn = document.createElement('button');
+            stopBtn.type = 'button';
             stopBtn.className = 'current-stop-btn';
+            stopBtn.title = 'Stop the current download and clear the queue';
             stopBtn.onclick = stopDownload;
             var stopIcon = document.createElement('i');
             stopIcon.className = 'fa-solid fa-stop';
             stopBtn.appendChild(stopIcon);
-            stopBtn.appendChild(document.createTextNode(' Stop All'));
+            stopBtn.appendChild(document.createTextNode(' Stop & clear queue'));
             progRow.appendChild(stopBtn);
 
             wrapper.appendChild(progRow);
 
             var grid = document.createElement('div');
             grid.className = 'current-track-grid';
-
             tracks.forEach(function(track, i) {
-                var row = document.createElement('div');
-                row.className = 'current-track-row';
-                var isActive = (track.status === 'downloading' || track.status === 'searching' || track.status === 'tagging' || track.status === 'fingerprinting' || track.status === 'verifying');
-                if (isActive) {
-                    row.classList.add('active');
-                } else {
-                    row.classList.add(track.status);
-                }
-
-                var numEl = document.createElement('div');
-                numEl.className = 'current-track-num';
-                numEl.textContent = track.track_number;
-                row.appendChild(numEl);
-
-                var info = document.createElement('div');
-                info.className = 'current-track-info';
-                var titleEl = document.createElement('div');
-                titleEl.className = 'current-track-title';
-                titleEl.textContent = track.track_title;
-                info.appendChild(titleEl);
-                if (track.status === 'downloading' && track.progress_percent) {
-                    var progTrack = document.createElement('div');
-                    progTrack.className = 'current-track-progress';
-                    var progTrackFill = document.createElement('div');
-                    progTrackFill.className = 'current-track-progress-fill';
-                    progTrackFill.style.width = track.progress_percent;
-                    progTrack.appendChild(progTrackFill);
-                    info.appendChild(progTrack);
-                }
-                row.appendChild(info);
-
-                var ytEl = document.createElement('div');
-                ytEl.className = 'current-track-yt';
-                if (track.youtube_url && track.youtube_title) {
-                    var safeYt = sanitizeUrl(track.youtube_url);
-                    if (safeYt) {
-                        var a = document.createElement('a');
-                        a.href = safeYt;
-                        a.target = '_blank';
-                        a.rel = 'noopener';
-                        a.textContent = track.youtube_title;
-                        ytEl.appendChild(a);
-                    } else {
-                        ytEl.textContent = track.youtube_title;
-                    }
-                } else if (track.status === 'downloading') {
-                    ytEl.textContent = track.progress_speed || '';
-                }
-                row.appendChild(ytEl);
-
-                var statusEl = document.createElement('div');
-                statusEl.className = 'current-track-status';
-                var statusSpan = document.createElement('span');
-                if (track.status === 'done') {
-                    statusSpan.className = 'status-done';
-                    statusSpan.textContent = '\u2713 Done';
-                } else if (track.status === 'failed') {
-                    statusSpan.className = 'status-failed';
-                    statusSpan.textContent = '\u2717 Failed';
-                    statusSpan.title = track.error_message || '';
-                } else if (track.status === 'skipped') {
-                    statusSpan.className = 'status-skipped';
-                    statusSpan.textContent = '\u21b7 Skipped';
-                } else if (track.status === 'searching') {
-                    statusSpan.className = 'status-searching';
-                    statusSpan.textContent = 'Searching...';
-                } else if (track.status === 'tagging') {
-                    statusSpan.className = 'status-tagging';
-                    statusSpan.textContent = 'Tagging...';
-                } else if (track.status === 'fingerprinting') {
-                    statusSpan.className = 'status-fingerprinting';
-                    statusSpan.textContent = 'Fingerprinting...';
-                } else if (track.status === 'verifying') {
-                    statusSpan.className = 'status-verifying';
-                    statusSpan.textContent = 'Verifying...';
-                } else if (track.status === 'downloading') {
-                    statusSpan.className = 'status-downloading';
-                    statusSpan.textContent = track.progress_percent || 'Downloading';
-                } else {
-                    statusSpan.textContent = 'Pending';
-                }
-                statusEl.appendChild(statusSpan);
-                row.appendChild(statusEl);
-
-                var skipCell = document.createElement('div');
-                if (track.status === 'pending' || track.status === 'searching' || track.status === 'downloading' || track.status === 'verifying') {
-                    var skipBtn = document.createElement('button');
-                    skipBtn.className = 'current-track-skip-btn';
-                    skipBtn.textContent = 'Skip';
-                    skipBtn.onclick = (function(idx) { return function() { skipTrack(idx); }; })(i);
-                    skipCell.appendChild(skipBtn);
-                }
-                row.appendChild(skipCell);
-
-                grid.appendChild(row);
+                var r = {sig: null};
+                r.row = document.createElement('div');
+                r.num = document.createElement('div');
+                r.num.className = 'current-track-num';
+                r.info = document.createElement('div');
+                r.info.className = 'current-track-info';
+                r.title = document.createElement('div');
+                r.title.className = 'current-track-title';
+                r.info.appendChild(r.title);
+                r.prog = document.createElement('div');
+                r.prog.className = 'current-track-progress';
+                r.progFill = document.createElement('div');
+                r.progFill.className = 'current-track-progress-fill';
+                r.prog.appendChild(r.progFill);
+                r.yt = document.createElement('div');
+                r.yt.className = 'current-track-yt';
+                r.status = document.createElement('div');
+                r.status.className = 'current-track-status';
+                r.statusSpan = document.createElement('span');
+                r.status.appendChild(r.statusSpan);
+                r.skipCell = document.createElement('div');
+                r.skipBtn = document.createElement('button');
+                r.skipBtn.type = 'button';
+                r.skipBtn.className = 'current-track-skip-btn';
+                r.skipBtn.textContent = 'Skip';
+                r.skipBtn.onclick = function() { skipTrack(i); };
+                r.row.appendChild(r.num);
+                r.row.appendChild(r.info);
+                r.row.appendChild(r.yt);
+                r.row.appendChild(r.status);
+                r.row.appendChild(r.skipCell);
+                grid.appendChild(r.row);
+                view.rows.push(r);
             });
-
             wrapper.appendChild(grid);
-            container.replaceChildren(wrapper);
+            return view;
+        }
+
+        function updateCurrentRow(r, track) {
+            var sig = JSON.stringify(track);
+            if (sig === r.sig) return;
+            r.sig = sig;
+            var isActive = ACTIVE_TRACK_STATUSES.indexOf(track.status) !== -1;
+            r.row.className = 'current-track-row ' + (isActive ? 'active' : (track.status || 'pending'));
+            r.num.textContent = track.track_number;
+            r.title.textContent = track.track_title;
+            r.title.title = track.track_title || '';
+
+            if (track.status === 'downloading' && track.progress_percent) {
+                r.progFill.style.width = track.progress_percent;
+                if (!r.prog.isConnected) r.info.appendChild(r.prog);
+            } else if (r.prog.isConnected) {
+                r.prog.remove();
+            }
+
+            var safeYt = sanitizeUrl(track.youtube_url);
+            if (track.youtube_url && track.youtube_title && safeYt) {
+                var a = r.yt.firstElementChild;
+                if (!a || a.tagName !== 'A') {
+                    a = document.createElement('a');
+                    a.target = '_blank';
+                    a.rel = 'noopener';
+                    r.yt.replaceChildren(a);
+                }
+                if (a.getAttribute('href') !== safeYt) a.href = safeYt;
+                a.textContent = track.youtube_title;
+                a.title = track.youtube_title;
+            } else if (track.youtube_url && track.youtube_title) {
+                r.yt.textContent = track.youtube_title;
+            } else if (track.status === 'downloading') {
+                r.yt.textContent = track.progress_speed || '';
+            } else {
+                r.yt.textContent = '';
+            }
+
+            var label = TRACK_STATUS_LABELS[track.status];
+            if (track.status === 'downloading') {
+                label = ['status-downloading', track.progress_percent || 'Downloading'];
+            }
+            r.statusSpan.className = label ? label[0] : '';
+            r.statusSpan.textContent = label ? label[1] : 'Pending';
+            r.statusSpan.title = track.status === 'failed' ? (track.error_message || '') : '';
+
+            var canSkip = SKIPPABLE_TRACK_STATUSES.indexOf(track.status) !== -1;
+            if (canSkip && !r.skipBtn.isConnected) {
+                r.skipBtn.setAttribute('aria-label', 'Skip track ' + track.track_number);
+                r.skipCell.appendChild(r.skipBtn);
+            } else if (!canSkip && r.skipBtn.isConnected) {
+                r.skipBtn.remove();
+            }
+        }
+
+        function updateCurrentFromSSE(data) {
+            var container = document.getElementById('currentDownload');
+
+            if (!data.active) {
+                if (lastWasActive) {
+                    updateHistory();
+                    lastWasActive = false;
+                }
+                if (currentView !== null || !container.classList.contains('empty-state')) {
+                    currentView = null;
+                    showCurrentEmpty(container);
+                }
+                return;
+            }
+            lastWasActive = true;
+
+            var tracks = data.tracks || [];
+            var doneCount = tracks.filter(function(t) {
+                return t.status === 'done' || t.status === 'failed' || t.status === 'skipped';
+            }).length;
+            var overallPercent = tracks.length > 0
+                ? Math.round((doneCount / tracks.length) * 100) : 0;
+
+            var key = JSON.stringify([data.album_id, tracks.length, data.cover_url || '']);
+            if (!currentView || currentView.key !== key) {
+                currentView = buildCurrentView(data, tracks);
+                container.classList.remove('empty-state');
+                container.replaceChildren(currentView.wrapper);
+            }
+
+            currentView.h3.textContent = data.album_title || 'Unknown Album';
+            currentView.artist.textContent = data.artist_name || 'Unknown Artist';
+            currentView.trackCount.textContent = doneCount + '/' + tracks.length + ' finished';
+            currentView.progFill.style.width = overallPercent + '%';
+            currentView.progBar.setAttribute('aria-valuenow', String(overallPercent));
+            currentView.percent.textContent = overallPercent + '%';
+            tracks.forEach(function(track, i) {
+                updateCurrentRow(currentView.rows[i], track);
+            });
         }
 
         function updateQueueFromSSE(queue, statusData) {
@@ -1816,8 +2076,37 @@
             }
         }
 
+        var lastQueueSig = null;
+
+        function captureFocusKey(container) {
+            var el = document.activeElement;
+            if (!el || !container.contains(el)) return null;
+            return el.getAttribute('data-focus-key');
+        }
+
+        function restoreFocusKey(container, key) {
+            if (!key) return;
+            var target = container.querySelector('[data-focus-key="' + key + '"]');
+            if (target) target.focus();
+        }
+
         function renderQueue(queue) {
             const container = document.getElementById('downloadQueue');
+            if (queue.length > 0 && !expandedQueueIds.has(queue[0].id)) {
+                expandedQueueIds.add(queue[0].id);
+                if (!queueTrackCache[queue[0].id]) {
+                    fetchQueueTracks(queue[0].id);
+                }
+            }
+            var sig = JSON.stringify([
+                queue,
+                Array.from(expandedQueueIds),
+                Object.keys(queueTrackCache),
+            ]);
+            if (sig === lastQueueSig) return;
+            lastQueueSig = sig;
+            var focusKey = captureFocusKey(container);
+
             if (queue.length === 0) {
                 var empty = document.createElement('div');
                 empty.className = 'empty-state';
@@ -1829,13 +2118,6 @@
                 empty.appendChild(emptyP);
                 container.replaceChildren(empty);
                 return;
-            }
-
-            if (queue.length > 0 && !expandedQueueIds.has(queue[0].id)) {
-                expandedQueueIds.add(queue[0].id);
-                if (!queueTrackCache[queue[0].id]) {
-                    fetchQueueTracks(queue[0].id);
-                }
             }
 
             var frag = document.createDocumentFragment();
@@ -1851,7 +2133,18 @@
 
                 var header = document.createElement('div');
                 header.className = 'queue-item-header';
+                header.setAttribute('role', 'button');
+                header.setAttribute('tabindex', '0');
+                header.setAttribute('aria-expanded', expandedQueueIds.has(item.id) ? 'true' : 'false');
+                header.setAttribute('data-focus-key', 'qh-' + item.id);
                 header.onclick = function() { toggleQueueTracks(item.id); };
+                header.addEventListener('keydown', function(e) {
+                    if (e.target !== header) return;
+                    if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        toggleQueueTracks(item.id);
+                    }
+                });
 
                 var dragHandle = document.createElement('div');
                 dragHandle.className = 'drag-handle';
@@ -1890,10 +2183,10 @@
                 info.className = 'queue-album-info';
                 var titleEl = document.createElement('div');
                 titleEl.className = 'queue-album-title';
-                titleEl.textContent = item.title;
+                titleEl.appendChild(makeBdi(item.title || ''));
                 var artistEl = document.createElement('div');
                 artistEl.className = 'queue-album-artist';
-                artistEl.textContent = item.artist;
+                artistEl.appendChild(makeBdi(item.artist || ''));
                 info.appendChild(titleEl);
                 info.appendChild(artistEl);
                 header.appendChild(info);
@@ -1908,7 +2201,10 @@
                 var actionsDiv = document.createElement('div');
                 actionsDiv.className = 'queue-actions';
                 var removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
                 removeBtn.textContent = 'Remove';
+                removeBtn.setAttribute('aria-label', 'Remove ' + (item.title || 'album') + ' from queue');
+                removeBtn.setAttribute('data-focus-key', 'qr-' + item.id);
                 removeBtn.onclick = function(e) {
                     e.stopPropagation();
                     removeFromQueue(item.id);
@@ -1940,7 +2236,7 @@
                         var loading = document.createElement('div');
                         loading.style.fontSize = '0.8rem';
                         loading.style.opacity = '0.5';
-                        loading.textContent = 'Loading tracks...';
+                        loading.textContent = cachedTracks ? 'No track list available' : 'Loading tracks...';
                         trackList.appendChild(loading);
                     }
                     qItem.appendChild(trackList);
@@ -1950,6 +2246,11 @@
             });
 
             container.replaceChildren(frag);
+            restoreFocusKey(container, focusKey);
+        }
+
+        function rerenderQueue() {
+            if (!isDragging) renderQueue(currentQueue);
         }
 
         function onQueueDragStart(e, albumId) {
@@ -2046,7 +2347,19 @@
 
             const row = document.createElement('div');
             row.className = 'history-item history-' + status + ' history-album-row';
+            row.setAttribute('role', 'button');
+            row.setAttribute('tabindex', '0');
+            row.setAttribute('aria-expanded', 'false');
+            row.setAttribute('aria-controls', 'tracks-' + albumId);
+            row.setAttribute('data-focus-key', 'hr-' + albumId);
             row.addEventListener('click', function() { toggleTracks(row, albumId); });
+            row.addEventListener('keydown', function(e) {
+                if (e.target !== row) return;
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggleTracks(row, albumId);
+                }
+            });
 
             const expandIcon = document.createElement('span');
             expandIcon.className = 'history-expand-icon';
@@ -2067,11 +2380,13 @@
             info.className = 'history-info';
             const title = document.createElement('div');
             title.className = 'history-title';
-            title.textContent = item.album_title || 'Unknown';
+            title.appendChild(makeBdi(item.album_title || 'Unknown'));
             info.appendChild(title);
             const meta = document.createElement('div');
             meta.className = 'history-meta';
-            meta.textContent = (item.artist_name || 'Unknown Artist') + ' \u2022 ' + new Date(item.latest_timestamp * 1000).toLocaleString();
+            meta.appendChild(makeBdi(item.artist_name || 'Unknown Artist'));
+            meta.appendChild(document.createTextNode(' \u2022 '));
+            meta.appendChild(makeBdi(new Date(item.latest_timestamp * 1000).toLocaleString()));
             info.appendChild(meta);
             row.appendChild(info);
 
@@ -2084,6 +2399,7 @@
                 const retryBtn = document.createElement('button');
                 retryBtn.type = 'button';
                 retryBtn.className = 'btn-retry-failed';
+                retryBtn.setAttribute('data-focus-key', 'hb-' + albumId);
                 retryBtn.title = 'Search and manually download failed tracks';
                 // Open the retry overlay in place instead of navigating to
                 // the home page, so the user can retry the next failed entry
@@ -2110,25 +2426,32 @@
             return wrapper;
         }
 
-        async function renderTrackGrid(grid, albumId) {
-            grid.textContent = '';
-            var loading = document.createElement('div');
-            loading.style.cssText = 'padding:1rem;color:var(--text-dim);text-align:center;';
-            loading.textContent = 'Loading...';
-            grid.appendChild(loading);
+        function fetchBannedUrls() {
+            return fetch('/api/banned-urls?per_page=200')
+                .then(function(r) { return r.ok ? r.json() : {items: []}; })
+                .catch(function() { return {items: []}; });
+        }
+
+        async function renderTrackGrid(grid, albumId, bannedPromise) {
+            if (!grid.firstChild) {
+                var loading = document.createElement('div');
+                loading.style.cssText = 'padding:1rem;color:var(--text-dim);text-align:center;';
+                loading.textContent = 'Loading...';
+                grid.appendChild(loading);
+            }
 
             try {
-                var [resp, bannedResp] = await Promise.all([
+                var [resp, bannedData] = await Promise.all([
                     fetch('/api/download/history/' + albumId + '/tracks'),
-                    fetch('/api/banned-urls?per_page=200'),
+                    bannedPromise || fetchBannedUrls(),
                 ]);
                 if (!resp.ok) {
                     throw new Error('Server returned ' + resp.status);
                 }
                 var tracks = await resp.json();
-                var bannedData = bannedResp.ok ? await bannedResp.json() : {items: []};
+                var focusKey = captureFocusKey(grid);
                 var bannedByKey = {};
-                bannedData.items.forEach(function(b) {
+                (bannedData.items || []).forEach(function(b) {
                     if (String(b.album_id) === String(albumId)) {
                         var key = b.track_title + '||' + b.youtube_url;
                         bannedByKey[key] = b.id;
@@ -2243,7 +2566,7 @@
                         scoreCell.style.color = 'var(--text-dim)';
                         scoreCell.textContent = '\u2014';
                     } else {
-                        scoreCell.style.color = '#6ee7b7';
+                        scoreCell.style.color = 'var(--score-good)';
                         scoreCell.textContent = t.match_score ? t.match_score.toFixed(2) : '\u2014';
                     }
                     detailRow.appendChild(scoreCell);
@@ -2253,7 +2576,7 @@
                         acoustidCell.style.color = 'var(--text-dim)';
                         acoustidCell.textContent = '\u2014';
                     } else {
-                        acoustidCell.style.color = t.acoustid_score >= 0.85 ? '#6ee7b7' : '#fbbf24';
+                        acoustidCell.style.color = t.acoustid_score >= 0.85 ? 'var(--score-good)' : 'var(--score-warn)';
                         acoustidCell.textContent = t.acoustid_score.toFixed(2);
                         if (t.acoustid_recording_title) {
                             acoustidCell.title = t.acoustid_recording_title + ' (' + t.acoustid_recording_id + ')';
@@ -2278,8 +2601,11 @@
                     var actionsCell = document.createElement('div');
                     if (t.success && !t.deleted) {
                         var delBtn = document.createElement('button');
+                        delBtn.type = 'button';
                         delBtn.className = 'btn-delete-track';
                         delBtn.title = 'Delete track file';
+                        delBtn.setAttribute('aria-label', 'Delete file for ' + t.track_title);
+                        delBtn.setAttribute('data-focus-key', 'td-' + t.id);
                         var delIcon = document.createElement('i');
                         delIcon.className = 'fas fa-trash';
                         delBtn.appendChild(delIcon);
@@ -2304,7 +2630,9 @@
                         var banId = bannedByKey[banKey];
                         if (banId) {
                             var unbanBtn = document.createElement('button');
+                            unbanBtn.type = 'button';
                             unbanBtn.className = 'btn-unban-track';
+                            unbanBtn.setAttribute('aria-label', 'Unban URL for ' + t.track_title);
                             unbanBtn.title = 'Unban this URL';
                             unbanBtn.textContent = 'Unban';
                             unbanBtn.onclick = (function(bid, aid, gridEl) {
@@ -2328,6 +2656,7 @@
 
                 grid.textContent = '';
                 grid.appendChild(fragment);
+                restoreFocusKey(grid, focusKey);
             } catch (e) {
                 console.error('Failed to load tracks for album ' + albumId, e);
                 grid.textContent = '';
@@ -2345,12 +2674,14 @@
             if (grid.style.display !== 'none') {
                 grid.style.display = 'none';
                 icon.classList.remove('expanded');
+                row.setAttribute('aria-expanded', 'false');
                 expandedAlbumIds.delete(albumId);
                 return;
             }
 
             icon.classList.add('expanded');
             grid.style.display = 'block';
+            row.setAttribute('aria-expanded', 'true');
             expandedAlbumIds.add(albumId);
             await renderTrackGrid(grid, albumId);
         }
@@ -2392,6 +2723,8 @@
             };
 
             const prevBtn = document.createElement('button');
+            prevBtn.type = 'button';
+            prevBtn.setAttribute('aria-label', 'Previous page');
             prevBtn.disabled = currentPage <= 1;
             prevBtn.appendChild(makeFaIcon('fa-solid fa-chevron-left'));
             prevBtn.addEventListener('click', function() { window[goToPageFn](currentPage - 1); });
@@ -2405,14 +2738,21 @@
                     nav.appendChild(ellipsis);
                 } else {
                     const btn = document.createElement('button');
+                    btn.type = 'button';
                     btn.textContent = p;
-                    if (p === currentPage) btn.className = 'active';
+                    btn.setAttribute('aria-label', 'Page ' + p);
+                    if (p === currentPage) {
+                        btn.className = 'active';
+                        btn.setAttribute('aria-current', 'page');
+                    }
                     btn.addEventListener('click', function() { window[goToPageFn](p); });
                     nav.appendChild(btn);
                 }
             });
 
             const nextBtn = document.createElement('button');
+            nextBtn.type = 'button';
+            nextBtn.setAttribute('aria-label', 'Next page');
             nextBtn.disabled = currentPage >= totalPages;
             nextBtn.appendChild(makeFaIcon('fa-solid fa-chevron-right'));
             nextBtn.addEventListener('click', function() { window[goToPageFn](currentPage + 1); });
@@ -2440,29 +2780,74 @@
                     fetchQueueTracks(albumId);
                 }
             }
+            rerenderQueue();
         }
 
         function fetchQueueTracks(albumId) {
             fetch('/api/download/queue/' + albumId + '/tracks')
                 .then(function(r) { return r.json(); })
                 .then(function(tracks) {
-                    queueTrackCache[albumId] = tracks;
+                    queueTrackCache[albumId] = Array.isArray(tracks) ? tracks : [];
+                    rerenderQueue();
                 })
                 .catch(function() {
                     queueTrackCache[albumId] = [];
+                    rerenderQueue();
                 });
+        }
+
+        var lastHistorySig = null;
+        var historyLoadSeq = 0;
+
+        function renderHistoryError(container) {
+            var box = document.createElement('div');
+            box.className = 'empty-state';
+            box.setAttribute('role', 'alert');
+            var icon = document.createElement('i');
+            icon.className = 'fa-solid fa-triangle-exclamation';
+            var text = document.createElement('p');
+            text.textContent = 'Could not load download history.';
+            var retry = document.createElement('button');
+            retry.type = 'button';
+            retry.className = 'ui-btn';
+            retry.style.marginTop = '0.75rem';
+            retry.textContent = 'Try again';
+            retry.addEventListener('click', function() { updateHistory(); });
+            box.appendChild(icon);
+            box.appendChild(text);
+            box.appendChild(retry);
+            container.replaceChildren(box);
+            document.getElementById('historyPagination').textContent = '';
         }
 
         async function updateHistory() {
             const url = '/api/download/history?page=' + historyCurrentPage + '&per_page=' + HISTORY_PER_PAGE;
-            const res = await fetch(url);
-            const data = await res.json();
             const container = document.getElementById('downloadHistory');
             const clearBtn = document.getElementById('clearHistoryBtn');
+            const seq = ++historyLoadSeq;
+            let data;
+            try {
+                const res = await fetch(url);
+                if (!res.ok) throw new Error('Server returned ' + res.status);
+                data = await res.json();
+            } catch (e) {
+                if (seq !== historyLoadSeq) return;
+                console.error('Failed to load download history', e);
+                if (!container.querySelector('.history-album-row')) {
+                    lastHistorySig = null;
+                    renderHistoryError(container);
+                }
+                return;
+            }
+            if (seq !== historyLoadSeq) return;
 
             historyTotal = data.total;
             historyTotalPages = data.pages;
             historyCurrentPage = data.page;
+
+            const sig = JSON.stringify(data);
+            if (sig === lastHistorySig) return;
+            lastHistorySig = sig;
 
             if (data.total === 0) {
                 expandedAlbumIds.clear();
@@ -2482,27 +2867,44 @@
             }
 
             clearBtn.style.display = 'flex';
-            container.textContent = '';
-            data.items.forEach(function(item) {
-                container.appendChild(renderHistoryItem(item));
+            const focusKey = captureFocusKey(container);
+            const oldGrids = {};
+            expandedAlbumIds.forEach(function(albumId) {
+                var old = document.getElementById('tracks-' + albumId);
+                if (old) oldGrids[albumId] = old;
             });
+            const frag = document.createDocumentFragment();
+            data.items.forEach(function(item) {
+                frag.appendChild(renderHistoryItem(item));
+            });
+            container.replaceChildren(frag);
             renderPagination(
                 'historyPagination', historyCurrentPage,
                 historyTotalPages, historyTotal,
                 HISTORY_PER_PAGE, 'goToHistoryPage'
             );
 
+            var bannedPromise = null;
             expandedAlbumIds.forEach(function(albumId) {
                 var grid = document.getElementById('tracks-' + albumId);
                 var icon = document.getElementById('expand-icon-' + albumId);
                 if (grid && icon) {
+                    if (oldGrids[albumId]) {
+                        grid.replaceWith(oldGrids[albumId]);
+                        grid = oldGrids[albumId];
+                    }
                     icon.classList.add('expanded');
                     grid.style.display = 'block';
-                    renderTrackGrid(grid, albumId);
+                    if (grid.previousElementSibling) {
+                        grid.previousElementSibling.setAttribute('aria-expanded', 'true');
+                    }
+                    if (!bannedPromise) bannedPromise = fetchBannedUrls();
+                    renderTrackGrid(grid, albumId, bannedPromise);
                 } else {
                     expandedAlbumIds.delete(albumId);
                 }
             });
+            restoreFocusKey(container, focusKey);
         }
 
         async function clearAllHistory() {
@@ -2525,7 +2927,12 @@
         }
 
         async function stopDownload() {
-            if (confirm('Are you sure you want to stop the current download?')) {
+            var queued = currentQueue.length;
+            var msg = 'Stop the current download and clear the download queue?';
+            if (queued > 0) {
+                msg += '\n\nAll ' + queued + ' queued album' + (queued === 1 ? '' : 's') + ' will be removed from the queue.';
+            }
+            if (confirm(msg)) {
                 await fetch('/api/download/stop', { method: 'POST' });
             }
         }
@@ -2543,20 +2950,27 @@
         function openDeleteModal(data) {
             _deleteModalData = data;
             var num = String(data.trackNumber).padStart(2, '0');
-            var filename = num + ' - ' + data.trackTitle + '.mp3';
-            var path = data.albumPath ? data.albumPath + '/' + filename : filename;
-            document.getElementById('deleteModalPath').textContent = path;
+            var pathBox = document.getElementById('deleteModalPath');
+            var folderLine = document.createElement('div');
+            folderLine.textContent = data.albumPath ? data.albumPath + '/' : 'Unknown folder';
+            var trackLine = document.createElement('div');
+            trackLine.appendChild(document.createTextNode(num + ' - '));
+            trackLine.appendChild(makeBdi(data.trackTitle || ''));
+            pathBox.replaceChildren(folderLine, trackLine);
             var urlText = data.youtubeUrl || 'unknown';
-            document.getElementById('banUrlDetail').textContent =
-                'The URL ' + urlText + ' will be skipped when searching for "' +
-                data.trackTitle + '" in future downloads.';
+            var detail = document.getElementById('banUrlDetail');
+            detail.replaceChildren(
+                document.createTextNode('The URL ' + urlText + ' will be skipped when searching for \u201c'),
+                makeBdi(data.trackTitle || ''),
+                document.createTextNode('\u201d in future downloads.')
+            );
             document.getElementById('banUrlCheckbox').checked = true;
-            document.getElementById('deleteTrackModal').classList.remove('hidden');
             document.getElementById('confirmDeleteBtn').onclick = confirmDeleteTrack;
+            showModal('deleteTrackModal');
         }
 
         function closeDeleteModal() {
-            document.getElementById('deleteTrackModal').classList.add('hidden');
+            hideModal('deleteTrackModal');
             _deleteModalData = null;
         }
 
@@ -2583,25 +2997,27 @@
             }
         }
 
-        setInterval(updateHistory, 10000);
+        setInterval(function() {
+            if (!document.hidden) updateHistory();
+        }, 10000);
 
     </script>
 
 <div class="modal-overlay hidden" id="retryFailedModal" onclick="if(event.target===this)closeRetryModal()">
-    <div class="modal-box" style="max-width:560px;">
-        <button class="modal-close" onclick="closeRetryModal()" title="Close"><i class="fas fa-times"></i></button>
-        <div class="modal-title" style="color:var(--text);"><i class="fa-solid fa-magnifying-glass" style="color:var(--primary);"></i> Retry Failed Tracks</div>
+    <div class="modal-box" style="max-width:560px;" role="dialog" aria-modal="true" aria-labelledby="retryModalTitle">
+        <button class="modal-close" onclick="closeRetryModal()" title="Close" aria-label="Close"><i class="fas fa-times"></i></button>
+        <div class="modal-title" id="retryModalTitle" style="color:var(--text);"><i class="fa-solid fa-magnifying-glass" style="color:var(--primary);"></i> Retry Failed Tracks</div>
         <div class="modal-subtitle" id="retryModalSubtitle">Loading…</div>
         <div id="retryModalList" style="max-height:60vh; overflow-y:auto; overflow-wrap:anywhere;"></div>
     </div>
 </div>
 
 <div class="modal-overlay hidden" id="deleteTrackModal" onclick="if(event.target===this)closeDeleteModal()">
-    <div class="modal-box">
-        <button class="modal-close" onclick="closeDeleteModal()" title="Close"><i class="fas fa-times"></i></button>
-        <div class="modal-title"><i class="fas fa-trash-alt"></i> Delete Track</div>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
+        <button class="modal-close" onclick="closeDeleteModal()" title="Close" aria-label="Close"><i class="fas fa-times"></i></button>
+        <div class="modal-title" id="deleteModalTitle"><i class="fas fa-trash-alt"></i> Delete Track</div>
         <div class="modal-subtitle">This will permanently remove the downloaded file from disk.</div>
-        <div class="file-path-label">File location</div>
+        <div class="file-path-label">Album folder &amp; track</div>
         <div class="file-path-box" id="deleteModalPath"></div>
         <div class="xml-note">The XML sidecar file will also be removed if present.</div>
         <label class="ban-checkbox">
