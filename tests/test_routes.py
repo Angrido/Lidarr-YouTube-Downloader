@@ -2234,6 +2234,26 @@ def test_pwa_manifest(client):
     assert m["icons"] and m["icons"][0]["src"].endswith(".svg")
 
 
+def test_pwa_manifest_has_png_and_maskable_icons(client):
+    import json as _json
+    m = _json.loads(client.get("/manifest.webmanifest").get_data(as_text=True))
+    pngs = [i for i in m["icons"] if i["type"] == "image/png"]
+    assert {i["sizes"] for i in pngs} >= {"192x192", "512x512"}
+    assert any(i["purpose"] == "maskable" for i in pngs)
+    assert all("maskable" not in i["purpose"] for i in m["icons"] if i["src"].endswith(".svg"))
+    for icon in m["icons"]:
+        resp = client.get(icon["src"])
+        assert resp.status_code == 200
+        resp.close()
+
+
+def test_apple_touch_icon_is_png(client):
+    resp = client.get("/static/apple-touch-icon.png")
+    assert resp.status_code == 200
+    assert resp.get_data()[:8] == b"\x89PNG\r\n\x1a\n"
+    resp.close()
+
+
 def test_service_worker(client):
     resp = client.get("/sw.js")
     assert resp.status_code == 200
