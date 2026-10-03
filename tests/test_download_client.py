@@ -576,3 +576,167 @@ def test_estimated_release_size_tracks_bitrate():
 def test_estimated_release_size_handles_missing_count():
     size = download_client._estimated_release_size(None, {})
     assert size > 0
+
+
+def _history(client):
+    return client.get(
+        "/api/sabnzbd/api?mode=history&apikey=secret"
+    ).get_json()["history"]
+
+
+def _queue(client):
+    return client.get(
+        "/api/sabnzbd/api?mode=queue&apikey=secret"
+    ).get_json()["queue"]
+
+
+def _feed(client):
+    return client.get("/api/newznab/api?t=search&apikey=secret").data.decode()
+
+
+def test_history_delete_of_failed_job_keeps_the_cooldown(client, configured):
+    _seed_album(42)
+    nzo = download_client.register_grab(42, "x", "music")
+    download_client.mark_failed(42, "boom")
+    r = client.get(
+        "/api/sabnzbd/api?mode=history&name=delete"
+        f"&value={nzo}&del_files=1&apikey=secret"
+    )
+    assert r.get_json()["status"] is True
+    assert _history(client)["noofslots"] == 0
+    assert _queue(client)["noofslots"] == 0
+    assert download_client._grab_blocked(42, configured)
+    assert "id=42&" not in _feed(client)
+
+
+def test_history_delete_of_completed_job_keeps_feed_exclusion(client):
+    _seed_album(42)
+    nzo = download_client.register_grab(42, "x", "music")
+    download_client.mark_completed(42, "/d/x")
+    client.get(
+        f"/api/sabnzbd/api?mode=history&name=delete&value={nzo}&apikey=secret"
+    )
+    assert _history(client)["noofslots"] == 0
+    assert "id=42&" not in _feed(client)
+
+
+def test_history_delete_all_hides_every_terminal_job(client, configured):
+    _seed_album(1, artist="A", title="One")
+    _seed_album(2, artist="B", title="Two")
+    download_client.register_grab(1, "a", "music")
+    download_client.mark_failed(1, "boom")
+    download_client.register_grab(2, "b", "music")
+    download_client.mark_completed(2, "/d/b")
+    client.get(
+        "/api/sabnzbd/api?mode=history&name=delete&value=all&apikey=secret"
+    )
+    assert _history(client)["noofslots"] == 0
+    feed = _feed(client)
+    assert "id=1&" not in feed and "id=2&" not in feed
+    assert download_client._grab_blocked(1, configured)
+
+
+def test_removed_jobs_are_not_restored(client, configured):
+    _seed_album(42)
+    nzo = download_client.register_grab(42, "x", "music")
+    download_client.mark_failed(42, "boom")
+    download_client.remove_job(nzo)
+    download_client._jobs.clear()
+    download_client._album_to_nzo.clear()
+
+    download_client.restore_jobs()
+
+    assert nzo not in download_client._jobs
+    assert not download_client.is_client_album(42)
+    assert _history(client)["noofslots"] == 0
+    assert download_client._grab_blocked(42, configured)
+
+
+def test_regrab_after_removed_completed_job_is_allowed(client, configured):
+    _seed_album(42)
+    nzo = download_client.register_grab(42, "x", "music")
+    download_client.mark_completed(42, "/d/x")
+    download_client.remove_job(nzo)
+    assert not download_client._grab_blocked(42, configured)
+    assert download_client.register_grab(42, "x", "music") != nzo
+
+
+def test_removed_jobs_older_than_the_cooldown_are_purged(client, configured):
+    old = time.time() - 30 * 86400
+    models.upsert_client_job({
+        "nzo_id": "SABnzbd_nzo_gone", "album_id": 9, "name": "Z",
+        "category": "music", "status": "failed", "storage": "",
+        "size": 1, "error": "x", "added_ts": old, "completed_ts": old,
+    })
+    download_client.restore_jobs()
+    download_client.remove_job("SABnzbd_nzo_gone")
+    assert models.get_all_client_jobs() == []
+
+
+def test_queue_delete_stops_the_running_download(client):
+    import processing
+
+    _seed_album(42)
+    nzo = download_client.register_grab(42, "x", "music")
+    download_client.mark_downloading(42)
+    state = processing._make_download_state()
+    state["active"] = True
+    state["is_client"] = True
+    processing._active_states[42] = state
+    try:
+        r = client.get(
+            "/api/sabnzbd/api?mode=queue&name=delete"
+            f"&value={nzo}&del_files=1&apikey=secret"
+        )
+        assert r.get_json()["status"] is True
+        assert state["stop"] is True
+    finally:
+        processing._active_states.pop(42, None)
+    assert not download_client.is_client_album(42)
+    assert _queue(client)["noofslots"] == 0
+
+
+def test_queue_delete_of_queued_job_does_not_stop_other_downloads(client):
+    import processing
+
+    nzo = download_client.register_grab(42, "x", "music")
+    state = processing._make_download_state()
+    processing._active_states[7] = state
+    try:
+        download_client.remove_job(nzo)
+        assert state["stop"] is False
+    finally:
+        processing._active_states.pop(7, None)
+
+
+def _item_field(xml, tag):
+    import re
+    item = xml.split("<item>")[1]
+    return re.search(f"<{tag}[^>]*>(.*?)</{tag}>", item).group(1)
+
+
+@pytest.mark.parametrize("release_date", ["2001-03-12", None])
+def test_pubdate_follows_the_retry_bucket(configured, monkeypatch, release_date):
+    album = {
+        "album_id": 42, "artist_name": "A", "title": "B",
+        "release_date": release_date, "track_count": 10,
+    }
+    window = 24 * 3600
+    t0 = 1_000_000_000.0 - (1_000_000_000.0 % window) + 3600
+
+    def render(now):
+        monkeypatch.setattr(download_client.time, "time", lambda: now)
+        return download_client._search_xml(
+            [album], configured, "http://h/",
+        ).get_data(as_text=True)
+
+    a = render(t0)
+    b = render(t0 + 600)
+    c = render(t0 + window)
+    assert _item_field(a, "pubDate") == _item_field(b, "pubDate")
+    assert _item_field(a, "guid") == _item_field(b, "guid")
+    assert _item_field(a, "pubDate") != _item_field(c, "pubDate")
+    assert _item_field(a, "guid") != _item_field(c, "guid")
+    from email.utils import formatdate
+    assert _item_field(a, "pubDate") != formatdate(t0, usegmt=True)
+    assert _item_field(a, "title") == _item_field(c, "title")

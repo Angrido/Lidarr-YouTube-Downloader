@@ -2,6 +2,9 @@
 
 from unittest.mock import patch, MagicMock
 
+import pytest
+import requests
+
 import lidarr
 
 
@@ -185,3 +188,107 @@ def test_get_monitored_release_empty():
 
 def test_get_monitored_release_no_releases_key():
     assert lidarr.get_monitored_release({}) is None
+
+
+# --- retryability ---
+
+
+def _http_error_response(status):
+    response = MagicMock(status_code=status)
+    response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+        f"{status} error", response=response,
+    )
+    return response
+
+
+_CFG = {"lidarr_url": "http://lidarr:8686", "lidarr_api_key": "key123"}
+
+
+@pytest.mark.parametrize("status,retryable", [
+    (400, False), (401, False), (403, False), (404, False),
+    (500, True), (502, True), (503, True),
+])
+@patch("lidarr.load_config", return_value=_CFG)
+@patch("lidarr.requests.get")
+def test_lidarr_request_http_error_retryable_flag(
+    mock_get, mock_cfg, status, retryable,
+):
+    mock_get.return_value = _http_error_response(status)
+    result = lidarr.lidarr_request("album/1")
+    assert "error" in result
+    assert result["retryable"] is retryable
+
+
+@pytest.mark.parametrize("exc", [
+    requests.exceptions.ConnectionError("refused"),
+    requests.exceptions.Timeout("slow"),
+])
+@patch("lidarr.load_config", return_value=_CFG)
+@patch("lidarr.requests.get")
+def test_lidarr_request_transport_errors_are_retryable(mock_get, mock_cfg, exc):
+    mock_get.side_effect = exc
+    result = lidarr.lidarr_request("album/1")
+    assert result["retryable"] is True
+
+
+@patch("lidarr.load_config", return_value={})
+def test_lidarr_request_not_configured_is_not_retryable(mock_cfg):
+    result = lidarr.lidarr_request("album/1")
+    assert result["retryable"] is False
+
+
+@patch("lidarr.load_config", return_value=_CFG)
+@patch("lidarr.requests.get")
+def test_lidarr_request_success_has_no_retryable_key(mock_get, mock_cfg):
+    mock_get.return_value = MagicMock(
+        status_code=200, json=lambda: {"version": "2.0"}
+    )
+    assert lidarr.lidarr_request("system/status") == {"version": "2.0"}
+
+
+@pytest.mark.parametrize("status", [400, 401, 404])
+@patch("lidarr.time.sleep")
+@patch("lidarr.load_config", return_value=_CFG)
+@patch("lidarr.requests.post")
+def test_retry_gives_up_immediately_on_permanent_error(
+    mock_post, mock_cfg, mock_sleep, status,
+):
+    mock_post.return_value = _http_error_response(status)
+    result = lidarr.lidarr_request_with_retry(
+        "command", data={"name": "RefreshArtist"},
+    )
+    assert "error" in result
+    assert mock_post.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+@patch("lidarr.time.sleep")
+@patch("lidarr.load_config", return_value={})
+def test_retry_gives_up_immediately_when_not_configured(mock_cfg, mock_sleep):
+    result = lidarr.lidarr_request_with_retry("command", data={})
+    assert "error" in result
+    mock_sleep.assert_not_called()
+
+
+@patch("lidarr.time.sleep")
+@patch("lidarr.load_config", return_value=_CFG)
+@patch("lidarr.requests.post")
+def test_retry_retries_server_errors_then_succeeds(
+    mock_post, mock_cfg, mock_sleep,
+):
+    mock_post.side_effect = [
+        _http_error_response(503),
+        requests.exceptions.ConnectionError("down"),
+        MagicMock(status_code=201, json=lambda: {"id": 9}),
+    ]
+    result = lidarr.lidarr_request_with_retry("command", data={})
+    assert result == {"id": 9}
+    assert mock_post.call_count == 3
+    assert mock_sleep.call_count == 2
+
+
+@patch("lidarr.time.sleep")
+@patch("lidarr.lidarr_request", return_value={"error": "legacy"})
+def test_retry_without_retryable_key_keeps_retrying(mock_req, mock_sleep):
+    lidarr.lidarr_request_with_retry("command", data={}, max_attempts=3)
+    assert mock_req.call_count == 3

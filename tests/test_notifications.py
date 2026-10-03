@@ -519,7 +519,7 @@ def test_send_ntfy_sends_message(mock_cfg, mock_post, mock_ntfy_config):
     notifications.send_ntfy("Download completed", log_type="download_success")
     mock_post.assert_called_once()
     url = mock_post.call_args[0][0]
-    assert url == "https://ntfy.sh/test-topic"
+    assert url == "https://ntfy.sh/"
     payload = mock_post.call_args.kwargs.get("json") or mock_post.call_args[1].get("json")
     headers = mock_post.call_args.kwargs.get("headers") or mock_post.call_args[1].get("headers")
     assert payload["message"] == "Download completed"
@@ -570,7 +570,7 @@ def test_send_ntfy_handles_attachment_and_click(mock_cfg, mock_post, mock_ntfy_c
     assert payload["title"] == "Custom Title"
     assert payload["click"] == "https://youtube.com/watch?v=123"
     assert payload["attach"] == "https://cover.art/img.jpg"
-    assert payload["priority"] == "high"
+    assert payload["priority"] == 4
 
 
 @patch("notifications.requests.post")
@@ -600,7 +600,7 @@ def test_send_ntfy_test_success(mock_post):
     assert result["success"] is True
     assert result["error"] == ""
     url = mock_post.call_args[0][0]
-    assert url == "https://ntfy.sh/my-topic"
+    assert url == "https://ntfy.sh/"
     headers = mock_post.call_args.kwargs.get("headers") or mock_post.call_args[1].get("headers")
     assert headers["Authorization"] == "Bearer tk_abc"
 
@@ -659,3 +659,114 @@ def test_send_notifications_dispatches_to_ntfy(mock_tg, mock_dc, mock_ntfy):
         attach_url="https://img/photo.jpg",
     )
 
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_ntfy_posts_json_to_server_root(mock_cfg, mock_post, mock_ntfy_config):
+    mock_ntfy_config["ntfy_url"] = "https://push.example.com/ntfy/"
+    mock_cfg.return_value = mock_ntfy_config
+    notifications.send_ntfy("msg", log_type="download_success")
+    assert mock_post.call_args[0][0] == "https://push.example.com/ntfy/"
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["topic"] == "test-topic"
+    assert payload["priority"] == 3
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("min", 1), ("low", 2), ("default", 3), ("high", 4), ("urgent", 5),
+    ("max", 5), ("HIGH", 4), ("1", 1), ("5", 5), (2, 2), ("bogus", 3),
+    (None, 3), ("", 3), ("9", 3), (0, 3),
+])
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_ntfy_priority_is_an_int(
+    mock_cfg, mock_post, mock_ntfy_config, value, expected,
+):
+    mock_ntfy_config["ntfy_priority"] = value
+    mock_cfg.return_value = mock_ntfy_config
+    notifications.send_ntfy("msg", log_type="download_success")
+    assert mock_post.call_args.kwargs["json"]["priority"] == expected
+
+
+@patch("notifications.requests.post")
+def test_send_ntfy_test_posts_json_to_server_root(mock_post):
+    mock_post.return_value = MagicMock(status_code=200, text="")
+    notifications.send_ntfy_test("https://ntfy.sh/", "my-topic", priority="high")
+    assert mock_post.call_args[0][0] == "https://ntfy.sh/"
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["topic"] == "my-topic"
+    assert payload["priority"] == 4
+
+
+@patch("notifications.requests.post")
+def test_send_ntfy_test_default_priority_is_an_int(mock_post):
+    mock_post.return_value = MagicMock(status_code=200, text="")
+    notifications.send_ntfy_test("https://ntfy.sh", "my-topic")
+    assert mock_post.call_args.kwargs["json"]["priority"] == 3
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_telegram_exception_does_not_log_the_bot_token(
+    mock_cfg, mock_post, mock_config, caplog,
+):
+    mock_config["telegram_bot_token"] = "123456:SECRET-abc"
+    mock_cfg.return_value = mock_config
+    mock_post.side_effect = Exception(
+        "HTTPSConnectionPool(host='api.telegram.org', port=443): Max retries"
+        " exceeded with url: /bot123456:SECRET-abc/sendMessage"
+    )
+    notifications.send_telegram("msg", log_type="album_error")
+    assert "Telegram notification failed" in caplog.text
+    assert "SECRET-abc" not in caplog.text
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_discord_exception_does_not_log_the_webhook_token(
+    mock_cfg, mock_post, mock_config, caplog,
+):
+    mock_config["discord_webhook_url"] = (
+        "https://discord.com/api/webhooks/111/TOKENxyz"
+    )
+    mock_cfg.return_value = mock_config
+    mock_post.side_effect = Exception(
+        "HTTPSConnectionPool(host='discord.com', port=443): Max retries"
+        " exceeded with url: /api/webhooks/111/TOKENxyz; also"
+        " https://discord.com/api/webhooks/111/TOKENxyz"
+    )
+    notifications.send_discord("msg", log_type="album_error")
+    assert "Discord notification failed" in caplog.text
+    assert "TOKENxyz" not in caplog.text
+
+
+@patch("notifications.requests.post")
+@patch("notifications.load_config")
+def test_send_ntfy_exception_does_not_log_the_token(
+    mock_cfg, mock_post, mock_ntfy_config, caplog,
+):
+    mock_cfg.return_value = mock_ntfy_config
+    mock_post.side_effect = Exception("bad header Bearer tk_123")
+    notifications.send_ntfy("msg", log_type="album_error")
+    assert "Ntfy notification failed" in caplog.text
+    assert "tk_123" not in caplog.text
+
+
+def test_md2_escape_escapes_backslash():
+    assert notifications.md2_escape("a\\b") == "a\\\\b"
+
+
+def test_truncate_md2_cuts_at_a_line_boundary():
+    lines = ["*Bold line*", "_Error: " + "x" * 200 + "_"]
+    text = "\n".join(lines)
+    out = notifications._truncate_caption(text, 100, md2_safe=True)
+    assert len(out) <= 100
+    assert out == lines[0] + "\n…"
+
+
+def test_truncate_md2_never_ends_in_a_dangling_backslash():
+    text = "a" * 98 + "\\." + "b" * 10
+    out = notifications._truncate_caption(text, 100, md2_safe=True)
+    assert len(out) <= 100
+    assert not out[:-1].endswith("\\")

@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import time
+import uuid
 from datetime import datetime, timedelta
 from enum import Enum
 
@@ -31,12 +32,17 @@ QUEUE_STATUS_QUEUED = "queued"
 QUEUE_STATUS_DOWNLOADING = "downloading"
 QUEUE_STATUSES = {QUEUE_STATUS_QUEUED, QUEUE_STATUS_DOWNLOADING}
 
+MAX_PER_PAGE = 500
+
+HOST_FAILURE_PREFIX = "Audio postprocessing failed"
+
 
 def _paginate(query_with_limit, count_query, params, page, per_page):
     """Run a paginated query and return a standard response dict.
 
     query_with_limit must include 'LIMIT ? OFFSET ?' placeholders at the end.
     """
+    per_page = max(1, min(int(per_page), MAX_PER_PAGE))
     conn = db.get_db()
     total = conn.execute(count_query, params).fetchone()[0]
     pages = max(1, math.ceil(total / per_page))
@@ -145,32 +151,46 @@ def get_album_history(page=1, per_page=50):
     """Return album-grouped download summaries, newest first."""
     query = """
         SELECT
-            album_id,
-            album_title,
-            artist_name,
-            cover_url,
-            MAX(timestamp) as latest_timestamp,
-            SUM(CASE WHEN latest_success = 1 THEN 1 ELSE 0 END)
-                as success_count,
-            SUM(CASE WHEN latest_success = 0 THEN 1 ELSE 0 END)
-                as fail_count,
-            COUNT(*) as total_count
+            l.album_id,
+            a.album_title,
+            a.artist_name,
+            a.cover_url,
+            l.latest_timestamp,
+            l.success_count,
+            l.fail_count,
+            l.total_count
         FROM (
-            SELECT t1.album_id, t1.album_title, t1.artist_name,
-                   t1.cover_url, t1.track_title, t1.timestamp,
-                   t1.success as latest_success
-            FROM track_downloads t1
-            INNER JOIN (
-                SELECT album_id, track_title, MAX(timestamp) as max_ts
-                FROM track_downloads
-                GROUP BY album_id, track_title
-            ) t2 ON t1.album_id = t2.album_id
-                AND t1.track_title = t2.track_title
-                AND t1.timestamp = t2.max_ts
+            SELECT
+                album_id,
+                MAX(timestamp) as latest_timestamp,
+                SUM(CASE WHEN latest_success = 1 THEN 1 ELSE 0 END)
+                    as success_count,
+                SUM(CASE WHEN latest_success = 0 THEN 1 ELSE 0 END)
+                    as fail_count,
+                COUNT(*) as total_count
+            FROM (
+                SELECT t1.album_id, t1.timestamp,
+                       t1.success as latest_success
+                FROM track_downloads t1
+                INNER JOIN (
+                    SELECT album_id, track_title, MAX(timestamp) as max_ts
+                    FROM track_downloads
+                    GROUP BY album_id, track_title
+                ) t2 ON t1.album_id = t2.album_id
+                    AND t1.track_title = t2.track_title
+                    AND t1.timestamp = t2.max_ts
+            )
+            GROUP BY album_id
+            ORDER BY latest_timestamp DESC, album_id DESC
+            LIMIT ? OFFSET ?
+        ) l
+        JOIN track_downloads a ON a.id = (
+            SELECT id FROM track_downloads
+            WHERE album_id = l.album_id
+            ORDER BY timestamp DESC, id DESC
+            LIMIT 1
         )
-        GROUP BY album_id, album_title, artist_name
-        ORDER BY latest_timestamp DESC
-        LIMIT ? OFFSET ?
+        ORDER BY l.latest_timestamp DESC, l.album_id DESC
     """
     count_query = (
         "SELECT COUNT(DISTINCT album_id) FROM track_downloads"
@@ -198,6 +218,7 @@ def get_track_failure_counts(album_id):
         FROM track_downloads AS f
         WHERE f.album_id = ?
           AND f.success = 0
+          AND COALESCE(f.error_message, '') NOT LIKE ?
           AND f.timestamp > COALESCE((
                 SELECT MAX(s.timestamp) FROM track_downloads AS s
                 WHERE s.album_id = f.album_id
@@ -206,7 +227,7 @@ def get_track_failure_counts(album_id):
               ), 0)
         GROUP BY f.track_title
         """,
-        (album_id,),
+        (album_id, HOST_FAILURE_PREFIX + "%"),
     ).fetchall()
     return {
         row["track_title"]: {
@@ -520,10 +541,11 @@ def add_log(
     """Create a download log entry. Returns the generated log ID."""
     conn = db.get_db()
     ts = int(time.time() * 1000)
+    suffix = uuid.uuid4().hex[:8]
     if track_number is not None:
-        log_id = f"{ts}_{album_id}_{track_number}"
+        log_id = f"{ts}_{album_id}_{track_number}_{suffix}"
     else:
-        log_id = f"{ts}_{album_id}"
+        log_id = f"{ts}_{album_id}_{suffix}"
     conn.execute(
         """INSERT INTO download_logs
            (id, type, album_id, album_title, artist_name, timestamp,

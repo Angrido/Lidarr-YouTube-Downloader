@@ -74,20 +74,20 @@ def test_load_config_from_file(temp_config):
 
 def test_file_overrides_env(temp_config, monkeypatch):
     """File values take precedence over env vars."""
-    monkeypatch.setenv("LIDARR_URL", "http://env:8686")
+    monkeypatch.setenv("SCHEDULER_INTERVAL", "120")
     with open(temp_config, "w") as f:
-        json.dump({"lidarr_url": "http://file:8686"}, f)
+        json.dump({"scheduler_interval": 15}, f)
     cfg = config.load_config()
-    assert cfg["lidarr_url"] == "http://file:8686"
+    assert cfg["scheduler_interval"] == 15
 
 
 def test_save_config(temp_config):
     """Save and reload round-trips correctly."""
     cfg = config.load_config()
-    cfg["lidarr_url"] = "http://saved:8686"
+    cfg["lidarr_path"] = "/saved/music"
     config.save_config(cfg)
     reloaded = config.load_config()
-    assert reloaded["lidarr_url"] == "http://saved:8686"
+    assert reloaded["lidarr_path"] == "/saved/music"
 
 
 def test_save_config_coerces_ints(temp_config):
@@ -213,10 +213,10 @@ def test_save_config_creates_directory(tmp_path, monkeypatch):
 def test_load_config_cache_invalidated_on_save(temp_config):
     """save_config must invalidate the cache so the next load sees changes."""
     cfg = config.load_config()
-    assert cfg["lidarr_url"] == ""
-    cfg["lidarr_url"] = "http://changed:8686"
+    assert cfg["lidarr_path"] == ""
+    cfg["lidarr_path"] = "/changed"
     config.save_config(cfg)
-    assert config.load_config()["lidarr_url"] == "http://changed:8686"
+    assert config.load_config()["lidarr_path"] == "/changed"
 
 
 def test_load_config_returns_independent_copies(temp_config):
@@ -298,3 +298,221 @@ def test_lyrics_and_replaygain_from_file(temp_config):
 def test_lyrics_replaygain_in_allowed_keys():
     assert "save_lyrics" in config.ALLOWED_CONFIG_KEYS
     assert "apply_replaygain" in config.ALLOWED_CONFIG_KEYS
+
+
+def test_save_config_crash_mid_write_keeps_old_file(temp_config, monkeypatch):
+    cfg = config.load_config()
+    cfg["scheduler_interval"] = 77
+    config.save_config(cfg)
+
+    def broken_dump(obj, fp, **kwargs):
+        fp.write('{"scheduler_interval": ')
+        raise OSError("disk full")
+
+    monkeypatch.setattr(config.json, "dump", broken_dump)
+    cfg["scheduler_interval"] = 88
+    with pytest.raises(OSError):
+        config.save_config(cfg)
+    monkeypatch.undo()
+    with open(temp_config) as f:
+        assert json.load(f)["scheduler_interval"] == 77
+    leftovers = [
+        n for n in os.listdir(os.path.dirname(temp_config))
+        if n != os.path.basename(temp_config)
+    ]
+    assert leftovers == []
+
+
+def test_save_config_never_exposes_partial_file(temp_config, monkeypatch):
+    cfg = config.load_config()
+    config.save_config(cfg)
+    seen = []
+    real_dump = json.dump
+
+    def spying_dump(obj, fp, **kwargs):
+        config.invalidate_config_cache()
+        with open(temp_config) as f:
+            seen.append(f.read())
+        real_dump(obj, fp, **kwargs)
+
+    monkeypatch.setattr(config.json, "dump", spying_dump)
+    config.save_config(cfg)
+    assert seen and json.loads(seen[0])
+
+
+def test_save_config_preserves_file_mode(temp_config):
+    config.save_config(config.load_config())
+    os.chmod(temp_config, 0o640)
+    config.save_config(config.load_config())
+    assert os.stat(temp_config).st_mode & 0o777 == 0o640
+
+
+def test_save_config_does_not_freeze_env_values(temp_config, monkeypatch):
+    monkeypatch.setenv("LIDARR_URL", "http://old:8686")
+    monkeypatch.setenv("LIDARR_API_KEY", "old-key")
+    monkeypatch.setenv("SCHEDULER_INTERVAL", "30")
+    config.save_config(config.load_config())
+    with open(temp_config) as f:
+        raw = json.load(f)
+    assert "lidarr_url" not in raw
+    assert "lidarr_api_key" not in raw
+    assert "path_conflict" not in raw
+    monkeypatch.setenv("LIDARR_URL", "http://new:8686")
+    monkeypatch.setenv("LIDARR_API_KEY", "new-key")
+    cfg = config.load_config()
+    assert cfg["lidarr_url"] == "http://new:8686"
+    assert cfg["lidarr_api_key"] == "new-key"
+
+
+def test_save_config_keeps_explicit_non_env_value(temp_config):
+    cfg = config.load_config()
+    cfg["lidarr_url"] = "http://explicit:8686"
+    config.save_config(cfg)
+    with open(temp_config) as f:
+        assert json.load(f)["lidarr_url"] == "http://explicit:8686"
+
+
+def test_env_wins_over_frozen_file_values(temp_config, monkeypatch):
+    with open(temp_config, "w") as f:
+        json.dump({
+            "lidarr_url": "http://frozen:8686",
+            "lidarr_api_key": "frozen-key",
+            "download_path": "/frozen",
+        }, f)
+    monkeypatch.setenv("LIDARR_URL", "http://env:8686")
+    monkeypatch.setenv("LIDARR_API_KEY", "env-key")
+    monkeypatch.setenv("DOWNLOAD_PATH", "/env")
+    cfg = config.load_config()
+    assert cfg["lidarr_url"] == "http://env:8686"
+    assert cfg["lidarr_api_key"] == "env-key"
+    assert cfg["download_path"] == "/env"
+
+
+def test_file_used_when_env_empty_for_env_preferred_keys(temp_config):
+    with open(temp_config, "w") as f:
+        json.dump({"lidarr_api_key": "file-key", "download_path": "/f"}, f)
+    cfg = config.load_config()
+    assert cfg["lidarr_api_key"] == "file-key"
+    assert cfg["download_path"] == "/f"
+
+
+def test_update_config_serializes_concurrent_updates(temp_config, monkeypatch):
+    import threading
+    import time
+    real_load = config.load_config
+
+    def slow_load():
+        cfg = real_load()
+        time.sleep(0.05)
+        return cfg
+
+    monkeypatch.setattr(config, "load_config", slow_load)
+    keys = ["save_lyrics", "apply_replaygain", "audio_normalize",
+            "playlist_to_library"]
+
+    def set_key(k):
+        config.update_config(lambda c: c.__setitem__(k, True))
+
+    threads = [threading.Thread(target=set_key, args=(k,)) for k in keys]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    final = real_load()
+    assert all(final[k] is True for k in keys)
+
+
+def test_update_config_returns_saved_config(temp_config):
+    result = config.update_config(
+        lambda c: c.__setitem__("scheduler_interval", 15),
+    )
+    assert result["scheduler_interval"] == 15
+    assert config.load_config()["scheduler_interval"] == 15
+
+
+def test_update_config_mutator_error_saves_nothing(temp_config):
+    def bad(c):
+        c["scheduler_interval"] = 99
+        raise RuntimeError("nope")
+
+    with pytest.raises(RuntimeError):
+        config.update_config(bad)
+    assert not os.path.exists(temp_config)
+
+
+@pytest.mark.parametrize("var,key,default", [
+    ("SCHEDULER_INTERVAL", "scheduler_interval", 60),
+    ("DURATION_TOLERANCE", "duration_tolerance", 10),
+    ("YT_RETRIES", "yt_retries", 10),
+    ("SCHEDULER_RETRY_AFTER_HOURS", "scheduler_retry_after_hours", 24.0),
+    ("DOWNLOAD_CLIENT_CONCURRENT_ALBUMS",
+     "download_client_concurrent_albums", 1),
+])
+def test_bad_env_number_falls_back(temp_config, monkeypatch, caplog,
+                                   var, key, default):
+    monkeypatch.setenv(var, "1h")
+    with caplog.at_level("WARNING"):
+        cfg = config.load_config()
+    assert cfg[key] == default
+    assert any(var in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("1", True), ("yes", True), ("on", True), ("TRUE", True),
+    ("0", False), ("no", False), ("off", False), ("false", False),
+])
+def test_env_bool_variants(temp_config, monkeypatch, raw, expected):
+    monkeypatch.setenv("SCHEDULER_ENABLED", raw)
+    monkeypatch.setenv("SCHEDULER_AUTO_DOWNLOAD", raw)
+    cfg = config.load_config()
+    assert cfg["scheduler_enabled"] is expected
+    assert cfg["scheduler_auto_download"] is expected
+
+
+def test_env_bool_garbage_uses_default(temp_config, monkeypatch):
+    monkeypatch.setenv("SCHEDULER_AUTO_DOWNLOAD", "maybe")
+    assert config.load_config()["scheduler_auto_download"] is True
+
+
+def test_file_bool_strings_coerced(temp_config):
+    with open(temp_config, "w") as f:
+        json.dump({"scheduler_auto_download": "false",
+                   "save_lyrics": "true", "audio_normalize": "junk"}, f)
+    cfg = config.load_config()
+    assert cfg["scheduler_auto_download"] is False
+    assert cfg["save_lyrics"] is True
+    assert cfg["audio_normalize"] is False
+
+
+@pytest.mark.parametrize("key,raw,expected", [
+    ("scheduler_interval", "45", 45),
+    ("scheduler_interval", 45.0, 45),
+    ("scheduler_retry_after_hours", "1.5", 1.5),
+    ("scheduler_retry_after_hours", 2, 2.0),
+    ("telegram_enabled", "off", False),
+    ("telegram_enabled", 1, True),
+    ("telegram_chat_id", 12345, "12345"),
+    ("forbidden_words", ["a"], ["a"]),
+])
+def test_coerce_config_value_valid(key, raw, expected):
+    assert config.coerce_config_value(key, raw) == expected
+
+
+@pytest.mark.parametrize("key,raw", [
+    ("scheduler_interval", "abc"),
+    ("scheduler_interval", None),
+    ("scheduler_interval", True),
+    ("scheduler_interval", 1.5),
+    ("scheduler_retry_after_hours", "nan"),
+    ("scheduler_retry_after_hours", None),
+    ("telegram_enabled", "maybe"),
+    ("telegram_enabled", None),
+    ("telegram_enabled", 2),
+    ("telegram_chat_id", None),
+    ("telegram_chat_id", {"a": 1}),
+    ("forbidden_words", "remix"),
+    ("forbidden_words", [1]),
+])
+def test_coerce_config_value_invalid(key, raw):
+    with pytest.raises(ValueError):
+        config.coerce_config_value(key, raw)

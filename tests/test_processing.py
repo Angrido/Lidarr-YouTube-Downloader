@@ -2157,8 +2157,34 @@ class TestQueueDispatch:
         started = self._capture_threads(monkeypatch)
         processing._dispatch_next_from_queue()
         assert len(started) == 1
-        assert started[0].target is processing.process_album_download
+        assert started[0].target is processing._run_queued_album
         assert started[0].kwargs.get("state") is processing.download_process
+
+    def test_client_grab_waits_while_album_downloads_in_foreground(
+        self, monkeypatch,
+    ):
+        import processing
+        import download_client
+        ids = [42]
+        self._patch_queue(monkeypatch, ids)
+        monkeypatch.setattr(download_client, "is_client_album", lambda a: True)
+        processing._active_states[42] = {"active": True, "is_client": False}
+        started = self._capture_threads(monkeypatch)
+        processing._dispatch_next_from_queue()
+        assert ids == [42]
+        assert started == []
+
+    def test_duplicate_non_client_entry_is_dropped(self, monkeypatch):
+        import processing
+        import download_client
+        ids = [42]
+        self._patch_queue(monkeypatch, ids)
+        monkeypatch.setattr(download_client, "is_client_album", lambda a: False)
+        processing._active_states[42] = {"active": True}
+        started = self._capture_threads(monkeypatch)
+        processing._dispatch_next_from_queue()
+        assert ids == []
+        assert started == []
 
     def test_non_client_waits_when_foreground_busy(self, monkeypatch):
         import processing
@@ -2249,6 +2275,50 @@ class TestQueueDispatch:
         assert started[0].target is download_client.run_album_job
         assert started[0].args == (42,)
         assert ids == [7]  # the blocked non-client album keeps its position
+
+    @pytest.mark.parametrize("forced", [True, False])
+    def test_busy_result_requeues_album(self, monkeypatch, forced):
+        import processing
+        import download_client
+        monkeypatch.setattr(
+            "models.get_queue",
+            lambda: [{"album_id": 42, "status": "queued", "force": forced}],
+        )
+        monkeypatch.setattr("models.dequeue_album", lambda album_id: None)
+        enqueued = []
+        monkeypatch.setattr(
+            "models.enqueue_album",
+            lambda album_id, force=False: enqueued.append((album_id, force)),
+        )
+        monkeypatch.setattr(download_client, "is_client_album", lambda a: False)
+        started = self._capture_threads(monkeypatch)
+        processing._dispatch_next_from_queue()
+        assert len(started) == 1
+        monkeypatch.setattr(
+            processing, "process_album_download",
+            lambda *a, **k: {"error": "Busy"},
+        )
+        started[0].target(*started[0].args, **started[0].kwargs)
+        assert enqueued == [(42, forced)]
+
+    def test_non_busy_result_is_not_requeued(self, monkeypatch):
+        import processing
+        import download_client
+        self._patch_queue(monkeypatch, [42])
+        enqueued = []
+        monkeypatch.setattr(
+            "models.enqueue_album",
+            lambda album_id, force=False: enqueued.append(album_id),
+        )
+        monkeypatch.setattr(download_client, "is_client_album", lambda a: False)
+        started = self._capture_threads(monkeypatch)
+        processing._dispatch_next_from_queue()
+        monkeypatch.setattr(
+            processing, "process_album_download",
+            lambda *a, **k: {"error": "All tracks failed to download"},
+        )
+        started[0].target(*started[0].args, **started[0].kwargs)
+        assert enqueued == []
 
 
 class TestConcurrencyHelpers:
@@ -2659,3 +2729,457 @@ class TestDeferredAlbumSkipsNetworkWork:
         result = processing.process_album_download(77, ignore_backoff=True)
         assert result == {"ok": True}
         assert "ytmusic" in calls
+
+
+def _state_track(title, number):
+    return {
+        "track_title": title, "track_number": number, "status": "pending",
+        "youtube_url": "", "youtube_title": "", "progress_percent": "",
+        "progress_speed": "", "error_message": "", "skip": False,
+    }
+
+
+def _ok_download(candidate, output_path, **kwargs):
+    open(output_path + ".mp3", "w").close()
+    return {
+        "success": True,
+        "youtube_url": candidate["url"],
+        "youtube_title": candidate["title"],
+        "match_score": candidate.get("score", 0.0),
+        "duration_seconds": candidate.get("duration", 0),
+    }
+
+
+_PLAIN_CFG = {
+    "xml_metadata_enabled": False, "acoustid_enabled": False,
+    "audio_format": "mp3",
+}
+
+
+class TestTrackWorkerException:
+    def test_exception_records_failure_and_cleans_temp(
+        self, tmp_path, monkeypatch,
+    ):
+        import processing
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+        track = {"title": "Boom", "trackNumber": 3, "duration": 1000}
+        monkeypatch.setattr(processing, "load_config", lambda: _PLAIN_CFG)
+        monkeypatch.setattr(
+            processing, "search_youtube_candidates",
+            lambda *a, **k: [{
+                "url": "https://www.youtube.com/watch?v=abcdefghijk",
+                "title": "Boom", "duration": 1, "score": 0.99,
+            }],
+        )
+        monkeypatch.setattr(
+            processing, "download_youtube_candidate", _ok_download,
+        )
+
+        def boom(*a, **k):
+            raise RuntimeError("tagger exploded")
+
+        monkeypatch.setattr(processing, "tag_audio_file", boom)
+        state = processing._make_download_state()
+        state["tracks"] = [_state_track("Boom", 3)]
+        failed, succeeded, _size, _stats = processing._download_tracks(
+            [track], album_path, {"tracks": [track]}, _make_album_ctx(),
+            state,
+        )
+        assert succeeded == []
+        assert len(failed) == 1
+        assert failed[0]["reason"].startswith("Internal error")
+        assert "tagger exploded" in failed[0]["reason"]
+        assert state["tracks"][0]["status"] == "failed"
+        assert [f for f in os.listdir(album_path) if f.startswith("temp_")] == []
+        rows = models.get_track_downloads_for_album(42)
+        assert len(rows) == 1
+        assert rows[0]["success"] == 0
+
+
+class TestPostprocessFailureReason:
+    @pytest.mark.parametrize("message", ["", "ffmpeg exploded"])
+    def test_reason_is_recognised_as_a_host_failure(
+        self, tmp_path, monkeypatch, message,
+    ):
+        import processing
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+        track = {"title": "Boom", "trackNumber": 3, "duration": 1000}
+        monkeypatch.setattr(processing, "load_config", lambda: _PLAIN_CFG)
+        monkeypatch.setattr(
+            processing, "search_youtube_candidates",
+            lambda *a, **k: [{
+                "url": "https://www.youtube.com/watch?v=abcdefghijk",
+                "title": "Boom", "duration": 1, "score": 0.99,
+            }],
+        )
+        monkeypatch.setattr(
+            processing, "download_youtube_candidate",
+            lambda *a, **k: {
+                "success": False, "postprocess_error": True,
+                "error_message": message,
+            },
+        )
+        state = processing._make_download_state()
+        state["tracks"] = [_state_track("Boom", 3)]
+        failed, succeeded, _size, _stats = processing._download_tracks(
+            [track], album_path, {"tracks": [track]}, _make_album_ctx(),
+            state,
+        )
+        assert succeeded == []
+        assert failed[0]["reason"].startswith(models.HOST_FAILURE_PREFIX)
+        assert models.get_track_failure_counts(42) == {}
+
+
+class TestEarlyExitsWriteLog:
+    @pytest.fixture(autouse=True)
+    def reset_state(self):
+        import processing
+        processing._active_states.clear()
+        processing.download_process.update(processing._make_download_state())
+        yield
+        processing._active_states.clear()
+        processing.download_process.update(processing._make_download_state())
+
+    @staticmethod
+    def _album(tracks=None, path="/m/Art"):
+        return {
+            "id": 88, "title": "A", "foreignAlbumId": "mbid",
+            "releaseDate": "2020-01-01",
+            "artist": {"artistName": "Art", "id": 1, "path": path},
+            "tracks": (
+                [{"title": "Song", "trackNumber": 1}]
+                if tracks is None else tracks
+            ),
+            "images": [],
+        }
+
+    @staticmethod
+    def _wire(monkeypatch, tmp_path, album, logs, refreshes=None):
+        import processing
+        monkeypatch.setattr(processing, "DOWNLOAD_DIR", str(tmp_path))
+        monkeypatch.setattr(processing, "lidarr_request", lambda *a, **k: album)
+        monkeypatch.setattr(
+            processing, "lidarr_request_with_retry",
+            lambda *a, **k: (refreshes if refreshes is not None else []).append(
+                k.get("data")
+            ),
+        )
+        monkeypatch.setattr(processing, "get_valid_release_id", lambda a: 1)
+        monkeypatch.setattr(processing, "makedirs_safe", lambda *a, **k: None)
+        monkeypatch.setattr(
+            processing, "relax_dir_permissions", lambda *a, **k: None,
+        )
+        monkeypatch.setattr(
+            processing, "_send_album_notification", lambda *a, **k: None,
+        )
+        monkeypatch.setattr(processing, "get_itunes_tracks", lambda *a: [])
+        monkeypatch.setattr(
+            processing, "load_config", lambda: {"audio_format": "mp3"},
+        )
+        monkeypatch.setattr(
+            processing.models, "add_log",
+            lambda **k: logs.append(k.get("log_type")),
+        )
+
+    def test_lidarr_album_error_logs(self, tmp_path, monkeypatch):
+        import processing
+        logs = []
+        self._wire(monkeypatch, tmp_path, {"error": "boom"}, logs)
+        result = processing.process_album_download(88)
+        assert "error" in result
+        assert logs == ["album_error"]
+
+    def test_download_path_unset_logs(self, tmp_path, monkeypatch):
+        import processing
+        logs = []
+        self._wire(monkeypatch, tmp_path, self._album(), logs)
+        monkeypatch.setattr(processing, "DOWNLOAD_DIR", "")
+        result = processing.process_album_download(88)
+        assert "error" in result
+        assert logs == ["album_error"]
+
+    def test_no_valid_release_logs(self, tmp_path, monkeypatch):
+        import processing
+        logs = []
+        self._wire(monkeypatch, tmp_path, self._album(), logs)
+        monkeypatch.setattr(processing, "get_valid_release_id", lambda a: 0)
+        result = processing.process_album_download(88)
+        assert "error" in result
+        assert logs == ["album_error"]
+
+    @pytest.mark.parametrize("exc_factory", [
+        lambda: __import__("utils").BaseNotMountedError("not mounted"),
+        lambda: PermissionError("denied"),
+    ])
+    def test_makedirs_failure_logs(self, tmp_path, monkeypatch, exc_factory):
+        import processing
+        logs = []
+        self._wire(monkeypatch, tmp_path, self._album(), logs)
+
+        def fail(*a, **k):
+            raise exc_factory()
+
+        monkeypatch.setattr(processing, "makedirs_safe", fail)
+        result = processing.process_album_download(88)
+        assert "error" in result
+        assert logs == ["album_error"]
+
+    def test_logged_error_starts_scheduler_cooldown(self, tmp_path, monkeypatch):
+        import processing
+        logs = []
+        real_add_log = models.add_log
+        self._wire(monkeypatch, tmp_path, self._album(), logs)
+        monkeypatch.setattr(processing.models, "add_log", real_add_log)
+        monkeypatch.setattr(processing, "get_valid_release_id", lambda a: 0)
+        processing.process_album_download(88)
+        assert 88 in models.get_attempted_album_ids_since(0)
+
+    def test_empty_tracklist_is_an_error_not_a_skip(
+        self, tmp_path, monkeypatch,
+    ):
+        import processing
+        logs, refreshes = [], []
+        self._wire(
+            monkeypatch, tmp_path, self._album(tracks=[]), logs, refreshes,
+        )
+        result = processing.process_album_download(88)
+        assert "error" in result
+        assert "tracklist" in result["error"].lower()
+        assert logs == ["album_error"]
+        assert refreshes == []
+
+
+class TestArtistFolderFromLidarrPath:
+    @pytest.fixture(autouse=True)
+    def reset_state(self):
+        import processing
+        processing._active_states.clear()
+        processing.download_process.update(processing._make_download_state())
+        yield
+        processing._active_states.clear()
+        processing.download_process.update(processing._make_download_state())
+
+    @pytest.mark.parametrize("lidarr_path,expected", [
+        ("C:\\Music\\AC-DC", "AC-DC"),
+        ("C:\\Music\\AC-DC\\", "AC-DC"),
+        ("/music/K+DA/", "K+DA"),
+        ("/music/Bad:Name?", "BadName"),
+        ("", "Art"),
+    ])
+    def test_folder_name(self, tmp_path, monkeypatch, lidarr_path, expected):
+        import processing
+        album = TestEarlyExitsWriteLog._album(path=lidarr_path)
+        logs, seen = [], []
+        TestEarlyExitsWriteLog._wire(monkeypatch, tmp_path, album, logs)
+        monkeypatch.setattr(
+            processing, "_filter_tracks",
+            lambda t, f, p, d=None: seen.append(p) or [],
+        )
+        processing.process_album_download(88)
+        assert seen == [os.path.join(str(tmp_path), expected, "A (2020)")]
+
+
+class TestTrackNumberConsistency:
+    def test_helper_prefers_number_then_absolute_then_position(self):
+        import processing
+        a = {"title": "A", "trackNumber": "A1"}
+        b = {"title": "B", "trackNumber": None}
+        c = {"title": "C", "trackNumber": "2", "absoluteTrackNumber": 14}
+        d = {"title": "D", "trackNumber": "B2", "absoluteTrackNumber": 9}
+        album = [a, b, c, d]
+        assert processing._track_number(a, album) == 1
+        assert processing._track_number(b, album) == 2
+        assert processing._track_number(c, album) == 2
+        assert processing._track_number(d, album) == 9
+        assert processing._track_number({"trackNumber": "x"}, album, 5) == 5
+
+    def test_filter_finds_vinyl_tracks_already_on_disk(
+        self, tmp_path, monkeypatch,
+    ):
+        import processing
+        monkeypatch.setattr(
+            processing, "load_config", lambda: {"audio_format": "mp3"},
+        )
+        tracks = [
+            {"title": "Side A Song", "trackNumber": "A1"},
+            {"title": "Side B Song", "trackNumber": "B1"},
+        ]
+        (tmp_path / "01 - Side A Song.mp3").write_text("x")
+        (tmp_path / "02 - Side B Song.mp3").write_text("x")
+        assert processing._filter_tracks(tracks, False, str(tmp_path)) == []
+
+    def test_worker_names_file_by_album_position(self, tmp_path, monkeypatch):
+        import processing
+        album_path = str(tmp_path)
+        a1 = {"title": "Side A Song", "trackNumber": "A1", "hasFile": True}
+        b1 = {"title": "Side B Song", "trackNumber": "B1"}
+        monkeypatch.setattr(processing, "load_config", lambda: _PLAIN_CFG)
+        monkeypatch.setattr(
+            processing, "search_youtube_candidates",
+            lambda *a, **k: [{
+                "url": "u", "title": "Side B Song", "duration": 1,
+                "score": 0.99,
+            }],
+        )
+        monkeypatch.setattr(
+            processing, "download_youtube_candidate", _ok_download,
+        )
+        monkeypatch.setattr(processing, "tag_audio_file", lambda *a, **k: None)
+        state = processing._make_download_state()
+        state["tracks"] = [_state_track("Side B Song", 2)]
+        _f, succeeded, _s, _v = processing._download_tracks(
+            [b1], album_path, {"tracks": [a1, b1]}, _make_album_ctx(), state,
+        )
+        assert succeeded[0]["track_num"] == 2
+        assert os.path.exists(os.path.join(album_path, "02 - Side B Song.mp3"))
+
+    def test_state_track_number_uses_album_position(
+        self, tmp_path, monkeypatch,
+    ):
+        import processing
+        processing._active_states.clear()
+        processing.download_process.update(processing._make_download_state())
+        album = TestEarlyExitsWriteLog._album(tracks=[
+            {"title": "Side A Song", "trackNumber": "A1", "hasFile": True},
+            {"title": "Side B Song", "trackNumber": "B1"},
+        ])
+        logs, seen = [], []
+        TestEarlyExitsWriteLog._wire(monkeypatch, tmp_path, album, logs)
+        for name in (
+            "get_itunes_artwork", "get_cover_art_archive_artwork",
+            "get_deezer_artwork", "find_album_on_ytmusic",
+        ):
+            monkeypatch.setattr(processing, name, lambda *a, **k: None)
+        monkeypatch.setattr(
+            processing, "_resolve_track_artists", lambda *a, **k: None,
+        )
+        monkeypatch.setattr(processing, "set_permissions", lambda *a, **k: None)
+
+        def fake_download_tracks(tracks, album_path, album_, ctx, state):
+            seen.extend(t["track_number"] for t in state["tracks"])
+            return [], [], 0, {}
+
+        monkeypatch.setattr(processing, "_download_tracks", fake_download_tracks)
+        monkeypatch.setattr(
+            processing, "_handle_post_download", lambda *a, **k: {"ok": 1},
+        )
+        processing.process_album_download(88)
+        assert seen == [2]
+
+
+class TestSkipDuringConversion:
+    def test_skip_waits_for_thread_before_cleanup(self, tmp_path, monkeypatch):
+        import threading
+        import time as _t
+        import processing
+        attempt_temp = str(tmp_path / "temp_01_deadbeef")
+        finished = threading.Event()
+
+        def slow_download(candidate, tmp, **kwargs):
+            _t.sleep(1.0)
+            open(tmp + ".m4a", "w").close()
+            finished.set()
+            return {"success": True}
+
+        monkeypatch.setattr(
+            processing, "download_youtube_candidate", slow_download,
+        )
+        track_state = {"status": "downloading"}
+        out = processing._download_candidate_threaded(
+            {"title": "x"}, attempt_temp, None, lambda: True, track_state,
+        )
+        assert out is None
+        assert track_state["status"] == "skipped"
+        assert finished.wait(5)
+        assert not os.path.exists(attempt_temp + ".m4a")
+
+    def test_copy_to_lidarr_skips_temp_and_partial_files(
+        self, tmp_path, monkeypatch,
+    ):
+        import processing
+        album = tmp_path / "dl" / "Art" / "A"
+        album.mkdir(parents=True)
+        for name in (
+            "01 - Song.mp3", "cover.jpg", "temp_02_abcd1234.m4a",
+            "03 - Other.mp3.part",
+        ):
+            (album / name).write_text("x")
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        monkeypatch.setattr(processing, "DOWNLOAD_DIR", str(tmp_path / "dl"))
+        monkeypatch.setattr(
+            processing, "makedirs_safe",
+            lambda p, bases: os.makedirs(p, exist_ok=True),
+        )
+        monkeypatch.setattr(processing, "set_permissions", lambda *a, **k: None)
+        _imp, lib_album, ok = processing._copy_to_lidarr(
+            str(lib), str(album), "Art", "A",
+        )
+        assert ok is True
+        assert sorted(os.listdir(lib_album)) == ["01 - Song.mp3", "cover.jpg"]
+
+
+class TestBannedUrlMatchesByVideoId:
+    def test_album_candidate_banned_under_other_url_form(
+        self, tmp_path, monkeypatch,
+    ):
+        import processing
+        searched = []
+        monkeypatch.setattr(processing, "load_config", lambda: _PLAIN_CFG)
+        monkeypatch.setattr(
+            processing.models, "get_banned_urls_for_track",
+            lambda *a: {"https://www.youtube.com/watch?v=abcdefghijk"},
+        )
+        monkeypatch.setattr(
+            processing, "match_album_track",
+            lambda *a: {
+                "url": "https://music.youtube.com/watch?v=abcdefghijk",
+                "title": "Song",
+            },
+        )
+        monkeypatch.setattr(
+            processing, "search_youtube_candidates",
+            lambda *a, **k: searched.append(a) or [],
+        )
+        track = {"title": "Song", "trackNumber": 1}
+        state = processing._make_download_state()
+        state["tracks"] = [_state_track("Song", 1)]
+        ctx = _make_album_ctx(
+            ytmusic_album={"entries": [{}], "playlist_url": "p"},
+        )
+        processing._download_tracks(
+            [track], str(tmp_path), {"tracks": [track]}, ctx, state,
+        )
+        assert len(searched) == 1
+
+
+class TestAnyDownloadActive:
+    @pytest.fixture(autouse=True)
+    def reset_state(self):
+        import processing
+        processing._active_states.clear()
+        processing.download_process.update(processing._make_download_state())
+        yield
+        processing._active_states.clear()
+        processing.download_process.update(processing._make_download_state())
+
+    def test_idle(self):
+        import processing
+        assert processing.any_download_active() is False
+
+    def test_foreground_active(self):
+        import processing
+        processing.download_process["active"] = True
+        assert processing.any_download_active() is True
+
+    def test_background_client_job_active(self):
+        import processing
+        processing._active_states[7] = {"active": True, "is_client": True}
+        assert processing.any_download_active() is True
+
+    def test_inactive_registered_state(self):
+        import processing
+        processing._active_states[7] = {"active": False}
+        assert processing.any_download_active() is False

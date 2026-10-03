@@ -31,6 +31,30 @@ class TestSanitizeFilename:
     def test_double_dots_in_middle(self):
         assert utils.sanitize_filename("foo..bar") == "foobar"
 
+    def test_long_cjk_name_fits_filesystem_limit(self):
+        result = utils.sanitize_filename("\u65e5\u672c\u8a9e" * 100)
+        encoded = result.encode("utf-8")
+        assert 0 < len(encoded) <= 200
+        assert encoded.decode("utf-8") == result
+        assert set(result) == {"\u65e5", "\u672c", "\u8a9e"}
+
+    def test_truncation_restrips_trailing_dots_and_spaces(self):
+        result = utils.sanitize_filename("a" * 198 + " .b" + "c" * 50)
+        assert result == "a" * 198
+
+    def test_short_name_not_truncated(self):
+        name = "\u00e9" * 100
+        assert utils.sanitize_filename(name) == name
+
+    def test_control_chars_removed(self):
+        assert utils.sanitize_filename("a\x00b\x1fc\nd\te") == "abcde"
+
+    def test_only_control_chars(self):
+        assert utils.sanitize_filename("\x00\x01\n") == "untitled"
+
+    def test_trailing_dots_and_spaces_stripped(self):
+        assert utils.sanitize_filename("Album. . ") == "Album"
+
 
 class TestFormatBytes:
     def test_zero(self):

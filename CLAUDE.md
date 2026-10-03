@@ -128,11 +128,11 @@ Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
 ### Config
 
-Loaded from env vars + `/config/config.json`. File config overrides env vars. Saved via `save_config()`. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API. Notable config keys beyond the basics: `concurrent_tracks`, `yt_cookies_file`, `yt_force_ipv4`, `yt_player_client`, `yt_retries`, `yt_fragment_retries`, `yt_sleep_requests`, `yt_sleep_interval`, `yt_max_sleep_interval`, `discord_enabled`, `discord_webhook_url`, `discord_log_types`, `acoustid_enabled`, `acoustid_api_key`, `download_client_enabled`, `download_client_api_key`, `download_client_category`, `yt_po_token` (manual yt-dlp PO token(s), comma-separated), `audio_normalize` (EBU R128 loudnorm, forces re-encode), `yt_pot_provider_url` (URL of a bgutil PO-token provider sidecar for automatic PO tokens; `bgutil-ytdlp-pot-provider` plugin is in requirements and a sidecar is wired in docker-compose), `search_artist_source` (per-track YouTube search artist: `album` default, or `mb_itunes`/`itunes_mb`/`mb`/`itunes` to resolve the real artist for compilations), `save_lyrics` (write a `.lrc` synced-lyrics sidecar per track, fetched from LRCLIB), `apply_replaygain` (measure loudness with ffmpeg and write ReplayGain track tags — non-destructive volume normalization), `track_retry_backoff` (default on; a track that keeps failing waits `scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days, instead of being retried every cycle forever — issue #90), `max_track_retries` (0 = never give up; otherwise drop a track after this many consecutive failures).
+Loaded from env vars + `/config/config.json`. File config overrides env vars, except `lidarr_url`, `lidarr_api_key` and `download_path` (`ENV_PREFERRED_KEYS`), where a non-empty env var wins. Saved via `save_config()`, which writes atomically (temp file + `os.replace`) and persists only `ALLOWED_CONFIG_KEYS` plus values that differ from the env; handlers that read-modify-write use `update_config(mutator)` so concurrent toggles don't lose updates. API input goes through `coerce_config_value()` (typed int/float/bool/list keys; invalid → HTTP 400). `GET /api/config` and the export never include `lidarr_api_key`. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API. Notable config keys beyond the basics: `concurrent_tracks`, `yt_cookies_file`, `yt_force_ipv4`, `yt_player_client`, `yt_retries`, `yt_fragment_retries`, `yt_sleep_requests`, `yt_sleep_interval`, `yt_max_sleep_interval`, `discord_enabled`, `discord_webhook_url`, `discord_log_types`, `acoustid_enabled`, `acoustid_api_key`, `download_client_enabled`, `download_client_api_key`, `download_client_category`, `yt_po_token` (manual yt-dlp PO token(s), comma-separated), `audio_normalize` (EBU R128 loudnorm, forces re-encode), `yt_pot_provider_url` (URL of a bgutil PO-token provider sidecar for automatic PO tokens; `bgutil-ytdlp-pot-provider` plugin is in requirements and a sidecar is wired in docker-compose), `search_artist_source` (per-track YouTube search artist: `album` default, or `mb_itunes`/`itunes_mb`/`mb`/`itunes` to resolve the real artist for compilations), `save_lyrics` (write a `.lrc` synced-lyrics sidecar per track, fetched from LRCLIB), `apply_replaygain` (measure loudness with ffmpeg and write ReplayGain track tags — non-destructive volume normalization), `track_retry_backoff` (default on; a track that keeps failing waits `scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days, instead of being retried every cycle forever — issue #90), `max_track_retries` (0 = never give up; otherwise drop a track after this many consecutive failures).
 
 ### Lidarr download-client bridge (`download_client.py`)
 
-Optional feature letting Lidarr use this app as a native download path. A Flask blueprint exposes a **Newznab indexer** (`/api/newznab/api`: `t=caps`, `t=music`/`t=search`, `t=get`) and a **SABnzbd download client** (`/api/sabnzbd/api`: `version`, `get_config`, `fullstatus`, `queue`, `history`, `addfile`, `addurl`). A search is matched against `missing_albums_cache` to resolve a Lidarr `album_id`; the served NZB embeds that id; on `addfile` the id is parsed back out and enqueued via `models.enqueue_album()`. A job registry (keyed by SABnzbd `nzo_id`, in-memory write-through cache backed by the `download_client_jobs` table) tracks queued→downloading→completed/failed so Lidarr polls `queue`/`history` and imports the finished files itself; `restore_jobs()` reloads it at startup so a restart doesn't orphan a download. Grabbed albums are detected in `processing.process_album_download()` via `download_client.is_client_album()`, which skips the copy-to-library / `RefreshArtist` / cleanup steps; the queue processor routes them through `download_client.run_album_job()`. Both surfaces require `download_client_enabled` plus a matching `apikey`. To avoid infinite re-grab loops, in-flight albums and albums attempted within the retry cooldown (`scheduler_retry_after_hours`) are excluded from the indexer feed/search and refused at grab time; release `guid`s are time-bucketed on that window so retries are still possible after the cooldown.
+Optional feature letting Lidarr use this app as a native download path. A Flask blueprint exposes a **Newznab indexer** (`/api/newznab/api`: `t=caps`, `t=music`/`t=search`, `t=get`) and a **SABnzbd download client** (`/api/sabnzbd/api`: `version`, `get_config`, `fullstatus`, `queue`, `history`, `addfile`, `addurl`). A search is matched against `missing_albums_cache` to resolve a Lidarr `album_id`; the served NZB embeds that id; on `addfile` the id is parsed back out and enqueued via `models.enqueue_album()`. A job registry (keyed by SABnzbd `nzo_id`, in-memory write-through cache backed by the `download_client_jobs` table) tracks queued→downloading→completed/failed so Lidarr polls `queue`/`history` and imports the finished files itself; `restore_jobs()` reloads it at startup so a restart doesn't orphan a download. Grabbed albums are detected in `processing.process_album_download()` via `download_client.is_client_album()`, which skips the copy-to-library / `RefreshArtist` / cleanup steps; the queue processor routes them through `download_client.run_album_job()`. Both surfaces require `download_client_enabled` plus a matching `apikey`. To avoid infinite re-grab loops, in-flight albums and albums attempted within the retry cooldown (`scheduler_retry_after_hours`) are excluded from the indexer feed/search and refused at grab time; release `guid`s **and `pubDate`s** are time-bucketed on that window so retries are still possible after the cooldown (Lidarr's blocklist matches title + publish date, not guid). A SABnzbd `history` delete of a finished job inside the cooldown keeps its row as `completed_removed`/`failed_removed` (hidden from queue/history/restore, still counted by the cooldown; purged by `restore_jobs()` once the cooldown passes). Deleting a *downloading* job sets `stop` on its state. A queued client grab whose album is already downloading in the foreground waits in the queue instead of being dropped.
 
 ### Threading
 
@@ -140,7 +140,7 @@ Downloads run in background threads. `queue_lock` (threading.Lock) in `processin
 
 ### Scheduler
 
-Optional `schedule` library job polls for missing albums and auto-downloads at configured intervals. Albums attempted within `scheduler_retry_after_hours` are skipped (`models.get_attempted_album_ids_since`, which keys off **any** `download_logs` row for the album — so every early exit in `process_album_download` must still write a log, or the album is re-queued every cycle).
+Optional `schedule` library job polls for missing albums and auto-downloads at configured intervals. Albums attempted within `scheduler_retry_after_hours` are skipped (`models.get_attempted_album_ids_since`, which keys off **any** `download_logs` row for the album — so every early exit in `process_album_download` must still write a log, or the album is re-queued every cycle; use `processing._log_album_error()`). Failures recorded as host problems (`error_message` starting with `models.HOST_FAILURE_PREFIX`, "Audio postprocessing failed") are not counted toward a track's consecutive failures. `scheduled_check()` and the scheduler loop catch and log exceptions so one bad cycle can't kill the thread. `processing.any_download_active()` (foreground **or** any download-client job) gates `/api/restart` and `/api/backup/import`.
 
 **Retry backoff (issue #90):** `process_album_download` decides what to download *before* any network work — it computes `album_path`, calls `_compute_deferred_tracks()` + `_filter_tracks()`, and returns "Skipped" early if nothing is left. Tracks that keep failing back off exponentially (`scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days) from their consecutive-failure count in `track_downloads` (`models.get_track_failure_counts`), so a song that simply isn't on YouTube stops costing a cover-art fetch, per-track artist lookups and a YT Music resolution every cycle. Manual queue adds (`download_queue.force`) and Lidarr grabs (`client_grab`) bypass the backoff.
 
@@ -153,6 +153,7 @@ column everything else has to pay for. Milestone messages (ready, album start,
 album complete) carry an inline icon from `logutil.ICON_*`. A `DedupeFilter`
 collapses consecutive identical lines and reports the streak as its own INFO
 line — background loops used to repeat the same sentence hundreds of times.
+A streak that never ends is still reported every 100 repeats or 60 s.
 Prefer fixing repetition at the source (log at DEBUG when nothing changed,
 as `lidarr_sync` does) and treat the filter as a safety net.
 
@@ -193,10 +194,20 @@ It resets on restart, which is what happens when the image is fixed.
 `/api/ffmpeg/status` (`?refresh=1` re-probes) and summarised as `ffmpeg_ok`
 in `/api/health`. Settings renders it as a panel that is always
 visible and always states a verdict — hiding it when healthy made the
-Re-check button look like it had broken something. Key distinction: with an `m4a`/`opus` target
-(`NATIVE_AUDIO_FORMATS`) downloads still work, because YouTube serves those
-containers directly and the native stream is kept as-is; with `mp3` nothing
-can be downloaded, so the panel offers switching format as the first fix.
+Re-check button look like it had broken something. Key distinction: with an `m4a` target
+(`NATIVE_AUDIO_FORMATS`) downloads still work, because YouTube serves that
+container directly and the native stream is kept as-is; `opus` is served inside
+WebM and needs ffmpeg to remux, so it is **not** native; with `mp3`/`opus` nothing
+can be downloaded, so the panel offers switching to m4a as the first fix.
+
+A failed conversion only marks ffmpeg broken when the error is host-wide:
+the message says "function not implemented", or a **fresh** probe run right
+after the failure also fails (`_conversion_failure_is_host_wide()`). A corrupt
+source stream fails only that candidate, and "no space left on device" never
+marks ffmpeg broken. `audio_normalize` is a separate ffmpeg loudnorm pass after
+the download (`_normalize_loudness()`: −14 LUFS, re-encoded to the target codec
+at `audio_quality`); if it fails the un-normalized file is kept and ffmpeg is
+never marked broken.
 
 ### MusicBrainz id frames
 
@@ -206,13 +217,18 @@ not interchangeable: `foreignRecordingId` identifies the recording, while
 tracklist. Writing the recording id into the release-track tag makes taggers
 that validate it against the release tracklist reject the file outright
 (issue #93), so `metadata._musicbrainz_fields()` is the single source of truth
-for the mapping and both the MP3 and M4A paths go through it.
+for the mapping and both the MP3 and M4A paths go through it (`mp4=True`
+selects the MP4 key names).
 
 Frame names follow **Picard's** mapping, because that is what other taggers
 read — `MusicBrainz Release Group Id` (not "Album Release Group Id") and
 `MusicBrainz Album Release Country` (not "Release Country"). `_STALE_MB_DESCS`
 lists the descriptions earlier versions got wrong; they are deleted before
 writing so re-tagging an existing file cannot leave a mislabeled value behind.
+For MP4 Picard stores the **recording** id under
+`----:com.apple.iTunes:MusicBrainz Track Id` (the release-track id stays under
+`MusicBrainz Release Track Id`); `_STALE_MP4_MB_DESCS` adds the old
+`MusicBrainz Recording Id` key to the delete list.
 
 Vorbis Comments (Opus) invert the ID3 naming: on disk `musicbrainz_trackid`
 holds the **recording** id and `musicbrainz_releasetrackid` holds the
@@ -220,7 +236,7 @@ release-track id, so `tag_opus()` deliberately does not mirror `tag_mp3()`.
 
 ### Notifications
 
-Telegram, Discord webhooks, and Ntfy push notifications, filtered by `log_type` (e.g., `partial_success`, `album_error`).
+Telegram, Discord webhooks, and Ntfy push notifications, filtered by `log_type` (e.g., `partial_success`, `album_error`). Ntfy is called with a JSON body on the **server root** (`POST {ntfy_url}/`, topic inside the JSON — ntfy ignores JSON posted to `/<topic>`) and an integer priority (1–5). Exception messages are logged through `_redact()` so bot tokens / webhook tokens never reach the logs.
 
 ## Templates
 

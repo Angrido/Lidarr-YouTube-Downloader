@@ -31,7 +31,12 @@ from flask import (
 import db
 import download_client
 import models
-from config import ALLOWED_CONFIG_KEYS, load_config, save_config
+from config import (
+    ALLOWED_CONFIG_KEYS,
+    coerce_config_value,
+    load_config,
+    update_config,
+)
 from downloader import (
     ffmpeg_status,
     get_ytdlp_version,
@@ -44,6 +49,7 @@ from lidarr import get_missing_albums, lidarr_request
 from metadata import create_xml_metadata, get_itunes_tracks, tag_audio_file
 from notifications import send_notifications
 from processing import (
+    any_download_active,
     download_process,
     get_download_status,
     process_download_queue,
@@ -83,6 +89,71 @@ DOWNLOAD_DIR = os.getenv("DOWNLOAD_PATH", "")
 rate_limit_store = {}
 album_cache = {}
 ALBUM_CACHE_TTL = 300
+
+
+class InvalidRequestBody(ValueError):
+    pass
+
+
+@app.errorhandler(InvalidRequestBody)
+def _invalid_request_body(exc):
+    message = str(exc)
+    return jsonify({"success": False, "message": message, "error": message}), 400
+
+
+def _json_object():
+    data = request.get_json(silent=True)
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise InvalidRequestBody("Request body must be a JSON object")
+    return data
+
+
+def _str_field(data, key, nullable=False):
+    value = data.get(key)
+    if value is None and (nullable or key not in data):
+        return ""
+    if not isinstance(value, str):
+        raise InvalidRequestBody(f"{key} must be a string")
+    return value.strip()
+
+
+def _is_album_id(value):
+    return type(value) is int and value > 0
+
+
+def _parse_track_number(raw):
+    try:
+        return int(raw)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _coerce_config_updates(incoming):
+    updates = {}
+    skipped = []
+    for key, value in incoming.items():
+        if key not in ALLOWED_CONFIG_KEYS:
+            skipped.append(key)
+            continue
+        try:
+            updates[key] = coerce_config_value(key, value)
+        except ValueError as exc:
+            raise InvalidRequestBody(str(exc)) from None
+    return updates, skipped
+
+
+def _public_config(cfg):
+    cfg.pop("lidarr_api_key", None)
+    return cfg
+
+
+def _toggle_config(key, default):
+    def mutate(cfg):
+        cfg[key] = not cfg.get(key, default)
+
+    return update_config(mutate)[key]
 
 
 @app.context_processor
@@ -234,24 +305,20 @@ def api_ffmpeg_status():
 @app.route("/api/config", methods=["GET", "POST"])
 def api_config():
     if request.method == "GET":
-        return jsonify(load_config())
+        return jsonify(_public_config(load_config()))
     client_ip = request.remote_addr or "unknown"
     if not check_rate_limit(
         f"config:{client_ip}", rate_limit_store, window=5, max_requests=3
     ):
         return jsonify({"success": False, "message": "Too many requests"}), 429
-    current = load_config()
-    incoming = request.json or {}
-    for key, value in incoming.items():
-        if key in ALLOWED_CONFIG_KEYS:
-            current[key] = value
-    save_config(current)
+    updates, _ = _coerce_config_updates(_json_object())
+    update_config(lambda cfg: cfg.update(updates))
     return jsonify({"success": True})
 
 
 @app.route("/api/config/export")
 def api_config_export():
-    config = load_config()
+    config = _public_config(load_config())
     config.pop("path_conflict", None)
     formatted = json.dumps(config, indent=2, ensure_ascii=False)
     response = Response(formatted, mimetype="application/json")
@@ -274,23 +341,16 @@ def api_config_import():
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
             return jsonify({"success": False, "message": f"Invalid JSON: {e}"}), 400
     elif request.is_json:
-        incoming = request.json
+        incoming = request.get_json(silent=True)
     else:
         return jsonify({"success": False, "message": "No config data provided"}), 400
     if not isinstance(incoming, dict):
         return jsonify(
             {"success": False, "message": "Config must be a JSON object"}
         ), 400
-    current = load_config()
-    applied_keys = []
-    skipped_keys = []
-    for key, value in incoming.items():
-        if key in ALLOWED_CONFIG_KEYS:
-            current[key] = value
-            applied_keys.append(key)
-        else:
-            skipped_keys.append(key)
-    save_config(current)
+    updates, skipped_keys = _coerce_config_updates(incoming)
+    applied_keys = list(updates)
+    update_config(lambda cfg: cfg.update(updates))
     return jsonify(
         {
             "success": True,
@@ -354,7 +414,7 @@ def api_backup_import():
         f"backup_import:{client_ip}", rate_limit_store, window=30, max_requests=2
     ):
         return jsonify({"success": False, "message": "Too many requests"}), 429
-    if download_process.get("active"):
+    if any_download_active():
         return jsonify({
             "success": False,
             "message": "A download is in progress. Stop it before restoring.",
@@ -449,15 +509,16 @@ def api_download_client_info():
 
 @app.route("/api/download-client/toggle", methods=["POST"])
 def api_download_client_toggle():
-    config = load_config()
-    config["download_client_enabled"] = not config.get(
-        "download_client_enabled", False
-    )
-    if config["download_client_enabled"] and not config.get(
-        "download_client_api_key"
-    ):
-        config["download_client_api_key"] = uuid.uuid4().hex
-    save_config(config)
+    def mutate(cfg):
+        cfg["download_client_enabled"] = not cfg.get(
+            "download_client_enabled", False
+        )
+        if cfg["download_client_enabled"] and not cfg.get(
+            "download_client_api_key"
+        ):
+            cfg["download_client_api_key"] = uuid.uuid4().hex
+
+    config = update_config(mutate)
     return jsonify(
         {
             "enabled": config["download_client_enabled"],
@@ -474,9 +535,7 @@ def api_download_client_generate_key():
     ):
         return jsonify({"success": False, "message": "Too many requests"}), 429
     new_key = uuid.uuid4().hex
-    cfg = load_config()
-    cfg["download_client_api_key"] = new_key
-    save_config(cfg)
+    update_config(lambda cfg: cfg.update({"download_client_api_key": new_key}))
     return jsonify({"success": True, "api_key": new_key})
 
 
@@ -489,8 +548,11 @@ def api_pot_provider_test():
         f"pot_test:{client_ip}", rate_limit_store, window=5, max_requests=3
     ):
         return jsonify({"success": False, "message": "Too many requests"}), 429
-    payload = request.get_json(silent=True) or {}
-    url = (payload.get("url") or load_config().get("yt_pot_provider_url", "")).strip()
+    payload = _json_object()
+    url = (
+        _str_field(payload, "url", nullable=True)
+        or load_config().get("yt_pot_provider_url", "")
+    ).strip()
     if not url:
         return jsonify({"success": False, "message": "No provider URL set"})
     if not url.startswith(("http://", "https://")):
@@ -557,9 +619,9 @@ def api_notifications_test_telegram():
         return jsonify(
             {"success": False, "message": "Too many test requests"}
         ), 429
-    payload = request.get_json(silent=True) or {}
-    bot_token = (payload.get("bot_token") or "").strip()
-    chat_id = (payload.get("chat_id") or "").strip()
+    payload = _json_object()
+    bot_token = _str_field(payload, "bot_token", nullable=True)
+    chat_id = _str_field(payload, "chat_id", nullable=True)
     if not bot_token or not chat_id:
         cfg = load_config()
         bot_token = bot_token or cfg.get("telegram_bot_token", "")
@@ -589,8 +651,8 @@ def api_notifications_test_discord():
         return jsonify(
             {"success": False, "message": "Too many test requests"}
         ), 429
-    payload = request.get_json(silent=True) or {}
-    webhook_url = (payload.get("webhook_url") or "").strip()
+    payload = _json_object()
+    webhook_url = _str_field(payload, "webhook_url", nullable=True)
     if not webhook_url:
         webhook_url = load_config().get("discord_webhook_url", "")
     if not webhook_url.startswith(("http://", "https://")):
@@ -623,9 +685,9 @@ def api_notifications_test_ntfy():
         return jsonify(
             {"success": False, "message": "Too many test requests"}
         ), 429
-    payload = request.get_json(silent=True) or {}
-    topic = (payload.get("topic") or "").strip()
-    server_url = (payload.get("server_url") or "").strip()
+    payload = _json_object()
+    topic = _str_field(payload, "topic", nullable=True)
+    server_url = _str_field(payload, "server_url", nullable=True)
     token = payload.get("token")
     priority = payload.get("priority")
     if not topic or not server_url:
@@ -741,9 +803,7 @@ def api_cookies_upload():
         return jsonify(
             {"success": False, "message": f"Failed to write cookies file: {e}"}
         ), 500
-    cfg = load_config()
-    cfg["yt_cookies_file"] = COOKIES_PATH
-    save_config(cfg)
+    update_config(lambda cfg: cfg.update({"yt_cookies_file": COOKIES_PATH}))
     return jsonify({"success": True, "path": COOKIES_PATH, "size": len(raw)})
 
 
@@ -881,8 +941,8 @@ def api_ytdlp_formats():
     Lets the Settings "yt-dlp Format Override" tester show the available
     format IDs (e.g. 141) for a pasted YouTube URL/ID.
     """
-    payload = request.get_json(silent=True) or {}
-    url = (payload.get("url") or "").strip()
+    payload = _json_object()
+    url = _str_field(payload, "url", nullable=True)
     if not url:
         return jsonify(
             {"success": False, "message": "Enter a YouTube video URL or ID"}
@@ -986,7 +1046,7 @@ def _exec_restart():
 
 @app.route("/api/restart", methods=["POST"])
 def api_restart():
-    if download_process.get("active"):
+    if any_download_active():
         return jsonify(
             {
                 "success": False,
@@ -1043,7 +1103,7 @@ def api_skip_track():
         max_requests=10,
     ):
         return jsonify({"error": "Too many requests"}), 429
-    data = request.json or {}
+    data = _json_object()
     track_index = data.get("track_index")
     if track_index is None:
         return jsonify({"error": "track_index required"}), 400
@@ -1164,9 +1224,9 @@ def api_get_queue():
                     "artist": album.get("artist", {}).get("artistName", ""),
                     "cover": next(
                         (
-                            img["remoteUrl"]
+                            img.get("remoteUrl") or ""
                             for img in album.get("images", [])
-                            if img["coverType"] == "cover"
+                            if img.get("coverType") == "cover"
                         ),
                         "",
                     ),
@@ -1209,10 +1269,10 @@ def api_queue_tracks(album_id):
 
 @app.route("/api/download/queue", methods=["POST"])
 def api_add_to_queue():
-    album_id = (request.json or {}).get("album_id")
-    if not isinstance(album_id, int):
+    album_id = _json_object().get("album_id")
+    if not _is_album_id(album_id):
         return jsonify(
-            {"success": False, "message": "album_id must be an integer"}
+            {"success": False, "message": "album_id must be a positive integer"}
         ), 400
     with queue_lock:
         current_id = download_process.get("album_id")
@@ -1233,14 +1293,14 @@ def api_add_to_queue_bulk():
                 "message": "Too many bulk requests, please slow down",
             }
         ), 429
-    album_ids = (request.json or {}).get("album_ids", [])
+    album_ids = _json_object().get("album_ids", [])
     if not isinstance(album_ids, list):
         return jsonify({"success": False, "message": "album_ids must be a list"}), 400
     added = 0
     with queue_lock:
         current_id = download_process.get("album_id")
     for album_id in album_ids:
-        if isinstance(album_id, int) and album_id != current_id:
+        if _is_album_id(album_id) and album_id != current_id:
             if models.enqueue_album(album_id, force=True):
                 added += 1
     return jsonify(
@@ -1266,7 +1326,7 @@ def api_clear_queue():
 
 @app.route("/api/download/queue/reorder", methods=["PUT"])
 def api_reorder_queue():
-    new_order = (request.get_json(silent=True) or {}).get("queue", [])
+    new_order = _json_object().get("queue", [])
     if not isinstance(new_order, list):
         return jsonify({"success": False, "message": "queue must be a list"}), 400
     models.reorder_queue(new_order)
@@ -1327,7 +1387,9 @@ def api_delete_track(track_id):
         pass
 
     url_banned = False
-    body = request.get_json(silent=True) or {}
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        body = {}
     if body.get("ban_url") and track_data.get("youtube_url"):
         try:
             models.add_banned_url(
@@ -1497,55 +1559,38 @@ def api_download_failed():
 
 @app.route("/api/scheduler/toggle", methods=["POST"])
 def api_scheduler_toggle():
-    config = load_config()
-    config["scheduler_enabled"] = not config.get("scheduler_enabled", False)
-    save_config(config)
+    enabled = _toggle_config("scheduler_enabled", False)
     setup_scheduler()
-    return jsonify({"enabled": config["scheduler_enabled"]})
+    return jsonify({"enabled": enabled})
 
 
 @app.route("/api/scheduler/autodownload/toggle", methods=["POST"])
 def api_autodownload_toggle():
-    config = load_config()
-    config["scheduler_auto_download"] = not config.get("scheduler_auto_download", True)
-    save_config(config)
-    return jsonify({"enabled": config["scheduler_auto_download"]})
+    return jsonify(
+        {"enabled": _toggle_config("scheduler_auto_download", True)}
+    )
 
 
 @app.route("/api/xmlmetadata/toggle", methods=["POST"])
 def api_xmlmetadata_toggle():
-    config = load_config()
-    config["xml_metadata_enabled"] = not config.get("xml_metadata_enabled", True)
-    save_config(config)
-    return jsonify({"enabled": config["xml_metadata_enabled"]})
+    return jsonify({"enabled": _toggle_config("xml_metadata_enabled", True)})
 
 
 @app.route("/api/acoustid/toggle", methods=["POST"])
 def api_acoustid_toggle():
-    config = load_config()
-    config["acoustid_enabled"] = not config.get("acoustid_enabled", True)
-    save_config(config)
-    return jsonify({"enabled": config["acoustid_enabled"]})
+    return jsonify({"enabled": _toggle_config("acoustid_enabled", True)})
 
 
 @app.route("/api/lidarr_rename/toggle", methods=["POST"])
 def api_lidarr_rename_toggle():
-    config = load_config()
-    config["lidarr_rename_after_import"] = not config.get(
-        "lidarr_rename_after_import", False
+    return jsonify(
+        {"enabled": _toggle_config("lidarr_rename_after_import", False)}
     )
-    save_config(config)
-    return jsonify({"enabled": config["lidarr_rename_after_import"]})
 
 
 @app.route("/api/cover_art/toggle", methods=["POST"])
 def api_cover_art_toggle():
-    config = load_config()
-    config["save_cover_art_file"] = not config.get(
-        "save_cover_art_file", True
-    )
-    save_config(config)
-    return jsonify({"enabled": config["save_cover_art_file"]})
+    return jsonify({"enabled": _toggle_config("save_cover_art_file", True)})
 
 
 @app.route("/api/youtube/search", methods=["POST"])
@@ -1555,7 +1600,7 @@ def api_youtube_search():
         f"yt_search:{client_ip}", rate_limit_store, window=3, max_requests=5
     ):
         return jsonify({"results": [], "error": "Too many requests"}), 429
-    query = (request.json or {}).get("query", "").strip()
+    query = _str_field(_json_object(), "query")
     if not query:
         return jsonify({"results": []})
 
@@ -1783,10 +1828,10 @@ def api_download_manual():
     ):
         return jsonify({"success": False, "message": "Too many requests"}), 429
 
-    data = request.json or {}
-    youtube_url = data.get("youtube_url", "").strip()
-    track_title = data.get("track_title", "").strip()
-    track_num = data.get("track_num", 0)
+    data = _json_object()
+    youtube_url = _str_field(data, "youtube_url")
+    track_title = _str_field(data, "track_title")
+    track_num = _parse_track_number(data.get("track_num", 0))
     album_id_from_request = data.get("album_id")
 
     if not youtube_url or not track_title:
@@ -2089,10 +2134,10 @@ def api_manual_track_download(album_id):
     ):
         return jsonify({"success": False, "message": "Too many requests"}), 429
 
-    data = request.json or {}
-    youtube_url = data.get("youtube_url", "").strip()
-    track_title = data.get("track_title", "").strip()
-    track_num = data.get("track_number", 0)
+    data = _json_object()
+    youtube_url = _str_field(data, "youtube_url")
+    track_title = _str_field(data, "track_title")
+    track_num = _parse_track_number(data.get("track_number", 0))
 
     if not youtube_url or not track_title:
         return jsonify({"success": False, "message": "Missing required fields"}), 400
@@ -2190,35 +2235,38 @@ def _execute_manual_dl_with_progress(
         )
         return
 
-    with queue_lock:
-        if download_process["active"]:
-            logger.warning(
-                "Manual download aborted: another download became active: %s",
-                track_title,
-            )
-            return
-        download_process["active"] = True
-        download_process["stop"] = False
-        download_process["album_id"] = album_id
-        download_process["album_title"] = album_title
-        download_process["artist_name"] = artist_name
-        download_process["cover_url"] = cover_url
-        download_process["current_track_index"] = 0
-        download_process["tracks"] = [
-            {
-                "track_title": track_title,
-                "track_number": int(track_num),
-                "status": "downloading",
-                "youtube_url": youtube_url,
-                "youtube_title": "",
-                "progress_percent": "",
-                "progress_speed": "",
-                "error_message": "",
-                "skip": False,
-            }
-        ]
-
+    claimed = False
     try:
+        with queue_lock:
+            if download_process["active"]:
+                logger.warning(
+                    "Manual download aborted: another download became active: %s",
+                    track_title,
+                )
+                return
+            download_process["active"] = True
+            claimed = True
+            track_num = _parse_track_number(track_num)
+            download_process["stop"] = False
+            download_process["album_id"] = album_id
+            download_process["album_title"] = album_title
+            download_process["artist_name"] = artist_name
+            download_process["cover_url"] = cover_url
+            download_process["current_track_index"] = 0
+            download_process["tracks"] = [
+                {
+                    "track_title": track_title,
+                    "track_number": track_num,
+                    "status": "downloading",
+                    "youtube_url": youtube_url,
+                    "youtube_title": "",
+                    "progress_percent": "",
+                    "progress_speed": "",
+                    "error_message": "",
+                    "skip": False,
+                }
+            ]
+
         try:
             makedirs_safe(target_path, makedirs_bases)
         except (BaseNotMountedError, PermissionError) as exc:
@@ -2242,14 +2290,15 @@ def _execute_manual_dl_with_progress(
             cover_url=cover_url,
         )
     finally:
-        with queue_lock:
-            download_process["active"] = False
-            download_process["tracks"] = []
-            download_process["current_track_index"] = -1
-            download_process["album_id"] = None
-            download_process["album_title"] = ""
-            download_process["artist_name"] = ""
-            download_process["cover_url"] = ""
+        if claimed:
+            with queue_lock:
+                download_process["active"] = False
+                download_process["tracks"] = []
+                download_process["current_track_index"] = -1
+                download_process["album_id"] = None
+                download_process["album_title"] = ""
+                download_process["artist_name"] = ""
+                download_process["cover_url"] = ""
 
 
 def _do_manual_dl(
@@ -2731,7 +2780,7 @@ def api_youtube_playlist_info():
     ):
         return jsonify({"error": "Too many requests"}), 429
 
-    url = (request.json or {}).get("url", "").strip()
+    url = _str_field(_json_object(), "url")
     if not url:
         return jsonify({"error": "Missing URL"}), 400
 
@@ -3038,12 +3087,16 @@ def api_youtube_playlist_download():
                 {"success": False, "message": "A download is already in progress"}
             ), 409
 
-    data = request.json or {}
-    artist_name = data.get("artist_name", "").strip()
-    album_title = data.get("album_title", "").strip()
+    data = _json_object()
+    artist_name = _str_field(data, "artist_name")
+    album_title = _str_field(data, "album_title")
     entries = data.get("entries", [])
-    thumbnail_url = data.get("thumbnail_url", "").strip()
-    source_url = data.get("source_url", "").strip()
+    thumbnail_url = _str_field(data, "thumbnail_url")
+    source_url = _str_field(data, "source_url")
+    if not isinstance(entries, list):
+        return jsonify(
+            {"success": False, "message": "entries must be a list"}
+        ), 400
 
     if not artist_name and not album_title:
         return jsonify(
@@ -3055,7 +3108,13 @@ def api_youtube_playlist_download():
 
     validated_entries = []
     for entry in entries:
-        v_url = _validate_youtube_url(entry.get("url", ""))
+        if not isinstance(entry, dict):
+            return jsonify(
+                {"success": False, "message": "Each entry must be an object"}
+            ), 400
+        _str_field(entry, "url")
+        _str_field(entry, "title", nullable=True)
+        v_url = _validate_youtube_url(entry.get("url") or "")
         if not v_url:
             return jsonify(
                 {"success": False, "message": "Invalid YouTube URL in entries"}
@@ -3609,7 +3668,8 @@ def api_youtube_recent():
     conn = db.get_db()
     rows = conn.execute(
         """
-        SELECT album_title, artist_name,
+        SELECT album_id, MAX(album_title) as album_title,
+               MAX(artist_name) as artist_name,
                MAX(cover_url) as cover_url,
                MAX(lidarr_album_path) as source_url,
                MAX(youtube_url) as youtube_url,
@@ -3617,8 +3677,8 @@ def api_youtube_recent():
                SUM(CASE WHEN success=1 THEN 1 ELSE 0 END) as success_count,
                MAX(timestamp) as latest_timestamp
         FROM track_downloads
-        WHERE album_id = 0
-        GROUP BY album_title, artist_name
+        WHERE album_id < 0
+        GROUP BY album_id
         ORDER BY latest_timestamp DESC
         LIMIT 6
         """

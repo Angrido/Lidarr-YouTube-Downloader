@@ -19,6 +19,7 @@ import re
 import subprocess
 import tempfile
 import threading
+import unicodedata
 from difflib import SequenceMatcher
 
 import yt_dlp
@@ -62,17 +63,28 @@ def _normalize_dashes(text):
     return _DASH_PATTERN.sub("-", text)
 
 
+_QUOTE_MAP = str.maketrans({
+    "\u2019": "'", "\u2018": "'", "\u02bc": "'",
+    "\u201c": '"', "\u201d": '"',
+})
+
+
+def _fold(text):
+    text = unicodedata.normalize("NFKD", (text or "").translate(_QUOTE_MAP))
+    return "".join(c for c in text if not unicodedata.combining(c)).casefold()
+
+
 def _normalize_yt_title(title):
     t = _normalize_dashes(title)
     t = _NOISE_PATTERN.sub("", t)
     t = _FEAT_PATTERN.sub("", t)
-    return re.sub(r"\s+", " ", t).strip().lower()
+    return _fold(re.sub(r"\s+", " ", t).strip())
 
 
 def _title_similarity(yt_title, track_title, artist_name):
-    yt_lower = _normalize_dashes(yt_title).lower()
-    track_lower = _normalize_dashes(track_title).lower()
-    artist_lower = artist_name.lower()
+    yt_lower = _fold(_normalize_dashes(yt_title))
+    track_lower = _fold(_normalize_dashes(track_title))
+    artist_lower = _fold(artist_name)
 
     has_track = track_lower in yt_lower
     has_artist = artist_lower in yt_lower
@@ -105,9 +117,9 @@ def _is_official_channel(channel_name, artist_name):
     """
     if not channel_name:
         return False
-    ch = channel_name.lower()
-    ar = artist_name.lower()
-    if ar in ch:
+    ch = _fold(channel_name)
+    ar = _fold(artist_name)
+    if ar and ar in ch:
         return True
     for suffix in [" - topic", "vevo", " official"]:
         if suffix in ch:
@@ -135,8 +147,8 @@ def _is_topic_channel(channel_name, artist_name):
     """
     if not channel_name:
         return False
-    ch = channel_name.lower().strip()
-    ar = artist_name.lower().strip()
+    ch = _fold(channel_name).strip()
+    ar = _fold(artist_name).strip()
     if not ar:
         return False
     return ch.endswith("- topic") and ar in ch
@@ -366,7 +378,7 @@ def _ffmpeg_postprocess_works(probe_dir=None):
         return _ffmpeg_pp_state
 
 
-NATIVE_AUDIO_FORMATS = ("m4a", "opus")
+NATIVE_AUDIO_FORMATS = ("m4a",)
 
 
 def ffmpeg_status(probe_dir=None, refresh=False):
@@ -429,9 +441,10 @@ def ffmpeg_status(probe_dir=None, refresh=False):
     fixes = []
     if not native_ok:
         fixes.append(
-            "Set Audio Format to m4a (or opus) below — YouTube serves those"
-            " directly, so nothing has to be converted. This fixes downloads"
-            " immediately, without touching your setup."
+            "Set Audio Format to m4a below — YouTube serves AAC in an m4a"
+            " container directly, so nothing has to be converted. This fixes"
+            " downloads immediately, without touching your setup. (Opus is"
+            " served inside WebM and still needs ffmpeg.)"
         )
     fixes.append(
         "Run an image built for this machine's architecture"
@@ -449,6 +462,62 @@ def _mark_ffmpeg_postprocess_broken():
     with _ffmpeg_pp_lock:
         _ffmpeg_pp_state = False
         _ffmpeg_pp_observed_broken = True
+
+
+_LOUDNORM_FILTER = "loudnorm=I=-14:TP=-1.5:LRA=11"
+_LOUDNORM_ENCODERS = {"mp3": "libmp3lame", "m4a": "aac", "opus": "libopus"}
+
+
+def _encoder_quality_args(encoder, audio_quality):
+    try:
+        quality = float(audio_quality)
+    except (TypeError, ValueError):
+        return []
+    if quality > 10:
+        if encoder == "libopus":
+            quality = min(quality, 256)
+        return ["-b:a", f"{int(quality)}k"]
+    limits = {"libmp3lame": (10, 0), "aac": (0.1, 4)}.get(encoder)
+    if not limits:
+        return []
+    return ["-q:a", str(limits[1] + (limits[0] - limits[1]) * quality / 10)]
+
+
+def _normalize_loudness(path, audio_format, audio_quality):
+    encoder = _LOUDNORM_ENCODERS.get(audio_format)
+    if not encoder or not os.path.exists(path):
+        return False
+    root, ext = os.path.splitext(path)
+    temp_path = f"{root}.loudnorm{ext}"
+    args = [
+        "-i", path, "-vn", "-af", _LOUDNORM_FILTER, "-ar", "48000",
+        "-c:a", encoder, *_encoder_quality_args(encoder, audio_quality),
+    ]
+    if audio_format == "m4a":
+        args += ["-movflags", "+faststart"]
+    args.append(temp_path)
+    try:
+        proc = _run_ffmpeg(args, timeout=600)
+        if (
+            proc.returncode == 0
+            and os.path.exists(temp_path)
+            and os.path.getsize(temp_path) > 0
+        ):
+            os.replace(temp_path, path)
+            return True
+        reason = ((proc.stderr or "").strip().splitlines() or [""])[-1]
+    except Exception as e:
+        reason = str(e)
+    try:
+        os.remove(temp_path)
+    except OSError:
+        pass
+    logger.warning(
+        "   Loudness normalisation failed for %s (%s); keeping the"
+        " un-normalised file.",
+        os.path.basename(path), reason[:160] or "unknown error",
+    )
+    return False
 
 
 _plugins_preloaded = False
@@ -983,6 +1052,9 @@ def search_youtube_candidates(
     seen_ids = {}
     candidates = []
     GOOD_SCORE = 0.80
+    banned_ids = {
+        _extract_video_id(b) or b for b in (banned_urls or ()) if b
+    }
 
     # Phase 1: only accept entries from the artist's official/Topic channel
     # on YouTube Music or YouTube. Phase 2 (any source) runs only if Phase 1
@@ -1038,10 +1110,12 @@ def search_youtube_candidates(
                         if isinstance(search_results, dict) else 0
                     )
                     accepted_before = len(candidates)
-                    for entry in search_results.get("entries", []):
-                        title = entry.get("title", "").lower()
+                    for entry in (search_results or {}).get("entries") or []:
+                        if not isinstance(entry, dict):
+                            continue
+                        title = (entry.get("title") or "").lower()
                         url = entry.get("url")
-                        duration = entry.get("duration", 0)
+                        duration = entry.get("duration") or 0
                         channel = (
                             entry.get("channel", "")
                             or entry.get("uploader", "")
@@ -1058,10 +1132,11 @@ def search_youtube_candidates(
                         artists_blob = " ".join(
                             a if isinstance(a, str) else (a.get("name", "") if isinstance(a, dict) else "")
                             for a in entry_artists
-                        ).lower()
+                        )
+                        artists_blob = _fold(artists_blob)
                         artist_in_artists = bool(
                             base_artist and artists_blob
-                            and base_artist.lower() in artists_blob
+                            and _fold(base_artist) in artists_blob
                         )
                         uploader_field = entry.get("uploader", "") or ""
 
@@ -1082,12 +1157,12 @@ def search_youtube_candidates(
                         # the main failure mode.
                         has_explicit_mismatch = False
                         if base_artist:
-                            ba_lower = base_artist.lower()
+                            ba_lower = _fold(base_artist)
                             if artists_blob and ba_lower not in artists_blob:
                                 has_explicit_mismatch = True
                             elif (
                                 channel
-                                and ba_lower not in channel.lower()
+                                and ba_lower not in _fold(channel)
                                 and not is_topic
                                 and not is_official
                             ):
@@ -1139,7 +1214,7 @@ def search_youtube_candidates(
                             )
                         if expected_duration_sec and duration_known:
                             min_dur = max(
-                                15, expected_duration_sec - effective_tolerance
+                                0, expected_duration_sec - effective_tolerance
                             )
                             max_dur = expected_duration_sec + effective_tolerance
                             if duration < min_dur or duration > max_dur:
@@ -1160,7 +1235,10 @@ def search_youtube_candidates(
                                 continue
                             duration_score = 0.5
 
-                        if banned_urls and url in banned_urls:
+                        if banned_urls and (
+                            url in banned_urls
+                            or (_extract_video_id(url) or url) in banned_ids
+                        ):
                             logger.debug(
                                 "   Rejected '%s' - URL banned by user",
                                 entry.get("title", ""),
@@ -1173,9 +1251,11 @@ def search_youtube_candidates(
                         # punctuation/normalisation differences). Just
                         # matching the artist name is the same-artist
                         # wrong-song trap.
-                        yt_title_raw = entry.get("title", "")
-                        yt_norm = _normalize_dashes(yt_title_raw).lower()
-                        track_norm = _normalize_dashes(track_title_original).lower()
+                        yt_title_raw = entry.get("title") or ""
+                        yt_norm = _fold(_normalize_dashes(yt_title_raw))
+                        track_norm = _fold(
+                            _normalize_dashes(track_title_original)
+                        )
                         if track_norm and track_norm not in yt_norm:
                             match = SequenceMatcher(
                                 None, track_norm, yt_norm,
@@ -1251,7 +1331,7 @@ def search_youtube_candidates(
                         seen_ids[video_id] = len(candidates)
                         candidates.append({
                             "url": url,
-                            "title": entry.get("title", ""),
+                            "title": yt_title_raw,
                             "duration": duration,
                             "channel": channel,
                             "score": total_score,
@@ -1421,6 +1501,14 @@ def _is_postprocess_error(msg_low):
     )
 
 
+def _conversion_failure_is_host_wide(msg_low, probe_dir):
+    if "function not implemented" in msg_low:
+        return True
+    if "no space left" in msg_low:
+        return False
+    return not _probe_ffmpeg_can_write_audio(probe_dir)
+
+
 def _format_source_quality(fmt):
     """Human-readable summary of the downloaded source stream for the
     per-track quality report, e.g. ``"140 · m4a · 128 kbps"``. Empty when
@@ -1449,17 +1537,15 @@ def _download_raw_audio(
     """Download the native audio stream with NO ffmpeg postprocessing.
 
     Last-resort fallback for when ffmpeg postprocessing fails locally (e.g.
-    a broken/emulated ffmpeg that can't open output files). For m4a/opus
-    targets the matching YouTube stream (format 140 = m4a, 251 = opus) is
-    already in the wanted container, so downloading it directly — with the
+    a broken/emulated ffmpeg that can't open output files). For m4a targets
+    the matching YouTube stream (format 140 = m4a) is already in the wanted
+    container, so downloading it directly — with the
     automatic ffmpeg fixups disabled — yields a valid file without invoking
     ffmpeg at all. Returns the produced ``output_path.<audio_format>`` path,
     or None when no native stream matches the target container.
     """
     if audio_format == "m4a":
         selector = "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]"
-    elif audio_format == "opus":
-        selector = "bestaudio[ext=webm][acodec=opus]/bestaudio[acodec=opus]"
     else:
         return None
 
@@ -1483,7 +1569,7 @@ def _download_raw_audio(
     for pc in _client_fallback_chain(config, is_music) + [None]:
         if skip_check and skip_check():
             return None
-        for leftover in glob.glob(output_path + ".*"):
+        for leftover in glob.glob(glob.escape(output_path) + ".*"):
             try:
                 os.remove(leftover)
             except OSError:
@@ -1508,7 +1594,7 @@ def _download_raw_audio(
             continue
         if os.path.exists(target_file):
             return target_file
-        for leftover in glob.glob(output_path + ".*"):
+        for leftover in glob.glob(glob.escape(output_path) + ".*"):
             try:
                 os.remove(leftover)
             except OSError:
@@ -1583,7 +1669,7 @@ def download_youtube_candidate(
 
     probe_dir = os.path.dirname(output_path)
     ffmpeg_ok = _ffmpeg_postprocess_works(probe_dir)
-    if not ffmpeg_ok and audio_format in ("m4a", "opus"):
+    if not ffmpeg_ok and audio_format in NATIVE_AUDIO_FORMATS:
         global _normalize_skip_warned
         if normalize_audio and not _normalize_skip_warned:
             _normalize_skip_warned = True
@@ -1608,7 +1694,7 @@ def download_youtube_candidate(
                 "youtube_url": display_url,
                 "youtube_title": candidate["title"],
                 "match_score": round(candidate["score"], 4),
-                "duration_seconds": int(candidate["duration"]),
+                "duration_seconds": int(candidate.get("duration") or 0),
                 "source_format": _format_source_quality(raw_captured),
             }
 
@@ -1620,6 +1706,7 @@ def download_youtube_candidate(
     any_403 = False
     format_unavailable_errors = 0
     conversion_errors = 0
+    conversion_msg = ""
     abort_conversion = False
     extract_pp = [
         {
@@ -1646,15 +1733,6 @@ def download_youtube_candidate(
                 }
                 if postprocessors:
                     ydl_opts_download["postprocessors"] = postprocessors
-                    if normalize_audio:
-                        # EBU R128 loudness normalization on the ffmpeg
-                        # extract step (forces a re-encode; only when the
-                        # user opts in). Targets the streaming-loudness
-                        # standard of -14 LUFS.
-                        ydl_opts_download["postprocessor_args"] = [
-                            "-af",
-                            "loudnorm=I=-14:TP=-1.5:LRA=11",
-                        ]
                 if selector:
                     ydl_opts_download["format"] = selector
                 # Streams without abr/asr metadata get rejected by
@@ -1683,12 +1761,17 @@ def download_youtube_candidate(
                         "   Downloaded '%s' via player_client=%s",
                         candidate["title"], pc or "default",
                     )
+                    if normalize_audio:
+                        _normalize_loudness(
+                            f"{output_path}.{audio_format}",
+                            audio_format, audio_quality,
+                        )
                     return {
                         "success": True,
                         "youtube_url": display_url,
                         "youtube_title": candidate["title"],
                         "match_score": round(candidate["score"], 4),
-                        "duration_seconds": int(candidate["duration"]),
+                        "duration_seconds": int(candidate.get("duration") or 0),
                         "source_format": _format_source_quality(captured_fmt),
                     }
                 except Exception as e:
@@ -1716,6 +1799,7 @@ def download_youtube_candidate(
                         continue
                     if _is_postprocess_error(msg_low):
                         conversion_errors += 1
+                        conversion_msg = msg_low
                         last_line = (msg.strip().splitlines() or [msg])[-1]
                         if conversion_errors == 1:
                             logger.warning(
@@ -1729,6 +1813,25 @@ def download_youtube_candidate(
                         f" selector='{selector}'; {msg[:180]}"
                     )
                     continue
+
+    if conversion_errors and not _conversion_failure_is_host_wide(
+        conversion_msg, probe_dir,
+    ):
+        last_line = (
+            (str(last_err).strip().splitlines() or [str(last_err)])[-1]
+            if last_err else "unknown error"
+        )
+        logger.warning(
+            "   ffmpeg still works on this host, so the conversion failure"
+            " for '%s' is specific to this source; trying the next candidate.",
+            candidate["title"],
+        )
+        return {
+            "success": False,
+            "error_message": (
+                f"Audio conversion failed for this video ({last_line[:140]})."
+            ),
+        }
 
     if conversion_errors:
         _mark_ffmpeg_postprocess_broken()
@@ -1749,7 +1852,7 @@ def download_youtube_candidate(
                 "youtube_url": display_url,
                 "youtube_title": candidate["title"],
                 "match_score": round(candidate["score"], 4),
-                "duration_seconds": int(candidate["duration"]),
+                "duration_seconds": int(candidate.get("duration") or 0),
                 "source_format": _format_source_quality(raw_captured),
             }
         last_line = (
@@ -1857,7 +1960,7 @@ def download_track_youtube(
     logger.info(
         f"   Best match: '{best['title']}'"
         f" (score={best['score']:.2f},"
-        f" duration={int(best['duration'])}s,"
+        f" duration={int(best.get('duration') or 0)}s,"
         f" channel='{best.get('channel', '')}')"
     )
 

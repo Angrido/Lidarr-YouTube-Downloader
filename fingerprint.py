@@ -24,7 +24,7 @@ RATE_LIMIT_INTERVAL = 0.34  # ~3 requests per second
 
 _last_request_time = 0.0
 _fpcalc_warned = False
-_api_key_invalid = False
+_api_key_invalid = None
 _throttle_lock = threading.Lock()
 
 
@@ -72,7 +72,7 @@ def _throttle():
 
 def _lookup_acoustid(api_key, duration, fingerprint):
     global _api_key_invalid
-    if _api_key_invalid:
+    if _api_key_invalid is not None and _api_key_invalid == api_key:
         return None
     params = {
         "client": api_key,
@@ -95,12 +95,12 @@ def _lookup_acoustid(api_key, duration, fingerprint):
         if data.get("status") != "ok":
             error = data.get("error", {})
             if error.get("code") == 4:
-                _api_key_invalid = True
+                _api_key_invalid = api_key
                 logger.error(
                     "AcoustID API key is invalid. "
                     "Register a key at https://acoustid.org/new-application "
                     "and set it in Settings > AcoustID API Key. "
-                    "Fingerprinting disabled for this session."
+                    "Fingerprinting disabled until the key is changed."
                 )
             else:
                 logger.warning("AcoustID API error: %s", error.get("message", "unknown"))
@@ -192,6 +192,8 @@ def verify_fingerprint(
 
     duration, fingerprint = fp_result
     results = _lookup_acoustid(acoustid_api_key, duration, fingerprint)
+    if results is None:
+        return None
 
     if not results:
         return {

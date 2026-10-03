@@ -20,6 +20,13 @@ logger = logging.getLogger(__name__)
 
 def scheduled_check():
     """Check Lidarr for new missing albums and optionally queue them."""
+    try:
+        _scheduled_check()
+    except Exception:
+        logger.exception("Scheduled missing-album check failed")
+
+
+def _scheduled_check():
     with queue_lock:
         is_active = download_process["active"]
     if is_active:
@@ -110,7 +117,10 @@ def scheduled_check():
 def run_scheduler():
     """Run the schedule loop forever, checking every 10 seconds."""
     while True:
-        schedule.run_pending()
+        try:
+            schedule.run_pending()
+        except Exception:
+            logger.exception("Scheduler job failed; will retry next cycle")
         time.sleep(10)
 
 

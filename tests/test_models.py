@@ -837,3 +837,140 @@ def test_force_upgrades_an_already_queued_album():
     assert models.enqueue_album(13, force=True) is False
     row = [r for r in models.get_queue() if r["album_id"] == 13][0]
     assert row["force"] == 1
+
+
+class _Clock:
+    def __init__(self, start=1_000_000.0):
+        self.now = start
+
+    def __call__(self):
+        self.now += 1.0
+        return self.now
+
+
+def test_add_log_same_millisecond_same_track_does_not_collide(monkeypatch):
+    monkeypatch.setattr(models.time, "time", lambda: 1_700_000_000.123)
+    first = models.add_log(
+        "track_success", 7, "Album", "Artist", track_number=3,
+        track_title="Disc 1 Track 3",
+    )
+    second = models.add_log(
+        "track_success", 7, "Album", "Artist", track_number=3,
+        track_title="Disc 2 Track 3",
+    )
+    third = models.add_log("download_success", 7, "Album", "Artist")
+    fourth = models.add_log("download_success", 7, "Album", "Artist")
+    assert len({first, second, third, fourth}) == 4
+    assert models.get_logs(per_page=50)["total"] == 4
+
+
+@pytest.mark.parametrize("getter", [
+    models.get_logs, models.get_banned_urls, models.get_album_history,
+])
+def test_paginate_zero_per_page_is_clamped(getter):
+    models.add_log("download_success", 1, "A", "A")
+    _add_dl()
+    models.add_banned_url("u", "t", 1, "A", "X", "T", 1)
+    result = getter(page=1, per_page=0)
+    assert result["per_page"] == 1
+    assert len(result["items"]) == 1
+
+
+def test_paginate_negative_per_page_does_not_return_everything():
+    for i in range(3):
+        models.add_log("download_success", i, "A", "A")
+    result = models.get_logs(page=1, per_page=-1)
+    assert result["per_page"] == 1
+    assert len(result["items"]) == 1
+    assert result["pages"] == 3
+
+
+def test_paginate_huge_per_page_is_capped():
+    for i in range(3):
+        models.add_log("download_success", i, "A", "A")
+    result = models.get_logs(page=1, per_page=10_000_000)
+    assert result["per_page"] == 500
+    assert len(result["items"]) == 3
+
+
+def test_paginate_page_below_one_is_clamped():
+    models.add_log("download_success", 1, "A", "A")
+    result = models.get_logs(page=-5, per_page=10)
+    assert result["page"] == 1
+    assert len(result["items"]) == 1
+
+
+def test_get_album_history_renamed_album_is_one_entry(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    _add_dl(album_id=5, album_title="Old Title", artist_name="Old Artist",
+            track_title="T1", success=True, cover_url="old.jpg")
+    _add_dl(album_id=5, album_title="New Title", artist_name="New Artist",
+            track_title="T2", success=False, cover_url="new.jpg")
+    _add_dl(album_id=6, album_title="Other", artist_name="Z",
+            track_title="T1", success=True)
+    result = models.get_album_history(page=1, per_page=50)
+    assert result["total"] == 2
+    assert len(result["items"]) == 2
+    item = [i for i in result["items"] if i["album_id"] == 5][0]
+    assert item["album_title"] == "New Title"
+    assert item["artist_name"] == "New Artist"
+    assert item["cover_url"] == "new.jpg"
+    assert item["success_count"] == 1
+    assert item["fail_count"] == 1
+    assert item["total_count"] == 2
+
+
+def test_get_album_history_fields_and_order(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    _add_dl(album_id=1, album_title="First", track_title="T1")
+    _add_dl(album_id=2, album_title="Second", track_title="T1")
+    _add_dl(album_id=1, album_title="First", track_title="T1",
+            success=False)
+    items = models.get_album_history(page=1, per_page=50)["items"]
+    assert [i["album_id"] for i in items] == [1, 2]
+    assert set(items[0]) == {
+        "album_id", "album_title", "artist_name", "cover_url",
+        "latest_timestamp", "success_count", "fail_count", "total_count",
+    }
+    assert items[0]["success_count"] == 0
+    assert items[0]["fail_count"] == 1
+    assert items[0]["total_count"] == 1
+    page2 = models.get_album_history(page=2, per_page=1)
+    assert [i["album_id"] for i in page2["items"]] == [2]
+    assert page2["pages"] == 2
+
+
+def test_track_failure_counts_ignore_host_postprocess_failures(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    _add_dl(track_title="Song", success=False, error_message="No match")
+    _add_dl(
+        track_title="Song", success=False,
+        error_message=(
+            "Audio postprocessing failed — ffmpeg could not write the"
+            " converted file (Function not implemented)."
+        ),
+    )
+    _add_dl(
+        track_title="Song", success=False,
+        error_message="Audio postprocessing failed (local ffmpeg error)",
+    )
+    _add_dl(
+        track_title="Only Host", success=False,
+        error_message="Audio postprocessing failed (local ffmpeg error)",
+    )
+    counts = models.get_track_failure_counts(1)
+    assert counts["Song"]["failures"] == 1
+    assert counts["Song"]["last_failure"] == 1_000_001.0
+    assert "Only Host" not in counts
+
+
+def test_track_failure_counts_host_failure_does_not_reset(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    _add_dl(track_title="Song", success=False, error_message="No match")
+    _add_dl(track_title="Song", success=False, error_message="No match")
+    _add_dl(
+        track_title="Song", success=False,
+        error_message="Audio postprocessing failed (local ffmpeg error)",
+    )
+    _add_dl(track_title="Song", success=False, error_message=None)
+    assert models.get_track_failure_counts(1)["Song"]["failures"] == 3

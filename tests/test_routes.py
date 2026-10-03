@@ -2304,6 +2304,12 @@ def test_backup_import_valid_restarts(client, monkeypatch, tmp_path):
     )
     assert resp.status_code == 200
     assert resp.get_json()["success"] is True
+    import time
+    for _ in range(50):
+        if restarted:
+            break
+        time.sleep(0.1)
+    assert restarted == [1]
 
 
 def test_backup_import_rejects_empty_schema_version(client, monkeypatch, tmp_path):
@@ -2358,6 +2364,30 @@ def test_backup_import_refused_while_downloading(client, monkeypatch):
         assert resp.status_code == 409
     finally:
         app_module.download_process["active"] = False
+
+
+
+def test_backup_import_refused_while_client_job_downloads(client, monkeypatch):
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    import io
+    import processing
+    monkeypatch.setitem(processing._active_states, 4242, {"active": True})
+    data = {"file": (io.BytesIO(b"x"), "b.db")}
+    resp = client.post(
+        "/api/backup/import", data=data,
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 409
+
+
+def test_restart_refused_while_client_job_downloads(client, monkeypatch):
+    import processing
+    called = []
+    monkeypatch.setattr("app._exec_restart", lambda: called.append(1))
+    monkeypatch.setitem(processing._active_states, 4243, {"active": True})
+    resp = client.post("/api/restart")
+    assert resp.get_json()["success"] is False
+    assert called == []
 
 
 class TestFfmpegStatusRoute:
@@ -2455,3 +2485,336 @@ class TestNtfyNotificationRoute:
             assert "Too many test requests" in resp.get_json()["message"]
 
 
+
+
+class TestManualDownloadTrackNumber:
+    @pytest.fixture(autouse=True)
+    def _bypass_rate_limit(self):
+        with patch("app.check_rate_limit", return_value=True):
+            yield
+
+    def test_vinyl_track_number_does_not_leave_download_active(
+        self, client, monkeypatch, tmp_path,
+    ):
+        import app as app_module
+        from processing import download_process
+        seen = {}
+        monkeypatch.setattr(app_module, "makedirs_safe", lambda *a, **k: None)
+        monkeypatch.setattr(
+            app_module, "_do_manual_dl",
+            lambda **kw: seen.update(kw),
+        )
+        monkeypatch.setitem(download_process, "active", False)
+        app_module._execute_manual_dl_with_progress(
+            youtube_url="https://www.youtube.com/watch?v=abcdefghijk",
+            track_title="Song", track_num="A1",
+            target_path=str(tmp_path), album_data={}, album_id=1,
+            album_title="Album", artist_name="Artist", config={},
+            album_path=str(tmp_path), lidarr_album_path=str(tmp_path),
+            cover_url="", makedirs_bases=[],
+        )
+        assert download_process["active"] is False
+        assert seen["track_num"] == 0
+
+    def test_state_setup_failure_still_releases_active(
+        self, client, monkeypatch, tmp_path,
+    ):
+        import app as app_module
+        from processing import download_process
+        monkeypatch.setitem(download_process, "active", False)
+        monkeypatch.setattr(
+            app_module, "_parse_track_number",
+            lambda raw: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        with pytest.raises(RuntimeError):
+            app_module._execute_manual_dl_with_progress(
+                youtube_url="https://www.youtube.com/watch?v=abcdefghijk",
+                track_title="Song", track_num=1,
+                target_path=str(tmp_path), album_data={}, album_id=1,
+                album_title="Album", artist_name="Artist", config={},
+                album_path=str(tmp_path), lidarr_album_path=str(tmp_path),
+                cover_url="", makedirs_bases=[],
+            )
+        assert download_process["active"] is False
+
+    def test_album_route_parses_vinyl_track_number(
+        self, client, monkeypatch, tmp_path,
+    ):
+        import app as app_module
+        seen = {}
+        monkeypatch.setattr("app.DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        monkeypatch.setattr(app_module, "_get_album_cached", lambda aid: {
+            "title": "Album", "artist": {"artistName": "Artist"},
+            "images": [],
+        })
+        monkeypatch.setattr(
+            app_module, "_execute_manual_dl_with_progress",
+            lambda **kw: seen.update(kw),
+        )
+        monkeypatch.setattr(
+            app_module.threading, "Thread",
+            lambda target, daemon=None: MagicMock(start=target),
+        )
+        resp = client.post("/api/album/1/track/manual-download", json={
+            "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+            "track_title": "Song", "track_number": "A1",
+        })
+        assert resp.status_code == 200
+        assert seen["track_num"] == 0
+
+    def test_manual_route_vinyl_track_number_not_500(
+        self, client, monkeypatch, tmp_path,
+    ):
+        import models
+        import app as app_module
+        album_dir = tmp_path / "downloads" / "Various" / "My Playlist"
+        _add_track(
+            models, album_id=-1, album_title="My Playlist",
+            artist_name="Various", track_title="Song", track_number=1,
+            success=False, album_path=str(album_dir),
+        )
+        monkeypatch.setattr(
+            app_module, "_validate_target_path", lambda *a, **k: True,
+        )
+        monkeypatch.setattr(app_module, "makedirs_safe", lambda *a, **k: None)
+        monkeypatch.setattr(
+            app_module, "download_youtube_candidate",
+            lambda *a, **k: {"success": False, "error_message": "SENTINEL_DL"},
+        )
+        resp = client.post("/api/download/manual", json={
+            "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+            "track_title": "Song", "track_num": "A1", "album_id": -1,
+        })
+        assert "SENTINEL_DL" in (resp.get_json().get("message") or "")
+
+
+class TestConfigHardening:
+    @pytest.fixture(autouse=True)
+    def _bypass_rate_limit(self):
+        with patch("app.check_rate_limit", return_value=True):
+            yield
+
+    def test_get_config_hides_lidarr_api_key(self, client):
+        data = client.get("/api/config").get_json()
+        assert "lidarr_api_key" not in data
+        assert "test-key" not in json.dumps(data)
+
+    def test_export_hides_lidarr_api_key(self, client):
+        resp = client.get("/api/config/export")
+        assert "lidarr_api_key" not in json.loads(resp.data)
+
+    @pytest.mark.parametrize("value", ["abc", None, [], True])
+    def test_invalid_int_returns_400(self, client, value):
+        resp = client.post("/api/config", json={"scheduler_interval": value})
+        assert resp.status_code == 400
+        assert "scheduler_interval" in resp.get_json()["message"]
+
+    def test_invalid_value_not_saved(self, client):
+        client.post(
+            "/api/config",
+            json={"scheduler_interval": 5, "duration_tolerance": "x"},
+        )
+        assert client.get("/api/config").get_json()["scheduler_interval"] == 60
+
+    def test_string_int_coerced(self, client):
+        resp = client.post("/api/config", json={"scheduler_interval": "90"})
+        assert resp.status_code == 200
+        assert client.get("/api/config").get_json()["scheduler_interval"] == 90
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [("false", False), ("true", True), ("0", False), ("yes", True),
+         ("off", False), (0, False), (1, True), (False, False)],
+    )
+    def test_bool_strings_coerced(self, client, raw, expected):
+        resp = client.post("/api/config", json={"audio_normalize": raw})
+        assert resp.status_code == 200
+        assert client.get("/api/config").get_json()["audio_normalize"] is expected
+
+    def test_invalid_bool_returns_400(self, client):
+        resp = client.post("/api/config", json={"audio_normalize": "maybe"})
+        assert resp.status_code == 400
+
+    def test_invalid_float_returns_400(self, client):
+        resp = client.post("/api/config", json={"min_match_score": "high"})
+        assert resp.status_code == 400
+
+    def test_list_key_rejects_string(self, client):
+        resp = client.post("/api/config", json={"forbidden_words": "remix"})
+        assert resp.status_code == 400
+
+    def test_import_invalid_value_returns_400(self, client):
+        resp = client.post(
+            "/api/config/import", json={"scheduler_interval": "abc"},
+        )
+        assert resp.status_code == 400
+
+    def test_import_coerces_bool(self, client):
+        resp = client.post(
+            "/api/config/import", json={"scheduler_auto_download": "false"},
+        )
+        assert resp.status_code == 200
+        cfg = client.get("/api/config").get_json()
+        assert cfg["scheduler_auto_download"] is False
+
+    def test_config_array_body_returns_400(self, client):
+        resp = client.post("/api/config", json=[1, 2])
+        assert resp.status_code == 400
+
+    def test_concurrent_toggles_do_not_lose_updates(self, client, monkeypatch):
+        import threading
+        import time
+        import config as config_module
+        from app import app as flask_app
+        real_load = config_module.load_config
+
+        def slow_load():
+            cfg = real_load()
+            time.sleep(0.1)
+            return cfg
+
+        monkeypatch.setattr("config.load_config", slow_load)
+        monkeypatch.setattr("app.load_config", slow_load)
+        before = real_load()
+        results = []
+
+        def toggle(path):
+            with flask_app.test_client() as c:
+                results.append(c.post(path).status_code)
+
+        threads = [
+            threading.Thread(target=toggle, args=("/api/xmlmetadata/toggle",)),
+            threading.Thread(target=toggle, args=("/api/acoustid/toggle",)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        after = real_load()
+        assert results == [200, 200]
+        assert after["xml_metadata_enabled"] is not before["xml_metadata_enabled"]
+        assert after["acoustid_enabled"] is not before["acoustid_enabled"]
+
+    def test_saved_file_omits_env_only_keys(self, client, tmp_path):
+        client.post("/api/xmlmetadata/toggle")
+        with open(tmp_path / "config.json") as f:
+            raw = json.load(f)
+        assert "lidarr_api_key" not in raw
+        assert "lidarr_url" not in raw
+
+
+class TestYoutubeRecent:
+    def test_lists_negative_playlist_imports(self, client):
+        import models
+        _add_track(models, album_id=-1, album_title="P1", artist_name="V")
+        _add_track(models, album_id=-2, album_title="P1", artist_name="V")
+        _add_track(models, album_id=7, album_title="Real", artist_name="R")
+        data = client.get("/api/youtube/recent").get_json()
+        assert len(data) == 2
+        assert {d["album_title"] for d in data} == {"P1"}
+
+
+class TestQueueIdValidation:
+    @pytest.fixture(autouse=True)
+    def _bypass_rate_limit(self):
+        with patch("app.check_rate_limit", return_value=True):
+            yield
+
+    @pytest.mark.parametrize("value", [-1, 0, True, "5", 1.5])
+    def test_add_rejects_non_positive_or_non_int(self, client, value):
+        import models
+        resp = client.post("/api/download/queue", json={"album_id": value})
+        assert resp.status_code == 400
+        assert models.get_queue_length() == 0
+
+    def test_bulk_skips_invalid_ids(self, client):
+        import models
+        resp = client.post(
+            "/api/download/queue/bulk",
+            json={"album_ids": [-1, True, 0, 2]},
+        )
+        assert resp.get_json()["added"] == 1
+        assert [r["album_id"] for r in models.get_queue()] == [2]
+
+    def test_add_array_body_returns_400(self, client):
+        resp = client.post("/api/download/queue", json=[1])
+        assert resp.status_code == 400
+
+    def test_bulk_array_body_returns_400(self, client):
+        resp = client.post("/api/download/queue/bulk", json=[1])
+        assert resp.status_code == 400
+
+    def test_queue_tolerates_images_missing_keys(self, client, monkeypatch):
+        import models
+        models.enqueue_album(5)
+        monkeypatch.setattr("app._get_album_cached", lambda aid: {
+            "title": "A", "artist": {"artistName": "B"},
+            "images": [{"url": "x"}, {"coverType": "cover"},
+                       {"coverType": "cover", "remoteUrl": "http://c"}],
+        })
+        resp = client.get("/api/download/queue")
+        assert resp.status_code == 200
+        assert resp.get_json()[0]["cover"] == ""
+
+
+class TestJsonBodyValidation:
+    @pytest.fixture(autouse=True)
+    def _bypass_rate_limit(self):
+        with patch("app.check_rate_limit", return_value=True):
+            yield
+
+    def test_youtube_search_null_query(self, client):
+        resp = client.post("/api/youtube/search", json={"query": None})
+        assert resp.status_code == 400
+
+    def test_youtube_search_array_body(self, client):
+        resp = client.post("/api/youtube/search", json=["x"])
+        assert resp.status_code == 400
+
+    def test_skip_track_array_body(self, client):
+        resp = client.post("/api/download/skip-track", json=[0])
+        assert resp.status_code == 400
+
+    def test_manual_download_null_url(self, client):
+        resp = client.post("/api/download/manual", json={
+            "youtube_url": None, "track_title": "Song",
+        })
+        assert resp.status_code == 400
+
+    def test_manual_track_download_non_string_title(self, client):
+        resp = client.post("/api/album/1/track/manual-download", json={
+            "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+            "track_title": 5,
+        })
+        assert resp.status_code == 400
+
+    def test_playlist_info_non_string_url(self, client):
+        resp = client.post("/api/youtube/playlist/info", json={"url": 5})
+        assert resp.status_code == 400
+
+    @pytest.mark.parametrize("entries", [["x"], [{"url": 5}], "abc",
+                                         [{"url": "abcdefghijk", "title": 3}]])
+    def test_playlist_download_bad_entries(self, client, entries):
+        resp = client.post("/api/youtube/playlist/download", json={
+            "artist_name": "A", "album_title": "B", "entries": entries,
+        })
+        assert resp.status_code == 400
+
+    def test_playlist_download_null_artist(self, client):
+        resp = client.post("/api/youtube/playlist/download", json={
+            "artist_name": None, "album_title": "B",
+            "entries": [{"url": "abcdefghijk"}],
+        })
+        assert resp.status_code == 400
+
+    def test_reorder_array_body(self, client):
+        resp = client.put("/api/download/queue/reorder", json=[1, 2])
+        assert resp.status_code == 400
+
+    def test_ytdlp_formats_non_string_url(self, client):
+        resp = client.post("/api/ytdlp/formats", json={"url": 5})
+        assert resp.status_code == 400
+
+    def test_pot_provider_array_body(self, client):
+        resp = client.post("/api/pot-provider/test", json=["x"])
+        assert resp.status_code == 400

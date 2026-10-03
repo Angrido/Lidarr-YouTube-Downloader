@@ -12,9 +12,10 @@ logger = logging.getLogger(__name__)
 # Telegram MarkdownV2 reserves these characters; any literal occurrence in
 # user-supplied text must be backslash-escaped or Telegram rejects the
 # request. See https://core.telegram.org/bots/api#markdownv2-style.
-_MD2_SPECIALS = r"_*[]()~`>#+-=|{}.!"
+_MD2_SPECIALS = "\\_*[]()~`>#+-=|{}.!"
 _TELEGRAM_CAPTION_LIMIT = 1024
 _TELEGRAM_TEXT_LIMIT = 4096
+_NTFY_PRIORITIES = {"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5, "max": 5}
 
 
 def md2_escape(text):
@@ -65,9 +66,29 @@ def _truncate_caption(text, limit, *, md2_safe=False):
     if md2_safe:
         truncated = text[: limit - 1]
         last_nl = truncated.rfind("\n")
-        if last_nl > limit // 2:
+        if last_nl != -1:
             return truncated[:last_nl] + "\n…"
+        return truncated.rstrip("\\") + "…"
     return text[: limit - 1] + "…"
+
+
+def _redact(text, *secrets):
+    text = str(text)
+    for secret in sorted((s for s in secrets if s), key=len, reverse=True):
+        text = text.replace(secret, "***")
+    return text
+
+
+def _ntfy_priority(value):
+    if isinstance(value, str):
+        value = value.strip().lower()
+        if value in _NTFY_PRIORITIES:
+            return _NTFY_PRIORITIES[value]
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 3
+    return number if 1 <= number <= 5 else 3
 
 
 def send_telegram(
@@ -134,7 +155,10 @@ def send_telegram(
                 response.status_code, response.text[:500],
             )
     except Exception as e:
-        logger.warning(f"Telegram notification failed: {e}")
+        logger.warning(
+            "Telegram notification failed: %s",
+            _redact(e, config.get("telegram_bot_token")),
+        )
 
 
 def send_discord(message, log_type=None, embed_data=None):
@@ -181,7 +205,12 @@ def send_discord(message, log_type=None, embed_data=None):
                 response.status_code, response.text[:500],
             )
     except Exception as e:
-        logger.warning(f"Discord notification failed: {e}")
+        logger.warning(
+            "Discord notification failed: %s",
+            _redact(
+                e, webhook_url, webhook_url.rstrip("/").rsplit("/", 1)[-1],
+            ),
+        )
 
 
 
@@ -241,8 +270,7 @@ def send_ntfy(
         "message": message,
         "title": title or "Lidarr YouTube Downloader",
     }
-    if effective_priority:
-        payload["priority"] = effective_priority
+    payload["priority"] = _ntfy_priority(effective_priority)
     if effective_tags:
         payload["tags"] = effective_tags
     if click_url:
@@ -255,15 +283,16 @@ def send_ntfy(
         headers["Authorization"] = f"Bearer {token}"
 
     try:
-        url = f"{server_url}/{topic}"
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = requests.post(
+            server_url + "/", json=payload, headers=headers, timeout=10,
+        )
         if res.status_code >= 300:
             logger.warning(
                 "Ntfy returned %d: %s",
                 res.status_code, (res.text or "")[:500],
             )
     except Exception as e:
-        logger.warning(f"Ntfy notification failed: {e}")
+        logger.warning("Ntfy notification failed: %s", _redact(e, token))
 
 
 def send_notifications(
@@ -404,15 +433,16 @@ def send_ntfy_test(
         "message": body,
         "title": "Lidarr YouTube Downloader — Test",
         "tags": ["white_check_mark", "musical_note"],
-        "priority": priority or "default",
+        "priority": _ntfy_priority(priority),
     }
     headers = {}
     if token and str(token).strip():
         headers["Authorization"] = f"Bearer {str(token).strip()}"
 
     try:
-        url = f"{server}/{topic}"
-        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        res = requests.post(
+            server + "/", json=payload, headers=headers, timeout=10,
+        )
         if 200 <= res.status_code < 300:
             return {"success": True, "error": ""}
         snippet = (res.text or "")[:300]

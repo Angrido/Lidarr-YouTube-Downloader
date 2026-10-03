@@ -136,6 +136,56 @@ class TestDedupeFilter:
         assert emitted == []
 
 
+class TestDedupeFilterLongStreaks:
+    class _H:
+        def __init__(self):
+            self.emitted = []
+
+        def emit(self, record):
+            self.emitted.append(record)
+
+    def test_endless_streak_is_reported_every_n_repeats(self, monkeypatch):
+        monkeypatch.setattr(logutil.time, "monotonic", lambda: 1000.0)
+        h = self._H()
+        f = logutil.DedupeFilter(h)
+        f.filter(_record("same"))
+        for _ in range(logutil.DedupeFilter.REPORT_EVERY):
+            assert f.filter(_record("same")) is False
+        assert len(h.emitted) == 1
+        assert h.emitted[0].levelno == logging.INFO
+        assert (
+            f"repeated {logutil.DedupeFilter.REPORT_EVERY}"
+            in h.emitted[0].getMessage()
+        )
+
+    def test_slow_streak_is_reported_after_the_interval(self, monkeypatch):
+        now = [1000.0]
+        monkeypatch.setattr(logutil.time, "monotonic", lambda: now[0])
+        h = self._H()
+        f = logutil.DedupeFilter(h)
+        f.filter(_record("same"))
+        f.filter(_record("same"))
+        assert h.emitted == []
+        now[0] += logutil.DedupeFilter.REPORT_INTERVAL
+        f.filter(_record("same"))
+        assert len(h.emitted) == 1
+        assert "repeated 2" in h.emitted[0].getMessage()
+
+    def test_streak_end_reports_only_unreported_repeats(self, monkeypatch):
+        monkeypatch.setattr(logutil.time, "monotonic", lambda: 1000.0)
+        h = self._H()
+        f = logutil.DedupeFilter(h)
+        f.filter(_record("same"))
+        for _ in range(logutil.DedupeFilter.REPORT_EVERY):
+            f.filter(_record("same"))
+        f.filter(_record("other"))
+        assert len(h.emitted) == 1
+        f.filter(_record("other"))
+        f.filter(_record("third"))
+        assert len(h.emitted) == 2
+        assert "repeated 1" in h.emitted[1].getMessage()
+
+
 def test_setup_logging_replaces_handlers_and_is_idempotent():
     root = logging.getLogger()
     original = list(root.handlers)

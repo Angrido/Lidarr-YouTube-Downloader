@@ -43,37 +43,65 @@ class DedupeFilter(logging.Filter):
     message finally comes through.
     """
 
+    REPORT_EVERY = 100
+    REPORT_INTERVAL = 60.0
+
     def __init__(self, handler=None):
         super().__init__()
         self._handler = handler
         self._last = None
         self._repeats = 0
+        self._reported = 0
+        self._reported_at = 0.0
         self._lock = threading.Lock()
+
+    def _note(self, record, msg, repeats):
+        return logging.LogRecord(
+            name=record.name, level=logging.INFO, pathname=record.pathname,
+            lineno=record.lineno, msg=msg, args=(repeats,), exc_info=None,
+        )
+
+    def _emit(self, note):
+        if note is None or self._handler is None:
+            return
+        try:
+            self._handler.emit(note)
+        except Exception:
+            pass
 
     def filter(self, record):
         try:
             message = record.getMessage()
         except Exception:
             return True
+        now = time.monotonic()
+        note = None
         with self._lock:
             if message == self._last:
                 self._repeats += 1
-                return False
-            repeats = self._repeats
-            self._last = message
-            self._repeats = 0
-        if repeats and self._handler is not None:
-            note = logging.LogRecord(
-                name=record.name, level=logging.INFO, pathname=record.pathname,
-                lineno=record.lineno,
-                msg="(previous line repeated %d×)", args=(repeats,),
-                exc_info=None,
-            )
-            try:
-                self._handler.emit(note)
-            except Exception:
-                pass
-        return True
+                if (
+                    self._repeats - self._reported >= self.REPORT_EVERY
+                    or now - self._reported_at >= self.REPORT_INTERVAL
+                ):
+                    note = self._note(
+                        record, "(previous line repeated %d× so far)",
+                        self._repeats,
+                    )
+                    self._reported = self._repeats
+                    self._reported_at = now
+                passed = False
+            else:
+                if self._repeats > self._reported:
+                    note = self._note(
+                        record, "(previous line repeated %d×)", self._repeats,
+                    )
+                self._last = message
+                self._repeats = 0
+                self._reported = 0
+                self._reported_at = now
+                passed = True
+        self._emit(note)
+        return passed
 
 
 def section(logger, msg, *args, icon=None, **kwargs):

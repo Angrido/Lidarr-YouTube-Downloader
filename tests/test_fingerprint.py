@@ -287,7 +287,7 @@ class TestVerifyFingerprint:
         assert result["status"] == "unverified"
         assert result["matched_id"] is None
 
-    def test_unverified_when_api_error(self, monkeypatch):
+    def test_lookup_failure_is_not_unverified(self, monkeypatch):
         monkeypatch.setattr("fingerprint.is_fpcalc_available", lambda: True)
         monkeypatch.setattr(
             "fingerprint._run_fpcalc", lambda f: (200, "AQAA...")
@@ -299,7 +299,7 @@ class TestVerifyFingerprint:
         result = verify_fingerprint(
             "/file.mp3", "expected-rec", "test-key",
         )
-        assert result["status"] == "unverified"
+        assert result is None
 
     def test_returns_none_when_no_api_key(self):
         result = verify_fingerprint("/file.mp3", "expected-rec", "")
@@ -382,3 +382,79 @@ def test_verify_fingerprint_accept_threshold_is_configurable(monkeypatch):
         "/f.mp3", "expected-rec", "key", accept_score_threshold=0.93,
     )
     assert res["status"] == "verified"
+
+
+class _Resp:
+    def __init__(self, payload, status=200):
+        self._payload = payload
+        self.status_code = status
+        self.ok = status < 400
+        self.text = str(payload)
+
+    def json(self):
+        return self._payload
+
+    def raise_for_status(self):
+        import requests
+        if not self.ok:
+            raise requests.exceptions.HTTPError(str(self.status_code))
+
+
+class TestAcoustidOutage:
+    def _setup(self, monkeypatch):
+        monkeypatch.setattr("fingerprint.is_fpcalc_available", lambda: True)
+        monkeypatch.setattr(
+            "fingerprint._run_fpcalc", lambda f: (200, "AQAA...")
+        )
+        monkeypatch.setattr("fingerprint._throttle", lambda: None)
+
+    def test_http_error_returns_none(self, monkeypatch):
+        self._setup(monkeypatch)
+        monkeypatch.setattr(
+            "fingerprint.requests.post",
+            lambda *a, **kw: _Resp({"error": "boom"}, status=503),
+        )
+        assert verify_fingerprint("/f.mp3", "rec", "key-a") is None
+
+    def test_network_error_returns_none(self, monkeypatch):
+        import requests
+        self._setup(monkeypatch)
+
+        def _boom(*a, **kw):
+            raise requests.exceptions.ConnectionError("down")
+
+        monkeypatch.setattr("fingerprint.requests.post", _boom)
+        assert verify_fingerprint("/f.mp3", "rec", "key-a") is None
+
+    def test_no_results_is_still_unverified(self, monkeypatch):
+        self._setup(monkeypatch)
+        monkeypatch.setattr(
+            "fingerprint.requests.post",
+            lambda *a, **kw: _Resp({"status": "ok", "results": []}),
+        )
+        result = verify_fingerprint("/f.mp3", "rec", "key-a")
+        assert result["status"] == "unverified"
+
+
+class TestInvalidKeyIsPerKey:
+    def test_new_key_is_tried_after_an_invalid_one(self, monkeypatch):
+        import fingerprint
+        monkeypatch.setattr("fingerprint._throttle", lambda: None)
+        monkeypatch.setattr("fingerprint._api_key_invalid", None)
+        calls = []
+
+        def _post(url, data=None, **kw):
+            calls.append(data["client"])
+            if data["client"] == "bad-key":
+                return _Resp({
+                    "status": "error",
+                    "error": {"code": 4, "message": "invalid API key"},
+                })
+            return _Resp({"status": "ok", "results": []})
+
+        monkeypatch.setattr("fingerprint.requests.post", _post)
+        assert fingerprint._lookup_acoustid("bad-key", 200, "fp") is None
+        assert fingerprint._lookup_acoustid("bad-key", 200, "fp") is None
+        assert calls == ["bad-key"]
+        assert fingerprint._lookup_acoustid("good-key", 200, "fp") == []
+        assert calls == ["bad-key", "good-key"]

@@ -8,11 +8,18 @@ import time
 logger = logging.getLogger(__name__)
 
 
+_MAX_FILENAME_BYTES = 200
+
+
 def sanitize_filename(name):
     """Remove special characters that are invalid in filenames."""
-    name = re.sub(r'[<>:"/\\|?*]', "", name)
+    name = re.sub(r'[<>:"/\\|?*\x00-\x1f\x7f]', "", name)
     name = name.replace("..", "").replace("~", "")
     name = name.strip(". ")
+    encoded = name.encode("utf-8", "surrogatepass")
+    if len(encoded) > _MAX_FILENAME_BYTES:
+        name = encoded[:_MAX_FILENAME_BYTES].decode("utf-8", "ignore")
+        name = name.strip(". ")
     if not name:
         name = "untitled"
     return name
