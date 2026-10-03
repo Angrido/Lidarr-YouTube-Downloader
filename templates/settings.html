@@ -1212,7 +1212,10 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             initSettingsNav();
             initSettingsSearch();
             initFileInputs();
-            loadConfig();
+            Promise.resolve(loadConfig()).finally(() => {
+                const target = hashSection();
+                if (target) requestAnimationFrame(() => jumpToSection(target));
+            });
             loadYtdlpVersion();
             document.addEventListener('keydown', (e) => {
                 if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
@@ -2377,9 +2380,31 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     try { history.replaceState(null, '', '#' + id); } catch (_) {}
                 });
             });
-            const hash = (location.hash || '').slice(1);
-            if (hash && $(hash) && $(hash).hasAttribute('data-section')) setActiveSection(hash);
-            else pickActiveSection();
+            const target = hashSection();
+            if (target) {
+                setActiveSection(target.id);
+                jumpToSection(target);
+            } else {
+                pickActiveSection();
+            }
+            window.addEventListener('hashchange', () => {
+                const next = hashSection();
+                if (!next) return;
+                setActiveSection(next.id);
+                jumpToSection(next);
+            });
+        }
+
+        function hashSection() {
+            const raw = decodeURIComponent((location.hash || '').slice(1)).toLowerCase();
+            if (!raw) return null;
+            const el = $(raw) || $('sec-' + raw);
+            return el && el.hasAttribute('data-section') ? el : null;
+        }
+
+        function jumpToSection(section) {
+            _navLockUntil = Date.now() + 800;
+            section.scrollIntoView({ block: 'start' });
         }
 
         function clearSettingsSearch() {

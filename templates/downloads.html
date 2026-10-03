@@ -124,8 +124,9 @@
         .retry-item.is-done { opacity: 0.6; }
         .retry-head { font-weight: 600; font-size: var(--text-callout); }
         .retry-reason { color: var(--danger); font-size: var(--text-footnote); }
-        .retry-item .ui-input-row { flex-wrap: wrap; }
-        .retry-item .ui-input-row > .ui-input { flex: 1 1 200px; min-width: 0; }
+        .retry-item .ui-input-row { flex-wrap: nowrap; align-items: center; }
+        .retry-item .ui-input-row > .ui-input { flex: 1 1 0; min-width: 0; }
+        .retry-item .ui-input-row > .ui-btn { flex: none; }
         .retry-result { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) 0; border-top: 1px solid var(--separator); font-size: var(--text-footnote); }
         .retry-result-main { flex: 1 1 auto; min-width: 0; }
         .retry-result-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-1); }
