@@ -16,9 +16,9 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#09090b" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Lidarr YT" />
-    <link rel="apple-touch-icon" href="/static/favicon.svg" />
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png" />
     <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
     <style>
       :root {
@@ -47,6 +47,7 @@
         --radius: 16px;
         --shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
         --glow: 0 0 20px rgba(16, 185, 129, 0.3);
+        --on-primary: #04150e;
       }
 
       body.light {
@@ -66,7 +67,7 @@
         --surface-glass: rgba(255, 255, 255, 0.7);
         --surface-hover: #f4f4f5;
         --text: #18181b;
-        --text-dim: #71717a;
+        --text-dim: #63636b;
         --border: #e4e4e7;
         --border-glass: rgba(0, 0, 0, 0.1);
         --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
@@ -446,7 +447,7 @@
 
       .view-btn.active {
         background: var(--primary);
-        color: white;
+        color: var(--on-primary);
         box-shadow: var(--glow);
       }
 
@@ -670,7 +671,7 @@
       .btn-primary {
         background: linear-gradient(135deg, #10b981, #06d6a0, #0891b2);
         background-size: 200% 200%;
-        color: white;
+        color: var(--on-primary);
         box-shadow: 0 4px 15px rgba(16, 185, 129, 0.4);
         animation: gradient-shift 3s ease infinite;
       }
@@ -751,6 +752,8 @@
 
       .list-item-info {
         flex: 1;
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
 
       .list-item-title {
@@ -800,7 +803,10 @@
         box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
         backdrop-filter: blur(20px);
         animation: bulkBarIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        width: max-content;
         max-width: calc(100vw - 2rem);
+        flex-wrap: wrap;
+        justify-content: center;
       }
       @keyframes bulkBarIn {
         from {
@@ -819,6 +825,7 @@
       }
       .bulk-action-bar .btn {
         flex: 0 0 auto;
+        width: auto;
         padding: 0.55rem 1rem;
         white-space: nowrap;
       }
@@ -861,7 +868,7 @@
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 280px;
+        max-width: min(280px, 22vw);
       }
 
       .table-artist,
@@ -872,7 +879,8 @@
       }
 
       .table-artist {
-        max-width: 180px;
+        display: block;
+        max-width: min(180px, 16vw);
       }
 
       .table-year {
@@ -889,6 +897,15 @@
 
       .th-sortable:hover {
         color: var(--primary);
+      }
+
+      .th-sort-btn {
+        background: none;
+        border: none;
+        padding: 0;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
       }
 
       .th-sortable .sort-arrow {
@@ -1191,7 +1208,7 @@
 
       .manual-dl-modal-actions .modal-dl-btn {
         background: linear-gradient(135deg, #10b981, #06d6a0);
-        color: white;
+        color: var(--on-primary);
       }
 
       .manual-dl-modal-actions .modal-dl-btn:hover {
@@ -1598,6 +1615,15 @@
           max-width: 400px;
           margin: 0 auto;
           width: 100%;
+        }
+
+        .list-item {
+          flex-wrap: wrap;
+        }
+
+        .list-item-actions {
+          width: 100%;
+          align-items: center;
         }
 
         .container {
@@ -2134,7 +2160,7 @@
         border-radius: 8px;
         border: none;
         background: var(--primary);
-        color: white;
+        color: var(--on-primary);
         cursor: pointer;
         font-size: 0.85rem;
         font-weight: 600;
@@ -2526,6 +2552,70 @@
         }
       }
 
+      .card-img-front[role="button"]:focus-visible,
+      .album-cover-btn:focus-visible,
+      .track-row.missing:focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: -2px;
+      }
+
+      .th-sort-btn:focus-visible,
+      .album-error .btn:focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: 2px;
+      }
+
+      .album-error {
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: 2.5rem 1rem;
+      }
+
+      .album-error-msg {
+        color: var(--danger);
+        font-weight: 600;
+        margin-bottom: 0.4rem;
+      }
+
+      .album-error-detail {
+        color: var(--text-dim);
+        font-size: 0.85rem;
+        margin-bottom: 1rem;
+        overflow-wrap: anywhere;
+      }
+
+      .album-error .btn {
+        flex: none;
+        width: auto;
+        padding: 0.6rem 1.5rem;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *:not(.fa-spin),
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+          scroll-behavior: auto !important;
+        }
+
+        .card {
+          opacity: 1;
+        }
+
+        .card:hover,
+        .card:hover .card-img,
+        .list-item:hover,
+        .stat-card:hover,
+        .btn-primary:hover,
+        .theme-toggle:hover,
+        .icon-btn:hover,
+        .progress-minimized-btn:hover,
+        .footer-github:hover {
+          transform: none;
+        }
+      }
+
       .ft-loading {
         text-align: center;
         padding: 0.75rem;
@@ -2589,7 +2679,7 @@
           <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
         </div>
         <div class="controls">
-          <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
+          <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Switch to light theme" title="Switch to light theme">
             <i class="fa-solid fa-moon" id="themeIcon"></i>
           </button>
         </div>
@@ -2724,7 +2814,7 @@
           <h3 id="progressAlbumTitle">Downloading Album</h3>
           <p id="progressArtistName">Artist Name</p>
         </div>
-        <button class="progress-close" onclick="hideProgress()">
+        <button class="progress-close" onclick="hideProgress()" aria-label="Minimize download progress" title="Minimize">
           <i class="fa-solid fa-xmark"></i>
         </button>
       </div>
@@ -2750,7 +2840,7 @@
       <div class="progress-stats">
         <div class="stat-item">
           <i class="fa-solid fa-music"></i>
-          <span id="trackProgress">Track 0/0</span>
+          <span id="trackProgress">0 of 0 done</span>
         </div>
         <div class="stat-item">
           <i class="fa-solid fa-gauge-high"></i>
@@ -2766,8 +2856,8 @@
         <div class="queue-list" id="queueList"></div>
       </div>
 
-      <button class="btn-danger" onclick="stopDownload()">
-        <i class="fa-solid fa-stop"></i> Stop Download
+      <button class="btn-danger" onclick="stopDownload()" title="Stop the current download and clear the queue">
+        <i class="fa-solid fa-stop"></i> Stop &amp; clear queue
       </button>
     </div>
 
@@ -2775,6 +2865,7 @@
       class="progress-minimized-btn"
       id="progressMinimizedBtn"
       onclick="restoreProgress()"
+      aria-label="Show download progress"
     >
       <svg class="minimized-progress-ring" viewBox="0 0 66 66">
         <circle class="ring-bg" cx="33" cy="33" r="30"></circle>
@@ -2794,14 +2885,14 @@
 
     <div class="failed-overlay" id="failedOverlay">
       <div class="failed-overlay-backdrop" onclick="closeFailedOverlay()"></div>
-      <div class="failed-overlay-content">
+      <div class="failed-overlay-content" role="dialog" aria-modal="true" aria-labelledby="failedAlbumTitle">
         <div class="failed-overlay-header">
           <img id="failedAlbumCover" src="" alt="" style="display: none" />
           <div class="fo-info">
             <h3 id="failedAlbumTitle">Album Title</h3>
             <p id="failedArtistName">Artist Name</p>
           </div>
-          <button class="failed-overlay-close" onclick="closeFailedOverlay()">
+          <button class="failed-overlay-close" onclick="closeFailedOverlay()" aria-label="Close">
             <i class="fa-solid fa-xmark"></i>
           </button>
         </div>
@@ -2829,7 +2920,7 @@
 
     <footer>
         <div>Made with love ❤️ • {{ APP_VERSION }}</div>
-        <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github"><i class="fa-brands fa-github"></i></a>
+        <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github" aria-label="Lidarr YouTube Downloader on GitHub"><i class="fa-brands fa-github"></i></a>
     </footer>
 
     <script>
@@ -2848,10 +2939,74 @@
 
       function escapeHtml(str) {
         if (!str) return "";
-        const div = document.createElement("div");
-        div.appendChild(document.createTextNode(str));
-        return div.innerHTML;
+        return String(str)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
       }
+
+      function safeImageUrl(url) {
+        if (!url || typeof url !== "string") return "";
+        try {
+          const u = new URL(url.trim(), window.location.href);
+          if (u.protocol === "https:" || u.protocol === "http:") return u.href;
+        } catch (_) {}
+        return "";
+      }
+
+      function activateOnKey(e) {
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.currentTarget.click();
+        }
+      }
+
+      function syncThemeColor() {
+        const isLight = document.body.classList.contains("light");
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", isLight ? "#f4f4f5" : "#09090b");
+        const toggle = document.getElementById("themeToggle");
+        if (toggle) {
+          const label = isLight ? "Switch to dark theme" : "Switch to light theme";
+          toggle.setAttribute("aria-label", label);
+          toggle.title = label;
+        }
+      }
+
+      const modalOpeners = new WeakMap();
+
+      function rememberOpener(dialogEl) {
+        const active = document.activeElement;
+        if (active && active !== document.body && !dialogEl.contains(active))
+          modalOpeners.set(dialogEl, active);
+      }
+
+      function restoreOpenerFocus(dialogEl) {
+        const opener = modalOpeners.get(dialogEl);
+        modalOpeners.delete(dialogEl);
+        if (opener && opener.isConnected && typeof opener.focus === "function")
+          opener.focus();
+      }
+
+      document.addEventListener("keydown", (e) => {
+        if (e.key !== "Escape") return;
+        const failed = document.getElementById("failedOverlay");
+        if (failed && failed.classList.contains("active")) {
+          e.preventDefault();
+          closeFailedOverlay();
+          return;
+        }
+        const modals = document.querySelectorAll(".manual-dl-modal-overlay");
+        if (modals.length) {
+          e.preventDefault();
+          const top = modals[modals.length - 1];
+          if (typeof top.closeModal === "function") top.closeModal();
+          else top.remove();
+        }
+      });
 
       function sanitizeUrl(url) {
         if (!url) return "";
@@ -2881,6 +3036,7 @@
           document.body.classList.add("light");
           document.getElementById("themeIcon").className = "fa-solid fa-sun";
         }
+        syncThemeColor();
 
         const savedView = localStorage.getItem("viewMode") || "cards";
         setViewMode(savedView);
@@ -2918,6 +3074,7 @@
           document.getElementById("themeIcon").className = isLight
             ? "fa-solid fa-sun"
             : "fa-solid fa-moon";
+          syncThemeColor();
         }, 250);
         setTimeout(() => toggle.classList.remove("spin"), 500);
       }
@@ -3026,7 +3183,7 @@
 
       function albumCheckboxHtml(id) {
         return `<label class="album-select-wrap" title="Select for bulk actions" onclick="event.stopPropagation()">
-                    <input type="checkbox" class="album-select" data-select-id="${id}" ${selectedAlbums.has(id) ? "checked" : ""} onchange="toggleAlbumSelect(${id}, this)">
+                    <input type="checkbox" class="album-select" aria-label="Select for bulk actions" data-select-id="${id}" ${selectedAlbums.has(id) ? "checked" : ""} onchange="toggleAlbumSelect(${id}, this)">
                 </label>`;
       }
 
@@ -3097,26 +3254,31 @@
         updateStats();
       }
 
+      function tracksLabel(album) {
+        return escapeHtml(`Show tracks of ${album.title} by ${album.artist.artistName}`);
+      }
+
       function createCardElement(album, index) {
-        const cover =
-          album.images?.find((i) => i.coverType === "cover")?.remoteUrl || "";
+        const cover = safeImageUrl(
+          album.images?.find((i) => i.coverType === "cover")?.remoteUrl || "",
+        );
         const year = album.releaseDate?.substring(0, 4) || "";
         const div = document.createElement("div");
         div.className = "card";
-        div.style.animationDelay = `${(index % ALBUMS_PER_PAGE) * 0.05}s`;
+        div.style.animationDelay = `${Math.min((index % ALBUMS_PER_PAGE) * 0.03, 0.3)}s`;
         const frontContent = cover
-          ? `<img src="${cover}" class="card-img">`
+          ? `<img src="${escapeHtml(cover)}" class="card-img" alt="">`
           : `<div class="cover-placeholder">${placeholderSvg}</div>`;
         div.innerHTML = `
                 <div class="card-img-container card-img-flip" id="card-flip-${album.id}" onclick="flipAlbumCard(${album.id})">
                     <div class="card-img-flip-inner">
-                        <div class="card-img-front">${frontContent}</div>
+                        <div class="card-img-front" role="button" tabindex="0" aria-expanded="false" aria-label="${tracksLabel(album)}" onkeydown="activateOnKey(event)">${frontContent}</div>
                         <div class="card-img-back" id="card-tracks-${album.id}"></div>
                     </div>
                 </div>
                 <div class="card-content">
-                    <div class="card-title">${escapeHtml(album.title)}</div>
-                    <div class="card-artist">${escapeHtml(album.artist.artistName)}</div>
+                    <div class="card-title"><bdi>${escapeHtml(album.title)}</bdi></div>
+                    <div class="card-artist"><bdi>${escapeHtml(album.artist.artistName)}</bdi></div>
                     <div style="font-size:0.8rem; color:var(--text-dim); margin-bottom:1rem">${escapeHtml(year)} • ${album.missingTrackCount} Missing</div>
                     <div class="card-actions">
                         ${albumCheckboxHtml(album.id)}
@@ -3128,7 +3290,7 @@
                         <div class="mini-progress-fill" id="mini-fill-${album.id}" style="width: 0%"></div>
                     </div>
                     <div class="mini-progress-text">
-                        <span class="mini-progress-track" id="mini-track-${album.id}">Track 0/0</span>
+                        <span class="mini-progress-track" id="mini-track-${album.id}">0 of 0 done</span>
                         <span id="mini-percent-${album.id}">0%</span>
                     </div>
                 </div>
@@ -3176,21 +3338,26 @@
         });
       }
 
+      function coverButtonAttrs(album) {
+        return `role="button" tabindex="0" aria-expanded="false" aria-label="${tracksLabel(album)}" onkeydown="activateOnKey(event)" style="cursor:pointer" onclick="toggleAlbumTracks(${album.id}, this)" title="Click to view tracks"`;
+      }
+
       function createListElement(album) {
-        const cover =
-          album.images?.find((i) => i.coverType === "cover")?.remoteUrl || "";
+        const cover = safeImageUrl(
+          album.images?.find((i) => i.coverType === "cover")?.remoteUrl || "",
+        );
         const year = album.releaseDate?.substring(0, 4) || "";
         const div = document.createElement("div");
         div.className = "list-item";
         div.style.position = "relative";
         const listCoverHtml = cover
-          ? `<img src="${cover}" class="list-item-img" style="cursor:pointer" onclick="toggleAlbumTracks(${album.id}, this)" title="Click to view tracks">`
-          : `<div class="list-item-placeholder" style="cursor:pointer" onclick="toggleAlbumTracks(${album.id}, this)" title="Click to view tracks">${placeholderSvg}</div>`;
+          ? `<img src="${escapeHtml(cover)}" alt="" class="list-item-img album-cover-btn" ${coverButtonAttrs(album)}>`
+          : `<div class="list-item-placeholder album-cover-btn" ${coverButtonAttrs(album)}>${placeholderSvg}</div>`;
         div.innerHTML = `
                 ${listCoverHtml}
                 <div class="list-item-info">
-                    <div class="list-item-title">${escapeHtml(album.title)}</div>
-                    <div class="list-item-artist">${escapeHtml(album.artist.artistName)} • ${escapeHtml(year)} • ${album.missingTrackCount} Missing</div>
+                    <div class="list-item-title"><bdi>${escapeHtml(album.title)}</bdi></div>
+                    <div class="list-item-artist"><bdi>${escapeHtml(album.artist.artistName)}</bdi> • ${escapeHtml(year)} • ${album.missingTrackCount} Missing</div>
                 </div>
                 <div class="list-item-actions">
                     ${albumCheckboxHtml(album.id)}
@@ -3209,6 +3376,16 @@
       }
 
       let tableSortState = { column: null, direction: "asc" };
+
+      function sortableTh(col, label) {
+        const active = tableSortState.column === col;
+        const ariaSort = active
+          ? tableSortState.direction === "asc"
+            ? "ascending"
+            : "descending"
+          : "none";
+        return `<th class="th-sortable ${active ? "sort-active" : ""}" data-col="${col}" aria-sort="${ariaSort}" onclick="sortTableBy('${col}')"><button type="button" class="th-sort-btn" onclick="event.stopPropagation(); sortTableBy('${col}')">${label} ${getTableSortArrow(col)}</button></th>`;
+      }
 
       function getTableSortArrow(col) {
         if (tableSortState.column !== col)
@@ -3232,9 +3409,9 @@
         let desktopHtml = `<table class="table-desktop"><thead><tr>
                 <th>Cover</th>
                 <th>Album</th>
-                <th class="th-sortable ${tableSortState.column === "artist" ? "sort-active" : ""}" onclick="sortTableBy('artist')">Artist ${getTableSortArrow("artist")}</th>
-                <th class="th-sortable ${tableSortState.column === "year" ? "sort-active" : ""}" onclick="sortTableBy('year')">Year ${getTableSortArrow("year")}</th>
-                <th class="th-sortable ${tableSortState.column === "missing" ? "sort-active" : ""}" onclick="sortTableBy('missing')">Missing ${getTableSortArrow("missing")}</th>
+                ${sortableTh("artist", "Artist")}
+                ${sortableTh("year", "Year")}
+                ${sortableTh("missing", "Missing")}
                 <th>Action</th>
             </tr></thead><tbody>`;
 
@@ -3253,17 +3430,18 @@
       }
 
       function createTableRowHtml(album) {
-        const cover =
-          album.images?.find((i) => i.coverType === "cover")?.remoteUrl || "";
+        const cover = safeImageUrl(
+          album.images?.find((i) => i.coverType === "cover")?.remoteUrl || "",
+        );
         const year = album.releaseDate?.substring(0, 4) || "";
         const tableCoverHtml = cover
-          ? `<img src="${cover}" class="table-img" style="cursor:pointer" onclick="toggleAlbumTracks(${album.id}, this)" title="Click to view tracks">`
-          : `<div class="table-placeholder" style="cursor:pointer" onclick="toggleAlbumTracks(${album.id}, this)" title="Click to view tracks">${placeholderSvg}</div>`;
+          ? `<img src="${escapeHtml(cover)}" alt="" class="table-img album-cover-btn" ${coverButtonAttrs(album)}>`
+          : `<div class="table-placeholder album-cover-btn" ${coverButtonAttrs(album)}>${placeholderSvg}</div>`;
         return `
                 <tr>
                     <td>${tableCoverHtml}</td>
-                    <td><div class="table-album-title">${escapeHtml(album.title)}</div></td>
-                    <td><span class="table-artist">${escapeHtml(album.artist.artistName)}</span></td>
+                    <td><div class="table-album-title" title="${escapeHtml(album.title)}"><bdi>${escapeHtml(album.title)}</bdi></div></td>
+                    <td><span class="table-artist" title="${escapeHtml(album.artist.artistName)}"><bdi>${escapeHtml(album.artist.artistName)}</bdi></span></td>
                     <td><span class="table-year">${escapeHtml(year)}</span></td>
                     <td>${album.missingTrackCount}</td>
                     <td>
@@ -3307,25 +3485,35 @@
           );
         }
 
+        const hadFocus =
+          document.activeElement &&
+          document.activeElement.classList.contains("th-sort-btn");
         displayedCount = Math.min(ALBUMS_PER_PAGE, currentFiltered.length);
         renderTable();
         updateLoadMoreBtn();
         updateQueueButtons();
+        if (hadFocus) {
+          const b = document.querySelector(
+            `.table-desktop th[data-col="${column}"] .th-sort-btn`,
+          );
+          if (b) b.focus();
+        }
       }
 
       function createMobileRowHtml(album) {
-        const cover =
-          album.images?.find((i) => i.coverType === "cover")?.remoteUrl || "";
+        const cover = safeImageUrl(
+          album.images?.find((i) => i.coverType === "cover")?.remoteUrl || "",
+        );
         const year = album.releaseDate?.substring(0, 4) || "";
         const artistYear = year
-          ? `${escapeHtml(album.artist.artistName)} · ${escapeHtml(year)}`
-          : escapeHtml(album.artist.artistName);
+          ? `<bdi>${escapeHtml(album.artist.artistName)}</bdi> · ${escapeHtml(year)}`
+          : `<bdi>${escapeHtml(album.artist.artistName)}</bdi>`;
         const coverHtml = cover
-          ? `<img src="${cover}" class="mob-cover" style="cursor:pointer" onclick="toggleAlbumTracks(${album.id}, this)" title="Click to view tracks">`
-          : `<div class="mob-cover-ph" style="cursor:pointer" onclick="toggleAlbumTracks(${album.id}, this)" title="Click to view tracks">${placeholderSvg}</div>`;
+          ? `<img src="${escapeHtml(cover)}" alt="" class="mob-cover album-cover-btn" ${coverButtonAttrs(album)}>`
+          : `<div class="mob-cover-ph album-cover-btn" ${coverButtonAttrs(album)}>${placeholderSvg}</div>`;
         return `
                 <tr>
-                    <td><div class="mob-cell">${coverHtml}<div class="mob-info"><div class="mob-title">${escapeHtml(album.title)}</div><div class="mob-artist">${artistYear}</div></div></div></td>
+                    <td><div class="mob-cell">${coverHtml}<div class="mob-info"><div class="mob-title"><bdi>${escapeHtml(album.title)}</bdi></div><div class="mob-artist">${artistYear}</div></div></div></td>
                     <td>${album.missingTrackCount}</td>
                     <td>
                         <div style="display:flex;align-items:center;gap:0.4rem;justify-content:flex-end;">
@@ -3370,13 +3558,28 @@
       async function testConnection() {
         const el = document.getElementById("connectionStatus");
         el.style.display = "block";
-        el.innerHTML = "Testing...";
-        const res = await fetch("/api/test-connection");
-        const data = await res.json();
-        el.innerHTML =
-          data.status === "success"
-            ? `<span style="color:var(--primary)">Connected to Lidarr ${data.lidarr_version}</span>`
-            : `<span style="color:var(--danger)">Error: ${data.error}</span>`;
+        el.textContent = "Testing...";
+        let data = null;
+        let failure = "";
+        try {
+          const res = await fetch("/api/test-connection");
+          try {
+            data = await res.json();
+          } catch (_) {}
+          if (!res.ok && !(data && data.message))
+            failure = `Server returned ${res.status}`;
+        } catch (e) {
+          failure = "Could not reach the server";
+        }
+        if (!failure && data && data.status === "success") {
+          el.innerHTML = `<span style="color:var(--primary)">Connected to Lidarr ${escapeHtml(data.lidarr_version)}</span>`;
+          return;
+        }
+        const msg =
+          failure ||
+          (data && (data.message || data.error)) ||
+          "Unknown error";
+        el.innerHTML = `<span style="color:var(--danger)">Error: ${escapeHtml(msg)}</span>`;
       }
 
       function showSkeletonLoading() {
@@ -3415,10 +3618,48 @@
             // Fall through and read whatever the cache has.
           }
         }
-        const res = await fetch("/api/missing-albums");
-        allAlbums = await res.json();
+        let albums = null;
+        let failure = "";
+        try {
+          const res = await fetch("/api/missing-albums");
+          let body = null;
+          try {
+            body = await res.json();
+          } catch (_) {}
+          if (!res.ok || !Array.isArray(body)) {
+            failure =
+              (body && (body.error || body.message)) ||
+              `Server returned ${res.status}`;
+          } else {
+            albums = body;
+          }
+        } catch (e) {
+          failure = "Could not reach the server";
+        }
+        if (failure) {
+          showAlbumsError(failure, opts);
+          return;
+        }
+        allAlbums = albums;
         applyFilters();
         updateStats();
+      }
+
+      function showAlbumsError(message, opts) {
+        const container = document.getElementById("albumContainer");
+        container.className = "grid";
+        currentFiltered = [];
+        displayedCount = 0;
+        const more = document.getElementById("loadMoreBtn");
+        if (more) more.remove();
+        container.innerHTML = `<div class="album-error" role="alert">
+                    <div class="album-error-msg"><i class="fa-solid fa-triangle-exclamation"></i> Couldn't load the library</div>
+                    <div class="album-error-detail">${escapeHtml(message)}</div>
+                    <button type="button" class="btn btn-secondary" id="albumsRetryBtn">Retry</button>
+                </div>`;
+        document
+          .getElementById("albumsRetryBtn")
+          .addEventListener("click", () => loadAlbums(opts));
       }
 
       async function waitForSyncIdle(timeoutMs, opts) {
@@ -3465,54 +3706,77 @@
         } catch (e) {}
       }
 
+      const addingAlbumIds = new Set();
+
+      function resetQueueButton(btn) {
+        btn.removeAttribute("aria-disabled");
+        if (btn.classList.contains("mob-btn")) btn.title = "Add to Queue";
+        else btn.removeAttribute("title");
+        if (!btn.classList.contains("btn-downloading")) {
+          if (btn.classList.contains("mob-btn")) {
+            btn.innerHTML = '<i class="fa-solid fa-download"></i>';
+          } else {
+            btn.innerHTML = "Add to Queue";
+          }
+          btn.style.pointerEvents = "";
+        }
+      }
+
       async function addToQueue(id, event) {
         const btn = event ? event.currentTarget : null;
+        if (addingAlbumIds.has(id)) return;
+        if (
+          btn &&
+          (btn.getAttribute("aria-disabled") === "true" ||
+            btn.classList.contains("btn-downloading"))
+        )
+          return;
+        addingAlbumIds.add(id);
         const isMobBtn = btn && btn.classList.contains("mob-btn");
         if (btn) {
+          btn.setAttribute("aria-disabled", "true");
           btn.classList.add("btn-adding", "btn-ripple");
           btn.innerHTML = isMobBtn
             ? '<i class="fa-solid fa-spinner fa-spin"></i>'
             : '<i class="fa-solid fa-spinner fa-spin"></i> Adding...';
         }
+        let errorMsg = "";
         try {
-          await fetch("/api/download/" + id, { method: "POST" });
-          if (btn) {
-            btn.classList.remove("btn-adding", "btn-ripple");
-            btn.classList.add("btn-added");
-            btn.innerHTML = isMobBtn
-              ? '<i class="fa-solid fa-check"></i>'
-              : '<i class="fa-solid fa-check"></i> Added ✓';
-            setTimeout(() => {
-              btn.classList.remove("btn-added");
-              if (!btn.classList.contains("btn-downloading")) {
-                if (btn.classList.contains("mob-btn")) {
-                  btn.innerHTML = '<i class="fa-solid fa-download"></i>';
-                } else {
-                  btn.innerHTML = "Add to Queue";
-                }
-                btn.style.pointerEvents = "";
-              }
-            }, 2500);
+          const res = await fetch("/api/download/" + id, { method: "POST" });
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (_) {}
+          if (!res.ok || !data || data.success === false) {
+            errorMsg =
+              (data && data.message) || `Server returned ${res.status}`;
           }
         } catch (e) {
-          if (btn) {
-            btn.classList.remove("btn-adding", "btn-ripple");
-            btn.innerHTML = isMobBtn
-              ? '<i class="fa-solid fa-xmark"></i>'
-              : '<i class="fa-solid fa-xmark"></i> Error';
-            btn.style.background = "var(--danger)";
-            setTimeout(() => {
-              btn.style.background = "";
-              if (!btn.classList.contains("btn-downloading")) {
-                if (btn.classList.contains("mob-btn")) {
-                  btn.innerHTML = '<i class="fa-solid fa-download"></i>';
-                } else {
-                  btn.innerHTML = "Add to Queue";
-                }
-                btn.style.pointerEvents = "";
-              }
-            }, 2000);
-          }
+          errorMsg = "Could not reach the server";
+        }
+        addingAlbumIds.delete(id);
+        if (!btn) return;
+        btn.classList.remove("btn-adding", "btn-ripple");
+        if (!errorMsg) {
+          btn.classList.add("btn-added");
+          btn.innerHTML = isMobBtn
+            ? '<i class="fa-solid fa-check"></i>'
+            : '<i class="fa-solid fa-check"></i> Added ✓';
+          setTimeout(() => {
+            btn.classList.remove("btn-added");
+            resetQueueButton(btn);
+          }, 2500);
+          updateStats();
+        } else {
+          btn.innerHTML = isMobBtn
+            ? '<i class="fa-solid fa-xmark"></i>'
+            : '<i class="fa-solid fa-xmark"></i> Error';
+          btn.title = errorMsg;
+          btn.style.background = "var(--danger)";
+          setTimeout(() => {
+            btn.style.background = "";
+            resetQueueButton(btn);
+          }, 2500);
         }
       }
 
@@ -3520,14 +3784,8 @@
         const btn = event
           ? event.currentTarget
           : document.getElementById("downloadAllBtn");
-        const term = document
-          .getElementById("artistSearch")
-          .value.toLowerCase();
-        const filtered = allAlbums.filter(
-          (album) =>
-            album.title.toLowerCase().includes(term) ||
-            album.artist.artistName.toLowerCase().includes(term),
-        );
+        if (btn.getAttribute("aria-disabled") === "true") return;
+        const filtered = currentFiltered.slice();
         if (filtered.length === 0) return;
 
         const chosen = await showDownloadAllModal(filtered.length);
@@ -3535,10 +3793,13 @@
 
         const toQueue = chosen === 0 ? filtered : filtered.slice(0, chosen);
 
+        btn.setAttribute("aria-disabled", "true");
         btn.classList.add("btn-adding");
         btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Adding ${toQueue.length}...`;
 
         let added = 0;
+        let ok = false;
+        let errorMsg = "";
         try {
           const albumIds = toQueue.map((a) => a.id);
           const res = await fetch("/api/download/queue/bulk", {
@@ -3546,15 +3807,39 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ album_ids: albumIds }),
           });
-          const data = await res.json();
-          if (res.ok && data.success) added = data.added;
-        } catch (e) {}
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (_) {}
+          if (res.ok && data && data.success) {
+            added = data.added;
+            ok = true;
+          } else {
+            errorMsg =
+              (data && data.message) || `Server returned ${res.status}`;
+          }
+        } catch (e) {
+          errorMsg = "Could not reach the server";
+        }
 
         btn.classList.remove("btn-adding");
-        btn.classList.add("btn-added");
-        btn.innerHTML = `<i class="fa-solid fa-check"></i> ${added} Added ✓`;
+        if (ok) {
+          btn.classList.add("btn-added");
+          btn.innerHTML = `<i class="fa-solid fa-check"></i> ${added} Added ✓`;
+          updateStats();
+        } else {
+          btn.innerHTML = '<i class="fa-solid fa-xmark"></i> Error';
+          btn.title = errorMsg;
+          btn.dataset.prevBg = btn.style.background;
+          btn.style.background = "var(--danger)";
+        }
         setTimeout(() => {
           btn.classList.remove("btn-added");
+          if (!ok) {
+            btn.style.background = btn.dataset.prevBg || "";
+            btn.removeAttribute("title");
+          }
+          btn.removeAttribute("aria-disabled");
           btn.innerHTML =
             '<i class="fa-solid fa-download"></i> Download All Missing';
           btn.style.pointerEvents = "";
@@ -3568,15 +3853,27 @@
 
           const overlay = document.createElement("div");
           overlay.className = "manual-dl-modal-overlay dl-all-modal-overlay";
+          rememberOpener(overlay);
+          function finish(value) {
+            if (!overlay.isConnected) return;
+            overlay.remove();
+            restoreOpenerFocus(overlay);
+            resolve(value);
+          }
+          overlay.closeModal = () => finish(null);
           overlay.addEventListener("click", (e) => {
-            if (e.target === overlay) { overlay.remove(); resolve(null); }
+            if (e.target === overlay) finish(null);
           });
 
           const modal = document.createElement("div");
           modal.className = "manual-dl-modal";
+          modal.setAttribute("role", "dialog");
+          modal.setAttribute("aria-modal", "true");
+          modal.setAttribute("aria-labelledby", "dlAllModalTitle");
 
           const title = document.createElement("div");
           title.className = "manual-dl-modal-title";
+          title.id = "dlAllModalTitle";
           title.textContent = "Download Missing Albums";
 
           const subtitle = document.createElement("div");
@@ -3589,6 +3886,7 @@
           input.max = String(total);
           input.value = "0";
           input.placeholder = `0 = all (max ${total})`;
+          input.setAttribute("aria-label", "Number of albums to queue (0 = all)");
 
           const actions = document.createElement("div");
           actions.className = "manual-dl-modal-actions";
@@ -3604,15 +3902,13 @@
           function submit() {
             const val = parseInt(input.value, 10);
             const limit = isNaN(val) || val < 0 ? 0 : val;
-            overlay.remove();
-            resolve(limit);
+            finish(limit);
           }
 
-          cancelBtn.addEventListener("click", () => { overlay.remove(); resolve(null); });
+          cancelBtn.addEventListener("click", () => finish(null));
           confirmBtn.addEventListener("click", submit);
           input.addEventListener("keydown", (e) => {
             if (e.key === "Enter") submit();
-            if (e.key === "Escape") { overlay.remove(); resolve(null); }
           });
 
           actions.append(confirmBtn, cancelBtn);
@@ -3665,11 +3961,14 @@
         const flipEl = document.getElementById(`card-flip-${albumId}`);
         if (!flipEl) return;
         const isFlipped = flipEl.classList.contains("flipped");
+        const front = flipEl.querySelector(".card-img-front");
         if (isFlipped) {
           flipEl.classList.remove("flipped");
+          if (front) front.setAttribute("aria-expanded", "false");
           return;
         }
         flipEl.classList.add("flipped");
+        if (front) front.setAttribute("aria-expanded", "true");
         const backPanel = document.getElementById(`card-tracks-${albumId}`);
         if (backPanel) {
           await loadAndRenderTracks(albumId, [backPanel]);
@@ -3687,12 +3986,14 @@
 
         if (isExpanded) {
           el.dataset.expanded = "false";
+          el.setAttribute("aria-expanded", "false");
           panels.forEach((p) => p.classList.remove("open"));
           tableRows.forEach((r) => (r.style.display = "none"));
           return;
         }
 
         el.dataset.expanded = "true";
+        el.setAttribute("aria-expanded", "true");
         panels.forEach((p) => p.classList.add("open"));
         tableRows.forEach((r) => (r.style.display = ""));
         await loadAndRenderTracks(albumId, panels);
@@ -3740,6 +4041,22 @@
               }
             });
 
+            if (!hasFile) {
+              row.setAttribute("role", "button");
+              row.tabIndex = 0;
+              row.setAttribute(
+                "aria-label",
+                `Track ${track.track_number}: ${track.title} (missing) - download from a YouTube URL`,
+              );
+              row.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  openManualDlModal(albumId, idx);
+                }
+              });
+            }
+
             panel.appendChild(row);
           });
         });
@@ -3751,19 +4068,33 @@
         const track = tracks[trackIdx];
 
         const existing = document.querySelector(".manual-dl-modal-overlay");
-        if (existing) existing.remove();
+        if (existing) {
+          if (typeof existing.closeModal === "function") existing.closeModal();
+          else existing.remove();
+        }
 
         const overlay = document.createElement("div");
         overlay.className = "manual-dl-modal-overlay";
+        rememberOpener(overlay);
+        function closeModal() {
+          if (!overlay.isConnected) return;
+          overlay.remove();
+          restoreOpenerFocus(overlay);
+        }
+        overlay.closeModal = closeModal;
         overlay.addEventListener("click", (e) => {
-          if (e.target === overlay) overlay.remove();
+          if (e.target === overlay) closeModal();
         });
 
         const modal = document.createElement("div");
         modal.className = "manual-dl-modal";
+        modal.setAttribute("role", "dialog");
+        modal.setAttribute("aria-modal", "true");
+        modal.setAttribute("aria-labelledby", "manualDlModalTitle");
 
         const title = document.createElement("div");
         title.className = "manual-dl-modal-title";
+        title.id = "manualDlModalTitle";
         title.textContent = track.title;
 
         const subtitle = document.createElement("div");
@@ -3773,9 +4104,12 @@
         const input = document.createElement("input");
         input.type = "text";
         input.placeholder = "Paste YouTube URL...";
+        input.setAttribute("aria-label", "YouTube URL");
 
         const result = document.createElement("div");
         result.className = "manual-dl-modal-result";
+        result.setAttribute("role", "status");
+        result.setAttribute("aria-live", "polite");
 
         const actions = document.createElement("div");
         actions.className = "manual-dl-modal-actions";
@@ -3787,32 +4121,68 @@
         const cancelBtn = document.createElement("button");
         cancelBtn.className = "modal-cancel-btn";
         cancelBtn.textContent = "Cancel";
-        cancelBtn.addEventListener("click", () => overlay.remove());
+        cancelBtn.addEventListener("click", closeModal);
 
-        function doDownload() {
+        function showError(msg) {
+          result.className = "manual-dl-modal-result error";
+          result.textContent = msg;
+        }
+
+        async function doDownload() {
+          if (dlBtn.disabled) return;
           const url = input.value.trim();
           if (!url) {
-            result.className = "manual-dl-modal-result error";
-            result.textContent = "Please enter a YouTube URL";
+            showError("Please enter a YouTube URL");
+            input.focus();
             return;
           }
-          fetch(`/api/album/${albumId}/track/manual-download`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              youtube_url: url,
-              track_title: track.title,
-              track_number: track.track_number,
-              foreign_recording_id: track.foreign_recording_id || "",
-            }),
-          });
-          overlay.remove();
+          if (!isYouTubeUrl(url)) {
+            showError("That doesn't look like a YouTube URL");
+            input.focus();
+            return;
+          }
+          dlBtn.disabled = true;
+          dlBtn.textContent = "Starting...";
+          result.className = "manual-dl-modal-result";
+          result.textContent = "";
+          let errorMsg = "";
+          try {
+            const res = await fetch(
+              `/api/album/${albumId}/track/manual-download`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  youtube_url: url,
+                  track_title: track.title,
+                  track_number: track.track_number,
+                  foreign_recording_id: track.foreign_recording_id || "",
+                }),
+              },
+            );
+            let data = null;
+            try {
+              data = await res.json();
+            } catch (_) {}
+            if (!res.ok || !data || !data.success) {
+              errorMsg =
+                (data && data.message) || `Server returned ${res.status}`;
+            }
+          } catch (e) {
+            errorMsg = "Could not reach the server";
+          }
+          if (!errorMsg) {
+            closeModal();
+            return;
+          }
+          dlBtn.disabled = false;
+          dlBtn.textContent = "Download";
+          showError(errorMsg);
         }
 
         dlBtn.addEventListener("click", doDownload);
         input.addEventListener("keydown", (e) => {
           if (e.key === "Enter") doDownload();
-          if (e.key === "Escape") overlay.remove();
         });
 
         actions.append(dlBtn, cancelBtn);
@@ -3822,18 +4192,71 @@
         input.focus();
       }
 
+      function isYouTubeUrl(value) {
+        if (/^[a-zA-Z0-9_-]{11}$/.test(value)) return true;
+        try {
+          const u = new URL(value);
+          if (u.protocol !== "https:" && u.protocol !== "http:") return false;
+          return [
+            "youtube.com",
+            "www.youtube.com",
+            "m.youtube.com",
+            "music.youtube.com",
+            "youtu.be",
+            "www.youtu.be",
+          ].includes(u.hostname.toLowerCase());
+        } catch (_) {
+          return false;
+        }
+      }
+
       let statsCounter = 0;
       let eventSource = null;
+      let statsTimer = null;
+      let sseRetryTimer = null;
+      let lastQueueLength = 0;
 
-      function startGlobalPolling() {
-        connectSSE();
-        setInterval(() => {
+      function startStatsTimer() {
+        if (statsTimer) return;
+        statsTimer = setInterval(() => {
           statsCounter++;
           if (statsCounter % 10 === 0) updateStats();
         }, 1000);
       }
 
+      function stopStatsTimer() {
+        if (statsTimer) clearInterval(statsTimer);
+        statsTimer = null;
+      }
+
+      function disconnectSSE() {
+        if (sseRetryTimer) clearTimeout(sseRetryTimer);
+        sseRetryTimer = null;
+        if (eventSource) eventSource.close();
+        eventSource = null;
+      }
+
+      function startGlobalPolling() {
+        if (document.hidden) return;
+        connectSSE();
+        startStatsTimer();
+      }
+
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) {
+          stopStatsTimer();
+          disconnectSSE();
+        } else {
+          connectSSE();
+          startStatsTimer();
+          updateStats();
+        }
+      });
+
       function connectSSE() {
+        if (sseRetryTimer) clearTimeout(sseRetryTimer);
+        sseRetryTimer = null;
+        if (document.hidden) return;
         if (eventSource) eventSource.close();
         eventSource = new EventSource("/api/download/stream");
         eventSource.onmessage = (event) => {
@@ -3843,9 +4266,10 @@
           } catch (e) {}
         };
         eventSource.onerror = () => {
-          eventSource.close();
+          if (eventSource) eventSource.close();
           eventSource = null;
-          setTimeout(connectSSE, 3000);
+          if (sseRetryTimer) clearTimeout(sseRetryTimer);
+          sseRetryTimer = setTimeout(connectSSE, 3000);
         };
       }
 
@@ -3923,22 +4347,28 @@
           coverEl.classList.remove("active");
         }
 
-        if (data.progress && data.progress.current && data.progress.total) {
-          const currentTrack = data.progress.current;
+        if (data.progress && data.progress.total) {
           const totalTracks = data.progress.total;
-          document.getElementById("trackProgress").textContent =
-            `Track ${currentTrack}/${totalTracks}`;
+          const finishedTracks = Array.isArray(data.tracks)
+            ? data.tracks.filter((t) =>
+                ["done", "failed", "skipped"].includes(t.status),
+              ).length
+            : Math.round(
+                ((data.progress.overall_percent || 0) * totalTracks) / 100,
+              );
+          const doneLabel = `${finishedTracks} of ${totalTracks} done`;
+          document.getElementById("trackProgress").textContent = doneLabel;
 
-          const overallPercent =
-            data.progress.overall_percent ||
-            Math.round((currentTrack / totalTracks) * 100);
+          const overallPercent = Math.round(
+            (finishedTracks / totalTracks) * 100,
+          );
           document.getElementById("overallPercent").textContent =
             `${overallPercent}%`;
           document.getElementById("progressFill").style.width =
             `${overallPercent}%`;
 
           document.getElementById("minimizedBadge").textContent =
-            `${currentTrack}/${totalTracks}`;
+            `${finishedTracks}/${totalTracks}`;
           const circumference = 2 * Math.PI * 30;
           const offset = circumference - (circumference * overallPercent) / 100;
           document.getElementById("minimizedRing").style.strokeDashoffset =
@@ -3952,7 +4382,7 @@
             document.getElementById(`mini-fill-${data.album_id}`).style.width =
               `${overallPercent}%`;
             document.getElementById(`mini-track-${data.album_id}`).textContent =
-              `Track ${currentTrack}/${totalTracks}`;
+              doneLabel;
             document.getElementById(
               `mini-percent-${data.album_id}`,
             ).textContent = `${overallPercent}%`;
@@ -3970,6 +4400,7 @@
           document.getElementById("downloadSpeed").textContent = "--";
         }
 
+        lastQueueLength = queue.length;
         queuedAlbumIds = new Set(queue.map((q) => q.id));
         // Only real Lidarr albums (positive id) belong in this set, which is
         // matched against missing-album cards; a playlist import's negative
@@ -3994,7 +4425,7 @@
               (item, index) => `
                     <div class="queue-item-mini">
                         <div class="queue-item-position">${index + 1}</div>
-                        <div class="queue-item-text">${escapeHtml(item.title)} - ${escapeHtml(item.artist)}</div>
+                        <div class="queue-item-text"><bdi>${escapeHtml(item.title)}</bdi> - <bdi>${escapeHtml(item.artist)}</bdi></div>
                     </div>
                 `,
             )
@@ -4047,8 +4478,14 @@
       }
 
       async function stopDownload() {
-        if (confirm("Are you sure you want to stop the current download?")) {
-          await fetch("/api/download/stop", { method: "POST" });
+        let msg = "Stop the current download and clear the download queue?";
+        if (lastQueueLength > 0) {
+          msg += `\n\nAll ${lastQueueLength} queued album${lastQueueLength === 1 ? "" : "s"} will be removed from the queue.`;
+        }
+        if (confirm(msg)) {
+          try {
+            await fetch("/api/download/stop", { method: "POST" });
+          } catch (_) {}
           hideProgress();
         }
       }
@@ -4121,17 +4558,39 @@
           .join("");
 
         if (openModal) {
-          document.getElementById("failedOverlay").classList.add("active");
+          openFailedOverlay();
         }
 
         const failedBtn = document.getElementById("failedTracksBtn");
+        if (failedBtnResetTimer) {
+          clearTimeout(failedBtnResetTimer);
+          failedBtnResetTimer = null;
+        }
+        const failedIcon = failedBtn.querySelector("i");
+        if (failedIcon) failedIcon.className = "fa-solid fa-triangle-exclamation";
+        failedBtn.style.background = "";
+        failedBtn.style.boxShadow = "";
         document.getElementById("failedTracksBtnText").textContent =
           count + " Failed Track" + (count > 1 ? "s" : "");
         failedBtn.classList.add("active");
       }
 
+      let failedBtnResetTimer = null;
+
+      function openFailedOverlay() {
+        const overlay = document.getElementById("failedOverlay");
+        if (overlay.classList.contains("active")) return;
+        rememberOpener(overlay);
+        overlay.classList.add("active");
+        const closeBtn = overlay.querySelector(".failed-overlay-close");
+        if (closeBtn) closeBtn.focus();
+      }
+
       function closeFailedOverlay() {
-        document.getElementById("failedOverlay").classList.remove("active");
+        const overlay = document.getElementById("failedOverlay");
+        const wasActive = overlay.classList.contains("active");
+        overlay.classList.remove("active");
+        if (wasActive) restoreOpenerFocus(overlay);
         document.querySelectorAll(".ft-inline-preview").forEach((el) => {
           const audio = el.querySelector("audio");
           if (audio) audio.pause();
@@ -4385,7 +4844,7 @@
       }
 
       function reopenFailedOverlay() {
-        document.getElementById("failedOverlay").classList.add("active");
+        openFailedOverlay();
       }
 
       function checkAllResolved() {
@@ -4395,14 +4854,18 @@
         );
         if (items.length > 0 && items.length === resolved.length) {
           const btn = document.getElementById("failedTracksBtn");
-          btn.innerHTML =
-            '<i class="fa-solid fa-circle-check"></i> <span>All Resolved!</span>';
+          const icon = btn.querySelector("i");
+          if (icon) icon.className = "fa-solid fa-circle-check";
+          document.getElementById("failedTracksBtnText").textContent =
+            "All Resolved!";
           btn.style.background = "linear-gradient(135deg, #10b981, #059669)";
           btn.style.boxShadow = "0 8px 24px rgba(16, 185, 129, 0.35)";
           setTimeout(() => {
-            document.getElementById("failedOverlay").classList.remove("active");
+            closeFailedOverlay();
           }, 1500);
-          setTimeout(() => {
+          if (failedBtnResetTimer) clearTimeout(failedBtnResetTimer);
+          failedBtnResetTimer = setTimeout(() => {
+            failedBtnResetTimer = null;
             btn.classList.remove("active");
             btn.style.background = "";
             btn.style.boxShadow = "";
