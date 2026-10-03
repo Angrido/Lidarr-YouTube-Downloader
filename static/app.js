@@ -234,6 +234,17 @@
         }
     });
 
+    document.addEventListener("keydown", function (e) {
+        if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey || openModals.length) return;
+        var t = e.target;
+        if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+        var field = document.querySelector('.app-main input[type="search"]');
+        if (!field || field.offsetParent === null) return;
+        e.preventDefault();
+        field.focus();
+        field.select();
+    });
+
     document.addEventListener("mousedown", function (e) {
         var modal = e.target;
         if (modal && modal.classList && modal.classList.contains("ui-modal") && openModals.indexOf(modal) !== -1) {

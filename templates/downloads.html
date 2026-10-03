@@ -67,7 +67,10 @@
         .row-chevron { flex: none; color: var(--text-3); transition: transform var(--dur) var(--ease); }
         .row-toggle[aria-expanded="true"] .row-chevron { transform: rotate(90deg); }
         .q-move { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--r-sm); background: var(--fill-1); }
-        .q-move .ui-btn { min-height: 26px; width: 26px; min-width: 26px; }
+        .q-move .ui-btn { min-height: 28px; width: 28px; min-width: 28px; }
+        @media (max-width: 720px), (pointer: coarse) {
+            .q-move .ui-btn { min-height: 36px; width: 36px; min-width: 36px; }
+        }
         .t-mnum { display: none; }
         .q-actions { gap: 2px; }
         .q-item.is-dragging { opacity: 0.4; }

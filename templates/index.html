@@ -359,12 +359,15 @@
                 white-space: nowrap;
             }
             .lib-list .q-btn {
-                width: 30px;
-                min-width: 30px;
+                width: 36px;
+                min-width: 36px;
                 padding: 0;
             }
             .lib-list .lib-row-badge {
                 display: none;
+            }
+            .lib-list .lib-sub-missing-line {
+                display: block;
             }
             .lib-subbar .ui-chips {
                 flex-wrap: nowrap;
@@ -376,6 +379,21 @@
 
         .lib-state {
             display: block;
+        }
+
+        .lib-sub-missing-line {
+            display: none;
+        }
+
+        .lib-missing-pill {
+            color: var(--warning);
+            font-weight: 600;
+        }
+
+        @media (min-width: 721px) {
+            .lib-table .q-btn {
+                min-width: 136px;
+            }
         }
 
         .lib-skeleton-text {
@@ -611,7 +629,7 @@
                     </p>
                 </div>
                 <div class="page-actions lib-actions">
-                    <button type="button" class="ui-btn ui-btn-ghost" id="checkConnBtn">
+                    <button type="button" class="ui-btn ui-btn-secondary" id="checkConnBtn">
                         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-plug"></use></svg>
                         Check connection
                     </button>
@@ -719,7 +737,8 @@
                     <div class="ui-input-group lib-search">
                         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-search"></use></svg>
                         <label class="sr-only" for="artistSearch">Search artists or albums</label>
-                        <input type="search" class="ui-input" id="artistSearch" placeholder="Search artists or albums" autocomplete="off" spellcheck="false">
+                        <input type="search" class="ui-input" id="artistSearch" placeholder="Search artists or albums" aria-keyshortcuts="/" autocomplete="off" spellcheck="false">
+                        <kbd class="ui-kbd ui-input-kbd" aria-hidden="true">/</kbd>
                     </div>
                     <div class="ui-segmented" role="group" aria-label="View">
                         <button type="button" id="viewCards" data-view="cards" aria-pressed="true">
@@ -1152,7 +1171,8 @@
                 <button type="button" class="ui-artwork" data-action="tracks" data-id="${id}" aria-haspopup="dialog" aria-label="${tracksLabel(album)}">${artworkImg(coverOf(album))}</button>
                 <div class="ui-list-main">
                     <div class="ui-list-title" title="${title}"><bdi>${title}</bdi></div>
-                    <div class="ui-list-sub"><bdi>${artist}</bdi>${year ? " · " + year : ""} · ${missing} missing</div>
+                    <div class="ui-list-sub"><bdi>${artist}</bdi>${year ? " · " + year : ""}</div>
+                    <div class="ui-list-sub lib-sub-missing-line"><span class="lib-missing-pill num">${missing} missing</span></div>
                     ${progressBlockHtml(id)}
                 </div>
                 <div class="ui-list-aside">

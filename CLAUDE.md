@@ -260,14 +260,18 @@ variables, theme toggles, navigation or Font Awesome**.
   card, empty states, skeletons, callouts, modals that become bottom
   sheets on phones, stacked toasts, bulk bar, drop zone, steps, tabs,
   tooltip). `prefers-reduced-motion` collapses all durations. Contrast
-  targets WCAG AA in both themes.
+  targets WCAG AA in both themes. Under `(max-width: 720px), (pointer:
+  coarse)` controls grow to touch-sized hit targets (36–42px); keep new
+  controls on the shared classes so they inherit this. Frosted surfaces use
+  `--bg-overlay` (high opacity on purpose, so text behind never competes).
 - `static/app.js` — `window.UI`: theme (`auto`/`light`/`dark`, stored in
   `localStorage.theme`, `themechange` event, `theme-color` meta kept in
   sync), `UI.icon(name)`, `UI.escape`, `UI.toast(msg, {type, action})`,
   `UI.openModal/closeModal` (Esc, backdrop, focus trap/restore),
   `UI.confirm({...})` → Promise, `UI.guard(btn, fn)` (in-flight guard +
   spinner), `UI.fetchJSON`, `UI.poll(fn, ms)` (never overlaps, pauses in
-  hidden tabs), nav badges from `/api/stats` (`queued`, `active`).
+  hidden tabs), nav badges from `/api/stats` (`queued`, `active`), and the
+  `/` shortcut that focuses the page's `input[type="search"]`.
 - `static/icons.svg` — SVG symbol sprite (`#i-<name>`), used as
   `<svg class="ico"><use href="/static/icons.svg#i-name"></use></svg>`.
 - `templates/_head.html` (meta, manifest, CSS, pre-paint theme script,

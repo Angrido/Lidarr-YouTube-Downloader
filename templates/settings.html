@@ -223,7 +223,9 @@
         }
 
         .num-unit {
-            width: 1.25em;
+            flex: none;
+            width: 2.4em;
+            text-align: left;
             font-size: var(--text-footnote);
             color: var(--text-3);
         }
@@ -691,7 +693,8 @@
                 <div class="page-actions">
                     <div class="ui-input-group settings-search">
                         {{ ico('search') }}
-                        <input type="search" class="ui-input" id="settingsSearch" placeholder="Search settings" autocomplete="off" aria-label="Search settings" aria-controls="settingsContent">
+                        <input type="search" class="ui-input" id="settingsSearch" placeholder="Search settings" aria-keyshortcuts="/" autocomplete="off" aria-label="Search settings" aria-controls="settingsContent">
+                        <kbd class="ui-kbd ui-input-kbd" aria-hidden="true">/</kbd>
                     </div>
                 </div>
             </header>

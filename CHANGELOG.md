@@ -33,6 +33,9 @@
   touch icon, and the browser/status bar colour follows the theme.
 - `/api/stats` also returns `queued` and `active` (any download, including
   Lidarr download-client jobs).
+- Press `/` to jump to the search field on Library and Settings.
+- Phone-friendly hit targets: buttons, fields, chips and segmented controls
+  grow to 36–42px on touch screens.
 
 ### Fixed — downloads and library
 - A track whose worker crashed was reported as a success and its temp file
@@ -90,6 +93,15 @@
   access, contrast in the light theme, layouts overflowing on phones,
   polling that kept running in background tabs, the Logs "All" view hiding
   entries, insights labels unreadable on phones, and more.
+- Design review of 2.0: the queue badge and "downloading" dot no longer
+  cover the Downloads icon in the compact sidebar and the phone tab bar;
+  frosted bars and toasts are opaque enough to read over busy content; the
+  four status tiles no longer leave one orphan tile on tablets; the
+  floating selection bar no longer hides the last row of albums; the
+  YouTube link field no longer clips its placeholder on phones; the list
+  view on phones shows the missing-track count instead of cutting it off;
+  table actions line up; unit labels in Settings no longer touch the card
+  edge; empty states are less tall on phones.
 
 ## 1.9.2
 
