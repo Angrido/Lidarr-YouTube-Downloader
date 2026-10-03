@@ -65,13 +65,13 @@
     --focus-ring: rgba(79, 70, 229, 0.45);
 
     --success: #1a7f37;
-    --success-mark: #2fb457;
+    --success-mark: #1a9a52;
     --success-soft: rgba(47, 180, 87, 0.12);
     --warning: #9a5b00;
     --warning-mark: #f5a524;
     --warning-soft: rgba(245, 165, 36, 0.16);
     --danger: #c4231b;
-    --danger-mark: #ef4444;
+    --danger-mark: #f0533d;
     --danger-soft: rgba(239, 68, 68, 0.11);
     --info: #0b63c7;
     --info-mark: #3b8ef0;
@@ -110,13 +110,13 @@
     --accent-soft-2: rgba(124, 122, 255, 0.24);
     --focus-ring: rgba(157, 155, 255, 0.55);
     --success: #4ade80;
-    --success-mark: #30c85e;
+    --success-mark: #1a9a52;
     --success-soft: rgba(48, 200, 94, 0.15);
     --warning: #fbbf24;
     --warning-mark: #f5a524;
     --warning-soft: rgba(245, 165, 36, 0.16);
     --danger: #ff6b63;
-    --danger-mark: #ef4444;
+    --danger-mark: #f0533d;
     --danger-soft: rgba(239, 68, 68, 0.16);
     --info: #6cb2ff;
     --info-mark: #3b8ef0;
@@ -150,13 +150,13 @@
         --accent-soft-2: rgba(124, 122, 255, 0.24);
         --focus-ring: rgba(157, 155, 255, 0.55);
         --success: #4ade80;
-        --success-mark: #30c85e;
+        --success-mark: #1a9a52;
         --success-soft: rgba(48, 200, 94, 0.15);
         --warning: #fbbf24;
         --warning-mark: #f5a524;
         --warning-soft: rgba(245, 165, 36, 0.16);
         --danger: #ff6b63;
-        --danger-mark: #ef4444;
+        --danger-mark: #f0533d;
         --danger-soft: rgba(239, 68, 68, 0.16);
         --info: #6cb2ff;
         --info-mark: #3b8ef0;

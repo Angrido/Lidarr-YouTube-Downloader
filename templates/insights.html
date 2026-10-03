@@ -1,581 +1,468 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Insights - Lidarr YouTube Downloader</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer">
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/components.css">
-    <link rel="manifest" href="/manifest.webmanifest">
-    <meta name="theme-color" content="#09090b">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="Lidarr YT">
-    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-    <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
+    {% include "_head.html" %}
+    <title>Insights — Lidarr YouTube Downloader</title>
     <style>
-        :root {
-            --bg: #09090b;
-            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.05) 0%, transparent 50%);
-            --surface: #18181b;
-            --surface-glass: rgba(24, 24, 27, 0.7);
-            --surface-hover: #27272a;
-            --text: #fafafa;
-            --text-dim: #a1a1aa;
-            --primary: #10b981;
-            --primary-hover: #059669;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-            --accent: #0891b2;
-            --track: #27272a;
-            --border: #27272a;
-            --border-glass: rgba(255, 255, 255, 0.1);
-            --radius: 16px;
-            --shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
-            --glow: 0 0 20px rgba(16, 185, 129, 0.3);
+        .insights-body {
+            transition: opacity var(--dur) var(--ease);
         }
 
-        body.light {
-            --bg: #f4f4f5;
-            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.03) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.03) 0%, transparent 50%);
-            --surface: #ffffff;
-            --surface-glass: rgba(255, 255, 255, 0.7);
-            --surface-hover: #f4f4f5;
-            --text: #18181b;
-            --text-dim: #52525b;
-            --primary: #047857;
-            --primary-hover: #065f46;
-            --danger: #b91c1c;
-            --warning: #b45309;
-            --track: #d4d4d8;
-            --border: #e4e4e7;
-            --border-glass: rgba(0, 0, 0, 0.1);
-            --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            --glow: 0 0 20px rgba(16, 185, 129, 0.2);
+        .insights-body.is-refreshing {
+            opacity: 0.5;
+            pointer-events: none;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Inter', system-ui, sans-serif;
-            background: var(--bg);
-            background-image: var(--bg-pattern);
-            background-attachment: fixed;
-            color: var(--text);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow-x: hidden;
-        }
-
-        header {
-            background: var(--surface-glass);
-            backdrop-filter: blur(30px) saturate(200%);
-            -webkit-backdrop-filter: blur(30px) saturate(200%);
-            border-bottom: 1px solid var(--border-glass);
-            position: sticky;
-            top: 0;
-            z-index: 50;
-            padding: 0;
-        }
-
-        .nav-container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 0 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            height: 64px;
-        }
-
-        .logo {
-            font-weight: 800;
-            font-size: 1.25rem;
-            display: flex;
-            align-items: center;
-            gap: 0.6rem;
-            background: linear-gradient(135deg, var(--primary), #06d6a0, #0891b2);
-            background-size: 200% 200%;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            animation: gradient-shift 4s ease infinite;
-            letter-spacing: -0.02em;
-            text-decoration: none;
-        }
-
-        .logo-icon {
-            width: 28px;
-            height: 28px;
-            background: linear-gradient(135deg, var(--primary), #06d6a0);
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-
-        .logo-icon svg {
-            width: 16px;
-            height: 16px;
-        }
-
-        @keyframes gradient-shift {
-            0%, 100% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-        }
-
-        .nav-links {
-            display: flex;
-            gap: 0.25rem;
-            align-items: center;
-        }
-
-        .nav-links a {
-            color: var(--text-dim);
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 0.9rem;
-            padding: 0.5rem 0.9rem;
-            border-radius: 10px;
-            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: 0.4rem;
-        }
-
-        .nav-links a:hover {
-            color: var(--text);
-            background: var(--surface-hover);
-        }
-
-        .nav-links a.active {
-            color: var(--primary);
-            background: rgba(16, 185, 129, 0.1);
-        }
-
-        .nav-badge {
-            background: linear-gradient(135deg, #ef4444, #f87171);
-            color: white;
-            font-size: 0.65rem;
-            font-weight: 700;
-            min-width: 18px;
-            height: 18px;
-            border-radius: 999px;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            padding: 0 5px;
-            line-height: 1;
-        }
-
-        .nav-badge.active {
-            display: inline-flex;
-        }
-
-        .controls {
-            display: flex;
-            gap: 0.75rem;
-            align-items: center;
-        }
-
-        .theme-toggle {
-            background: var(--surface-glass);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--border-glass);
-            color: var(--text);
-            width: 40px;
-            height: 40px;
-            border-radius: 12px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.1rem;
-            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .theme-toggle:hover {
-            background: var(--surface-hover);
-            border-color: var(--primary);
-            box-shadow: var(--glow);
-            transform: scale(1.08);
-        }
-
-        .theme-toggle.spin i {
-            animation: themeSwitch 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        @keyframes themeSwitch {
-            0% { transform: rotate(0deg) scale(1); opacity: 1; }
-            50% { transform: rotate(180deg) scale(0); opacity: 0; }
-            100% { transform: rotate(360deg) scale(1); opacity: 1; }
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-            width: 100%;
-            flex: 1;
-        }
-
-        .page-header {
-            margin-bottom: 1.5rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-end;
-            flex-wrap: wrap;
-            gap: 1rem;
-        }
-
-        .page-title {
-            font-size: 2rem;
-            font-weight: 800;
-            margin-bottom: 0.5rem;
-            background: linear-gradient(135deg, var(--primary), #06d6a0);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .page-subtitle {
-            color: var(--text-dim);
-            font-size: 1rem;
-        }
-
-        select.filter-select {
-            padding: 0.6rem 2rem 0.6rem 1rem;
-            border-radius: 30px;
-            border: 1px solid var(--border-glass);
-            background: var(--surface-glass);
-            backdrop-filter: blur(10px);
-            color: var(--text);
-            appearance: none;
-            cursor: pointer;
-            outline: none;
-            font-size: 0.9rem;
-            transition: all 0.3s ease;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2310b981' d='M6 8.825L1.175 4 2.238 2.938 6 6.7 9.763 2.938 10.825 4z'/%3E%3C/svg%3E");
-            background-repeat: no-repeat;
-            background-position: right 1rem center;
-        }
-
-        select.filter-select:focus {
-            border-color: var(--primary);
-            box-shadow: var(--glow);
-        }
-
-        /* Stat cards */
-        .stat-grid {
+        .insights-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap: 1rem;
-            margin-bottom: 1.5rem;
+            grid-template-columns: minmax(0, 1fr);
+            gap: var(--sp-4);
+            margin-top: var(--sp-4);
         }
 
-        .stat-card {
-            background: var(--surface-glass);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius);
-            padding: 1.25rem;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .stat-card .stat-icon {
-            position: absolute;
-            top: 1rem;
-            right: 1rem;
-            font-size: 1.5rem;
-            opacity: 0.25;
-        }
-
-        .stat-card .stat-value {
-            font-size: 1.9rem;
-            font-weight: 800;
-            line-height: 1.1;
-            letter-spacing: -0.02em;
-        }
-
-        .stat-card .stat-label {
-            color: var(--text-dim);
-            font-size: 0.82rem;
-            margin-top: 0.35rem;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }
-
-        /* Chart cards */
-        .chart-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 1.25rem;
+        @media (min-width: 960px) {
+            .insights-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+            .chart-card-wide {
+                grid-column: 1 / -1;
+            }
         }
 
         .chart-card {
-            background: var(--surface-glass);
-            backdrop-filter: blur(20px);
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius);
-            padding: 1.25rem 1.4rem 1.4rem;
-            min-width: 0;
-        }
-
-        .chart-card.wide {
-            grid-column: 1 / -1;
-        }
-
-        .chart-title {
-            font-size: 1.05rem;
-            font-weight: 700;
-            margin-bottom: 0.15rem;
             display: flex;
-            align-items: center;
-            gap: 0.5rem;
+            flex-direction: column;
+            gap: var(--sp-4);
         }
 
-        .chart-hint {
-            color: var(--text-dim);
-            font-size: 0.8rem;
-            margin-bottom: 1rem;
+        .chart-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: var(--sp-3);
+        }
+
+        .chart-head .ui-card-title {
+            margin: 0;
+        }
+
+        .chart-head .ui-btn {
+            flex: none;
+        }
+
+        .chart-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--sp-1) var(--sp-4);
+            margin: 0;
+            padding: 0;
+            list-style: none;
+            font-size: var(--text-footnote);
+            color: var(--text-2);
+        }
+
+        .chart-legend li {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .chart-legend strong {
+            color: var(--text-1);
+            font-weight: 650;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .legend-swatch {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+            flex: none;
+            background: var(--k);
+        }
+
+        .k-success { --k: var(--success-mark); }
+        .k-failed { --k: var(--danger-mark); }
+        .k-accent { --k: var(--accent); }
+
+        .chart-plot {
+            position: relative;
+            min-height: 120px;
+            border-radius: var(--r-sm);
+        }
+
+        .chart-plot:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 4px;
         }
 
         .chart-svg {
             display: block;
-            max-width: 100%;
+            overflow: visible;
+            font-family: var(--font-sans);
         }
 
-        .daily-chart { width: 100%; min-height: 200px; }
-
-        /* SVG element theming */
-        .bar-success { fill: var(--primary); transition: opacity 0.15s ease; }
-        .bar-failed { fill: var(--danger); transition: opacity 0.15s ease; }
-        .bar-success:hover, .bar-failed:hover { opacity: 0.75; }
-        .axis-text { fill: var(--text-dim); font-size: 11px; font-family: inherit; font-variant-numeric: tabular-nums; }
-        .grid-line { stroke: var(--border-glass); stroke-width: 1; }
-
-        .legend {
-            display: flex;
-            gap: 1.2rem;
-            flex-wrap: wrap;
-            margin-top: 0.9rem;
-            font-size: 0.82rem;
-            color: var(--text-dim);
-        }
-        .legend-item { display: flex; align-items: center; gap: 0.4rem; }
-        .legend-dot { width: 11px; height: 11px; border-radius: 3px; flex-shrink: 0; }
-
-        /* Horizontal bar list (top artists / quality) */
-        .hbar-row {
-            display: grid;
-            grid-template-columns: minmax(80px, 34%) 1fr auto;
-            align-items: center;
-            gap: 0.75rem;
-            margin-bottom: 0.7rem;
-        }
-        .hbar-label {
-            font-size: 0.85rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .hbar-track {
-            background: var(--track);
-            border-radius: 6px;
-            height: 12px;
-            overflow: hidden;
-        }
-        .hbar-fill {
-            display: block;
-            height: 100%;
-            border-radius: 6px;
-            background: linear-gradient(90deg, var(--primary), #06d6a0);
-            width: 0;
-            transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .hbar-fill.alt { background: linear-gradient(90deg, var(--accent), #22d3ee); }
-        .hbar-value {
-            font-size: 0.82rem;
-            font-weight: 700;
-            color: var(--text-dim);
-            min-width: 2.2rem;
-            text-align: right;
+        .chart-svg text {
+            font-size: 11px;
+            fill: var(--text-3);
+            font-variant-numeric: tabular-nums;
         }
 
-        /* Donut */
+        .chart-svg .peak-label {
+            fill: var(--text-2);
+            font-weight: 600;
+        }
+
+        .grid-line {
+            stroke: var(--separator);
+            stroke-width: 1;
+            shape-rendering: crispEdges;
+        }
+
+        .base-line {
+            stroke: var(--separator-strong);
+            stroke-width: 1;
+            shape-rendering: crispEdges;
+        }
+
+        .mark-success { fill: var(--success-mark); }
+        .mark-failed { fill: var(--danger-mark); }
+
+        .col-band {
+            fill: var(--fill-1);
+            opacity: 0;
+            transition: opacity var(--dur-fast) var(--ease);
+        }
+
+        .col.is-active .col-band {
+            opacity: 1;
+        }
+
+        .col-hit {
+            fill: transparent;
+            cursor: default;
+        }
+
+        .col-bars {
+            transform-box: fill-box;
+            transform-origin: 50% 100%;
+        }
+
+        .is-animated .col-bars {
+            animation: grow-y 520ms var(--ease-out) both;
+            animation-delay: var(--d, 0ms);
+        }
+
+        .is-animated .peak-label {
+            animation: fade-in 240ms var(--ease) 560ms both;
+        }
+
+        @keyframes fade-in {
+            from { opacity: 0; }
+        }
+
+        @keyframes grow-y {
+            from { transform: scaleY(0); }
+        }
+
         .donut-wrap {
             display: flex;
             align-items: center;
-            gap: 1.5rem;
+            gap: var(--sp-6);
             flex-wrap: wrap;
         }
-        .donut-center-value {
-            font-size: 26px;
-            font-weight: 800;
-            fill: var(--text);
-        }
-        .donut-center-label {
-            font-size: 0.7rem;
-            fill: var(--text-dim);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+
+        .donut-plot {
+            flex: none;
+            width: 168px;
+            height: 168px;
         }
 
-        .empty-state {
+        .donut-arc {
+            fill: none;
+            transition: opacity var(--dur-fast) var(--ease);
+        }
+
+        .donut-arc.arc-success { stroke: var(--success-mark); }
+        .donut-arc.arc-failed { stroke: var(--danger-mark); }
+
+        .donut-plot.has-active .donut-arc:not(.is-active) {
+            opacity: 0.45;
+        }
+
+        .donut-center {
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            fill: var(--text-1);
+            font-variant-numeric: normal;
+        }
+
+        .chart-svg .donut-center {
+            fill: var(--text-1);
+        }
+
+        .donut-plot text {
+            pointer-events: none;
+        }
+
+        .is-animated .donut-sweep {
+            animation: sweep 900ms var(--ease-out) both;
+        }
+
+        @keyframes sweep {
+            from { stroke-dashoffset: var(--c); }
+            to { stroke-dashoffset: 0; }
+        }
+
+        .donut-legend {
+            flex: 1 1 180px;
+            min-width: 0;
+            display: grid;
+            gap: var(--sp-2);
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .donut-legend li {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-2);
+            font-size: var(--text-subhead);
+            color: var(--text-2);
+        }
+
+        .donut-legend li > span:nth-child(2) {
+            flex: 1;
+        }
+
+        .donut-legend .legend-num {
+            color: var(--text-1);
+            font-weight: 650;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .donut-legend .legend-pct {
+            min-width: 48px;
+            text-align: right;
+            color: var(--text-3);
+            font-size: var(--text-footnote);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .donut-legend .is-total {
+            padding-top: var(--sp-2);
+            border-top: 1px solid var(--separator);
+        }
+
+        .legend-swatch.is-blank {
+            background: transparent;
+        }
+
+        .hbars {
+            display: grid;
+            gap: 2px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+
+        .hbar {
+            display: grid;
+            grid-template-columns: minmax(64px, 34%) minmax(0, 1fr);
+            align-items: center;
+            gap: var(--sp-3);
+            min-height: 28px;
+            padding: 0 var(--sp-2);
+            margin: 0 calc(var(--sp-2) * -1);
+            border-radius: var(--r-xs);
+            transition: background var(--dur-fast) var(--ease);
+        }
+
+        .hbar.is-active {
+            background: var(--fill-1);
+        }
+
+        .hbar-label {
+            font-size: var(--text-footnote);
+            color: var(--text-2);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            unicode-bidi: plaintext;
+            text-align: left;
+        }
+
+        .hbar-area {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-2);
+            min-width: 0;
+            border-left: 1px solid var(--separator-strong);
+            height: 22px;
+        }
+
+        .hbar-fill {
+            flex: none;
+            width: max(2px, calc((100% - 56px) * var(--p)));
+            height: 14px;
+            border-radius: 0 4px 4px 0;
+            background: var(--accent);
+            transform-origin: 0 50%;
+        }
+
+        .is-animated .hbar-fill {
+            animation: grow-x 560ms var(--ease-out) both;
+            animation-delay: var(--d, 0ms);
+        }
+
+        @keyframes grow-x {
+            from { transform: scaleX(0); }
+        }
+
+        .hbar-value {
+            font-size: var(--text-footnote);
+            color: var(--text-2);
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+
+        .chart-empty {
+            padding: var(--sp-6) 0;
             text-align: center;
-            padding: 4rem 1rem;
-            color: var(--text-dim);
-        }
-        .empty-state i { font-size: 3rem; opacity: 0.4; margin-bottom: 1rem; }
-
-        .loading-state {
-            text-align: center;
-            padding: 3rem 1rem;
-            color: var(--text-dim);
+            color: var(--text-3);
+            font-size: var(--text-subhead);
         }
 
-        body.light .page-title,
-        body.light .logo { background-image: linear-gradient(135deg, var(--primary), var(--primary-hover)); }
-
-        @media (max-width: 900px) {
-            .chart-grid { grid-template-columns: 1fr; }
+        .chart-table .ui-table-wrap {
+            max-height: 340px;
+            overflow: auto;
+            box-shadow: var(--hairline);
         }
 
-        @media (max-width: 768px) {
-            .nav-container {
-                height: auto;
-                flex-wrap: wrap;
-                padding: 0.75rem 1rem;
-                gap: 0.5rem;
-            }
-            .logo { font-size: 1rem; }
-            .nav-links {
-                width: 100%;
+        .chart-table caption {
+            caption-side: top;
+            text-align: left;
+            padding: var(--sp-2) var(--sp-4);
+            color: var(--text-3);
+            font-size: var(--text-footnote);
+        }
+
+        .chart-tip {
+            white-space: normal;
+            min-width: 150px;
+            max-width: 260px;
+        }
+
+        .chart-tip-title {
+            font-weight: 600;
+            color: var(--text-2);
+            margin-bottom: 4px;
+            overflow-wrap: anywhere;
+        }
+
+        .chart-tip-row {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-2);
+        }
+
+        .chart-tip-key {
+            width: 12px;
+            height: 3px;
+            border-radius: 2px;
+            flex: none;
+            background: var(--k, var(--text-3));
+        }
+
+        .chart-tip-val {
+            font-weight: 700;
+            color: var(--text-1);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .chart-tip-name {
+            color: var(--text-3);
+        }
+
+        .skel-stat {
+            height: 96px;
+            border-radius: var(--r-lg);
+        }
+
+        .skel-card {
+            height: 300px;
+            border-radius: var(--r-lg);
+        }
+
+        .insights-state {
+            background: var(--bg-elevated);
+            border-radius: var(--r-lg);
+            box-shadow: var(--shadow-1), var(--hairline);
+        }
+
+        @media (max-width: 560px) {
+            .donut-wrap {
                 justify-content: center;
-                flex-wrap: wrap;
-                gap: 0.15rem;
-                order: 3;
             }
-            .nav-links a { padding: 0.35rem 0.7rem; font-size: 0.8rem; }
-            .container { padding: 1rem; }
-            .page-title { font-size: 1.5rem; }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after {
-                animation-duration: 0.01ms !important;
-                animation-iteration-count: 1 !important;
-                transition-duration: 0.01ms !important;
-                scroll-behavior: auto !important;
+            .page-actions,
+            .page-actions .ui-segmented {
+                width: 100%;
             }
         }
     </style>
 </head>
-
-<body>
-    <header>
-        <div class="nav-container">
-            <a href="/" style="text-decoration: none;">
-                <div class="logo">
-                    <div class="logo-icon">
-                        <svg viewBox="0 0 32 32" fill="white"><rect x="4" y="18" width="4" height="8" rx="1"/><rect x="10" y="12" width="4" height="14" rx="1"/><rect x="18" y="6" width="4" height="20" rx="1"/><rect x="24" y="14" width="4" height="12" rx="1"/></svg>
-                    </div>
-                    LYD
+<body class="app">
+    {% set active_page = 'insights' %}
+    {% include "_nav.html" %}
+    <main class="app-main" id="main">
+        <div class="app-content">
+            {% include "_topbar.html" %}
+            <header class="page-header">
+                <div class="page-header-text">
+                    <h1 class="page-title">Insights</h1>
+                    <p class="page-subtitle">Download activity, success rate and audio quality at a glance</p>
                 </div>
-            </a>
-            <div class="nav-links">
-                <a href="/"><i class="fas fa-home"></i> Home</a>
-                <a href="/downloads"><i class="fas fa-download"></i> Downloads <span class="nav-badge" id="queueBadge">0</span></a>
-                <a href="/insights" class="active"><i class="fas fa-chart-line"></i> Insights</a>
-                <a href="/logs"><i class="fas fa-list"></i> Logs</a>
-                <a href="/youtube"><i class="fab fa-youtube"></i> YouTube</a>
-                <a href="/settings"><i class="fas fa-cog"></i> Settings</a>
-            </div>
-            <div class="controls">
-                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle light/dark theme">
-                    <i class="fas fa-moon" id="theme-icon"></i>
-                </button>
-            </div>
-        </div>
-    </header>
+                <div class="page-actions">
+                    <div class="ui-segmented" id="windowSelect" role="group" aria-label="Time range">
+                        <button type="button" data-days="7" aria-pressed="false" aria-label="Last 7 days">7 days</button>
+                        <button type="button" data-days="30" aria-pressed="true" aria-label="Last 30 days">30 days</button>
+                        <button type="button" data-days="90" aria-pressed="false" aria-label="Last 90 days">90 days</button>
+                        <button type="button" data-days="365" aria-pressed="false" aria-label="Last year">1 year</button>
+                    </div>
+                </div>
+            </header>
 
-    <div class="container">
-        <div class="page-header">
-            <div>
-                <h1 class="page-title">📊 Insights</h1>
-                <p class="page-subtitle">Download activity, success rate and audio quality at a glance</p>
-            </div>
-            <select class="filter-select" id="windowSelect" onchange="loadInsights()">
-                <option value="7">Last 7 days</option>
-                <option value="30" selected>Last 30 days</option>
-                <option value="90">Last 90 days</option>
-                <option value="365">Last year</option>
-            </select>
+            <p class="sr-only" id="insightsStatus" role="status" aria-live="polite"></p>
+            <div class="insights-body" id="insightsBody"></div>
         </div>
-
-        <div id="insightsBody">
-            <div class="loading-state">
-                <i class="fas fa-spinner fa-spin"></i> Loading insights…
-            </div>
-        </div>
-    </div>
+    </main>
 
     <script>
-        function toggleTheme() {
-            const toggle = document.getElementById('themeToggle');
-            toggle.classList.add('spin');
-            setTimeout(() => {
-                document.body.classList.toggle('light');
-                const icon = document.getElementById('theme-icon');
-                if (document.body.classList.contains('light')) {
-                    icon.classList.remove('fa-moon');
-                    icon.classList.add('fa-sun');
-                    localStorage.setItem('theme', 'light');
-                } else {
-                    icon.classList.remove('fa-sun');
-                    icon.classList.add('fa-moon');
-                    localStorage.setItem('theme', 'dark');
-                }
-                syncThemeColor();
-            }, 250);
-            setTimeout(() => toggle.classList.remove('spin'), 500);
-        }
+        const RANGE_LABEL = { 7: 'last 7 days', 30: 'last 30 days', 90: 'last 90 days', 365: 'last year' };
+        let currentDays = 30;
+        let insightsSeq = 0;
+        let lastData = null;
+        let tip = null;
+        let dailyBuckets = [];
+        let dailyWidth = 0;
+        let resizeObs = null;
+        const tableViews = new Set();
+        const esc = (s) => UI.escape(s == null ? '' : s);
 
-        function syncThemeColor() {
-            const meta = document.querySelector('meta[name="theme-color"]');
-            if (meta) meta.setAttribute('content', document.body.classList.contains('light') ? '#f4f4f5' : '#09090b');
-        }
-
-        if (localStorage.getItem('theme') === 'light') {
-            document.body.classList.add('light');
-            document.getElementById('theme-icon').classList.remove('fa-moon');
-            document.getElementById('theme-icon').classList.add('fa-sun');
-        }
-        syncThemeColor();
-
-        function escapeHtml(str) {
-            return String(str == null ? '' : str)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;')
-                .replace(/"/g, '&quot;')
-                .replace(/'/g, '&#39;');
+        function rangeLabel(days) {
+            return RANGE_LABEL[days] || ('last ' + days + ' days');
         }
 
         function fmtInt(n) {
-            return (n || 0).toLocaleString();
+            return (Number(n) || 0).toLocaleString();
+        }
+
+        function fmtPct(part, total) {
+            if (!total) return '0%';
+            const v = part / total * 100;
+            return (v >= 10 || v === 0 ? Math.round(v) : v.toFixed(1)) + '%';
         }
 
         function fmtDuration(seconds) {
@@ -587,240 +474,654 @@
             return seconds + 's';
         }
 
-        async function updateQueueBadge() {
-            try {
-                const res = await fetch('/api/stats');
-                const s = await res.json();
-                const badge = document.getElementById('queueBadge');
-                if (s.in_queue > 0) {
-                    badge.textContent = s.in_queue;
-                    badge.classList.add('active');
-                } else {
-                    badge.classList.remove('active');
-                }
-            } catch (e) {}
+        function parseDay(s) {
+            const p = String(s).split('-').map(Number);
+            return new Date(p[0], (p[1] || 1) - 1, p[2] || 1);
         }
 
-        function statCard(icon, value, label, color) {
-            return `<div class="stat-card">
-                        <i class="fas ${icon} stat-icon" style="color:${color}"></i>
-                        <div class="stat-value" style="color:${color}">${value}</div>
-                        <div class="stat-label">${label}</div>
-                    </div>`;
+        function fmtDay(d, withYear) {
+            return d.toLocaleDateString(undefined, withYear ? { month: 'short', day: 'numeric', year: 'numeric' } : { month: 'short', day: 'numeric' });
         }
 
-        function buildStats(t) {
-            return `<div class="stat-grid">
-                ${statCard('fa-music', fmtInt(t.total_tracks), 'Tracks attempted', 'var(--text)')}
-                ${statCard('fa-circle-check', t.success_rate + '%', 'Success rate', 'var(--primary)')}
-                ${statCard('fa-download', fmtInt(t.successful), 'Downloaded', 'var(--primary)')}
-                ${statCard('fa-triangle-exclamation', fmtInt(t.failed), 'Failed', 'var(--danger)')}
-                ${statCard('fa-compact-disc', fmtInt(t.distinct_albums), 'Albums', 'var(--accent)')}
-                ${statCard('fa-user', fmtInt(t.distinct_artists), 'Artists', 'var(--accent)')}
-                ${statCard('fa-clock', fmtDuration(t.total_duration_seconds), 'Downloaded audio', 'var(--warning)')}
-            </div>`;
+        let measureCtx = null;
+        function textWidth(text, size, weight) {
+            if (!measureCtx) measureCtx = document.createElement('canvas').getContext('2d');
+            measureCtx.font = (weight || 400) + ' ' + size + 'px ' + getComputedStyle(document.body).fontFamily;
+            return measureCtx.measureText(String(text)).width;
         }
-
-        // Stacked daily bar chart (success + failed per day).
-        let dailyData = null;
-        let dailyWidth = 0;
 
         function niceScale(max, maxTicks) {
             const raw = Math.max(1, max) / maxTicks;
             const mag = Math.pow(10, Math.floor(Math.log10(raw)));
             const norm = raw / mag;
             const mults = mag >= 10 ? [1, 2, 2.5, 5, 10] : [1, 2, 5, 10];
-            const step = Math.max(1, mults.find(m => norm <= m) * mag);
+            const step = Math.max(1, mults.find((m) => norm <= m) * mag);
             return { top: Math.max(step, Math.ceil(Math.max(1, max) / step) * step), step };
         }
 
-        function buildDailyChart(daily) {
-            dailyData = daily;
-            return `<div class="daily-chart" id="dailyChart"></div>
-                    <div class="legend">
-                        <span class="legend-item"><span class="legend-dot" style="background:var(--primary)"></span>Downloaded</span>
-                        <span class="legend-item"><span class="legend-dot" style="background:var(--danger)"></span>Failed</span>
-                    </div>`;
+        function ensureTip() {
+            if (tip && document.body.contains(tip)) return tip;
+            tip = document.createElement('div');
+            tip.className = 'ui-tooltip chart-tip';
+            tip.setAttribute('aria-hidden', 'true');
+            document.body.appendChild(tip);
+            return tip;
         }
 
-        function drawDailyChart() {
-            const el = document.getElementById('dailyChart');
-            if (!el || !dailyData || !dailyData.length) return;
-            const W = Math.max(240, Math.floor(el.clientWidth));
-            if (W === dailyWidth && el.firstChild) return;
-            dailyWidth = W;
-            const daily = dailyData;
-            const H = W < 520 ? 200 : 260, pl = 40, pr = 12, pt = 14, pb = 26;
-            const plotW = W - pl - pr, plotH = H - pt - pb;
+        function showTip(content, x, y) {
+            const t = ensureTip();
+            t.textContent = '';
+            const title = document.createElement('div');
+            title.className = 'chart-tip-title';
+            title.textContent = content.title;
+            t.appendChild(title);
+            content.rows.forEach((r) => {
+                const row = document.createElement('div');
+                row.className = 'chart-tip-row';
+                const key = document.createElement('span');
+                key.className = 'chart-tip-key' + (r.k ? ' ' + r.k : '');
+                const val = document.createElement('span');
+                val.className = 'chart-tip-val';
+                val.textContent = r.value;
+                const name = document.createElement('span');
+                name.className = 'chart-tip-name';
+                name.textContent = r.name;
+                row.append(key, val, name);
+                t.appendChild(row);
+            });
+            t.classList.add('is-visible');
+            const tw = t.offsetWidth;
+            const th = t.offsetHeight;
+            let left = x + 14;
+            let top = y - th - 12;
+            if (left + tw > window.innerWidth - 8) left = x - tw - 14;
+            if (left < 8) left = 8;
+            if (top < 8) top = y + 18;
+            if (top + th > window.innerHeight - 8) top = window.innerHeight - th - 8;
+            t.style.left = left + 'px';
+            t.style.top = top + 'px';
+        }
+
+        function hideTip() {
+            if (tip) tip.classList.remove('is-visible');
+        }
+
+        function attachInspector(container, opts) {
+            let active = -1;
+            const count = () => opts.count();
+            function setActive(i, point) {
+                const marks = container.querySelectorAll('[data-i]');
+                marks.forEach((m) => m.classList.toggle('is-active', Number(m.dataset.i) === i));
+                if (opts.onActive) opts.onActive(i);
+                active = i;
+                if (i < 0) {
+                    hideTip();
+                    return;
+                }
+                let x;
+                let y;
+                if (point) {
+                    x = point.x;
+                    y = point.y;
+                } else {
+                    const anchor = opts.anchor ? opts.anchor(i) : container.querySelector('[data-i="' + i + '"]');
+                    const r = (anchor || container).getBoundingClientRect();
+                    x = r.left + r.width / 2;
+                    y = r.top;
+                }
+                showTip(opts.content(i), x, y);
+            }
+            container.addEventListener('pointermove', (e) => {
+                const m = e.target.closest('[data-i]');
+                if (!m || !container.contains(m)) {
+                    if (active !== -1) setActive(-1);
+                    return;
+                }
+                setActive(Number(m.dataset.i), { x: e.clientX, y: e.clientY });
+            });
+            container.addEventListener('pointerleave', () => setActive(-1));
+            container.addEventListener('focus', () => {
+                if (!count()) return;
+                setActive(active >= 0 ? active : (opts.initial ? opts.initial() : 0));
+            });
+            container.addEventListener('blur', () => setActive(-1));
+            container.addEventListener('keydown', (e) => {
+                const n = count();
+                if (!n) return;
+                let i = active < 0 ? 0 : active;
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') i = Math.min(n - 1, i + 1);
+                else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') i = Math.max(0, i - 1);
+                else if (e.key === 'Home') i = 0;
+                else if (e.key === 'End') i = n - 1;
+                else if (e.key === 'Escape') {
+                    setActive(-1);
+                    return;
+                } else return;
+                e.preventDefault();
+                setActive(i);
+            });
+        }
+
+        function bucketDaily(daily, maxBars) {
             const n = daily.length;
-            const scale = niceScale(Math.max(...daily.map(d => d.success + d.failed)), H < 260 ? 4 : 5);
-            const maxTotal = scale.top;
+            if (n <= maxBars) {
+                return { unit: 'day', buckets: daily.map((d) => {
+                    const dt = parseDay(d.date);
+                    return { label: fmtDay(dt), full: fmtDay(dt, true), short: fmtDay(dt), success: d.success, failed: d.failed };
+                }) };
+            }
+            const out = [];
+            if (Math.ceil(n / 7) <= maxBars) {
+                for (let i = 0; i < n; i += 7) {
+                    const chunk = daily.slice(i, i + 7);
+                    const a = parseDay(chunk[0].date);
+                    const b = parseDay(chunk[chunk.length - 1].date);
+                    out.push({
+                        label: fmtDay(a) + ' – ' + fmtDay(b),
+                        full: fmtDay(a) + ' – ' + fmtDay(b, true),
+                        short: fmtDay(a),
+                        success: chunk.reduce((s, d) => s + d.success, 0),
+                        failed: chunk.reduce((s, d) => s + d.failed, 0),
+                    });
+                }
+                return { unit: 'week', buckets: out };
+            }
+            const byMonth = new Map();
+            daily.forEach((d) => {
+                const dt = parseDay(d.date);
+                const key = dt.getFullYear() + '-' + dt.getMonth();
+                if (!byMonth.has(key)) {
+                    byMonth.set(key, {
+                        label: dt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+                        full: dt.toLocaleDateString(undefined, { month: 'long', year: 'numeric' }),
+                        short: dt.toLocaleDateString(undefined, { month: 'short' }),
+                        success: 0,
+                        failed: 0,
+                    });
+                }
+                const m = byMonth.get(key);
+                m.success += d.success;
+                m.failed += d.failed;
+            });
+            return { unit: 'month', buckets: Array.from(byMonth.values()) };
+        }
+
+        function topRoundedPath(x, y, w, h, r) {
+            r = Math.max(0, Math.min(r, w / 2, h));
+            const f = (v) => v.toFixed(2);
+            if (r === 0) return 'M' + f(x) + ' ' + f(y + h) + 'V' + f(y) + 'H' + f(x + w) + 'V' + f(y + h) + 'Z';
+            return 'M' + f(x) + ' ' + f(y + h)
+                + 'V' + f(y + r)
+                + 'A' + f(r) + ' ' + f(r) + ' 0 0 1 ' + f(x + r) + ' ' + f(y)
+                + 'H' + f(x + w - r)
+                + 'A' + f(r) + ' ' + f(r) + ' 0 0 1 ' + f(x + w) + ' ' + f(y + r)
+                + 'V' + f(y + h) + 'Z';
+        }
+
+        function drawDailyChart(animate) {
+            const el = document.getElementById('dailyChart');
+            if (!el || !lastData || !lastData.daily || !lastData.daily.length) return;
+            const W = Math.max(240, Math.floor(el.clientWidth));
+            if (!animate && W === dailyWidth && el.firstChild) return;
+            dailyWidth = W;
+            const H = W < 520 ? 220 : 260;
+            const pt = 18;
+            const pb = 26;
+            const pr = 2;
+            const maxTicks = H < 260 ? 4 : 5;
+            const grouped = bucketDaily(lastData.daily, Math.max(4, Math.floor((W - 44 - pr) / 6)));
+            const buckets = grouped.buckets;
+            dailyBuckets = buckets;
+            const n = buckets.length;
+            const maxTotal = Math.max(...buckets.map((b) => b.success + b.failed));
+            const scale = niceScale(maxTotal, maxTicks);
+            const pl = Math.ceil(textWidth(scale.top.toLocaleString(), 11) + 10);
+            const plotW = W - pl - pr;
+            const plotH = H - pt - pb;
+            const top = scale.top;
             const slot = plotW / n;
-            const barW = Math.max(2, Math.min(24, slot * 0.62));
+            const barW = Math.min(24, Math.max(2, slot - Math.max(2, slot * 0.38)));
+            const yOf = (v) => pt + plotH - (v / top) * plotH;
+            const baseY = Math.round(pt + plotH) + 0.5;
 
             let grid = '';
-            for (let val = 0; val <= maxTotal; val += scale.step) {
-                const y = pt + plotH - (val / maxTotal) * plotH;
-                grid += `<line x1="${pl}" y1="${y.toFixed(1)}" x2="${W - pr}" y2="${y.toFixed(1)}" class="grid-line"/>`;
-                grid += `<text x="${pl - 6}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="axis-text">${val.toLocaleString()}</text>`;
+            for (let val = 0; val <= top; val += scale.step) {
+                const y = Math.round(yOf(val)) + 0.5;
+                if (val > 0) grid += '<line class="grid-line" x1="' + pl + '" x2="' + (W - pr) + '" y1="' + y + '" y2="' + y + '"/>';
+                grid += '<text x="' + (pl - 8) + '" y="' + (y + 3.5).toFixed(1) + '" text-anchor="end">' + esc(val.toLocaleString()) + '</text>';
             }
+            grid += '<line class="base-line" x1="' + pl + '" x2="' + (W - pr) + '" y1="' + baseY + '" y2="' + baseY + '"/>';
 
-            let bars = '';
-            daily.forEach((d, i) => {
-                const x = pl + i * slot + (slot - barW) / 2;
-                const sH = (d.success / maxTotal) * plotH;
-                const fH = (d.failed / maxTotal) * plotH;
-                const yS = pt + plotH - sH;
-                const yF = yS - fH;
-                if (sH > 0) bars += `<rect x="${x.toFixed(1)}" y="${yS.toFixed(1)}" width="${barW.toFixed(1)}" height="${sH.toFixed(1)}" rx="1.5" class="bar-success"><title>${escapeHtml(d.date)}: ${d.success} downloaded</title></rect>`;
-                if (fH > 0) bars += `<rect x="${x.toFixed(1)}" y="${yF.toFixed(1)}" width="${barW.toFixed(1)}" height="${fH.toFixed(1)}" rx="1.5" class="bar-failed"><title>${escapeHtml(d.date)}: ${d.failed} failed</title></rect>`;
+            let peakIdx = -1;
+            let peakVal = 0;
+            buckets.forEach((b, i) => {
+                if (b.success + b.failed > peakVal) {
+                    peakVal = b.success + b.failed;
+                    peakIdx = i;
+                }
             });
+
+            const delayStep = Math.min(14, 420 / Math.max(1, n));
+            let cols = '';
+            buckets.forEach((b, i) => {
+                const sx = pl + i * slot;
+                const x = sx + (slot - barW) / 2;
+                const base = pt + plotH;
+                let sH = b.success ? Math.max(1.5, (b.success / top) * plotH) : 0;
+                let fH = b.failed ? Math.max(1.5, (b.failed / top) * plotH) : 0;
+                const gap = sH && fH ? 2 : 0;
+                let bars = '';
+                if (sH) {
+                    bars += '<path class="mark-success" d="' + topRoundedPath(x, base - sH, barW, sH, fH ? 0 : 4) + '"/>';
+                }
+                if (fH) {
+                    bars += '<path class="mark-failed" d="' + topRoundedPath(x, base - sH - gap - fH, barW, fH, 4) + '"/>';
+                }
+                cols += '<g class="col" data-i="' + i + '">'
+                    + '<rect class="col-band" x="' + sx.toFixed(2) + '" y="' + pt + '" width="' + slot.toFixed(2) + '" height="' + plotH + '" rx="3"/>'
+                    + (bars ? '<g class="col-bars" style="--d:' + Math.round(i * delayStep) + 'ms">' + bars + '</g>' : '')
+                    + '<rect class="col-hit" x="' + sx.toFixed(2) + '" y="' + pt + '" width="' + slot.toFixed(2) + '" height="' + (plotH + pb) + '"/>'
+                    + '</g>';
+            });
+
+            let peak = '';
+            if (peakIdx >= 0 && peakVal > 0) {
+                const cx = pl + peakIdx * slot + slot / 2;
+                const label = peakVal.toLocaleString();
+                const lw = textWidth(label, 11, 600);
+                const lx = Math.min(Math.max(cx, pl + lw / 2), W - pr - lw / 2);
+                const failedH = buckets[peakIdx].failed && buckets[peakIdx].success ? 2 : 0;
+                const ly = yOf(peakVal) - failedH - 5;
+                peak = '<text class="peak-label" x="' + lx.toFixed(1) + '" y="' + Math.max(10, ly).toFixed(1) + '" text-anchor="middle">' + esc(label) + '</text>';
+            }
 
             let xlabels = '';
-            const idxs = n <= 1 ? [0] : [0, Math.floor((n - 1) / 2), n - 1];
-            [...new Set(idxs)].forEach(i => {
-                const x = pl + i * slot + slot / 2;
-                const short = String(daily[i].date).slice(5);
-                const anchor = n > 1 && i === 0 ? 'start' : (n > 1 && i === n - 1 ? 'end' : 'middle');
-                const lx = anchor === 'start' ? Math.max(x - slot / 2, pl) : (anchor === 'end' ? Math.min(x + slot / 2, W - pr) : x);
-                xlabels += `<text x="${lx.toFixed(1)}" y="${H - 8}" text-anchor="${anchor}" class="axis-text">${escapeHtml(short)}</text>`;
+            const minGap = 14;
+            let lastRight = -Infinity;
+            const candidates = [];
+            const approx = Math.max(...buckets.map((b) => textWidth(b.short, 11))) + minGap;
+            const every = Math.max(1, Math.ceil(approx / slot));
+            for (let i = 0; i < n; i += every) candidates.push(i);
+            if (candidates[candidates.length - 1] !== n - 1) candidates.push(n - 1);
+            candidates.forEach((i) => {
+                const text = buckets[i].short;
+                const w = textWidth(text, 11);
+                let cx = pl + i * slot + slot / 2;
+                cx = Math.min(Math.max(cx, pl + w / 2), W - pr - w / 2);
+                const left = cx - w / 2;
+                if (left < lastRight + minGap) return;
+                lastRight = cx + w / 2;
+                xlabels += '<text x="' + cx.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(text) + '</text>';
             });
 
-            el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" class="chart-svg" role="img" aria-label="Downloads over time">
-                        ${grid}${bars}${xlabels}
-                    </svg>`;
+            const totS = buckets.reduce((s, b) => s + b.success, 0);
+            const totF = buckets.reduce((s, b) => s + b.failed, 0);
+            el.innerHTML = '<svg class="chart-svg' + (animate ? ' is-animated' : '') + '" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '"'
+                + ' role="img" aria-label="' + esc('Stacked columns per ' + grouped.unit + ': ' + totS.toLocaleString() + ' downloaded and ' + totF.toLocaleString() + ' failed tracks. Use the table view for exact values.') + '">'
+                + grid + cols + peak + xlabels + '</svg>';
+            el.dataset.unit = grouped.unit;
+            renderDailyTable(grouped);
         }
 
-        let resizeTimer = null;
-        window.addEventListener('resize', () => {
-            clearTimeout(resizeTimer);
-            resizeTimer = setTimeout(drawDailyChart, 100);
-        });
-
-        function fitDonutValue() {
-            const el = document.querySelector('.donut-center-value');
-            if (!el || !el.getComputedTextLength) return;
-            const maxW = 92;
-            const w = el.getComputedTextLength();
-            if (w > maxW) el.style.fontSize = Math.floor(26 * maxW / w) + 'px';
+        function renderDailyTable(grouped) {
+            const host = document.getElementById('dailyTable');
+            if (!host) return;
+            const unitHead = { day: 'Day', week: 'Week', month: 'Month' }[grouped.unit];
+            const rows = grouped.buckets.map((b) => '<tr><td>' + esc(b.full) + '</td><td class="num">' + fmtInt(b.success) + '</td><td class="num">' + fmtInt(b.failed) + '</td><td class="num">' + fmtInt(b.success + b.failed) + '</td></tr>').join('');
+            host.innerHTML = '<div class="ui-table-wrap"><table class="ui-table"><caption>Track downloads per ' + grouped.unit + '</caption>'
+                + '<thead><tr><th scope="col">' + unitHead + '</th><th scope="col" class="num">Downloaded</th><th scope="col" class="num">Failed</th><th scope="col" class="num">Total</th></tr></thead>'
+                + '<tbody>' + rows + '</tbody></table></div>';
         }
 
-        // Success-rate donut.
-        function buildDonut(t) {
-            const size = 150, sw = 18, r = (size - sw) / 2, cx = size / 2, cy = size / 2;
-            const circ = 2 * Math.PI * r;
-            const rate = Math.max(0, Math.min(100, t.success_rate)) / 100;
-            const dash = circ * rate;
-            return `<div class="donut-wrap">
-                    <svg viewBox="0 0 ${size} ${size}" style="width:150px;height:150px;flex-shrink:0" role="img" aria-label="Success rate ${t.success_rate}%">
-                        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--track)" stroke-width="${sw}"/>
-                        <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--primary)" stroke-width="${sw}"
-                            stroke-linecap="round" stroke-dasharray="${dash.toFixed(1)} ${(circ - dash).toFixed(1)}"
-                            transform="rotate(-90 ${cx} ${cy})"/>
-                        <text x="${cx}" y="${cy + 2}" text-anchor="middle" class="donut-center-value">${t.success_rate}%</text>
-                        <text x="${cx}" y="${cy + 20}" text-anchor="middle" class="donut-center-label">success</text>
-                    </svg>
-                    <div style="flex:1;min-width:150px">
-                        <div class="hbar-row" style="grid-template-columns:1fr auto">
-                            <span class="hbar-label"><i class="fas fa-circle" style="color:var(--primary);font-size:0.6rem"></i> Downloaded</span>
-                            <span class="hbar-value">${fmtInt(t.successful)}</span>
-                        </div>
-                        <div class="hbar-row" style="grid-template-columns:1fr auto">
-                            <span class="hbar-label"><i class="fas fa-circle" style="color:var(--danger);font-size:0.6rem"></i> Failed</span>
-                            <span class="hbar-value">${fmtInt(t.failed)}</span>
-                        </div>
-                        <div class="hbar-row" style="grid-template-columns:1fr auto">
-                            <span class="hbar-label"><i class="fas fa-circle" style="color:var(--text-dim);font-size:0.6rem"></i> Total</span>
-                            <span class="hbar-value">${fmtInt(t.total_tracks)}</span>
-                        </div>
-                    </div>
-                </div>`;
+        function buildStats(t) {
+            const tile = (icon, label, value, meta) => '<div class="ui-stat"><div class="ui-stat-label">' + UI.icon(icon) + '<span>' + label + '</span></div>'
+                + '<div class="ui-stat-value">' + esc(value) + '</div><div class="ui-stat-meta"><span>' + esc(meta) + '</span></div></div>';
+            return '<section class="ui-stats" aria-label="Summary">'
+                + tile('music', 'Tracks downloaded', fmtInt(t.successful), 'of ' + fmtInt(t.total_tracks) + ' attempted')
+                + tile('check-circle', 'Success rate', t.success_rate + '%', fmtInt(t.failed) + ' failed')
+                + tile('disc', 'Albums', fmtInt(t.distinct_albums), fmtInt(t.distinct_artists) + (t.distinct_artists === 1 ? ' artist' : ' artists'))
+                + tile('clock', 'Downloaded audio', fmtDuration(t.total_duration_seconds), 'Total audio length')
+                + '</section>';
         }
 
-        // Horizontal bars for a labeled list.
-        function buildHBars(items, labelKey, valueKey, alt) {
-            if (!items.length) {
-                return `<div style="color:var(--text-dim);font-size:0.85rem;padding:1rem 0">No data yet.</div>`;
-            }
-            const max = Math.max(1, ...items.map(x => x[valueKey]));
-            return items.map(x => {
-                const pct = (x[valueKey] / max) * 100;
-                return `<div class="hbar-row">
-                            <span class="hbar-label" title="${escapeHtml(x[labelKey])}">${escapeHtml(x[labelKey])}</span>
-                            <span class="hbar-track"><span class="hbar-fill${alt ? ' alt' : ''}" style="width:0" data-w="${pct.toFixed(1)}%"></span></span>
-                            <span class="hbar-value">${fmtInt(x[valueKey])}</span>
-                        </div>`;
-            }).join('');
+        function cardHead(id, icon, title, sub) {
+            const pressed = tableViews.has(id);
+            return '<div class="chart-head"><div><h2 class="ui-card-title" id="' + id + '-title">' + UI.icon(icon) + esc(title) + '</h2>'
+                + '<p class="ui-card-sub">' + esc(sub) + '</p></div>'
+                + '<button type="button" class="ui-btn ui-btn-plain ui-btn-sm" data-view-toggle="' + id + '" aria-pressed="' + pressed + '" aria-controls="' + id + '-chart ' + id + '-table">'
+                + UI.icon(pressed ? 'chart-bar' : 'table') + '<span>' + (pressed ? 'Chart' : 'Table') + '</span></button></div>';
         }
 
-        function render(data) {
+        function viewAttrs(id, isTable) {
+            const shown = tableViews.has(id) === isTable;
+            return shown ? '' : ' hidden';
+        }
+
+        function buildDailyCard(data) {
             const t = data.totals;
-            const body = document.getElementById('insightsBody');
-            if (!t.total_tracks) {
-                body.innerHTML = `<div class="empty-state">
-                        <i class="fas fa-chart-line"></i>
-                        <h2 style="margin-bottom:0.5rem">No download history yet</h2>
-                        <p>Queue some albums and your insights will appear here.</p>
-                    </div>`;
-                return;
+            return '<section class="ui-card chart-card chart-card-wide" aria-labelledby="daily-title">'
+                + cardHead('daily', 'chart-bar', 'Downloads over time', 'Successful vs failed track downloads, ' + rangeLabel(data.window_days))
+                + '<div id="daily-chart"' + viewAttrs('daily', false) + '>'
+                + '<ul class="chart-legend" aria-label="Legend">'
+                + '<li class="k-success"><span class="legend-swatch" aria-hidden="true"></span>Downloaded <strong>' + fmtInt(t.successful) + '</strong></li>'
+                + '<li class="k-failed"><span class="legend-swatch" aria-hidden="true"></span>Failed <strong>' + fmtInt(t.failed) + '</strong></li>'
+                + '</ul>'
+                + '<div class="chart-plot" id="dailyChart" tabindex="0" aria-label="Downloads over time chart. Use the arrow keys to read each column."></div>'
+                + '</div>'
+                + '<div class="chart-table" id="daily-table"' + viewAttrs('daily', true) + '><div id="dailyTable"></div></div>'
+                + '</section>';
+        }
+
+        function buildDonutCard(data) {
+            const t = data.totals;
+            const size = 168;
+            const sw = 18;
+            const r = (size - sw) / 2;
+            const c = size / 2;
+            const circ = 2 * Math.PI * r;
+            const total = t.successful + t.failed;
+            const gap = t.successful && t.failed ? 2 : 0;
+            let sLen = total ? circ * (t.successful / total) : 0;
+            let fLen = total ? circ * (t.failed / total) : 0;
+            if (gap) {
+                sLen = Math.max(1.5, sLen - gap);
+                fLen = Math.max(1.5, fLen - gap);
             }
-            body.innerHTML = `
-                ${buildStats(t)}
-                <div class="chart-grid">
-                    <div class="chart-card wide">
-                        <div class="chart-title"><i class="fas fa-chart-column" style="color:var(--primary)"></i> Downloads over time</div>
-                        <div class="chart-hint">Successful vs failed track downloads per day (last ${data.window_days} days)</div>
-                        ${buildDailyChart(data.daily)}
-                    </div>
-                    <div class="chart-card">
-                        <div class="chart-title"><i class="fas fa-circle-check" style="color:var(--primary)"></i> Success rate</div>
-                        <div class="chart-hint">Track attempts in the last ${data.window_days} days</div>
-                        ${buildDonut(t)}
-                    </div>
-                    <div class="chart-card">
-                        <div class="chart-title"><i class="fas fa-headphones" style="color:var(--accent)"></i> Audio quality</div>
-                        <div class="chart-hint">Source stream container of tracks downloaded in the last ${data.window_days} days</div>
-                        ${buildHBars(data.quality, 'label', 'count', true)}
-                    </div>
-                    <div class="chart-card wide">
-                        <div class="chart-title"><i class="fas fa-star" style="color:var(--primary)"></i> Top artists</div>
-                        <div class="chart-hint">Most downloaded artists in the last ${data.window_days} days</div>
-                        ${buildHBars(data.top_artists, 'artist', 'count', false)}
-                    </div>
-                </div>`;
-            dailyWidth = 0;
-            drawDailyChart();
-            fitDonutValue();
-            // Animate horizontal bars in from their rendered 0 width.
-            requestAnimationFrame(() => {
-                document.querySelectorAll('.hbar-fill').forEach(el => {
-                    if (el.dataset.w) el.style.width = el.dataset.w;
+            const arcs = [];
+            if (t.successful) arcs.push({ cls: 'arc-success', len: sLen, off: gap / 2, i: 0 });
+            if (t.failed) arcs.push({ cls: 'arc-failed', len: fLen, off: (t.successful ? sLen + gap : 0) + gap / 2, i: 1 });
+            const label = t.success_rate + '%';
+            const inner = 2 * (r - sw / 2) - 22;
+            let fs = 28;
+            const w = textWidth(label, fs, 700);
+            if (w > inner) fs = Math.max(14, Math.floor(fs * inner / w));
+            const arcSvg = arcs.map((a) => '<circle class="donut-arc ' + a.cls + '" data-i="' + a.i + '" cx="' + c + '" cy="' + c + '" r="' + r.toFixed(2) + '" stroke-width="' + sw + '"'
+                + ' stroke-dasharray="' + a.len.toFixed(2) + ' ' + circ.toFixed(2) + '" stroke-dashoffset="' + (-a.off).toFixed(2) + '"/>').join('');
+            const svg = '<svg class="chart-svg" width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '" role="img"'
+                + ' aria-label="' + esc('Success rate ' + t.success_rate + '%: ' + fmtInt(t.successful) + ' downloaded, ' + fmtInt(t.failed) + ' failed') + '">'
+                + '<defs><mask id="donutSweep" maskUnits="userSpaceOnUse" x="0" y="0" width="' + size + '" height="' + size + '">'
+                + '<circle class="donut-sweep" cx="' + c + '" cy="' + c + '" r="' + r.toFixed(2) + '" fill="none" stroke="#fff" stroke-width="' + (sw + 4) + '"'
+                + ' stroke-dasharray="' + circ.toFixed(2) + ' ' + circ.toFixed(2) + '" transform="rotate(-90 ' + c + ' ' + c + ')" style="--c:' + circ.toFixed(2) + '"/></mask></defs>'
+                + '<g mask="url(#donutSweep)"><g transform="rotate(-90 ' + c + ' ' + c + ')">' + arcSvg + '</g></g>'
+                + '<text class="donut-center" x="' + c + '" y="' + (c + fs * 0.32).toFixed(1) + '" text-anchor="middle" style="font-size:' + fs + 'px">' + esc(label) + '</text>'
+                + '<text x="' + c + '" y="' + (c + fs * 0.32 + 17).toFixed(1) + '" text-anchor="middle">success</text>'
+                + '</svg>';
+            const legend = '<ul class="donut-legend" aria-label="Legend">'
+                + '<li class="k-success"><span class="legend-swatch" aria-hidden="true"></span><span>Downloaded</span><span class="legend-num">' + fmtInt(t.successful) + '</span><span class="legend-pct">' + fmtPct(t.successful, total) + '</span></li>'
+                + '<li class="k-failed"><span class="legend-swatch" aria-hidden="true"></span><span>Failed</span><span class="legend-num">' + fmtInt(t.failed) + '</span><span class="legend-pct">' + fmtPct(t.failed, total) + '</span></li>'
+                + '<li class="is-total"><span class="legend-swatch is-blank" aria-hidden="true"></span><span>Total attempted</span><span class="legend-num">' + fmtInt(t.total_tracks) + '</span><span class="legend-pct"></span></li>'
+                + '</ul>';
+            const table = '<div class="ui-table-wrap"><table class="ui-table"><caption>Track attempts by outcome</caption>'
+                + '<thead><tr><th scope="col">Outcome</th><th scope="col" class="num">Tracks</th><th scope="col" class="num">Share</th></tr></thead><tbody>'
+                + '<tr><td>Downloaded</td><td class="num">' + fmtInt(t.successful) + '</td><td class="num">' + fmtPct(t.successful, total) + '</td></tr>'
+                + '<tr><td>Failed</td><td class="num">' + fmtInt(t.failed) + '</td><td class="num">' + fmtPct(t.failed, total) + '</td></tr>'
+                + '<tr><td>Total attempted</td><td class="num">' + fmtInt(t.total_tracks) + '</td><td class="num">100%</td></tr>'
+                + '</tbody></table></div>';
+            return '<section class="ui-card chart-card" aria-labelledby="donut-title">'
+                + cardHead('donut', 'check-circle', 'Success rate', 'Track attempts, ' + rangeLabel(data.window_days))
+                + '<div id="donut-chart" class="donut-wrap"' + viewAttrs('donut', false) + '>'
+                + '<div class="chart-plot donut-plot" id="donutChart" tabindex="0" aria-label="Success rate chart. Use the arrow keys to read each segment.">' + svg + '</div>'
+                + legend + '</div>'
+                + '<div class="chart-table" id="donut-table"' + viewAttrs('donut', true) + '>' + table + '</div>'
+                + '</section>';
+        }
+
+        function buildHBarCard(id, icon, title, sub, items, labelKey, colHead, withShare) {
+            const total = items.reduce((s, x) => s + (x.count || 0), 0);
+            const max = Math.max(1, ...items.map((x) => x.count || 0));
+            let body;
+            if (!items.length) {
+                body = '<p class="chart-empty">No successful downloads in this range yet.</p>';
+            } else {
+                const step = Math.min(50, 480 / items.length);
+                body = '<ol class="hbars chart-plot" id="' + id + 'Chart" tabindex="0" aria-label="' + esc(title + ' chart. Use the arrow keys to read each bar.') + '">'
+                    + items.map((x, i) => '<li class="hbar" data-i="' + i + '">'
+                        + '<span class="hbar-label" title="' + esc(x[labelKey]) + '" dir="auto">' + esc(x[labelKey] || 'Unknown') + '</span>'
+                        + '<span class="hbar-area"><span class="hbar-fill" style="--p:' + ((x.count || 0) / max).toFixed(4) + ';--d:' + Math.round(i * step) + 'ms"></span>'
+                        + '<span class="hbar-value">' + fmtInt(x.count) + '</span></span></li>').join('')
+                    + '</ol>';
+            }
+            const table = '<div class="ui-table-wrap"><table class="ui-table"><caption>' + esc(title) + '</caption>'
+                + '<thead><tr><th scope="col">' + esc(colHead) + '</th><th scope="col" class="num">Tracks</th>' + (withShare ? '<th scope="col" class="num">Share</th>' : '') + '</tr></thead><tbody>'
+                + (items.length ? items.map((x) => '<tr><td dir="auto">' + esc(x[labelKey] || 'Unknown') + '</td><td class="num">' + fmtInt(x.count) + '</td>' + (withShare ? '<td class="num">' + fmtPct(x.count, total) + '</td>' : '') + '</tr>').join('')
+                    : '<tr><td colspan="' + (withShare ? 3 : 2) + '">No data</td></tr>')
+                + '</tbody></table></div>';
+            return '<section class="ui-card chart-card' + (id === 'artists' ? ' chart-card-wide' : '') + '" aria-labelledby="' + id + '-title">'
+                + cardHead(id, icon, title, sub)
+                + '<div id="' + id + '-chart"' + viewAttrs(id, false) + '>' + body + '</div>'
+                + '<div class="chart-table" id="' + id + '-table"' + viewAttrs(id, true) + '>' + table + '</div>'
+                + '</section>';
+        }
+
+        function wireCharts(data) {
+            const t = data.totals;
+            const total = t.successful + t.failed;
+            const daily = document.getElementById('dailyChart');
+            if (daily) {
+                attachInspector(daily, {
+                    count: () => dailyBuckets.length,
+                    initial: () => {
+                        for (let i = dailyBuckets.length - 1; i >= 0; i--) if (dailyBuckets[i].success + dailyBuckets[i].failed) return i;
+                        return dailyBuckets.length - 1;
+                    },
+                    anchor: (i) => daily.querySelector('[data-i="' + i + '"] .col-bars') || daily.querySelector('[data-i="' + i + '"]'),
+                    content: (i) => {
+                        const b = dailyBuckets[i];
+                        return {
+                            title: b.full,
+                            rows: [
+                                { k: 'k-success', value: fmtInt(b.success), name: 'Downloaded' },
+                                { k: 'k-failed', value: fmtInt(b.failed), name: 'Failed' },
+                                { k: '', value: fmtInt(b.success + b.failed), name: 'Total' },
+                            ],
+                        };
+                    },
+                });
+            }
+            const donut = document.getElementById('donutChart');
+            if (donut) {
+                const segs = [];
+                if (t.successful) segs.push(0);
+                if (t.failed) segs.push(1);
+                attachInspector(donut, {
+                    count: () => segs.length,
+                    initial: () => 0,
+                    anchor: () => donut,
+                    onActive: (i) => donut.classList.toggle('has-active', i >= 0),
+                    content: (pos) => {
+                        const i = segs[pos] !== undefined ? segs[pos] : pos;
+                        const isS = i === 0;
+                        return {
+                            title: isS ? 'Downloaded' : 'Failed',
+                            rows: [{ k: isS ? 'k-success' : 'k-failed', value: fmtInt(isS ? t.successful : t.failed), name: fmtPct(isS ? t.successful : t.failed, total) + ' of attempts' }],
+                        };
+                    },
+                });
+                donut.querySelectorAll('.donut-arc').forEach((arc) => {
+                    arc.dataset.i = String(segs.indexOf(Number(arc.dataset.i)));
+                });
+            }
+            [['quality', data.quality, 'label', true], ['artists', data.top_artists, 'artist', false]].forEach(([id, items, key, share]) => {
+                const el = document.getElementById(id + 'Chart');
+                if (!el) return;
+                const qTotal = items.reduce((s, x) => s + (x.count || 0), 0);
+                attachInspector(el, {
+                    count: () => items.length,
+                    initial: () => 0,
+                    anchor: (i) => el.querySelector('[data-i="' + i + '"] .hbar-fill'),
+                    content: (i) => ({
+                        title: items[i][key] || 'Unknown',
+                        rows: [{ k: 'k-accent', value: fmtInt(items[i].count), name: share ? 'tracks · ' + fmtPct(items[i].count, qTotal) : (items[i].count === 1 ? 'track downloaded' : 'tracks downloaded') }],
+                    }),
                 });
             });
         }
 
-        async function loadInsights() {
-            const days = document.getElementById('windowSelect').value;
+        function render(data, animate) {
+            lastData = data;
+            const t = data.totals;
             const body = document.getElementById('insightsBody');
-            body.innerHTML = `<div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Loading insights…</div>`;
+            hideTip();
+            if (!t.total_tracks) {
+                const wider = data.window_days < 365;
+                body.innerHTML = '<div class="insights-state"><div class="ui-empty">'
+                    + '<div class="ui-empty-art" aria-hidden="true"><svg viewBox="0 0 88 88" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 72h56"/><path d="M24 72V52M38 72V36M52 72V44M66 72V24"/></svg></div>'
+                    + '<h2 class="ui-empty-title">No download history ' + (wider ? 'in the ' + esc(rangeLabel(data.window_days)) : 'yet') + '</h2>'
+                    + '<p class="ui-empty-text">Queue some albums and your insights will appear here.</p>'
+                    + '<div class="ui-empty-actions">'
+                    + (wider ? '<button type="button" class="ui-btn ui-btn-secondary" data-set-days="365">Show the last year</button>' : '')
+                    + '<a class="ui-btn ui-btn-primary" href="/">' + UI.icon('home') + '<span>Go to Library</span></a></div>'
+                    + '</div></div>';
+                setStatus('No download history for the ' + (rangeLabel(data.window_days)));
+                return;
+            }
+            const anim = animate && !UI.prefersReducedMotion();
+            body.innerHTML = buildStats(t)
+                + '<div class="insights-grid' + (anim ? ' is-animated' : '') + '">'
+                + buildDailyCard(data)
+                + buildDonutCard(data)
+                + buildHBarCard('quality', 'headphones', 'Audio quality', 'Source stream container of downloaded tracks, ' + rangeLabel(data.window_days), data.quality, 'label', 'Container', true)
+                + buildHBarCard('artists', 'star', 'Top artists', 'Most downloaded artists, ' + rangeLabel(data.window_days), data.top_artists, 'artist', 'Artist', false)
+                + '</div>';
+            dailyWidth = 0;
+            drawDailyChart(anim);
+            wireCharts(data);
+            setStatus('Insights for the ' + (rangeLabel(data.window_days)) + ': ' + fmtInt(t.successful) + ' tracks downloaded, ' + t.success_rate + '% success rate');
+            observeResize();
+        }
+
+        function observeResize() {
+            const el = document.getElementById('dailyChart');
+            if (!el) return;
+            if (resizeObs) resizeObs.disconnect();
+            let timer = null;
+            const redraw = () => {
+                clearTimeout(timer);
+                timer = setTimeout(() => {
+                    hideTip();
+                    drawDailyChart(false);
+                }, 120);
+            };
+            if ('ResizeObserver' in window) {
+                let first = true;
+                resizeObs = new ResizeObserver(() => {
+                    if (first) {
+                        first = false;
+                        return;
+                    }
+                    redraw();
+                });
+                resizeObs.observe(el);
+            } else {
+                window.addEventListener('resize', redraw);
+            }
+        }
+
+        function setStatus(text) {
+            const el = document.getElementById('insightsStatus');
+            if (el.textContent !== text) el.textContent = text;
+        }
+
+        function renderSkeleton() {
+            let stats = '';
+            for (let i = 0; i < 4; i++) stats += '<div class="ui-skeleton skel-stat"></div>';
+            document.getElementById('insightsBody').innerHTML = '<div aria-hidden="true"><div class="ui-stats">' + stats + '</div>'
+                + '<div class="insights-grid"><div class="ui-skeleton skel-card chart-card-wide"></div><div class="ui-skeleton skel-card"></div><div class="ui-skeleton skel-card"></div></div></div>';
+            setStatus('Loading insights…');
+        }
+
+        function renderError() {
+            document.getElementById('insightsBody').innerHTML = '<div class="insights-state"><div class="ui-empty" role="alert">'
+                + '<div class="ui-empty-art" aria-hidden="true"><svg viewBox="0 0 88 88" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M28 62h34a14 14 0 0 0 2-27.8A20 20 0 0 0 25 38a12 12 0 0 0 3 24z"/><path d="M44 42v8M44 56h.01"/></svg></div>'
+                + '<h2 class="ui-empty-title">Could not load insights</h2>'
+                + '<p class="ui-empty-text">The server did not respond. Check that the app is running, then try again.</p>'
+                + '<div class="ui-empty-actions"><button type="button" class="ui-btn ui-btn-secondary" id="insightsRetry">' + UI.icon('refresh') + '<span>Retry</span></button></div>'
+                + '</div></div>';
+            setStatus('Could not load insights');
+        }
+
+        async function loadInsights() {
+            const days = currentDays;
+            const seq = ++insightsSeq;
+            const body = document.getElementById('insightsBody');
+            const holdFrame = !!(lastData && lastData.totals && lastData.totals.total_tracks && body.querySelector('.insights-grid'));
+            if (holdFrame) {
+                body.classList.add('is-refreshing');
+                body.setAttribute('aria-busy', 'true');
+            } else {
+                renderSkeleton();
+            }
             try {
                 const res = await fetch('/api/insights?days=' + encodeURIComponent(days));
                 if (!res.ok) throw new Error('Server error ' + res.status);
                 const data = await res.json();
-                render(data);
+                if (seq !== insightsSeq) return;
+                body.classList.remove('is-refreshing');
+                body.removeAttribute('aria-busy');
+                render(data, true);
             } catch (e) {
-                body.innerHTML = `<div class="empty-state">
-                        <i class="fas fa-triangle-exclamation" style="color:var(--danger)"></i>
-                        <p>Failed to load insights. Please try again.</p>
-                    </div>`;
+                if (seq !== insightsSeq) return;
+                body.classList.remove('is-refreshing');
+                body.removeAttribute('aria-busy');
+                lastData = null;
+                renderError();
             }
         }
 
-        updateQueueBadge();
-        setInterval(() => { if (!document.hidden) updateQueueBadge(); }, 5000);
-        document.addEventListener('visibilitychange', () => { if (!document.hidden) updateQueueBadge(); });
-        loadInsights();
+        function setDays(days) {
+            days = Number(days);
+            if (!RANGE_LABEL[days]) return;
+            document.querySelectorAll('#windowSelect [data-days]').forEach((b) => {
+                b.setAttribute('aria-pressed', Number(b.dataset.days) === days ? 'true' : 'false');
+            });
+            if (days === currentDays && lastData) return;
+            currentDays = days;
+            loadInsights();
+        }
+
+        function toggleView(id) {
+            const showTable = !tableViews.has(id);
+            if (showTable) tableViews.add(id); else tableViews.delete(id);
+            const chart = document.getElementById(id + '-chart');
+            const table = document.getElementById(id + '-table');
+            if (chart) chart.hidden = showTable;
+            if (table) table.hidden = !showTable;
+            const btn = document.querySelector('[data-view-toggle="' + id + '"]');
+            if (btn) {
+                btn.setAttribute('aria-pressed', showTable ? 'true' : 'false');
+                btn.innerHTML = UI.icon(showTable ? 'chart-bar' : 'table') + '<span>' + (showTable ? 'Chart' : 'Table') + '</span>';
+            }
+            hideTip();
+            if (!showTable && id === 'daily') {
+                dailyWidth = 0;
+                drawDailyChart(false);
+            }
+        }
+
+        function init() {
+            document.getElementById('windowSelect').addEventListener('click', (e) => {
+                const b = e.target.closest('[data-days]');
+                if (b) setDays(b.dataset.days);
+            });
+            document.getElementById('insightsBody').addEventListener('click', (e) => {
+                const tgl = e.target.closest('[data-view-toggle]');
+                if (tgl) {
+                    toggleView(tgl.dataset.viewToggle);
+                    return;
+                }
+                const d = e.target.closest('[data-set-days]');
+                if (d) {
+                    setDays(d.dataset.setDays);
+                    return;
+                }
+                if (e.target.closest('#insightsRetry')) loadInsights();
+            });
+            window.addEventListener('scroll', hideTip, { passive: true });
+            loadInsights();
+        }
+
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+        else init();
     </script>
 </body>
-
 </html>
