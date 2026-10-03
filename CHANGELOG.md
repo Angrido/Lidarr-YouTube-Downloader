@@ -101,7 +101,9 @@
   YouTube link field no longer clips its placeholder on phones; the list
   view on phones shows the missing-track count instead of cutting it off;
   table actions line up; unit labels in Settings no longer touch the card
-  edge; empty states are less tall on phones.
+  edge; empty states are less tall on phones; links such as
+  `/settings#audio` open the right section; the retry dialog keeps each
+  field and its button on one row on phones.
 
 ## 1.9.2
 
