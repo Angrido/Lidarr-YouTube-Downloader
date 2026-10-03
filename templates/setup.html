@@ -1,300 +1,459 @@
 <!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Setup - Lidarr YouTube Downloader</title>
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/components.css">
-    <link rel="manifest" href="/manifest.webmanifest">
-    <meta name="theme-color" content="#09090b">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="Lidarr YT">
-    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-    <script>(function(){var t=null;try{t=localStorage.getItem('theme');}catch(e){}if(t!=='light'&&t!=='dark'){t=(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches)?'light':'dark';}document.documentElement.setAttribute('data-theme',t);var m=document.querySelector('meta[name="theme-color"]');if(m){m.setAttribute('content',t==='light'?'#f4f4f5':'#09090b');}})();</script>
-    <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
-    <link
-      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css"
-      rel="stylesheet"
-      integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg=="
-      crossorigin="anonymous" referrerpolicy="no-referrer">
+    {% include "_head.html" %}
+    <title>Setup — Lidarr YouTube Downloader</title>
     <style>
-        :root {
-            --bg: #09090b;
-            --surface: rgba(255, 255, 255, 0.04);
-            --surface-hover: rgba(255, 255, 255, 0.08);
-            --border: rgba(255, 255, 255, 0.12);
-            --text: #e5e7eb;
-            --text-dim: #9ca3af;
-            --primary: #10b981;
-            --primary-hover: #059669;
-            --danger: #ef4444;
-            --ok-text: #34d399;
-            --warn-text: #fbbf24;
-            --code-bg: rgba(255, 255, 255, 0.06);
-            --glow-bg: rgba(16, 185, 129, 0.10);
-            --radius: 12px;
-            color-scheme: dark;
-        }
-        :root[data-theme="light"] {
-            --bg: #f4f4f5;
-            --surface: #ffffff;
-            --surface-hover: #f4f4f5;
-            --border: rgba(0, 0, 0, 0.14);
-            --text: #18181b;
-            --text-dim: #52525b;
-            --danger: #b91c1c;
-            --ok-text: #047857;
-            --warn-text: #b45309;
-            --code-bg: rgba(0, 0, 0, 0.06);
-            --glow-bg: rgba(16, 185, 129, 0.08);
-            color-scheme: light;
-        }
-        [hidden] { display: none !important; }
-        * { box-sizing: border-box; }
-        body {
-            margin: 0;
-            min-height: 100vh;
-            background:
-                radial-gradient(circle at 20% 0%, var(--glow-bg), transparent 40%),
-                var(--bg);
-            color: var(--text);
-            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        .setup-body {
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 24px 16px;
+            min-height: 100vh;
+            min-height: 100dvh;
+            padding: var(--sp-12) var(--sp-4) var(--sp-8);
+            background:
+                radial-gradient(ellipse 80% 50% at 50% -10%, var(--accent-soft), transparent 70%),
+                var(--bg-base);
         }
-        .wizard {
+
+        .setup-theme {
+            position: fixed;
+            top: calc(env(safe-area-inset-top, 0px) + var(--sp-3));
+            right: var(--sp-3);
+            z-index: 10;
+        }
+
+        .setup {
             width: 100%;
             max-width: 560px;
         }
-        .wizard-head {
-            text-align: center;
-            margin-bottom: 1.5rem;
-        }
-        .wizard-head h1 {
-            font-size: 1.4rem;
-            margin: 0.4rem 0 0.2rem;
-        }
-        .wizard-head .logo { font-size: 2rem; }
-        .wizard-head p { color: var(--text-dim); margin: 0; font-size: 0.9rem; }
-        .steps {
+
+        .setup-head {
             display: flex;
-            gap: 0.5rem;
-            justify-content: center;
-            margin-bottom: 1.25rem;
+            flex-direction: column;
+            align-items: center;
+            gap: var(--sp-1);
+            margin-bottom: var(--sp-6);
+            text-align: center;
         }
-        .step-dot {
-            width: 32px;
-            height: 4px;
-            border-radius: 2px;
-            background: var(--border);
+
+        .setup-mark {
+            width: 64px;
+            height: 64px;
+            margin-bottom: var(--sp-3);
+            border-radius: 16px;
+            box-shadow: var(--shadow-2);
         }
-        .step-dot.active { background: var(--primary); }
-        .step { display: none; }
-        .step.active { display: block; }
-        .step h2 { font-size: 1.05rem; margin: 0 0 0.35rem; }
-        .step p.desc { color: var(--text-dim); font-size: 0.85rem; margin: 0 0 1rem; }
-        label { display: block; font-size: 0.85rem; margin: 0.9rem 0 0.35rem; }
-        code {
-            background: var(--code-bg);
-            padding: 0.05rem 0.35rem;
-            border-radius: 5px;
-            font-size: 0.82rem;
+
+        .setup-card .ui-steps {
+            margin-bottom: var(--sp-6);
         }
-        .status-line {
-            margin-top: 0.8rem;
-            font-size: 0.86rem;
+
+        .setup-step-label {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ui-step .ui-step-dot .ico {
+            width: 14px;
+            height: 14px;
+        }
+
+        .setup-step-title:focus {
+            outline: none;
+        }
+
+        .setup-desc {
+            margin: var(--sp-1) 0 var(--sp-5);
+        }
+
+        .setup-server {
             display: flex;
             align-items: center;
-            gap: 0.5rem;
+            flex-wrap: wrap;
+            gap: var(--sp-3);
+            padding: var(--sp-4);
+            border-radius: var(--r-md);
+            background: var(--bg-elevated-2);
+            box-shadow: var(--hairline);
         }
-        .status-ok { color: var(--ok-text); }
-        .status-err { color: var(--danger); }
-        .status-warn { color: var(--warn-text); }
-        input[readonly] { opacity: 0.75; cursor: not-allowed; }
-        .field-hint { font-size: 0.78rem; color: var(--text-dim); margin-top: 0.35rem; }
-        .env-note {
-            margin-top: 0.8rem;
-            font-size: 0.82rem;
-            color: var(--text-dim);
-            border-left: 2px solid var(--border);
-            padding-left: 0.75rem;
+
+        .setup-server-text {
+            flex: 1 1 160px;
+            min-width: 0;
         }
-        .actions {
+
+        .setup-server-url {
+            font-family: var(--font-mono);
+            font-size: var(--text-footnote);
+            color: var(--text-2);
+            overflow-wrap: anywhere;
+        }
+
+        .setup-status:not(:empty),
+        .setup-callout {
+            margin-top: var(--sp-4);
+        }
+
+        .setup-callout code {
+            padding: 1px 5px;
+            border-radius: 5px;
+            background: var(--fill-2);
+        }
+
+        .setup-fields {
             display: flex;
-            gap: 0.6rem;
-            margin-top: 1.5rem;
+            flex-direction: column;
+            gap: var(--sp-5);
         }
-        .actions .spacer { flex: 1 1 auto; }
-        .skip {
+
+        .setup-fields .ui-input {
+            font-family: var(--font-mono);
+            font-size: var(--text-subhead);
+        }
+
+        .setup-env-hint {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .setup-summary-value {
+            font-family: var(--font-mono);
+            font-size: var(--text-footnote);
+            overflow-wrap: anywhere;
+        }
+
+        .setup-actions {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-2);
+            margin-top: var(--sp-6);
+            padding-top: var(--sp-5);
+            border-top: 1px solid var(--separator);
+        }
+
+        .setup-skip {
             display: block;
-            text-align: center;
-            margin-top: 1rem;
-            color: var(--text-dim);
-            font-size: 0.8rem;
-            text-decoration: none;
+            width: fit-content;
+            margin: var(--sp-5) auto 0;
+            color: var(--text-3);
+            font-size: var(--text-footnote);
         }
-        .skip:hover { color: var(--text); }
+
+        .setup-skip:hover {
+            color: var(--text-1);
+        }
+
+        @media (max-width: 480px) {
+            .setup-body {
+                align-items: flex-start;
+            }
+            .setup-card {
+                padding: var(--sp-5);
+            }
+            .ui-step[aria-current="step"] {
+                flex-grow: 2;
+            }
+            .ui-step:not([aria-current="step"]) .setup-step-label {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                overflow: hidden;
+                clip: rect(0, 0, 0, 0);
+                white-space: nowrap;
+            }
+            .setup-server .ui-btn {
+                width: 100%;
+            }
+        }
     </style>
 </head>
-<body>
-    <div class="wizard">
-        <div class="wizard-head">
-            <div class="logo">🎵</div>
-            <h1>Welcome</h1>
-            <p>Let's get Lidarr YouTube Downloader set up.</p>
-        </div>
+<body class="setup-body">
+    <button type="button" class="ui-btn ui-btn-ghost ui-btn-icon setup-theme" data-theme-toggle aria-label="Toggle theme"></button>
+    <main class="setup" id="main">
+        <header class="setup-head">
+            <img class="setup-mark" src="/static/favicon.svg" alt="" width="64" height="64">
+            <p class="t-eyebrow">Lidarr YouTube Downloader</p>
+            <h1 class="t-title1">Welcome</h1>
+            <p class="t-callout t-2">Let's get Lidarr YouTube Downloader set up.</p>
+        </header>
 
-        <div class="steps" role="list" id="stepsProgress" aria-label="Step 1 of 3">
-            <div class="step-dot active" data-dot="0" role="listitem" aria-label="Step 1 of 3: Connect to Lidarr" aria-current="step"></div>
-            <div class="step-dot" data-dot="1" role="listitem" aria-label="Step 2 of 3: Folders"></div>
-            <div class="step-dot" data-dot="2" role="listitem" aria-label="Step 3 of 3: All set"></div>
-        </div>
+        <div class="ui-card ui-card-lg setup-card">
+            <ol class="ui-steps" id="stepsProgress" aria-label="Step 1 of 3">
+                <li class="ui-step" data-dot="0" aria-current="step"><span class="ui-step-dot" aria-hidden="true">1</span><span class="setup-step-label">Lidarr</span><span class="sr-only" data-done-label hidden>(done)</span><span class="ui-step-line" aria-hidden="true"></span></li>
+                <li class="ui-step" data-dot="1"><span class="ui-step-dot" aria-hidden="true">2</span><span class="setup-step-label">Folders</span><span class="sr-only" data-done-label hidden>(done)</span><span class="ui-step-line" aria-hidden="true"></span></li>
+                <li class="ui-step" data-dot="2"><span class="ui-step-dot" aria-hidden="true">3</span><span class="setup-step-label">Finish</span><span class="sr-only" data-done-label hidden>(done)</span></li>
+            </ol>
 
-        <div class="ui-card">
-            <!-- Step 1: Lidarr connection -->
-            <div class="step active" data-step="0">
-                <h2>1 · Connect to Lidarr</h2>
-                <p class="desc">Check that the app can reach your Lidarr instance.</p>
-                <div class="ui-row ui-row-wrap">
-                    <button class="ui-btn ui-btn-primary" type="button" onclick="testConnection()">
-                        <i class="fa-solid fa-plug"></i> Test connection
+            <section class="setup-step" data-step="0" aria-labelledby="stepTitle0">
+                <h2 class="t-title3 setup-step-title" id="stepTitle0" tabindex="-1">Connect to Lidarr</h2>
+                <p class="t-subhead t-2 setup-desc">Check that the app can reach your Lidarr instance.</p>
+                <div class="setup-server">
+                    <span class="ui-icon-tile ui-icon-tile-info" aria-hidden="true"><svg class="ico"><use href="/static/icons.svg#i-plug"></use></svg></span>
+                    <div class="setup-server-text">
+                        <p class="t-subhead">Lidarr server</p>
+                        <p class="setup-server-url" id="lidarrUrlLabel">Loading…</p>
+                    </div>
+                    <button class="ui-btn ui-btn-secondary" type="button" id="testConnBtn">
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-refresh"></use></svg><span>Test connection</span>
                     </button>
-                    <span id="lidarrUrlLabel" class="ui-muted" style="font-size:.8rem;"></span>
                 </div>
-                <div class="status-line" id="connStatus" role="status" aria-live="polite"></div>
-                <div class="env-note" id="envNote" hidden>
-                    Lidarr's <strong>URL</strong> and <strong>API key</strong> are configured through
-                    environment variables — <code>LIDARR_URL</code> and <code>LIDARR_API_KEY</code>.
-                    Set them in your <code>docker-compose.yml</code> / <code>.env</code> and restart the
-                    container, then test again.
+                <div class="setup-status" id="connStatus" role="status" aria-live="polite"></div>
+                <div class="ui-callout ui-callout-warning setup-callout" id="connWarn" role="alert" hidden>
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-alert"></use></svg>
+                    <div class="ui-callout-body">
+                        <div class="ui-callout-title">Lidarr isn't reachable yet</div>
+                        <div class="ui-callout-text">You can continue and fix it later. Press Continue anyway to skip the check.</div>
+                    </div>
                 </div>
-            </div>
-
-            <!-- Step 2: Paths -->
-            <div class="step" data-step="1">
-                <h2>2 · Folders</h2>
-                <p class="desc">Where downloads are written, and where your Lidarr music library lives.</p>
-                <label for="downloadPath">Download path</label>
-                <input class="ui-input" type="text" id="downloadPath" placeholder="/DATA/Downloads">
-                <div class="field-hint" id="downloadPathEnvHint" hidden>Set via the DOWNLOAD_PATH environment variable</div>
-                <label for="lidarrPath">Lidarr music library path</label>
-                <input class="ui-input" type="text" id="lidarrPath" placeholder="/music">
-                <div class="env-note">
-                    These must be the same paths Lidarr sees (matching your volume mounts), so imports land in the
-                    right place. You can change them later in Settings.
+                <div class="ui-callout ui-callout-info setup-callout" id="envNote" hidden>
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-info"></use></svg>
+                    <div class="ui-callout-body">
+                        <div class="ui-callout-title">Set through environment variables</div>
+                        <div class="ui-callout-text">Lidarr's URL and API key come from <code>LIDARR_URL</code> and <code>LIDARR_API_KEY</code>. Set them in your <code>docker-compose.yml</code> / <code>.env</code>, restart the container, then test again.</div>
+                    </div>
                 </div>
-            </div>
+            </section>
 
-            <!-- Step 3: Done -->
-            <div class="step" data-step="2">
-                <h2>3 · All set</h2>
-                <p class="desc">Save your folders and jump into the dashboard. Everything else can be tuned in Settings.</p>
-                <div id="saveStatus" class="status-line" role="status" aria-live="polite"></div>
-            </div>
+            <section class="setup-step" data-step="1" aria-labelledby="stepTitle1" hidden>
+                <h2 class="t-title3 setup-step-title" id="stepTitle1" tabindex="-1">Folders</h2>
+                <p class="t-subhead t-2 setup-desc">Where downloads are written, and where your Lidarr music library lives.</p>
+                <div class="setup-fields">
+                    <div class="ui-field">
+                        <label class="ui-label" for="downloadPath">Download path</label>
+                        <input class="ui-input" type="text" id="downloadPath" placeholder="/DATA/Downloads" autocomplete="off" spellcheck="false" autocapitalize="off" aria-describedby="downloadPathHint">
+                        <p class="ui-hint" id="downloadPathHint">An absolute path inside the container, e.g. /DATA/Downloads.</p>
+                        <p class="ui-hint setup-env-hint" id="downloadPathEnvHint" hidden><svg class="ico ico-sm" aria-hidden="true"><use href="/static/icons.svg#i-key"></use></svg><span>Set via the DOWNLOAD_PATH environment variable</span></p>
+                        <p class="ui-error-text" id="downloadPathError" hidden></p>
+                    </div>
+                    <div class="ui-field">
+                        <label class="ui-label" for="lidarrPath">Lidarr music library path</label>
+                        <input class="ui-input" type="text" id="lidarrPath" placeholder="/music" autocomplete="off" spellcheck="false" autocapitalize="off" aria-describedby="lidarrPathHint">
+                        <p class="ui-hint" id="lidarrPathHint">An absolute path, e.g. /music. Leave empty to keep the current setting.</p>
+                        <p class="ui-error-text" id="lidarrPathError" hidden></p>
+                    </div>
+                </div>
+                <div class="ui-callout ui-callout-info setup-callout">
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-folder-tree"></use></svg>
+                    <div class="ui-callout-body">
+                        <div class="ui-callout-text">These must be the same paths Lidarr sees (matching your volume mounts), so imports land in the right place. You can change them later in Settings.</div>
+                    </div>
+                </div>
+            </section>
 
-            <div class="actions">
-                <button class="ui-btn ui-btn-ghost" type="button" id="backBtn" onclick="prevStep()" hidden>
-                    <i class="fa-solid fa-arrow-left"></i> Back
+            <section class="setup-step" data-step="2" aria-labelledby="stepTitle2" hidden>
+                <h2 class="t-title3 setup-step-title" id="stepTitle2" tabindex="-1">All set</h2>
+                <p class="t-subhead t-2 setup-desc">Save your folders and jump into the dashboard. Everything else can be tuned in Settings.</p>
+                <div class="ui-group">
+                    <div class="ui-group-row">
+                        <span class="ui-icon-tile ui-icon-tile-info" aria-hidden="true"><svg class="ico"><use href="/static/icons.svg#i-plug"></use></svg></span>
+                        <div class="ui-group-row-text">
+                            <div class="ui-group-row-title">Lidarr</div>
+                            <div class="ui-group-row-desc" id="summaryConn">Not tested</div>
+                        </div>
+                    </div>
+                    <div class="ui-group-row">
+                        <span class="ui-icon-tile" aria-hidden="true"><svg class="ico"><use href="/static/icons.svg#i-download"></use></svg></span>
+                        <div class="ui-group-row-text">
+                            <div class="ui-group-row-title">Download path</div>
+                            <div class="ui-group-row-desc setup-summary-value" id="summaryDownload">Not set</div>
+                        </div>
+                    </div>
+                    <div class="ui-group-row">
+                        <span class="ui-icon-tile ui-icon-tile-pink" aria-hidden="true"><svg class="ico"><use href="/static/icons.svg#i-library"></use></svg></span>
+                        <div class="ui-group-row-text">
+                            <div class="ui-group-row-title">Music library</div>
+                            <div class="ui-group-row-desc setup-summary-value" id="summaryLibrary">Not set</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="setup-status" id="saveStatus" role="status" aria-live="polite"></div>
+            </section>
+
+            <div class="setup-actions">
+                <button class="ui-btn ui-btn-ghost" type="button" id="backBtn" hidden>
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-arrow-left"></use></svg><span>Back</span>
                 </button>
-                <div class="spacer"></div>
-                <button class="ui-btn ui-btn-primary" type="button" id="nextBtn" onclick="nextStep()">
-                    Next <i class="fa-solid fa-arrow-right"></i>
+                <span class="ui-spacer"></span>
+                <button class="ui-btn ui-btn-primary" type="button" id="nextBtn">
+                    <span>Next</span><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-arrow-right"></use></svg>
                 </button>
             </div>
         </div>
 
-        <a class="skip" href="#" onclick="skipSetup(event)">Skip setup for now</a>
-    </div>
+        <a class="setup-skip" href="/" id="skipLink">Skip setup for now</a>
+    </main>
 
     <script>
         let step = 0;
         const STEPS = 3;
         let connOk = null;
         let connWarned = false;
+        let connVersion = '';
         let saving = false;
 
-        function setStatus(el, kind, iconClass, text) {
-            el.className = 'status-line' + (kind ? ' status-' + kind : '');
+        const $ = (id) => document.getElementById(id);
+
+        function setStatus(el, kind, iconName, title, text) {
             el.textContent = '';
-            if (iconClass) {
-                const i = document.createElement('i');
-                i.className = iconClass;
-                i.setAttribute('aria-hidden', 'true');
-                el.appendChild(i);
+            if (!kind && !title) return;
+            const box = document.createElement('div');
+            box.className = 'ui-callout' + (kind ? ' ui-callout-' + kind : '');
+            box.insertAdjacentHTML('afterbegin', iconName === 'spinner'
+                ? '<span class="ui-spinner ui-spinner-sm" aria-hidden="true"></span>'
+                : UI.icon(iconName));
+            const body = document.createElement('div');
+            body.className = 'ui-callout-body';
+            const t = document.createElement('div');
+            t.className = 'ui-callout-title';
+            t.textContent = title;
+            body.appendChild(t);
+            if (text) {
+                const p = document.createElement('div');
+                p.className = 'ui-callout-text';
+                p.textContent = text;
+                body.appendChild(p);
             }
-            const span = document.createElement('span');
-            span.textContent = text;
-            el.appendChild(span);
+            box.appendChild(body);
+            el.appendChild(box);
         }
 
-        function render() {
-            document.querySelectorAll('.step').forEach((el) => {
-                el.classList.toggle('active', Number(el.dataset.step) === step);
+        function isAbsolutePath(v) {
+            return /^\//.test(v) || /^[A-Za-z]:[\\/]/.test(v);
+        }
+
+        function fieldError(input, errId, hintIds, msg) {
+            const err = $(errId);
+            if (msg) {
+                err.innerHTML = UI.icon('alert-circle') + '<span></span>';
+                err.querySelector('span').textContent = msg;
+                err.hidden = false;
+                input.setAttribute('aria-invalid', 'true');
+                input.setAttribute('aria-describedby', [errId].concat(hintIds).join(' '));
+            } else {
+                err.hidden = true;
+                input.removeAttribute('aria-invalid');
+                input.setAttribute('aria-describedby', hintIds.join(' '));
+            }
+        }
+
+        function downloadHintIds() {
+            return $('downloadPath').readOnly ? ['downloadPathEnvHint'] : ['downloadPathHint'];
+        }
+
+        function validatePath(input, errId, hintIds) {
+            const v = input.value.trim();
+            if (input.readOnly || !v || isAbsolutePath(v)) {
+                fieldError(input, errId, hintIds, '');
+                return true;
+            }
+            fieldError(input, errId, hintIds, 'Use an absolute path, starting with /.');
+            return false;
+        }
+
+        function validatePaths() {
+            const okLib = validatePath($('lidarrPath'), 'lidarrPathError', ['lidarrPathHint']);
+            const okDl = validatePath($('downloadPath'), 'downloadPathError', downloadHintIds());
+            if (!okDl) $('downloadPath').focus();
+            else if (!okLib) $('lidarrPath').focus();
+            return okDl && okLib;
+        }
+
+        function nextLabel() {
+            if (step === STEPS - 1) return UI.icon('check') + '<span>Save &amp; finish</span>';
+            if (step === 0 && connWarned) return '<span>Continue anyway</span>' + UI.icon('arrow-right');
+            return '<span>Next</span>' + UI.icon('arrow-right');
+        }
+
+        function renderSummary() {
+            const conn = $('summaryConn');
+            if (connOk === true) conn.textContent = 'Connected' + (connVersion ? ' · v' + connVersion : '');
+            else if (connOk === false) conn.textContent = 'Not reachable yet. You can fix it later in your environment settings.';
+            else conn.textContent = 'Not tested';
+            const dl = $('downloadPath').value.trim();
+            const lib = $('lidarrPath').value.trim();
+            $('summaryDownload').textContent = dl || 'Not set';
+            $('summaryLibrary').textContent = lib || 'Not set';
+        }
+
+        function render(moveFocus) {
+            document.querySelectorAll('.setup-step').forEach((el) => {
+                el.hidden = Number(el.dataset.step) !== step;
             });
-            document.querySelectorAll('.step-dot').forEach((el) => {
-                el.classList.toggle('active', Number(el.dataset.dot) <= step);
-                if (Number(el.dataset.dot) === step) {
-                    el.setAttribute('aria-current', 'step');
-                } else {
-                    el.removeAttribute('aria-current');
-                }
+            document.querySelectorAll('.ui-step').forEach((el) => {
+                const i = Number(el.dataset.dot);
+                const dot = el.querySelector('.ui-step-dot');
+                el.classList.toggle('is-done', i < step);
+                el.querySelector('[data-done-label]').hidden = i >= step;
+                dot.innerHTML = i < step ? UI.icon('check') : String(i + 1);
+                if (i === step) el.setAttribute('aria-current', 'step');
+                else el.removeAttribute('aria-current');
             });
-            document.getElementById('stepsProgress').setAttribute('aria-label', 'Step ' + (step + 1) + ' of ' + STEPS);
-            document.getElementById('backBtn').hidden = step === 0;
-            const next = document.getElementById('nextBtn');
-            next.innerHTML = step === STEPS - 1
-                ? '<i class="fa-solid fa-check"></i> Save & Finish'
-                : 'Next <i class="fa-solid fa-arrow-right"></i>';
+            $('stepsProgress').setAttribute('aria-label', 'Step ' + (step + 1) + ' of ' + STEPS);
+            $('backBtn').hidden = step === 0;
+            const next = $('nextBtn');
+            if (next.getAttribute('aria-busy') !== 'true') next.innerHTML = nextLabel();
+            if (step === STEPS - 1) renderSummary();
+            if (moveFocus) {
+                const h = $('stepTitle' + step);
+                if (h) h.focus();
+            }
         }
 
         function prevStep() {
-            if (step > 0) { step--; render(); }
+            if (saving) return;
+            if (step > 0) { step--; render(true); }
         }
 
         async function nextStep() {
             if (saving) return;
             if (step === 0 && connOk === false && !connWarned) {
                 connWarned = true;
-                setStatus(document.getElementById('connStatus'), 'warn', 'fa-solid fa-triangle-exclamation',
-                    'Lidarr isn\'t reachable yet. You can continue and fix it later \u2014 press Next again to skip the check.');
+                $('connWarn').hidden = false;
+                render(false);
                 return;
             }
+            if (step === 1 && !validatePaths()) return;
             if (step < STEPS - 1) {
                 step++;
-                render();
+                render(true);
                 return;
             }
             await saveAndFinish();
         }
 
-        async function testConnection() {
-            const s = document.getElementById('connStatus');
-            const envNote = document.getElementById('envNote');
+        function testConnection() {
+            const btn = $('testConnBtn');
+            if (btn.getAttribute('aria-busy') === 'true') return Promise.resolve();
+            const s = $('connStatus');
+            const envNote = $('envNote');
             connOk = null;
             connWarned = false;
-            setStatus(s, '', 'fa-solid fa-spinner fa-spin', 'Testing\u2026');
-            try {
-                const data = await (await fetch('/api/test-connection')).json();
-                if (data.status === 'success') {
-                    connOk = true;
-                    setStatus(s, 'ok', 'fa-solid fa-circle-check',
-                        'Connected to Lidarr ' + (data.lidarr_version || ''));
-                    envNote.hidden = true;
-                } else {
+            $('connWarn').hidden = true;
+            render(false);
+            setStatus(s, '', 'spinner', 'Testing…', '');
+            return UI.guard(btn, async () => {
+                try {
+                    const data = await UI.fetchJSON('/api/test-connection');
+                    if (data && data.status === 'success') {
+                        connOk = true;
+                        connVersion = String(data.lidarr_version || '');
+                        setStatus(s, 'success', 'check-circle', 'Connected to Lidarr', connVersion ? 'Version ' + connVersion : '');
+                        envNote.hidden = true;
+                    } else {
+                        connOk = false;
+                        setStatus(s, 'danger', 'x-circle', 'Could not reach Lidarr', String((data && data.message) || 'Lidarr did not answer as expected.'));
+                        envNote.hidden = false;
+                    }
+                } catch (e) {
                     connOk = false;
-                    setStatus(s, 'err', 'fa-solid fa-circle-xmark',
-                        String(data.message || 'Could not reach Lidarr'));
+                    setStatus(s, 'danger', 'x-circle', 'Could not reach Lidarr', e && e.message ? e.message : '');
                     envNote.hidden = false;
                 }
-            } catch (e) {
-                connOk = false;
-                setStatus(s, 'err', 'fa-solid fa-circle-xmark', 'Could not reach Lidarr');
-                envNote.hidden = false;
-            }
+                render(false);
+            }, 'Testing…');
         }
 
         function finishSetup() {
@@ -304,11 +463,17 @@
 
         async function saveAndFinish() {
             if (saving) return;
-            const s = document.getElementById('saveStatus');
+            if (!validatePaths()) {
+                step = 1;
+                render(false);
+                validatePaths();
+                return;
+            }
+            const s = $('saveStatus');
             const payload = {};
-            const dl = document.getElementById('downloadPath');
+            const dl = $('downloadPath');
             const downloadPath = dl.value.trim();
-            const lidarrPath = document.getElementById('lidarrPath').value.trim();
+            const lidarrPath = $('lidarrPath').value.trim();
             if (downloadPath && !dl.readOnly) payload.download_path = downloadPath;
             if (lidarrPath) payload.lidarr_path = lidarrPath;
             if (!Object.keys(payload).length) {
@@ -316,11 +481,11 @@
                 return;
             }
             saving = true;
-            const nextBtn = document.getElementById('nextBtn');
-            const backBtn = document.getElementById('backBtn');
-            nextBtn.disabled = true;
+            const nextBtn = $('nextBtn');
+            const backBtn = $('backBtn');
+            UI.setBusy(nextBtn, true, 'Saving…');
             backBtn.disabled = true;
-            setStatus(s, '', 'fa-solid fa-spinner fa-spin', 'Saving\u2026');
+            setStatus(s, '', 'spinner', 'Saving…', '');
             let ok = false;
             try {
                 const res = await fetch('/api/config', {
@@ -329,20 +494,22 @@
                     body: JSON.stringify(payload),
                 });
                 let data = {};
-                try { data = await res.json(); } catch (_) {}
+                try { data = (await res.json()) || {}; } catch (_) {}
                 if (res.ok && data.success !== false) {
                     ok = true;
+                    setStatus(s, 'success', 'check-circle', 'Saved', 'Opening the dashboard…');
                 } else {
-                    setStatus(s, 'err', 'fa-solid fa-circle-xmark',
-                        'Could not save: ' + String(data.message || ('the server returned HTTP ' + res.status)) + '. Try again in a moment.');
+                    setStatus(s, 'danger', 'x-circle', 'Could not save',
+                        String(data.message || ('The server returned HTTP ' + res.status)) + '. Try again in a moment.');
                 }
             } catch (_) {
-                setStatus(s, 'err', 'fa-solid fa-circle-xmark',
-                    'Could not save: the server could not be reached. Try again in a moment.');
+                setStatus(s, 'danger', 'x-circle', 'Could not save', 'The server could not be reached. Try again in a moment.');
             } finally {
                 saving = false;
-                nextBtn.disabled = false;
-                backBtn.disabled = false;
+                if (!ok) {
+                    UI.setBusy(nextBtn, false);
+                    backBtn.disabled = false;
+                }
             }
             if (ok) finishSetup();
         }
@@ -352,24 +519,46 @@
             finishSetup();
         }
 
-        (async () => {
+        $('nextBtn').addEventListener('click', nextStep);
+        $('backBtn').addEventListener('click', prevStep);
+        $('testConnBtn').addEventListener('click', testConnection);
+        $('skipLink').addEventListener('click', skipSetup);
+
+        [['downloadPath', 'downloadPathError'], ['lidarrPath', 'lidarrPathError']].forEach(([id, errId]) => {
+            const input = $(id);
+            const hints = () => (id === 'downloadPath' ? downloadHintIds() : ['lidarrPathHint']);
+            input.addEventListener('input', () => {
+                if (input.hasAttribute('aria-invalid')) fieldError(input, errId, hints(), '');
+            });
+            input.addEventListener('blur', () => validatePath(input, errId, hints()));
+            input.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    nextStep();
+                }
+            });
+        });
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            render(false);
             try {
-                const c = await (await fetch('/api/config')).json();
-                const dl = document.getElementById('downloadPath');
+                const c = (await UI.fetchJSON('/api/config')) || {};
+                const dl = $('downloadPath');
                 dl.value = c.download_path || '';
                 if ((c.download_path || '').trim()) {
                     dl.readOnly = true;
+                    $('downloadPathHint').hidden = true;
+                    $('downloadPathEnvHint').hidden = false;
                     dl.setAttribute('aria-describedby', 'downloadPathEnvHint');
-                    document.getElementById('downloadPathEnvHint').hidden = false;
                 }
-                document.getElementById('lidarrPath').value = c.lidarr_path || '';
+                $('lidarrPath').value = c.lidarr_path || '';
                 const url = (c.lidarr_url || '').trim();
-                document.getElementById('lidarrUrlLabel').textContent =
-                    url ? url : 'LIDARR_URL not set';
-            } catch (_) {}
+                $('lidarrUrlLabel').textContent = url ? url : 'LIDARR_URL not set';
+            } catch (_) {
+                $('lidarrUrlLabel').textContent = 'Could not load the current settings';
+            }
             testConnection();
-            render();
-        })();
+        });
     </script>
 </body>
 </html>

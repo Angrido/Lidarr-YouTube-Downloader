@@ -1019,6 +1019,10 @@ code, kbd, pre, samp {
     flex: 1 1 auto;
 }
 
+.ui-input-row > .ui-btn-lg {
+    min-height: 48px;
+}
+
 .ui-switch {
     position: relative;
     display: inline-flex;
@@ -1821,8 +1825,14 @@ tr[data-status="accent"] { --row-status: var(--accent); }
 .ui-track[data-state="failed"] .ui-track-num { color: var(--danger); }
 .ui-track[data-state="skipped"] .ui-track-num { color: var(--text-3); }
 .ui-track[data-state="skipped"] .ui-track-title { color: var(--text-3); text-decoration: line-through; text-decoration-color: var(--separator-strong); }
+.ui-track[data-state="checking"] .ui-track-num,
+.ui-track[data-state="verifying"] .ui-track-num,
+.ui-track[data-state="fingerprinting"] .ui-track-num { color: var(--info); }
 .ui-track[data-state="downloading"],
 .ui-track[data-state="searching"],
+.ui-track[data-state="checking"],
+.ui-track[data-state="verifying"],
+.ui-track[data-state="fingerprinting"],
 .ui-track[data-state="tagging"] { background: var(--accent-soft); }
 
 .ui-eq {

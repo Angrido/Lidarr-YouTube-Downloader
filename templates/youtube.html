@@ -1,1525 +1,1235 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Import - Lidarr YouTube Downloader</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet" integrity="sha512-9usAa10IRO0HhonpyAIVpjrylPvoDwiPUiKdWk5t3PyolY1cOd4DSE0Ga+ri4AuTroPR5aQvXU9xC6qOPnzFeg==" crossorigin="anonymous" referrerpolicy="no-referrer">
-    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="stylesheet" href="/static/components.css">
-    <link rel="manifest" href="/manifest.webmanifest">
-    <meta name="theme-color" content="#09090b">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="default">
-    <meta name="apple-mobile-web-app-title" content="Lidarr YT">
-    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
-    <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
+    {% include "_head.html" %}
+    <title>YouTube import — Lidarr YouTube Downloader</title>
     <style>
-        :root {
-            --bg: #09090b;
-            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.05) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.05) 0%, transparent 50%);
-            --surface: #18181b;
-            --surface-glass: rgba(24, 24, 27, 0.7);
-            --surface-hover: #27272a;
-            --text: #fafafa;
-            --text-dim: #a1a1aa;
-            --primary: #10b981;
-            --primary-hover: #059669;
-            --danger: #ef4444;
-            --warning: #f59e0b;
-            --border: #27272a;
-            --border-glass: rgba(255, 255, 255, 0.1);
-            --radius: 16px;
-            --shadow: 0 8px 32px rgba(0, 0, 0, 0.37);
-            --glow: 0 0 20px rgba(16, 185, 129, 0.3);
-        }
-
-        body.light {
-            --bg: #f4f4f5;
-            --bg-pattern: radial-gradient(circle at 20% 50%, rgba(16, 185, 129, 0.03) 0%, transparent 50%), radial-gradient(circle at 80% 80%, rgba(6, 214, 160, 0.03) 0%, transparent 50%);
-            --surface: #ffffff;
-            --surface-glass: rgba(255, 255, 255, 0.7);
-            --surface-hover: #f4f4f5;
-            --text: #18181b;
-            --text-dim: #52525b;
-            --primary: #047857;
-            --primary-hover: #065f46;
-            --danger: #b91c1c;
-            --warning: #b45309;
-            --border: #e4e4e7;
-            --border-glass: rgba(0, 0, 0, 0.1);
-            --shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
-            --glow: 0 0 20px rgba(16, 185, 129, 0.2);
-        }
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: 'Inter', system-ui, sans-serif;
-            background: var(--bg);
-            background-image: var(--bg-pattern);
-            background-attachment: fixed;
-            color: var(--text);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            overflow-x: hidden;
-        }
-
-        header {
-            background: var(--surface-glass);
-            backdrop-filter: blur(30px) saturate(200%);
-            -webkit-backdrop-filter: blur(30px) saturate(200%);
-            border-bottom: 1px solid var(--border-glass);
-            position: sticky;
-            top: 0;
-            z-index: 50;
-            padding: 0;
-        }
-
-        .nav-container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 0 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            height: 64px;
-        }
-
-        .logo {
-            font-weight: 800;
-            font-size: 1.25rem;
+        .yt-hero-head {
             display: flex;
             align-items: center;
-            gap: 0.6rem;
-            background: linear-gradient(135deg, var(--primary), #06d6a0, #0891b2);
-            background-size: 200% 200%;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            animation: gradient-shift 4s ease infinite;
-            letter-spacing: -0.02em;
+            gap: var(--sp-3);
+            margin-bottom: var(--sp-4);
         }
 
-        .logo-icon {
-            width: 28px;
-            height: 28px;
-            background: linear-gradient(135deg, var(--primary), #06d6a0);
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-        }
-
-        .logo-icon svg { width: 16px; height: 16px; }
-
-        @keyframes gradient-shift {
-            0%, 100% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-        }
-
-        .nav-links {
-            display: flex;
-            gap: 0.25rem;
-            align-items: center;
-        }
-
-        .nav-links a {
-            color: var(--text-dim);
-            text-decoration: none;
-            font-weight: 500;
-            font-size: 0.9rem;
-            padding: 0.5rem 0.9rem;
-            border-radius: 10px;
-            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-            position: relative;
-            display: flex;
-            align-items: center;
-            gap: 0.4rem;
-        }
-
-        .nav-links a:hover { color: var(--text); background: var(--surface-hover); }
-
-        .nav-links a.active {
-            color: var(--primary);
-            background: rgba(16, 185, 129, 0.1);
-        }
-
-        .nav-links a::after {
-            content: '';
-            position: absolute;
-            bottom: 2px;
-            left: 50%;
-            transform: translateX(-50%) scaleX(0);
-            width: 60%;
-            height: 2px;
-            background: linear-gradient(90deg, var(--primary), #06d6a0);
-            border-radius: 1px;
-            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        .nav-links a:hover::after, .nav-links a.active::after {
-            transform: translateX(-50%) scaleX(1);
-        }
-
-        .nav-badge {
-            background: linear-gradient(135deg, #ef4444, #f87171);
-            color: white;
-            font-size: 0.65rem;
-            font-weight: 700;
-            min-width: 18px;
-            height: 18px;
-            border-radius: 999px;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            padding: 0 5px;
-            line-height: 1;
-        }
-
-        .nav-badge.active { display: inline-flex; }
-
-        .controls { display: flex; gap: 0.75rem; align-items: center; }
-
-        .theme-toggle {
-            background: var(--surface-glass);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--border-glass);
-            color: var(--text);
+        .yt-hero-head .ui-icon-tile {
             width: 40px;
             height: 40px;
-            border-radius: 12px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.1rem;
-            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .theme-toggle:hover {
-            background: var(--surface-hover);
-            border-color: var(--primary);
-            box-shadow: var(--glow);
-            transform: scale(1.08);
-        }
-
-        .theme-toggle:active { transform: scale(0.92); }
-        .theme-toggle i { transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1); }
-
-        .theme-toggle.spin i {
-            animation: themeSwitch 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        @keyframes themeSwitch {
-            0% { transform: rotate(0deg) scale(1); opacity: 1; }
-            50% { transform: rotate(180deg) scale(0); opacity: 0; }
-            100% { transform: rotate(360deg) scale(1); opacity: 1; }
-        }
-
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            padding: 2rem;
-            width: 100%;
-            flex: 1;
-        }
-
-        .section {
-            background: var(--surface-glass);
-            backdrop-filter: blur(20px) saturate(180%);
-            padding: 1.5rem;
-            border-radius: var(--radius);
-            border: 1px solid var(--border-glass);
-            margin-bottom: 2rem;
-            box-shadow: var(--shadow);
-        }
-
-        .section-title {
-            font-size: 1.2rem;
-            font-weight: 700;
-            margin-bottom: 1.25rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            background: linear-gradient(135deg, var(--primary), #06d6a0);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-        }
-
-        .url-row {
-            display: flex;
-            gap: 0.75rem;
-        }
-
-        .url-input {
-            flex: 1;
-            background: var(--surface);
-            border: 1px solid var(--border);
             border-radius: 10px;
-            padding: 0.75rem 1rem;
-            color: var(--text);
-            font-size: 0.95rem;
-            outline: none;
-            transition: border-color 0.2s, box-shadow 0.2s;
         }
 
-        .url-input:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+        .yt-hero-head .ui-icon-tile .ico {
+            width: 22px;
+            height: 22px;
         }
 
-        .url-input::placeholder { color: var(--text-dim); }
-
-        .btn {
-            padding: 0.75rem 1.25rem;
-            border-radius: 10px;
-            border: none;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 0.9rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-            white-space: nowrap;
+        .yt-url-row .ui-btn {
+            flex: none;
+            min-height: 48px;
         }
 
-        .btn-primary {
-            background: linear-gradient(135deg, var(--primary), var(--primary-hover));
-            color: white;
-            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
-        }
-
-        .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16, 185, 129, 0.45); }
-        .btn-primary:active { transform: scale(0.97); }
-        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
-
-        .btn-danger {
-            background: var(--danger);
-            color: white;
-            box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
-        }
-
-        .btn-danger:hover { background: #dc2626; }
-
-        .btn-ghost {
-            background: var(--surface);
-            color: var(--text-dim);
-            border: 1px solid var(--border);
-        }
-
-        .btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
-
-        .btn-sm {
-            padding: 0.4rem 0.8rem;
-            font-size: 0.8rem;
-            border-radius: 8px;
-        }
-
-        .alert {
-            padding: 0.9rem 1.1rem;
-            border-radius: 10px;
-            font-size: 0.9rem;
-            margin-bottom: 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.6rem;
-        }
-
-        .alert-error { background: rgba(239, 68, 68, 0.1); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); }
-        .alert-success { background: rgba(16, 185, 129, 0.1); color: var(--primary); border: 1px solid rgba(16, 185, 129, 0.2); }
-        .alert-info { background: rgba(59, 130, 246, 0.1); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.2); }
-        body.light .alert-error { color: var(--danger); }
-        body.light .alert-info { color: #1d4ed8; }
-        .hidden { display: none !important; }
-
-        .playlist-info-bar {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding: 1rem;
-            background: var(--surface);
-            border-radius: 12px;
-            border: 1px solid var(--border);
-            margin-bottom: 1.25rem;
-        }
-
-        .playlist-thumb {
-            width: 64px;
-            height: 64px;
-            border-radius: 8px;
-            object-fit: cover;
-            flex-shrink: 0;
-            background: var(--surface-hover);
-            display: block;
-        }
-
-        .playlist-thumb-placeholder {
-            width: 64px;
-            height: 64px;
-            border-radius: 8px;
-            flex-shrink: 0;
-            background: var(--surface-hover);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-dim);
-            font-size: 1.4rem;
-        }
-
-        .playlist-meta { flex: 1; min-width: 0; }
-        .playlist-meta-title { font-weight: 700; font-size: 1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .playlist-meta-sub { color: var(--text-dim); font-size: 0.85rem; margin-top: 0.2rem; }
-
-        .playlist-badge {
-            padding: 0.25rem 0.7rem;
-            border-radius: 999px;
-            font-size: 0.75rem;
-            font-weight: 700;
-            letter-spacing: 0.03em;
-            flex-shrink: 0;
-            text-transform: uppercase;
-        }
-
-        .playlist-badge.playlist { background: rgba(255,0,0,0.12); color: #ff4444; }
-        .playlist-badge.video { background: rgba(59,130,246,0.12); color: #60a5fa; }
-        body.light .playlist-badge.playlist { color: #b91c1c; }
-        body.light .playlist-badge.video { color: #1d4ed8; }
-
-        .fields-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 1rem;
-            margin-bottom: 1.25rem;
-        }
-
-        .field-group { display: flex; flex-direction: column; gap: 0.4rem; }
-
-        .field-label {
-            font-size: 0.78rem;
-            font-weight: 700;
-            color: var(--text-dim);
-            text-transform: uppercase;
-            letter-spacing: 0.06em;
-        }
-
-        .field-input {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 0.7rem 0.9rem;
-            color: var(--text);
-            font-size: 0.95rem;
-            outline: none;
-            transition: border-color 0.2s, box-shadow 0.2s;
-        }
-
-        .field-input:focus {
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
-        }
-
-        .tracks-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 0.75rem;
-        }
-
-        .tracks-label {
-            font-size: 0.9rem;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            color: var(--text-dim);
-        }
-
-        .tracks-label .count { color: var(--primary); }
-
-        .tracks-actions { display: flex; gap: 0.4rem; }
-
-        .track-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0.3rem;
-            max-height: 440px;
-            overflow-y: auto;
-            padding-right: 2px;
-        }
-
-        .track-list::-webkit-scrollbar { width: 4px; }
-        .track-list::-webkit-scrollbar-track { background: transparent; }
-        .track-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
-
-        .track-item {
-            display: flex;
-            align-items: center;
-            gap: 0.65rem;
-            padding: 0.55rem 0.75rem;
-            border-radius: 10px;
-            border: 1px solid transparent;
-            transition: all 0.15s;
-            cursor: pointer;
-            user-select: none;
-        }
-
-        .track-item:hover { background: var(--surface-hover); border-color: var(--border); }
-
-        .track-item.selected {
-            background: rgba(16, 185, 129, 0.05);
-            border-color: rgba(16, 185, 129, 0.18);
-        }
-
-        .track-cb {
-            width: 16px;
-            height: 16px;
-            accent-color: var(--primary);
-            cursor: pointer;
-            flex-shrink: 0;
-        }
-
-        .track-num {
-            color: var(--text-dim);
-            font-size: 0.78rem;
-            font-weight: 600;
-            min-width: 1.4rem;
-            text-align: right;
-            flex-shrink: 0;
-            font-variant-numeric: tabular-nums;
-        }
-
-        .track-thumb {
-            width: 40px;
-            height: 40px;
-            border-radius: 5px;
-            object-fit: cover;
-            flex-shrink: 0;
-            background: var(--surface-hover);
-            display: block;
-        }
-
-        .track-thumb-placeholder {
-            width: 40px;
-            height: 40px;
-            border-radius: 5px;
-            background: var(--surface-hover);
-            flex-shrink: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-dim);
-            font-size: 0.75rem;
-        }
-
-        .track-info { flex: 1; min-width: 0; }
-        .track-title-text { font-size: 0.88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
-        .track-channel-text { color: var(--text-dim); font-size: 0.76rem; margin-top: 0.1rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-        .track-dur {
-            color: var(--text-dim);
-            font-size: 0.78rem;
-            flex-shrink: 0;
-            font-variant-numeric: tabular-nums;
-        }
-
-        .download-footer {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-top: 1.25rem;
-            padding-top: 1rem;
-            border-top: 1px solid var(--border-glass);
-            gap: 1rem;
-        }
-
-        .path-hint {
-            font-size: 0.8rem;
-            color: var(--text-dim);
-            display: flex;
-            align-items: center;
-            gap: 0.4rem;
+        .yt-url-row .ui-input-group {
             min-width: 0;
-            max-width: 100%;
+        }
+
+        .yt-hint {
+            margin-top: var(--sp-2);
+        }
+
+        .yt-skel-list {
+            margin-top: var(--sp-5);
+        }
+
+        .yt-track-main {
+            min-width: 0;
+        }
+
+        .yt-preview-head {
+            display: flex;
+            align-items: flex-start;
+            gap: var(--sp-4);
+        }
+
+        .yt-preview-head .ui-artwork-lg .ico {
+            width: 36px;
+            height: 36px;
+        }
+
+        .yt-preview-text {
+            min-width: 0;
+            flex: 1 1 auto;
+            display: flex;
+            flex-direction: column;
+            gap: var(--sp-1);
+        }
+
+        .yt-preview-title {
             overflow-wrap: anywhere;
         }
 
-        #pathStructureHint { min-width: 0; overflow-wrap: anywhere; }
-        #pathStructureText, #downloadPathHintText { min-width: 0; }
-        #pathStructureHint i, .path-hint i { flex-shrink: 0; }
-
-        .progress-bar-wrap {
-            background: var(--surface);
-            border-radius: 999px;
-            height: 6px;
-            overflow: hidden;
-            margin-bottom: 1rem;
-            border: 1px solid var(--border);
+        .yt-fields {
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+            margin-top: var(--sp-5);
         }
 
-        .progress-bar-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--primary), #06d6a0);
-            border-radius: 999px;
-            transition: width 0.5s ease;
-            width: 0%;
+        .yt-req {
+            font-weight: 400;
+            color: var(--text-3);
         }
 
-        .progress-header-row {
+        .yt-fields-error {
+            margin-top: var(--sp-2);
+        }
+
+        .yt-path {
+            display: flex;
+            align-items: flex-start;
+            gap: var(--sp-2);
+            margin-top: var(--sp-3);
+            padding: var(--sp-3);
+            border-radius: var(--r-md);
+            background: var(--fill-1);
+            color: var(--text-2);
+            font-size: var(--text-footnote);
+        }
+
+        .yt-path > .ico {
+            margin-top: 1px;
+            color: var(--text-3);
+        }
+
+        .yt-path-text {
+            min-width: 0;
+            overflow-wrap: anywhere;
+            line-height: 1.5;
+        }
+
+        .yt-path-text.has-path {
+            font-family: var(--font-mono);
+            color: var(--text-1);
+        }
+
+        .yt-path-root,
+        .yt-path-sep {
+            color: var(--text-3);
+        }
+
+        .yt-path-sep {
+            margin: 0 0.3em;
+        }
+
+        .yt-tracks-head {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 1rem;
+            gap: var(--sp-3);
+            flex-wrap: wrap;
+            margin: var(--sp-6) 0 var(--sp-3);
         }
 
-        .progress-label {
-            font-weight: 600;
-            font-size: 1rem;
-            display: flex;
+        .yt-selectall {
+            display: inline-flex;
             align-items: center;
-            gap: 0.5rem;
-        }
-
-        .recent-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-            gap: 0.75rem;
-            margin-top: 0.5rem;
-        }
-
-        .recent-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            overflow: hidden;
+            gap: var(--sp-2);
+            font-size: var(--text-subhead);
+            font-weight: 560;
             cursor: pointer;
-            text-decoration: none;
-            color: var(--text);
-            transition: all 0.2s;
-            display: block;
         }
 
-        .recent-card:hover {
-            border-color: var(--primary);
-            transform: translateY(-2px);
-            box-shadow: var(--glow);
-        }
-
-        .recent-card-thumb {
-            width: 100%;
-            aspect-ratio: 1/1;
-            object-fit: cover;
-            background: var(--surface-hover);
-            display: block;
-        }
-
-        .recent-card-thumb-placeholder {
-            width: 100%;
-            aspect-ratio: 1/1;
-            background: var(--surface-hover);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-dim);
-            font-size: 1.5rem;
-        }
-
-        .recent-card-body {
-            padding: 0.5rem 0.6rem;
-        }
-
-        .recent-card-title {
-            font-size: 0.8rem;
-            font-weight: 600;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .recent-card-sub {
-            font-size: 0.72rem;
-            color: var(--text-dim);
-            margin-top: 0.15rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .prog-section-icon {
-            color: var(--primary);
-            flex-shrink: 0;
-        }
-
-        .track-prog-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0.3rem;
-            max-height: 320px;
+        .yt-entries {
+            max-height: 480px;
             overflow-y: auto;
+            overscroll-behavior: contain;
         }
 
-        .track-prog-list::-webkit-scrollbar { width: 4px; }
-        .track-prog-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+        .yt-entry,
+        .yt-recent {
+            padding: 0;
+        }
 
-        .tp-row {
+        .yt-entry-row,
+        .yt-recent-row {
             display: flex;
             align-items: center;
-            gap: 0.6rem;
-            padding: 0.45rem 0.65rem;
-            border-radius: 8px;
-            font-size: 0.84rem;
-            background: var(--surface);
+            gap: var(--sp-3);
+            width: 100%;
+            min-height: 60px;
+            padding: var(--sp-2) var(--sp-4);
+            color: inherit;
         }
 
-        .tp-icon {
+        .yt-entry-row {
+            cursor: pointer;
+        }
+
+        .yt-recent-row:hover {
+            text-decoration: none;
+        }
+
+        .yt-recent-row:focus-visible {
+            outline-offset: -2px;
+        }
+
+        .yt-entry .ui-list-title,
+        .yt-entry .ui-list-sub,
+        .yt-recent .ui-list-title,
+        .yt-recent .ui-list-sub {
+            display: block;
+        }
+
+        .yt-entry-num {
+            flex: none;
+            min-width: 1.6em;
+            text-align: right;
+            color: var(--text-3);
+            font-size: var(--text-footnote);
+        }
+
+        .yt-entry-dim {
+            transition: opacity var(--dur-fast) var(--ease);
+        }
+
+        .yt-entry:not(.is-selected) .yt-entry-dim {
+            opacity: 0.45;
+        }
+
+        .yt-foot {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--sp-3);
+            flex-wrap: wrap;
+            margin-top: var(--sp-5);
+            padding-top: var(--sp-4);
+            border-top: 1px solid var(--separator);
+        }
+
+        .yt-prog-head {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-3);
+        }
+
+        .yt-prog-status {
+            display: grid;
+            place-items: center;
+            flex: none;
+            width: 40px;
+            height: 40px;
+            border-radius: var(--r-md);
+            background: var(--accent-soft);
+            color: var(--accent-text);
+        }
+
+        .yt-prog-status[data-kind="done"] {
+            background: var(--success-soft);
+            color: var(--success);
+        }
+
+        .yt-prog-status[data-kind="error"] {
+            background: var(--warning-soft);
+            color: var(--warning);
+        }
+
+        .yt-prog-status .ico {
             width: 22px;
             height: 22px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.68rem;
-            flex-shrink: 0;
         }
 
-        .tp-icon.pending { background: var(--border); color: var(--text-dim); }
-        .tp-icon.searching, .tp-icon.downloading { background: rgba(59,130,246,0.15); color: #60a5fa; }
-        body.light .tp-icon.searching, body.light .tp-icon.downloading { color: #1d4ed8; }
-        .tp-icon.tagging, .tp-icon.verifying, .tp-icon.fingerprinting { background: rgba(245,158,11,0.15); color: var(--warning); }
-        .tp-icon.done { background: rgba(16,185,129,0.15); color: var(--primary); }
-        .tp-icon.failed { background: rgba(239,68,68,0.15); color: var(--danger); }
-        .tp-icon.skipped { background: var(--border); color: var(--text-dim); }
+        .yt-prog-text {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
 
-        @keyframes spin-it { to { transform: rotate(360deg); } }
-        .spin-anim { animation: spin-it 1s linear infinite; }
+        .yt-prog-bar {
+            margin-top: var(--sp-4);
+        }
 
-        .tp-title { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .tp-extra { color: var(--text-dim); font-size: 0.76rem; white-space: nowrap; }
-
-        footer {
-            text-align: center;
-            padding: 1.5rem 2rem;
-            color: var(--text-dim);
-            font-size: 0.9rem;
-            border-top: 1px solid var(--border-glass);
-            background: var(--surface-glass);
-            backdrop-filter: blur(20px);
-            margin-top: auto;
+        .yt-prog-tracks {
             display: flex;
             flex-direction: column;
+            gap: 2px;
+            max-height: 440px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            margin: var(--sp-4) calc(var(--sp-3) * -1) 0;
+        }
+
+        .yt-prog-error {
+            margin-top: var(--sp-4);
+        }
+
+        .yt-skel-head {
+            display: flex;
+            gap: var(--sp-4);
             align-items: center;
-            gap: 0.5rem;
         }
 
-        .footer-github {
-            color: var(--text-dim);
-            font-size: 1.2rem;
-            transition: color 0.2s;
+        .yt-skel-art {
+            width: 96px;
+            height: 96px;
+            flex: none;
+            border-radius: var(--r-md);
         }
 
-        .footer-github:hover { color: var(--text); }
+        .yt-skel-lines {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
 
-        body.light .logo,
-        body.light .section-title { background-image: linear-gradient(135deg, var(--primary), var(--primary-hover)); }
+        .yt-skel-row {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-3);
+            padding: var(--sp-2) var(--sp-4);
+            min-height: 60px;
+        }
 
-        @media (max-width: 768px) {
-            .nav-container {
-                height: auto;
-                flex-wrap: wrap;
-                padding: 0.75rem 1rem;
-                gap: 0.5rem;
+        .yt-skel-row + .yt-skel-row {
+            border-top: 1px solid var(--separator);
+        }
+
+        .yt-skel-thumb {
+            width: 44px;
+            height: 44px;
+            flex: none;
+        }
+
+        .yt-w-40 { width: 40%; }
+        .yt-w-60 { width: 60%; }
+        .yt-w-25 { width: 25%; }
+
+        .yt-recent-time {
+            white-space: nowrap;
+        }
+
+        .yt-empty {
+            padding: var(--sp-10) var(--sp-6);
+        }
+
+        @media (max-width: 560px) {
+            .yt-entry-num {
+                display: none;
             }
-            .logo { font-size: 1rem; }
-            .nav-links {
+            .yt-preview-head .ui-artwork-lg,
+            .yt-skel-art {
+                width: 72px;
+                height: 72px;
+            }
+            .yt-foot .ui-btn {
                 width: 100%;
-                justify-content: center;
-                flex-wrap: wrap;
-                gap: 0.15rem;
-                order: 3;
             }
-            .nav-links a { padding: 0.35rem 0.7rem; font-size: 0.8rem; }
-            .container { padding: 1rem; }
-            .fields-row { grid-template-columns: 1fr; }
-            .url-row { flex-direction: column; }
-            .download-footer { flex-direction: column; align-items: flex-start; }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            *, *::before, *::after {
-                animation-duration: 0.01ms !important;
-                animation-iteration-count: 1 !important;
-                transition-duration: 0.01ms !important;
-                scroll-behavior: auto !important;
+            .app-content > .ui-card-lg,
+            .section > .ui-card-lg {
+                padding: var(--sp-4);
+            }
+            .yt-entry-row,
+            .yt-recent-row,
+            .yt-skel-row {
+                padding-left: var(--sp-3);
+                padding-right: var(--sp-3);
             }
         }
     </style>
 </head>
-<body>
-<header>
-    <div class="nav-container">
-        <a href="/" style="text-decoration: none;">
-            <div class="logo">
-                <div class="logo-icon">
-                    <svg viewBox="0 0 32 32" fill="white"><rect x="4" y="18" width="4" height="8" rx="1"/><rect x="10" y="12" width="4" height="14" rx="1"/><rect x="18" y="6" width="4" height="20" rx="1"/><rect x="24" y="14" width="4" height="12" rx="1"/></svg>
+<body class="app">
+    {% set active_page = 'youtube' %}
+    {% include "_nav.html" %}
+    <main class="app-main" id="main">
+        <div class="app-content app-content-narrow">
+            {% include "_topbar.html" %}
+            <header class="page-header">
+                <div class="page-header-text">
+                    <p class="t-eyebrow">Import</p>
+                    <h1 class="page-title">YouTube import</h1>
+                    <p class="page-subtitle">Download a YouTube video or playlist directly, without needing an artist defined in Lidarr.</p>
                 </div>
-                LYD
-            </div>
-        </a>
-        <div class="nav-links">
-            <a href="/"><i class="fas fa-home"></i> <span>Home</span></a>
-            <a href="/downloads"><i class="fas fa-download"></i> <span>Downloads</span> <span class="nav-badge" id="queueBadge">0</span></a>
-            <a href="/insights"><i class="fas fa-chart-line"></i> <span>Insights</span></a>
-            <a href="/logs"><i class="fas fa-list"></i> <span>Logs</span></a>
-            <a href="/youtube" class="active"><i class="fab fa-youtube"></i> <span>YouTube</span></a>
-            <a href="/settings"><i class="fas fa-cog"></i> <span>Settings</span></a>
+            </header>
+
+            <section class="ui-card ui-card-lg" aria-labelledby="urlHeading">
+                <div class="yt-hero-head">
+                    <span class="ui-icon-tile ui-icon-tile-danger" aria-hidden="true"><svg class="ico"><use href="/static/icons.svg#i-youtube"></use></svg></span>
+                    <div>
+                        <h2 class="t-title3" id="urlHeading">Paste a link</h2>
+                        <p class="t-footnote t-3">A video, a playlist or a YouTube Music album.</p>
+                    </div>
+                </div>
+                <label class="sr-only" for="urlInput">YouTube URL</label>
+                <div class="ui-input-row yt-url-row">
+                    <div class="ui-input-group">
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-link"></use></svg>
+                        <input type="url" inputmode="url" id="urlInput" class="ui-input ui-input-lg" placeholder="https://youtube.com/…" autocomplete="off" spellcheck="false" aria-describedby="urlHint">
+                    </div>
+                    <button type="button" class="ui-btn ui-btn-primary ui-btn-lg" id="fetchBtn">
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-search"></use></svg><span>Fetch</span>
+                    </button>
+                </div>
+                <p class="ui-error-text yt-hint" id="urlError" hidden></p>
+                <p class="ui-hint yt-hint" id="urlHint">Press Enter to fetch. Nothing is downloaded until you choose the tracks.</p>
+                <div class="ui-callout ui-callout-danger yt-prog-error" id="fetchError" role="alert" hidden>
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-x-circle"></use></svg>
+                    <div class="ui-callout-body">
+                        <div class="ui-callout-title">Couldn't load that link</div>
+                        <div class="ui-callout-text" id="fetchErrorText"></div>
+                    </div>
+                    <button type="button" class="ui-btn ui-btn-sm ui-btn-secondary" id="fetchRetryBtn">Try again</button>
+                </div>
+            </section>
+
+            <section class="section" id="progressSection" aria-labelledby="progHeading" hidden>
+                <div class="ui-card ui-card-lg">
+                    <div class="yt-prog-head">
+                        <span class="yt-prog-status" id="progSectionIcon" data-kind="running" aria-hidden="true"><span class="ui-spinner"></span></span>
+                        <div class="yt-prog-text">
+                            <h2 class="t-headline" id="progHeading">Import progress</h2>
+                            <p class="t-footnote t-2 num" id="progLabel" role="status">Downloading…</p>
+                        </div>
+                        <button type="button" class="ui-btn ui-btn-danger ui-btn-sm" id="stopBtn">
+                            <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-stop"></use></svg><span>Stop</span>
+                        </button>
+                    </div>
+                    <div class="ui-progress ui-progress-lg yt-prog-bar" role="progressbar" aria-labelledby="progHeading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progBarWrap">
+                        <div class="ui-progress-bar" id="progBar"></div>
+                    </div>
+                    <div class="ui-callout ui-callout-warning yt-prog-error" id="progError" hidden>
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-wifi-off"></use></svg>
+                        <div class="ui-callout-body">
+                            <div class="ui-callout-title">Live progress stopped</div>
+                            <div class="ui-callout-text">Lost connection to the server. The import may still be running: check the <a href="/downloads">Downloads</a> page.</div>
+                        </div>
+                    </div>
+                    <div class="yt-prog-tracks" id="trackProgList"></div>
+                </div>
+            </section>
+
+            <section class="section" id="resultSkeleton" aria-label="Loading link details" aria-busy="true" hidden>
+                <div class="ui-card ui-card-lg">
+                    <div class="yt-skel-head">
+                        <div class="ui-skeleton yt-skel-art"></div>
+                        <div class="yt-skel-lines">
+                            <div class="ui-skeleton ui-skeleton-text yt-w-25"></div>
+                            <div class="ui-skeleton ui-skeleton-title"></div>
+                            <div class="ui-skeleton ui-skeleton-text yt-w-40"></div>
+                        </div>
+                    </div>
+                    <div class="ui-list yt-skel-list">
+                        <div class="yt-skel-row"><div class="ui-skeleton yt-skel-thumb"></div><div class="yt-skel-lines"><div class="ui-skeleton ui-skeleton-text yt-w-60"></div><div class="ui-skeleton ui-skeleton-text yt-w-25"></div></div></div>
+                        <div class="yt-skel-row"><div class="ui-skeleton yt-skel-thumb"></div><div class="yt-skel-lines"><div class="ui-skeleton ui-skeleton-text yt-w-40"></div><div class="ui-skeleton ui-skeleton-text yt-w-25"></div></div></div>
+                        <div class="yt-skel-row"><div class="ui-skeleton yt-skel-thumb"></div><div class="yt-skel-lines"><div class="ui-skeleton ui-skeleton-text yt-w-60"></div><div class="ui-skeleton ui-skeleton-text yt-w-25"></div></div></div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section" id="resultSection" aria-labelledby="playlistTitle" hidden>
+                <div class="ui-card ui-card-lg">
+                    <div class="yt-preview-head" id="playlistInfoBar">
+                        <span class="ui-artwork ui-artwork-lg" id="playlistThumbWrap" data-fallback="youtube"></span>
+                        <div class="yt-preview-text">
+                            <div class="ui-row ui-row-wrap">
+                                <span class="ui-badge" id="playlistBadge">Playlist</span>
+                                <span class="t-footnote t-3 num" id="playlistMeta"></span>
+                            </div>
+                            <h2 class="t-title2 yt-preview-title bidi line-clamp-2" id="playlistTitle">Tracks found</h2>
+                            <p class="t-subhead t-2 bidi truncate" id="playlistChannel"></p>
+                        </div>
+                    </div>
+
+                    <div class="ui-grid yt-fields">
+                        <div class="ui-field">
+                            <label class="ui-label" id="artistLabel" for="artistInput"><span id="artistLabelText">Artist name</span> <span class="yt-req">(at least one required)</span></label>
+                            <input type="text" id="artistInput" class="ui-input" placeholder="e.g. Daft Punk" autocomplete="off" aria-describedby="fieldsError">
+                        </div>
+                        <div class="ui-field">
+                            <label class="ui-label" for="albumInput">Album / collection title <span class="yt-req">(at least one required)</span></label>
+                            <input type="text" id="albumInput" class="ui-input" placeholder="e.g. Random Access Memories" autocomplete="off" aria-describedby="fieldsError">
+                        </div>
+                    </div>
+                    <p class="ui-error-text yt-fields-error" id="fieldsError" hidden></p>
+                    <div class="yt-path" id="pathStructureHint">
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-folder-tree"></use></svg>
+                        <span class="sr-only">Folder structure: </span>
+                        <span class="yt-path-text" id="pathStructureText">Fill at least one field to set the folder structure.</span>
+                    </div>
+
+                    <div class="yt-tracks-head">
+                        <label class="yt-selectall">
+                            <span class="ui-check"><input type="checkbox" id="selectAllCb" checked><span class="ui-check-box"></span></span>
+                            <span>Select all</span>
+                        </label>
+                        <p class="t-footnote t-3 num"><span id="tracksCountLabel">0 tracks</span> <span class="t-accent" id="selectedCount"></span></p>
+                    </div>
+
+                    <ul class="ui-list yt-entries" id="trackList" aria-label="Tracks to import"></ul>
+
+                    <div class="yt-foot">
+                        <p class="t-footnote t-3" id="downloadPathHintText">Saved to the configured download path</p>
+                        <button type="button" class="ui-btn ui-btn-primary ui-btn-lg" id="downloadBtn" disabled>
+                            <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-download"></use></svg><span>Import tracks</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="section" id="recentSection" aria-labelledby="recentHeading">
+                <div class="section-head">
+                    <div>
+                        <h2 class="section-title" id="recentHeading">Recent imports</h2>
+                        <p class="section-desc">Your last YouTube imports. Open one to revisit its source.</p>
+                    </div>
+                </div>
+                <div id="recentBody">
+                    <div class="ui-list" aria-hidden="true">
+                        <div class="yt-skel-row"><div class="ui-skeleton yt-skel-thumb"></div><div class="yt-skel-lines"><div class="ui-skeleton ui-skeleton-text yt-w-40"></div><div class="ui-skeleton ui-skeleton-text yt-w-25"></div></div></div>
+                        <div class="yt-skel-row"><div class="ui-skeleton yt-skel-thumb"></div><div class="yt-skel-lines"><div class="ui-skeleton ui-skeleton-text yt-w-60"></div><div class="ui-skeleton ui-skeleton-text yt-w-25"></div></div></div>
+                        <div class="yt-skel-row"><div class="ui-skeleton yt-skel-thumb"></div><div class="yt-skel-lines"><div class="ui-skeleton ui-skeleton-text yt-w-40"></div><div class="ui-skeleton ui-skeleton-text yt-w-25"></div></div></div>
+                    </div>
+                </div>
+            </section>
         </div>
-        <div class="controls">
-            <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()" aria-label="Toggle light/dark theme" title="Toggle light/dark theme">
-                <i class="fa-solid fa-moon" id="themeIcon"></i>
-            </button>
-        </div>
-    </div>
-</header>
+    </main>
 
-<div class="container">
+    <script>
+        let fetchedEntries = [];
+        let fetchedThumbnail = '';
+        let fetchedSourceUrl = '';
+        let sseSource = null;
+        let sseErrors = 0;
+        let statusPoller = null;
+        let statusPollErrors = 0;
+        let importRunning = false;
+        let finishTimer = null;
+        const fieldsEdited = { artist: false, album: false };
 
-    <div id="alertBox" class="alert hidden" role="status" aria-live="polite"></div>
+        const $ = (id) => document.getElementById(id);
 
-    <div class="section">
-        <div class="section-title">
-            <i class="fab fa-youtube"></i>
-            YouTube Import
-        </div>
-        <p style="color:var(--text-dim);font-size:0.9rem;margin-bottom:1.25rem;">
-            Download a YouTube video or playlist directly, without needing an artist defined in Lidarr.
-        </p>
-        <div class="url-row">
-            <input
-                type="text"
-                id="urlInput"
-                class="url-input"
-                placeholder="https://www.youtube.com/watch?v=... or playlist URL"
-                autocomplete="off"
-                spellcheck="false"
-            >
-            <button class="btn btn-primary" id="fetchBtn" onclick="fetchInfo()">
-                <i class="fas fa-search"></i> Fetch
-            </button>
-        </div>
-    </div>
-
-    <div id="recentSection" class="section hidden">
-        <div class="section-title">
-            <i class="fas fa-clock-rotate-left"></i>
-            Recent Imports
-        </div>
-        <div class="recent-grid" id="recentGrid"></div>
-    </div>
-
-    <div id="resultSection" class="section hidden">
-        <div class="section-title">
-            <i class="fas fa-music"></i>
-            Tracks Found
-        </div>
-
-        <div id="playlistInfoBar" class="playlist-info-bar hidden">
-            <div id="playlistThumbWrap"></div>
-            <div class="playlist-meta">
-                <div class="playlist-meta-title" id="playlistTitle"></div>
-                <div class="playlist-meta-sub" id="playlistChannel"></div>
-            </div>
-            <span class="playlist-badge" id="playlistBadge">Playlist</span>
-        </div>
-
-        <div class="fields-row">
-            <div class="field-group">
-                <label class="field-label" id="artistLabel" for="artistInput"><span id="artistLabelText">Artist Name</span> <span style="font-weight:400;opacity:0.6;">(at least one required)</span></label>
-                <input type="text" id="artistInput" class="field-input" placeholder="e.g. Daft Punk" oninput="updatePathHint()">
-            </div>
-            <div class="field-group">
-                <label class="field-label" for="albumInput">Album / Collection Title <span style="font-weight:400;opacity:0.6;">(at least one required)</span></label>
-                <input type="text" id="albumInput" class="field-input" placeholder="e.g. Random Access Memories" oninput="updatePathHint()">
-            </div>
-        </div>
-        <p id="pathStructureHint" style="font-size:0.8rem;color:var(--text-dim);margin-bottom:0.75rem;display:flex;align-items:center;gap:0.4rem;">
-            <i class="fas fa-folder-tree"></i>
-            <span id="pathStructureText">Fill at least one field to set the folder structure.</span>
-        </p>
-
-        <div class="tracks-header">
-            <div class="tracks-label">
-                <i class="fas fa-list-music"></i>
-                <span id="tracksCountLabel">0 tracks</span>
-                &nbsp;<span class="count" id="selectedCount"></span>
-            </div>
-            <div class="tracks-actions">
-                <button class="btn btn-ghost btn-sm" onclick="selectAll()">Select all</button>
-                <button class="btn btn-ghost btn-sm" onclick="selectNone()">None</button>
-            </div>
-        </div>
-
-        <div class="track-list" id="trackList"></div>
-
-        <div class="download-footer">
-            <div class="path-hint" id="downloadPathHint">
-                <i class="fas fa-folder-open"></i>
-                <span id="downloadPathHintText">Saved to configured download path</span>
-            </div>
-            <button class="btn btn-primary" id="downloadBtn" onclick="startDownload()" disabled>
-                <i class="fas fa-download"></i> Download Selected
-            </button>
-        </div>
-    </div>
-
-    <div id="progressSection" class="section hidden">
-        <div class="section-title">
-            <i class="fas fa-circle-notch spin-anim prog-section-icon" id="progSectionIcon" style="-webkit-text-fill-color: var(--primary); background: none;"></i>
-            <span>Download Progress</span>
-        </div>
-        <div class="progress-header-row">
-            <div class="progress-label" id="progLabel">Downloading...</div>
-            <button class="btn btn-danger btn-sm" id="stopBtn" onclick="stopDownload()">
-                <i class="fas fa-stop"></i> Stop
-            </button>
-        </div>
-        <div class="progress-bar-wrap">
-            <div class="progress-bar-fill" id="progBar"></div>
-        </div>
-        <div class="track-prog-list" id="trackProgList"></div>
-    </div>
-
-</div>
-
-<footer>
-    <div>Made with love ❤️ • {{ APP_VERSION }}</div>
-    <a href="https://github.com/Angrido/Lidarr-YouTube-Downloader" target="_blank" rel="noopener noreferrer" class="footer-github" aria-label="GitHub repository" title="GitHub repository"><i class="fa-brands fa-github"></i></a>
-</footer>
-
-<script>
-    let fetchedEntries = [];
-    let fetchedThumbnail = '';
-    let fetchedSourceUrl = '';
-    let sseSource = null;
-    let sseErrors = 0;
-    let statusPollTimer = null;
-    let statusPollErrors = 0;
-    let alertTimer = null;
-    const fieldsEdited = { artist: false, album: false };
-
-    function scrollBehavior() {
-        return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
-    }
-
-    function escapeHtml(str) {
-        if (!str) return '';
-        const d = document.createElement('div');
-        d.appendChild(document.createTextNode(str));
-        return d.innerHTML;
-    }
-
-    function sanitizeUrl(url) {
-        if (!url) return '';
-        try {
-            const u = new URL(url);
-            if (u.protocol === 'https:' || u.protocol === 'http:') return u.href;
-        } catch (_) {}
-        return '';
-    }
-
-    function thumbUrl(url) {
-        if (!url) return '';
-        const safe = sanitizeUrl(url);
-        if (!safe) return '';
-        // Route yt3 images through the server proxy to avoid hotlink/CORS issues
-        if (safe.includes('yt3.googleusercontent.com')) {
-            return '/api/thumbnail?url=' + encodeURIComponent(safe);
+        function scrollBehavior() {
+            return UI.prefersReducedMotion() ? 'auto' : 'smooth';
         }
-        return safe;
-    }
 
-    function swapToPlaceholder(imgEl, placeholderClass, iconClass) {
-        const div = document.createElement('div');
-        div.className = placeholderClass;
-        const i = document.createElement('i');
-        i.className = iconClass;
-        div.appendChild(i);
-        imgEl.replaceWith(div);
-    }
-
-    function formatDur(sec) {
-        if (!sec) return '';
-        const m = Math.floor(sec / 60);
-        const s = sec % 60;
-        return m + ':' + String(s).padStart(2, '0');
-    }
-
-    function toggleTheme() {
-        const toggle = document.getElementById('themeToggle');
-        toggle.classList.add('spin');
-        setTimeout(() => {
-            document.body.classList.toggle('light');
-            const isLight = document.body.classList.contains('light');
-            localStorage.setItem('theme', isLight ? 'light' : 'dark');
-            document.getElementById('themeIcon').className = isLight ? 'fa-solid fa-sun' : 'fa-solid fa-moon';
-            syncThemeColor();
-        }, 250);
-        setTimeout(() => toggle.classList.remove('spin'), 500);
-    }
-
-    function syncThemeColor() {
-        const meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.setAttribute('content', document.body.classList.contains('light') ? '#f4f4f5' : '#09090b');
-    }
-
-    (function initTheme() {
-        if (localStorage.getItem('theme') === 'light') {
-            document.body.classList.add('light');
-            document.getElementById('themeIcon').className = 'fa-solid fa-sun';
+        function sanitizeUrl(url) {
+            if (!url) return '';
+            try {
+                const u = new URL(url);
+                if (u.protocol === 'https:' || u.protocol === 'http:') return u.href;
+            } catch (_) {}
+            return '';
         }
-        syncThemeColor();
-    })();
 
-    function showAlert(msg, type) {
-        const box = document.getElementById('alertBox');
-        const icons = { error: 'fa-circle-xmark', success: 'fa-circle-check', info: 'fa-circle-info' };
-        clearTimeout(alertTimer);
-        alertTimer = null;
-        box.className = 'alert alert-' + type;
-        box.innerHTML = '<i class="fas ' + (icons[type] || icons.info) + '"></i> ' + escapeHtml(msg);
-        if (type !== 'error') alertTimer = setTimeout(() => box.classList.add('hidden'), 6000);
-    }
-
-    function hideAlert() {
-        clearTimeout(alertTimer);
-        alertTimer = null;
-        document.getElementById('alertBox').classList.add('hidden');
-    }
-
-    function cleanArtistName(channel) {
-        if (!channel) return '';
-        return channel
-            .replace(/\s*-\s*Topic$/i, '')
-            .replace(/VEVO$/i, '')
-            .replace(/\s*Official$/i, '')
-            .trim();
-    }
-
-    function updateSelectCount() {
-        const all = document.querySelectorAll('.track-cb');
-        const checked = Array.from(all).filter(c => c.checked).length;
-        document.getElementById('selectedCount').textContent =
-            checked === all.length ? '' : `(${checked} selected)`;
-        document.getElementById('downloadBtn').disabled = checked === 0;
-    }
-
-    function selectAll() {
-        document.querySelectorAll('.track-cb').forEach(c => {
-            c.checked = true;
-            c.closest('.track-item').classList.add('selected');
-        });
-        updateSelectCount();
-    }
-
-    function selectNone() {
-        document.querySelectorAll('.track-cb').forEach(c => {
-            c.checked = false;
-            c.closest('.track-item').classList.remove('selected');
-        });
-        updateSelectCount();
-    }
-
-    function buildTrackList(entries) {
-        const list = document.getElementById('trackList');
-        list.innerHTML = '';
-        entries.forEach((entry, i) => {
-            const item = document.createElement('div');
-            item.className = 'track-item selected';
-
-            // Use each track's own thumbnail so different tracks show their
-            // own artwork; object-fit: cover crops rectangular thumbs to the
-            // square box.
-            const tUrl = thumbUrl(entry.thumbnail);
-            let thumbHtml;
-            if (tUrl) {
-                thumbHtml = `<img class="track-thumb" src="${tUrl}" alt="" loading="lazy" onerror="swapToPlaceholder(this, 'track-thumb-placeholder', 'fas fa-music')">`;
-            } else {
-                thumbHtml = `<div class="track-thumb-placeholder"><i class="fas fa-music"></i></div>`;
+        function thumbUrl(url) {
+            if (!url) return '';
+            const safe = sanitizeUrl(url);
+            if (!safe) return '';
+            if (safe.includes('yt3.googleusercontent.com')) {
+                return '/api/thumbnail?url=' + encodeURIComponent(safe);
             }
+            return safe;
+        }
 
-            item.innerHTML = `
-                <input type="checkbox" class="track-cb" checked data-index="${i}">
-                <span class="track-num">${i + 1}</span>
-                ${thumbHtml}
-                <div class="track-info">
-                    <div class="track-title-text" title="${escapeHtml(entry.title)}">${escapeHtml(entry.title)}</div>
-                    ${entry.channel ? `<div class="track-channel-text">${escapeHtml(entry.channel)}</div>` : ''}
-                </div>
-                ${entry.duration ? `<span class="track-dur">${formatDur(entry.duration)}</span>` : ''}
-            `;
+        function artworkHtml(url, fallback, extraClass) {
+            const safe = thumbUrl(url);
+            const inner = safe
+                ? '<img src="' + UI.escape(safe) + '" alt="" loading="lazy" decoding="async">'
+                : UI.icon(fallback);
+            return '<span class="ui-artwork' + (extraClass ? ' ' + extraClass : '') + '" data-fallback="' + fallback + '">' + inner + '</span>';
+        }
 
-            const cb = item.querySelector('.track-cb');
-            cb.addEventListener('change', function() {
-                item.classList.toggle('selected', this.checked);
-                updateSelectCount();
+        document.addEventListener('error', function (e) {
+            const img = e.target;
+            if (!img || img.tagName !== 'IMG') return;
+            const wrap = img.closest('[data-fallback]');
+            if (!wrap) return;
+            img.remove();
+            wrap.insertAdjacentHTML('beforeend', UI.icon(wrap.getAttribute('data-fallback')));
+        }, true);
+
+        function plural(n, word) {
+            return n + ' ' + word + (n === 1 ? '' : 's');
+        }
+
+        function cleanArtistName(channel) {
+            if (!channel) return '';
+            return channel
+                .replace(/\s*-\s*Topic$/i, '')
+                .replace(/VEVO$/i, '')
+                .replace(/\s*Official$/i, '')
+                .trim();
+        }
+
+        function setUrlError(msg) {
+            const input = $('urlInput');
+            const err = $('urlError');
+            if (msg) {
+                err.innerHTML = UI.icon('alert-circle') + '<span></span>';
+                err.querySelector('span').textContent = msg;
+                err.hidden = false;
+                input.setAttribute('aria-invalid', 'true');
+                input.setAttribute('aria-describedby', 'urlError urlHint');
+            } else {
+                err.hidden = true;
+                input.removeAttribute('aria-invalid');
+                input.setAttribute('aria-describedby', 'urlHint');
+            }
+        }
+
+        function showFetchError(msg) {
+            $('fetchErrorText').textContent = msg;
+            $('fetchError').hidden = false;
+        }
+
+        function hideFetchError() {
+            $('fetchError').hidden = true;
+        }
+
+        function setFieldsError(msg) {
+            const err = $('fieldsError');
+            const inputs = [$('artistInput'), $('albumInput')];
+            if (msg) {
+                err.innerHTML = UI.icon('alert-circle') + '<span></span>';
+                err.querySelector('span').textContent = msg;
+                err.hidden = false;
+                inputs.forEach((i) => i.setAttribute('aria-invalid', 'true'));
+            } else {
+                err.hidden = true;
+                inputs.forEach((i) => i.removeAttribute('aria-invalid'));
+            }
+        }
+
+        function importLabel(n) {
+            return UI.icon('download') + '<span>' + (n ? 'Import ' + plural(n, 'track') : 'Import tracks') + '</span>';
+        }
+
+        function trackCheckboxes() {
+            return Array.from(document.querySelectorAll('.track-cb'));
+        }
+
+        function updateSelectCount() {
+            const all = trackCheckboxes();
+            const checked = all.filter((c) => c.checked).length;
+            $('selectedCount').textContent = checked === all.length ? '' : '· ' + checked + ' selected';
+            const master = $('selectAllCb');
+            master.checked = all.length > 0 && checked === all.length;
+            master.indeterminate = checked > 0 && checked < all.length;
+            const btn = $('downloadBtn');
+            if (btn.getAttribute('aria-busy') !== 'true') {
+                btn.innerHTML = importLabel(checked);
+                btn.disabled = checked === 0 || importRunning;
+            }
+        }
+
+        function setEntrySelected(cb, on) {
+            cb.checked = on;
+            const item = cb.closest('.yt-entry');
+            if (item) item.classList.toggle('is-selected', on);
+        }
+
+        function selectAll() {
+            trackCheckboxes().forEach((c) => setEntrySelected(c, true));
+            updateSelectCount();
+        }
+
+        function selectNone() {
+            trackCheckboxes().forEach((c) => setEntrySelected(c, false));
+            updateSelectCount();
+        }
+
+        function buildTrackList(entries) {
+            const list = $('trackList');
+            list.innerHTML = entries.map((entry, i) => {
+                const title = entry.title || ('Track ' + (i + 1));
+                return '<li class="ui-list-item yt-entry is-selected">' +
+                    '<label class="yt-entry-row">' +
+                    '<span class="ui-check"><input type="checkbox" class="track-cb" checked data-index="' + i + '" aria-label="Include ' + UI.escape(title) + '"><span class="ui-check-box"></span></span>' +
+                    '<span class="yt-entry-num num yt-entry-dim" aria-hidden="true">' + (i + 1) + '</span>' +
+                    artworkHtml(entry.thumbnail, 'music', 'yt-entry-dim') +
+                    '<span class="ui-list-main yt-entry-dim">' +
+                    '<span class="ui-list-title bidi" title="' + UI.escape(title) + '">' + UI.escape(title) + '</span>' +
+                    (entry.channel ? '<span class="ui-list-sub bidi">' + UI.escape(entry.channel) + '</span>' : '') +
+                    '</span>' +
+                    (entry.duration ? '<span class="ui-list-aside num yt-entry-dim">' + UI.formatDuration(entry.duration) + '</span>' : '') +
+                    '</label></li>';
+            }).join('');
+            updateSelectCount();
+        }
+
+        function renderPreviewHeader(data, entries) {
+            const wrap = $('playlistThumbWrap');
+            const safeT = thumbUrl(fetchedThumbnail);
+            wrap.innerHTML = safeT
+                ? '<img src="' + UI.escape(safeT) + '" alt="" decoding="async">'
+                : UI.icon('youtube');
+            const isPlaylist = data.type === 'playlist';
+            const badge = $('playlistBadge');
+            badge.className = 'ui-badge ' + (isPlaylist ? 'ui-badge-accent' : 'ui-badge-info');
+            badge.innerHTML = UI.icon(isPlaylist ? 'list-music' : 'play-circle') + '<span>' + (isPlaylist ? 'Playlist' : 'Video') + '</span>';
+            $('playlistTitle').textContent = data.title || (isPlaylist ? 'YouTube playlist' : 'YouTube video');
+            $('playlistChannel').textContent = data.channel ? 'by ' + data.channel : '';
+            $('playlistChannel').hidden = !data.channel;
+            const total = entries.reduce((sum, e) => sum + (Number(e.duration) || 0), 0);
+            $('playlistMeta').textContent = plural(entries.length, 'track') + (total ? ' · ' + UI.formatDuration(total) : '');
+        }
+
+        async function fetchInfo() {
+            const btn = $('fetchBtn');
+            if (btn.getAttribute('aria-busy') === 'true') return;
+            const url = $('urlInput').value.trim();
+            if (!url) {
+                setUrlError('Paste a YouTube video or playlist link first.');
+                $('urlInput').focus();
+                return;
+            }
+            setUrlError('');
+            hideFetchError();
+            fetchedSourceUrl = url;
+            $('resultSection').hidden = true;
+            $('resultSkeleton').hidden = false;
+
+            try {
+                await UI.guard(btn, async () => {
+                    const resp = await fetch('/api/youtube/playlist/info', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ url }),
+                    });
+                    let data = {};
+                    try { data = (await resp.json()) || {}; } catch (_) {}
+
+                    if (!resp.ok || data.error) {
+                        if (resp.status === 400) $('urlInput').setAttribute('aria-invalid', 'true');
+                        showFetchError(data.error || ('Failed to fetch info (HTTP ' + resp.status + ').'));
+                        return;
+                    }
+
+                    fetchedEntries = data.entries || [];
+                    fetchedThumbnail = data.thumbnail || '';
+                    const entries = fetchedEntries;
+
+                    renderPreviewHeader(data, entries);
+
+                    const channels = new Set(entries.map((e) => e.channel || '').filter(Boolean));
+                    const isMixed = channels.size > 1;
+                    const artistLabelText = $('artistLabelText');
+                    const artistInput = $('artistInput');
+                    const albumInput = $('albumInput');
+                    const useArtist = !fieldsEdited.artist || !artistInput.value.trim();
+                    const useAlbum = !fieldsEdited.album || !albumInput.value.trim();
+
+                    if (isMixed) {
+                        artistLabelText.textContent = 'Playlist name';
+                        if (useArtist) artistInput.value = data.title || '';
+                        if (useAlbum) albumInput.value = '';
+                    } else {
+                        artistLabelText.textContent = 'Artist name';
+                        const rawChannel = data.channel || (channels.size === 1 ? [...channels][0] : '');
+                        if (useArtist) artistInput.value = cleanArtistName(rawChannel);
+                        if (useAlbum) albumInput.value = data.title || '';
+                    }
+                    if (useArtist) fieldsEdited.artist = false;
+                    if (useAlbum) fieldsEdited.album = false;
+                    setFieldsError('');
+
+                    $('tracksCountLabel').textContent = plural(entries.length, 'track');
+
+                    buildTrackList(entries);
+                    $('resultSection').hidden = false;
+                    updatePathHint();
+                }, 'Fetching…');
+            } catch (e) {
+                showFetchError('Network error: ' + e.message);
+            } finally {
+                $('resultSkeleton').hidden = true;
+            }
+        }
+
+        function updatePathHint() {
+            const artist = $('artistInput').value.trim();
+            const album = $('albumInput').value.trim();
+            const segments = [artist, album].filter(Boolean);
+            const box = $('pathStructureText');
+            box.textContent = '';
+            box.classList.toggle('has-path', segments.length > 0);
+            if (!segments.length) {
+                box.textContent = 'Fill at least one field to set the folder structure.';
+                $('downloadPathHintText').textContent = 'Saved to the configured download path';
+                return;
+            }
+            const root = document.createElement('span');
+            root.className = 'yt-path-root';
+            root.textContent = 'download_path';
+            box.appendChild(root);
+            segments.forEach((seg) => {
+                const sep = document.createElement('span');
+                sep.className = 'yt-path-sep';
+                sep.textContent = '/';
+                box.appendChild(sep);
+                const s = document.createElement('span');
+                s.className = 'bidi';
+                s.textContent = seg;
+                box.appendChild(s);
             });
-            item.addEventListener('click', function(e) {
-                if (e.target === cb) return;
-                cb.checked = !cb.checked;
-                item.classList.toggle('selected', cb.checked);
-                updateSelectCount();
-            });
+            const tail = document.createElement('span');
+            tail.className = 'yt-path-sep';
+            tail.textContent = '/';
+            box.appendChild(tail);
+            $('downloadPathHintText').textContent = 'One folder per import, created inside your download path';
+        }
 
-            list.appendChild(item);
-        });
-        updateSelectCount();
-    }
+        async function startDownload() {
+            if (importRunning) return;
+            const artist = $('artistInput').value.trim();
+            const album = $('albumInput').value.trim();
+            if (!artist && !album) {
+                const first = $('artistLabelText').textContent;
+                setFieldsError('Fill in ' + first + ' or Album / collection title (at least one is required).');
+                $('artistInput').focus();
+                return;
+            }
+            setFieldsError('');
 
-    async function fetchInfo() {
-        const url = document.getElementById('urlInput').value.trim();
-        if (!url) { showAlert('Please enter a YouTube URL.', 'error'); return; }
-        fetchedSourceUrl = url;
+            const selected = trackCheckboxes()
+                .map((cb) => (cb.checked ? fetchedEntries[Number(cb.dataset.index)] : null))
+                .filter(Boolean);
 
-        hideAlert();
-        const btn = document.getElementById('fetchBtn');
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-circle-notch spin-anim"></i> Fetching...';
-        document.getElementById('resultSection').classList.add('hidden');
-
-        try {
-            const resp = await fetch('/api/youtube/playlist/info', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url }),
-            });
-            const data = await resp.json();
-
-            if (!resp.ok || data.error) {
-                showAlert(data.error || 'Failed to fetch info.', 'error');
+            if (!selected.length) {
+                UI.toast('Select at least one track.', { type: 'error' });
                 return;
             }
 
-            fetchedEntries = data.entries || [];
-            fetchedThumbnail = data.thumbnail || '';
-            const entries = fetchedEntries;
+            const btn = $('downloadBtn');
+            try {
+                await UI.guard(btn, async () => {
+                    const resp = await fetch('/api/youtube/playlist/download', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            artist_name: artist,
+                            album_title: album,
+                            entries: selected,
+                            thumbnail_url: fetchedThumbnail,
+                            source_url: fetchedSourceUrl,
+                        }),
+                    });
+                    let data = {};
+                    try { data = (await resp.json()) || {}; } catch (_) {}
 
-            const infoBar = document.getElementById('playlistInfoBar');
-            if (data.title) {
-                infoBar.classList.remove('hidden');
-                const wrap = document.getElementById('playlistThumbWrap');
-                const safeT = thumbUrl(fetchedThumbnail);
-                if (safeT) {
-                    wrap.innerHTML = `<img class="playlist-thumb" src="${safeT}" alt="" onerror="swapToPlaceholder(this, 'playlist-thumb-placeholder', 'fab fa-youtube')">`;
-                } else {
-                    wrap.innerHTML = `<div class="playlist-thumb-placeholder"><i class="fab fa-youtube"></i></div>`;
-                }
-                document.getElementById('playlistTitle').textContent = data.title;
-                document.getElementById('playlistChannel').textContent = data.channel ? 'by ' + data.channel : '';
-                const badge = document.getElementById('playlistBadge');
-                badge.className = 'playlist-badge ' + (data.type === 'playlist' ? 'playlist' : 'video');
-                badge.textContent = data.type === 'playlist' ? 'Playlist' : 'Video';
-            } else {
-                infoBar.classList.add('hidden');
+                    if (!resp.ok || !data.success) {
+                        UI.toast(data.message || ('Failed to start download (HTTP ' + resp.status + ').'), { type: 'error' });
+                        return;
+                    }
+
+                    importRunning = true;
+                    initProgressPanel(selected);
+                    $('progressSection').hidden = false;
+                    $('progressSection').scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+                    startSSE();
+                    UI.refreshNav();
+                    if (data.message) UI.toast(data.message, { type: 'success' });
+                }, 'Starting…');
+            } catch (e) {
+                UI.toast('Network error: ' + e.message, { type: 'error' });
             }
+            updateSelectCount();
+        }
 
-            const channels = new Set(entries.map(e => e.channel || '').filter(Boolean));
-            const isMixed = channels.size > 1;
-            const artistLabelText = document.getElementById('artistLabelText');
-            const artistInput = document.getElementById('artistInput');
-            const albumInput = document.getElementById('albumInput');
-            const useArtist = !fieldsEdited.artist || !artistInput.value.trim();
-            const useAlbum = !fieldsEdited.album || !albumInput.value.trim();
+        function setProgIcon(kind) {
+            const el = $('progSectionIcon');
+            el.setAttribute('data-kind', kind);
+            el.innerHTML = kind === 'running'
+                ? '<span class="ui-spinner"></span>'
+                : UI.icon(kind === 'done' ? 'check-circle' : 'alert');
+        }
 
-            if (isMixed) {
-                artistLabelText.textContent = 'Playlist Name';
-                if (useArtist) artistInput.value = data.title || '';
-                if (useAlbum) albumInput.value = '';
-            } else {
-                artistLabelText.textContent = 'Artist Name';
-                const rawChannel = data.channel || (channels.size === 1 ? [...channels][0] : '');
-                if (useArtist) artistInput.value = cleanArtistName(rawChannel);
-                if (useAlbum) albumInput.value = data.title || '';
+        function setProgress(pct) {
+            const v = Math.max(0, Math.min(100, Math.round(Number(pct) || 0)));
+            $('progBar').style.width = v + '%';
+            $('progBarWrap').setAttribute('aria-valuenow', String(v));
+        }
+
+        function initProgressPanel(entries) {
+            clearTimeout(finishTimer);
+            finishTimer = null;
+            const list = $('trackProgList');
+            list.innerHTML = entries.map((entry, i) => {
+                const title = entry.title || ('Track ' + (i + 1));
+                return '<div class="ui-track" data-state="pending" id="tp-' + i + '">' +
+                    '<div class="ui-track-num" id="tpi-' + i + '">' + (i + 1) + '</div>' +
+                    '<div class="yt-track-main">' +
+                    '<div class="ui-track-title bidi" title="' + UI.escape(title) + '">' + UI.escape(title) + '</div>' +
+                    '<div class="ui-track-meta"><span id="tpe-' + i + '">Waiting</span></div>' +
+                    '<div class="ui-progress" id="tpp-' + i + '" hidden><div class="ui-progress-bar"></div></div>' +
+                    '</div></div>';
+            }).join('');
+            setProgress(0);
+            $('progLabel').textContent = 'Downloading…';
+            $('progError').hidden = true;
+            resetStopButton();
+            setProgIcon('running');
+        }
+
+        const STATE_LOOK = {
+            pending: 'pending',
+            searching: 'searching',
+            downloading: 'downloading',
+            tagging: 'tagging',
+            verifying: 'tagging',
+            fingerprinting: 'tagging',
+            done: 'done',
+            failed: 'failed',
+            skipped: 'skipped',
+        };
+
+        function numCellHtml(s, i) {
+            switch (s) {
+                case 'searching':
+                case 'verifying':
+                case 'fingerprinting':
+                    return '<span class="ui-spinner ui-spinner-sm" aria-hidden="true"></span>';
+                case 'downloading':
+                    return '<span class="ui-eq" aria-hidden="true"><i></i><i></i><i></i></span>';
+                case 'tagging':
+                    return UI.icon('tag');
+                case 'done':
+                    return UI.icon('check-circle');
+                case 'failed':
+                    return UI.icon('x-circle');
+                case 'skipped':
+                    return UI.icon('forward');
+                default:
+                    return String(i + 1);
             }
-            if (useArtist) fieldsEdited.artist = false;
-            if (useAlbum) fieldsEdited.album = false;
-
-            document.getElementById('tracksCountLabel').textContent =
-                entries.length + ' track' + (entries.length !== 1 ? 's' : '');
-
-            buildTrackList(entries);
-            document.getElementById('resultSection').classList.remove('hidden');
-            updatePathHint();
-
-        } catch (e) {
-            showAlert('Network error: ' + e.message, 'error');
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-search"></i> Fetch';
-        }
-    }
-
-    function updatePathHint() {
-        const artist = document.getElementById('artistInput').value.trim();
-        const album = document.getElementById('albumInput').value.trim();
-        let structure, hintText;
-        if (artist && album) {
-            structure = `download_path / ${artist} / ${album} /`;
-            hintText = structure;
-        } else if (artist) {
-            structure = `download_path / ${artist} /`;
-            hintText = structure;
-        } else if (album) {
-            structure = `download_path / ${album} /`;
-            hintText = structure;
-        } else {
-            hintText = 'Fill at least one field to set the folder structure.';
-        }
-        document.getElementById('pathStructureText').textContent = hintText;
-        document.getElementById('downloadPathHintText').textContent =
-            (artist || album) ? `Saved to: ${structure}` : 'Saved to configured download path';
-    }
-
-    async function startDownload() {
-        const artist = document.getElementById('artistInput').value.trim();
-        const album = document.getElementById('albumInput').value.trim();
-        if (!artist && !album) {
-            const first = document.getElementById('artistLabelText').textContent;
-            showAlert('Fill in ' + first + ' or Album / Collection Title (at least one is required).', 'error');
-            return;
         }
 
-        const cbs = document.querySelectorAll('.track-cb');
-        const selected = Array.from(cbs)
-            .map((cb, i) => cb.checked ? fetchedEntries[i] : null)
-            .filter(Boolean);
-
-        if (!selected.length) { showAlert('Select at least one track.', 'error'); return; }
-
-        hideAlert();
-        const btn = document.getElementById('downloadBtn');
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-circle-notch spin-anim"></i> Starting...';
-
-        try {
-            const resp = await fetch('/api/youtube/playlist/download', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    artist_name: artist,
-                    album_title: album,
-                    entries: selected,
-                    thumbnail_url: fetchedThumbnail,
-                    source_url: fetchedSourceUrl,
-                }),
-            });
-            const data = await resp.json();
-
-            if (!resp.ok || !data.success) {
-                showAlert(data.message || 'Failed to start download.', 'error');
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-download"></i> Download Selected';
-                return;
+        function metaText(t, s) {
+            switch (s) {
+                case 'searching': return 'Searching YouTube…';
+                case 'downloading': return [t.progress_percent, t.progress_speed].filter(Boolean).join(' · ') || 'Downloading…';
+                case 'tagging': return 'Tagging…';
+                case 'verifying': return 'Verifying…';
+                case 'fingerprinting': return 'Fingerprinting…';
+                case 'done': return t.youtube_title || 'Done';
+                case 'failed': return t.error_message || 'Failed';
+                case 'skipped': return 'Skipped';
+                default: return 'Waiting';
             }
-
-            initProgressPanel(selected);
-            document.getElementById('progressSection').classList.remove('hidden');
-            document.getElementById('progressSection').scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
-            startSSE();
-            showAlert(data.message, 'success');
-
-        } catch (e) {
-            showAlert('Network error: ' + e.message, 'error');
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-download"></i> Download Selected';
-        }
-    }
-
-    function initProgressPanel(entries) {
-        const list = document.getElementById('trackProgList');
-        list.innerHTML = '';
-        entries.forEach((entry, i) => {
-            const row = document.createElement('div');
-            row.className = 'tp-row';
-            row.id = 'tp-' + i;
-            row.innerHTML = `
-                <div class="tp-icon pending" id="tpi-${i}"><i class="fas fa-clock"></i></div>
-                <span class="tp-title" title="${escapeHtml(entry.title || '')}">${escapeHtml(entry.title || ('Track ' + (i + 1)))}</span>
-                <span class="tp-extra" id="tpe-${i}"></span>
-            `;
-            list.appendChild(row);
-        });
-        document.getElementById('progBar').style.width = '0%';
-        document.getElementById('progLabel').textContent = 'Downloading...';
-        resetStopButton();
-        const sicon = document.getElementById('progSectionIcon');
-        sicon.className = 'fas fa-circle-notch spin-anim prog-section-icon';
-        sicon.style.cssText = '-webkit-text-fill-color: var(--primary); background: none;';
-    }
-
-    const STATUS_ICONS = {
-        pending: '<i class="fas fa-clock"></i>',
-        searching: '<i class="fas fa-magnifying-glass"></i>',
-        downloading: '<i class="fas fa-circle-notch spin-anim"></i>',
-        tagging: '<i class="fas fa-tag"></i>',
-        verifying: '<i class="fas fa-fingerprint"></i>',
-        fingerprinting: '<i class="fas fa-fingerprint"></i>',
-        done: '<i class="fas fa-check"></i>',
-        failed: '<i class="fas fa-xmark"></i>',
-        skipped: '<i class="fas fa-forward"></i>',
-    };
-
-    function restoreDownloadButton() {
-        const btn = document.getElementById('downloadBtn');
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-download"></i> Download Selected';
-    }
-
-    function resetStopButton() {
-        const stopBtn = document.getElementById('stopBtn');
-        stopBtn.disabled = false;
-        stopBtn.innerHTML = '<i class="fas fa-stop"></i> Stop';
-    }
-
-    function finishProgress(done, total) {
-        stopStreams();
-        document.getElementById('progBar').style.width = '100%';
-        document.getElementById('progLabel').textContent =
-            'Complete — ' + done + '/' + total + ' tracks';
-        document.getElementById('progSectionIcon').className =
-            'fas fa-check prog-section-icon';
-        document.getElementById('progSectionIcon').style.cssText =
-            '-webkit-text-fill-color: var(--primary); background: none;';
-        restoreDownloadButton();
-        resetStopButton();
-        document.getElementById('stopBtn').disabled = true;
-        showAlert('Download complete! ' + done + '/' + total + ' tracks. Returning to import page…', 'success');
-        loadRecentImports();
-        setTimeout(() => {
-            document.getElementById('progressSection').classList.add('hidden');
-            document.getElementById('resultSection').classList.add('hidden');
-            window.scrollTo({ top: 0, behavior: scrollBehavior() });
-            setTimeout(() => {
-                document.getElementById('recentSection').scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
-            }, 400);
-        }, 4000);
-    }
-
-    function applyStatus(st) {
-        const tracks = st.tracks || [];
-
-        if (!st.active && !tracks.length) return;
-
-        const done = tracks.filter(t => ['done','failed','skipped'].includes(t.status)).length;
-        const total = tracks.length;
-        const prog = st.progress || {};
-        const pct = prog.overall_percent != null
-            ? prog.overall_percent
-            : (total ? Math.round(done / total * 100) : 0);
-        document.getElementById('progBar').style.width = pct + '%';
-
-        if (!st.active && total > 0) {
-            finishProgress(done, total);
-            return;
-        } else if (!st.active) {
-            return;
         }
 
-        document.getElementById('progLabel').textContent =
-            'Downloading — ' + done + '/' + total + ' tracks';
-
-        tracks.forEach((t, i) => {
-            const iconEl = document.getElementById('tpi-' + i);
-            const extraEl = document.getElementById('tpe-' + i);
-            if (!iconEl) return;
-            const s = t.status || 'pending';
-            iconEl.className = 'tp-icon ' + s;
-            iconEl.innerHTML = STATUS_ICONS[s] || STATUS_ICONS.pending;
+        function renderTrack(t, i) {
+            const row = $('tp-' + i);
+            if (!row) return;
+            const s = STATE_LOOK[t.status] ? t.status : 'pending';
+            if (row.dataset.status !== s) {
+                row.dataset.status = s;
+                row.setAttribute('data-state', STATE_LOOK[s]);
+                $('tpi-' + i).innerHTML = numCellHtml(s, i);
+            }
+            const meta = $('tpe-' + i);
+            const text = metaText(t, s);
+            if (meta.textContent !== text) {
+                meta.textContent = text;
+                meta.title = text;
+            }
+            meta.classList.toggle('t-danger', s === 'failed');
+            const bar = $('tpp-' + i);
+            bar.hidden = s !== 'downloading';
             if (s === 'downloading') {
-                extraEl.textContent = [t.progress_percent, t.progress_speed].filter(Boolean).join(' · ');
-            } else {
-                extraEl.textContent = '';
+                bar.firstElementChild.style.width = (parseFloat(t.progress_percent) || 0) + '%';
             }
-        });
-    }
+        }
 
-    function stopStreams() {
-        if (sseSource) { sseSource.close(); sseSource = null; }
-        if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
-    }
+        function restoreDownloadButton() {
+            importRunning = false;
+            updateSelectCount();
+        }
 
-    function startStatusPolling() {
-        if (statusPollTimer) return;
-        statusPollErrors = 0;
-        statusPollTimer = setInterval(async () => {
+        function resetStopButton() {
+            const stopBtn = $('stopBtn');
+            stopBtn.removeAttribute('aria-busy');
+            stopBtn.disabled = false;
+            stopBtn.innerHTML = UI.icon('stop') + '<span>Stop</span>';
+        }
+
+        function finishProgress(done, total) {
+            stopStreams();
+            setProgress(100);
+            $('progLabel').textContent = 'Complete — ' + done + '/' + total + ' tracks';
+            setProgIcon('done');
+            restoreDownloadButton();
+            resetStopButton();
+            $('stopBtn').disabled = true;
+            UI.toast('Download complete! ' + done + '/' + total + ' tracks. Returning to import page…', { type: 'success' });
+            UI.refreshNav();
+            loadRecentImports();
+            finishTimer = setTimeout(() => {
+                $('progressSection').hidden = true;
+                $('resultSection').hidden = true;
+                window.scrollTo({ top: 0, behavior: scrollBehavior() });
+                setTimeout(() => {
+                    $('recentSection').scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+                }, 400);
+            }, 4000);
+        }
+
+        function applyStatus(st) {
+            const tracks = st.tracks || [];
+
+            if (!st.active && !tracks.length) return;
+
+            const done = tracks.filter((t) => ['done', 'failed', 'skipped'].includes(t.status)).length;
+            const total = tracks.length;
+            const prog = st.progress || {};
+            const pct = prog.overall_percent != null
+                ? prog.overall_percent
+                : (total ? Math.round(done / total * 100) : 0);
+            setProgress(pct);
+
+            if (!st.active && total > 0) {
+                tracks.forEach(renderTrack);
+                finishProgress(done, total);
+                return;
+            } else if (!st.active) {
+                return;
+            }
+
+            $('progLabel').textContent = 'Downloading — ' + done + '/' + total + ' tracks';
+            tracks.forEach(renderTrack);
+        }
+
+        function stopStreams() {
+            if (sseSource) { sseSource.close(); sseSource = null; }
+            if (statusPoller) { statusPoller.stop(); statusPoller = null; }
+        }
+
+        function startStatusPolling() {
+            if (statusPoller) return;
+            statusPollErrors = 0;
+            statusPoller = UI.poll(async () => {
+                try {
+                    const st = await UI.fetchJSON('/api/download/status');
+                    if (!statusPoller) return;
+                    statusPollErrors = 0;
+                    applyStatus(st || {});
+                } catch (_) {
+                    if (!statusPoller) return;
+                    statusPollErrors++;
+                    if (statusPollErrors >= 5) {
+                        stopStreams();
+                        restoreDownloadButton();
+                        $('progLabel').textContent = 'Progress unavailable';
+                        setProgIcon('error');
+                        $('progError').hidden = false;
+                        UI.toast('Lost connection to the server, so live progress stopped. The import may still be running: check the Downloads page.', { type: 'error' });
+                    }
+                }
+            }, 2000, { immediate: false });
+        }
+
+        function startSSE() {
+            stopStreams();
+            sseErrors = 0;
+            if (typeof EventSource === 'undefined') { startStatusPolling(); return; }
+            const source = new EventSource('/api/download/stream');
+            sseSource = source;
+
+            source.onopen = function () { sseErrors = 0; };
+
+            source.onmessage = function (ev) {
+                try {
+                    const payload = JSON.parse(ev.data);
+                    applyStatus(payload.status || {});
+                } catch (_) {}
+            };
+
+            source.onerror = function () {
+                if (sseSource !== source) return;
+                sseErrors++;
+                if (source.readyState === EventSource.CLOSED || sseErrors >= 3) {
+                    source.close();
+                    sseSource = null;
+                    startStatusPolling();
+                }
+            };
+        }
+
+        async function stopDownload() {
+            const stopBtn = $('stopBtn');
+            if (stopBtn.disabled) return;
+            const ok = await UI.confirm({
+                title: 'Stop this import?',
+                message: 'The import ends after the current track. Tracks that already finished are kept.',
+                confirmLabel: 'Stop import',
+                cancelLabel: 'Keep going',
+                danger: true,
+            });
+            if (!ok) return;
+            let stopped = false;
+            try {
+                await UI.guard(stopBtn, async () => {
+                    const resp = await fetch('/api/download/stop', { method: 'POST' });
+                    let data = {};
+                    try { data = (await resp.json()) || {}; } catch (_) {}
+                    if (!resp.ok || data.success === false) {
+                        throw new Error(data.message || ('HTTP ' + resp.status));
+                    }
+                    stopped = true;
+                }, 'Stopping…');
+            } catch (e) {
+                resetStopButton();
+                UI.toast('Could not stop the import: ' + e.message, { type: 'error' });
+                return;
+            }
+            if (stopped && importRunning) {
+                stopBtn.disabled = true;
+                stopBtn.innerHTML = '<span class="ui-spinner ui-spinner-sm" aria-hidden="true"></span><span>Stopping…</span>';
+                UI.toast('Stop requested: the import ends after the current track.', { type: 'info' });
+            }
+        }
+
+        const EMPTY_ART = '<svg viewBox="0 0 88 88" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="14" y="22" width="60" height="42" rx="10"/><path d="m38 34 13 9-13 9z"/><path d="M26 72h36"/></svg>';
+
+        function renderRecentEmpty() {
+            $('recentBody').innerHTML =
+                '<div class="ui-card yt-empty"><div class="ui-empty">' +
+                '<div class="ui-empty-art" aria-hidden="true">' + EMPTY_ART + '</div>' +
+                '<p class="ui-empty-title">No imports yet</p>' +
+                '<p class="ui-empty-text">Paste a link above and your imports will show up here.</p>' +
+                '<div class="ui-empty-actions"><button type="button" class="ui-btn ui-btn-tinted ui-btn-sm" data-act="focus-url">' + UI.icon('link') + '<span>Paste a link</span></button></div>' +
+                '</div></div>';
+        }
+
+        function renderRecentError(msg) {
+            $('recentBody').innerHTML =
+                '<div class="ui-callout ui-callout-danger" role="alert">' + UI.icon('x-circle') +
+                '<div class="ui-callout-body"><div class="ui-callout-title">Couldn\'t load recent imports</div>' +
+                '<div class="ui-callout-text">' + UI.escape(msg) + '</div></div>' +
+                '<button type="button" class="ui-btn ui-btn-sm ui-btn-secondary" data-act="retry-recent">Retry</button></div>';
+        }
+
+        function recentStatus(item) {
+            const ok = Number(item.success_count) || 0;
+            const total = Number(item.track_count) || 0;
+            if (total && ok >= total) return 'success';
+            if (ok > 0) return 'warning';
+            return 'danger';
+        }
+
+        function renderRecent(items) {
+            $('recentBody').innerHTML = '<ul class="ui-list">' + items.map((item) => {
+                const link = sanitizeUrl(item.source_url || item.youtube_url || '');
+                const title = item.album_title || item.artist_name || 'YouTube import';
+                const ok = Number(item.success_count) || 0;
+                const total = Number(item.track_count) || 0;
+                const count = total && total !== ok ? ok + ' of ' + plural(total, 'track') : plural(ok, 'track');
+                const artist = item.album_title ? (item.artist_name || '') : '';
+                const subTitle = [artist, count].filter(Boolean).join(' · ');
+                const sub = (artist ? '<span class="bidi">' + UI.escape(artist) + '</span> · ' : '') + UI.escape(count);
+                const ts = Number(item.latest_timestamp) || 0;
+                const when = ts ? '<span class="yt-recent-time" title="' + UI.escape(new Date(ts * 1000).toLocaleString()) + '">' + UI.escape(UI.relativeTime(ts)) + '</span>' : '';
+                const inner =
+                    artworkHtml(item.cover_url, 'youtube') +
+                    '<span class="ui-list-main">' +
+                    '<span class="ui-list-title bidi" title="' + UI.escape(title) + '">' + UI.escape(title) + '</span>' +
+                    '<span class="ui-list-sub" title="' + UI.escape(subTitle) + '">' + sub + '</span>' +
+                    '</span>' +
+                    '<span class="ui-list-aside">' + when + (link ? UI.icon('external') + '<span class="sr-only">(opens YouTube in a new tab)</span>' : '') + '</span>';
+                const row = link
+                    ? '<a class="yt-recent-row" href="' + UI.escape(link) + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>'
+                    : '<div class="yt-recent-row">' + inner + '</div>';
+                return '<li class="ui-list-item yt-recent" data-status="' + recentStatus(item) + '">' + row + '</li>';
+            }).join('') + '</ul>';
+        }
+
+        let recentLoading = false;
+
+        async function loadRecentImports() {
+            if (recentLoading) return;
+            recentLoading = true;
+            const body = $('recentBody');
+            body.setAttribute('aria-busy', 'true');
+            try {
+                const items = await UI.fetchJSON('/api/youtube/recent');
+                if (!Array.isArray(items) || !items.length) renderRecentEmpty();
+                else renderRecent(items);
+            } catch (e) {
+                renderRecentError(e.message || 'Request failed.');
+            } finally {
+                recentLoading = false;
+                body.removeAttribute('aria-busy');
+            }
+        }
+
+        async function checkResumeProgress() {
             try {
                 const resp = await fetch('/api/download/status');
-                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                if (!resp.ok) return;
                 const st = await resp.json();
-                if (!statusPollTimer) return;
-                statusPollErrors = 0;
-                applyStatus(st);
-            } catch (_) {
-                if (!statusPollTimer) return;
-                statusPollErrors++;
-                if (statusPollErrors >= 5) {
-                    stopStreams();
-                    restoreDownloadButton();
-                    document.getElementById('progLabel').textContent = 'Progress unavailable';
-                    document.getElementById('progSectionIcon').className =
-                        'fas fa-triangle-exclamation prog-section-icon';
-                    showAlert('Lost connection to the server, so live progress stopped. The import may still be running: check the Downloads page.', 'error');
-                }
-            }
-        }, 2000);
-    }
+                if (!st.active || st.album_id > 0) return;
+                const tracks = st.tracks || [];
+                if (!tracks.length) return;
 
-    function startSSE() {
-        stopStreams();
-        sseErrors = 0;
-        if (typeof EventSource === 'undefined') { startStatusPolling(); return; }
-        const source = new EventSource('/api/download/stream');
-        sseSource = source;
+                importRunning = true;
+                initProgressPanel(tracks.map((t) => ({ title: t.track_title || '' })));
+                tracks.forEach(renderTrack);
+                const done = tracks.filter((t) => ['done', 'failed', 'skipped'].includes(t.status)).length;
+                $('progLabel').textContent = 'Downloading — ' + done + '/' + tracks.length + ' tracks';
+                setProgress(tracks.length ? Math.round(done / tracks.length * 100) : 0);
 
-        source.onopen = function() { sseErrors = 0; };
-
-        source.onmessage = function(ev) {
-            try {
-                const payload = JSON.parse(ev.data);
-                applyStatus(payload.status || {});
+                $('progressSection').hidden = false;
+                updateSelectCount();
+                startSSE();
             } catch (_) {}
-        };
-
-        source.onerror = function() {
-            if (sseSource !== source) return;
-            sseErrors++;
-            if (source.readyState === EventSource.CLOSED || sseErrors >= 3) {
-                source.close();
-                sseSource = null;
-                startStatusPolling();
-            }
-        };
-    }
-
-    async function stopDownload() {
-        if (!confirm('Stop this import? Tracks that already finished are kept.')) return;
-        const stopBtn = document.getElementById('stopBtn');
-        stopBtn.disabled = true;
-        stopBtn.innerHTML = '<i class="fas fa-circle-notch spin-anim"></i> Stopping...';
-        try {
-            const resp = await fetch('/api/download/stop', { method: 'POST' });
-            let data = {};
-            try { data = await resp.json(); } catch (_) {}
-            if (!resp.ok || data.success === false) {
-                throw new Error(data.message || ('HTTP ' + resp.status));
-            }
-            showAlert('Stop requested: the import ends after the current track.', 'info');
-        } catch (e) {
-            resetStopButton();
-            showAlert('Could not stop the import: ' + e.message, 'error');
         }
-    }
 
-    async function loadRecentImports() {
-        try {
-            const resp = await fetch('/api/youtube/recent');
-            if (!resp.ok) return;
-            const items = await resp.json();
-            const section = document.getElementById('recentSection');
-            const grid = document.getElementById('recentGrid');
-            if (!items.length) { section.classList.add('hidden'); return; }
-            grid.innerHTML = '';
-            items.forEach(item => {
-                const link = sanitizeUrl(item.source_url || item.youtube_url || '');
-                const card = document.createElement('a');
-                card.className = 'recent-card';
-                if (link) { card.href = link; card.target = '_blank'; card.rel = 'noopener noreferrer'; }
-                const safeThumb = item.cover_url ? thumbUrl(item.cover_url) : '';
-                const thumbHtml = safeThumb
-                    ? `<img class="recent-card-thumb" src="${safeThumb}" alt="" loading="lazy" onerror="swapToPlaceholder(this, 'recent-card-thumb-placeholder', 'fab fa-youtube')">`
-                    : `<div class="recent-card-thumb-placeholder"><i class="fab fa-youtube"></i></div>`;
-                const title = item.album_title || item.artist_name || 'YouTube import';
-                const sub = [item.album_title ? item.artist_name : '', (item.success_count || 0) + ' tracks'].filter(Boolean).join(' · ');
-                card.innerHTML = `
-                    ${thumbHtml}
-                    <div class="recent-card-body">
-                        <div class="recent-card-title" title="${escapeHtml(title)}">${escapeHtml(title)}</div>
-                        <div class="recent-card-sub" title="${escapeHtml(sub)}">${escapeHtml(sub)}</div>
-                    </div>
-                `;
-                grid.appendChild(card);
-            });
-            section.classList.remove('hidden');
-        } catch (_) {}
-    }
+        $('fetchBtn').addEventListener('click', fetchInfo);
+        $('fetchRetryBtn').addEventListener('click', fetchInfo);
+        $('downloadBtn').addEventListener('click', startDownload);
+        $('stopBtn').addEventListener('click', stopDownload);
 
-    document.getElementById('urlInput').addEventListener('keydown', function(e) {
-        if (e.key === 'Enter') fetchInfo();
-    });
-
-    document.getElementById('artistInput').addEventListener('input', function() { fieldsEdited.artist = true; });
-    document.getElementById('albumInput').addEventListener('input', function() { fieldsEdited.album = true; });
-
-    async function checkResumeProgress() {
-        try {
-            const resp = await fetch('/api/download/status');
-            if (!resp.ok) return;
-            const st = await resp.json();
-            // Only resume a YouTube import here — those use album_id <= 0
-            // (playlist imports get a unique negative id; legacy ones used
-            // 0). A positive id is a real Lidarr album, handled elsewhere.
-            if (!st.active || st.album_id > 0) return;
-            const tracks = st.tracks || [];
-            if (!tracks.length) return;
-
-            initProgressPanel(tracks.map(t => ({ title: t.track_title || '' })));
-
-            tracks.forEach((t, i) => {
-                const iconEl = document.getElementById('tpi-' + i);
-                const extraEl = document.getElementById('tpe-' + i);
-                if (!iconEl) return;
-                const s = t.status || 'pending';
-                iconEl.className = 'tp-icon ' + s;
-                iconEl.innerHTML = STATUS_ICONS[s] || STATUS_ICONS.pending;
-                if (s === 'downloading' && extraEl) {
-                    extraEl.textContent = [t.progress_percent, t.progress_speed].filter(Boolean).join(' · ');
-                }
-            });
-
-            document.getElementById('progressSection').classList.remove('hidden');
-            document.getElementById('downloadBtn').disabled = true;
-            startSSE();
-        } catch (_) {}
-    }
-
-    async function updateQueueBadge() {
-        try {
-            const [queueRes, statusRes] = await Promise.all([
-                fetch('/api/download/queue'),
-                fetch('/api/download/status')
-            ]);
-            const queue = await queueRes.json();
-            const status = await statusRes.json();
-            const total = queue.length + (status.active ? 1 : 0);
-            const badge = document.getElementById('queueBadge');
-            if (total > 0) {
-                badge.textContent = total;
-                badge.classList.add('active');
-            } else {
-                badge.classList.remove('active');
+        $('urlInput').addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                fetchInfo();
             }
-        } catch (e) {}
-    }
-    updateQueueBadge();
-    setInterval(() => { if (!document.hidden) updateQueueBadge(); }, 5000);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) updateQueueBadge(); });
+        });
+        $('urlInput').addEventListener('input', function () {
+            if (this.hasAttribute('aria-invalid')) setUrlError('');
+        });
 
-    loadRecentImports();
-    checkResumeProgress();
-</script>
+        $('artistInput').addEventListener('input', function () {
+            fieldsEdited.artist = true;
+            setFieldsError('');
+            updatePathHint();
+        });
+        $('albumInput').addEventListener('input', function () {
+            fieldsEdited.album = true;
+            setFieldsError('');
+            updatePathHint();
+        });
+
+        $('selectAllCb').addEventListener('change', function () {
+            if (this.checked) selectAll();
+            else selectNone();
+        });
+
+        $('trackList').addEventListener('change', function (e) {
+            const cb = e.target.closest('.track-cb');
+            if (!cb) return;
+            setEntrySelected(cb, cb.checked);
+            updateSelectCount();
+        });
+
+        $('recentBody').addEventListener('click', function (e) {
+            const btn = e.target.closest('[data-act]');
+            if (!btn) return;
+            if (btn.dataset.act === 'retry-recent') {
+                UI.guard(btn, loadRecentImports, 'Retrying…');
+            } else if (btn.dataset.act === 'focus-url') {
+                window.scrollTo({ top: 0, behavior: scrollBehavior() });
+                $('urlInput').focus({ preventScroll: true });
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', function () {
+            loadRecentImports();
+            checkResumeProgress();
+        });
+    </script>
 </body>
 </html>
