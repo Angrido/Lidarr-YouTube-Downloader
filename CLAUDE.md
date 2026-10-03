@@ -80,7 +80,8 @@ docker run -p 5005:5000 \
 | `processing.py` | Album processing, queue processor, per-track state, skip handling |
 | `metadata.py` | ID3 tagging, XML sidecar, iTunes API |
 | `lidarr.py` | Lidarr API wrapper |
-| `notifications.py` | Telegram/Discord webhooks |
+| `lidarr_sync.py` | Background paginated sync of Lidarr's missing albums into `missing_albums_cache` |
+| `notifications.py` | Telegram/Discord webhooks, Ntfy push |
 | `config.py` | Config load/save, constants |
 | `scheduler.py` | Scheduled polling/auto-download |
 | `fingerprint.py` | AcoustID fingerprinting via fpcalc/chromaprint |
@@ -240,16 +241,62 @@ Telegram, Discord webhooks, and Ntfy push notifications, filtered by `log_type` 
 
 ## Templates
 
-- `templates/index.html` — main dashboard, missing albums list. Per-album checkboxes drive a floating **bulk-action bar** (multi-select → enqueue via `/api/download/queue/bulk`); `selectedAlbums` Set survives view re-renders.
-- `templates/downloads.html` — download queue and history
-- `templates/insights.html` — analytics dashboard (`/insights`); fetches `/api/insights?days=N` and draws dependency-free inline-SVG charts (daily success/fail stacked bars, success-rate donut, audio-quality distribution, top artists). Aggregation is `models.get_insights()`.
-- `templates/logs.html` — download log entries with retry support
-- `templates/settings.html` — configuration UI, incl. **Backup & Restore** (`/api/backup/export` streams a `sqlite3`-consistent copy of the DB; `/api/backup/import` validates the upload, atomically replaces the DB, and restarts — refused while a download is active)
-- `templates/youtube.html` — manual YouTube URL / playlist import
-- `templates/setup.html` — first-run setup wizard (`/setup`); the dashboard redirects unconfigured instances here (client-side, skippable)
-- `static/components.css` — shared UI component system (`.ui-btn`, `.ui-badge`, `.ui-input`, `.ui-card`, `.ui-modal`, `.ui-toast`), included by every page. Prefer these classes for new UI instead of ad-hoc inline styles.
-- `static/favicon.svg` — app icon
-- PWA: `/manifest.webmanifest` and `/sw.js` are served from the app root; every template head links the manifest and registers the (no-op-fetch) service worker so the UI is installable.
+Every page is built on one design system; **don't add per-page colour
+variables, theme toggles, navigation or Font Awesome**.
+
+- `static/components.css` — the design system. Tokens on `:root` (4px
+  spacing scale `--sp-*`, radii `--r-*`, type scale `--text-*`, layered
+  surfaces `--bg-base/-elevated/-elevated-2/-sunken/-overlay`, text
+  `--text-1/2/3`, one accent `--accent*`, semantic `--success/warning/
+  danger/info` with `-mark` and `-soft` variants, shadows `--shadow-1..3`,
+  motion `--ease` = `cubic-bezier(0.32, 0.72, 0, 1)` and `--dur-*`). Dark
+  values are declared twice: under `@media (prefers-color-scheme: dark)`
+  guarded by `:root:not([data-theme="light"])`, and under
+  `:root[data-theme="dark"]` (manual override) — change both. Components
+  are `ui-*` (buttons, badges, fields, `.ui-switch`, `.ui-segmented`,
+  `.ui-check`, chips, cards, iOS grouped lists `.ui-group`, stat tiles,
+  responsive tables that become cards on phones, lists with a coloured
+  status edge, album cards, per-track progress `.ui-track`, now-playing
+  card, empty states, skeletons, callouts, modals that become bottom
+  sheets on phones, stacked toasts, bulk bar, drop zone, steps, tabs,
+  tooltip). `prefers-reduced-motion` collapses all durations. Contrast
+  targets WCAG AA in both themes.
+- `static/app.js` — `window.UI`: theme (`auto`/`light`/`dark`, stored in
+  `localStorage.theme`, `themechange` event, `theme-color` meta kept in
+  sync), `UI.icon(name)`, `UI.escape`, `UI.toast(msg, {type, action})`,
+  `UI.openModal/closeModal` (Esc, backdrop, focus trap/restore),
+  `UI.confirm({...})` → Promise, `UI.guard(btn, fn)` (in-flight guard +
+  spinner), `UI.fetchJSON`, `UI.poll(fn, ms)` (never overlaps, pauses in
+  hidden tabs), nav badges from `/api/stats` (`queued`, `active`).
+- `static/icons.svg` — SVG symbol sprite (`#i-<name>`), used as
+  `<svg class="ico"><use href="/static/icons.svg#i-name"></use></svg>`.
+- `templates/_head.html` (meta, manifest, CSS, pre-paint theme script,
+  app.js), `templates/_nav.html` (sidebar + phone tab bar; set
+  `active_page` before including), `templates/_topbar.html` (phone header).
+- `templates/index.html` — Library: status tiles, missing-albums grid /
+  list / table, search and sort. Per-album checkboxes drive the floating
+  **bulk-action bar** (`/api/download/queue/bulk`); `selectedAlbums` Set
+  survives view re-renders.
+- `templates/downloads.html` — now-downloading card with per-track states,
+  reorderable queue, history filtered by outcome and audio quality.
+- `templates/insights.html` — analytics (`/insights`); fetches
+  `/api/insights?days=N` and draws dependency-free inline-SVG charts
+  rendered at the measured container width (fixed-size labels, tooltips,
+  legend, table view). Aggregation is `models.get_insights()`.
+- `templates/logs.html` — download log entries with type filters and
+  inline retry/dismiss/unban.
+- `templates/settings.html` — configuration in anchored sections, incl.
+  **Backup & Restore** (`/api/backup/export` streams a `sqlite3`-consistent
+  copy of the DB; `/api/backup/import` validates the upload, atomically
+  replaces the DB, and restarts — refused while any download is active).
+- `templates/youtube.html` — manual YouTube URL / playlist import.
+- `templates/setup.html` — first-run setup wizard (`/setup`, no nav); the
+  dashboard redirects unconfigured instances here (client-side, skippable).
+- `static/favicon.svg` + PNG icons (`apple-touch-icon.png`, `icon-192.png`,
+  `icon-512.png`, `icon-maskable-512.png`).
+- PWA: `/manifest.webmanifest` and `/sw.js` are served from the app root;
+  `_head.html` links the manifest and `app.js` registers the (no-op-fetch)
+  service worker so the UI is installable.
 
 ## Utility Tools (`tools/`)
 
@@ -271,7 +318,7 @@ Standalone scripts not part of the main app:
 
 ## Version Updates
 
-The version string is defined in `version.py`: `VERSION = "1.9.2"`. The README badge also references it and must be updated manually.
+The version string is defined in `version.py`: `VERSION = "2.0.0"`. The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 
@@ -285,4 +332,4 @@ Run tests with the venv:
 source .venv/bin/activate && python -m pytest tests/ -v
 ```
 
-Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`.
+Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`.

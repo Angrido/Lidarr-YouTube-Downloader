@@ -2254,6 +2254,19 @@ def test_apple_touch_icon_is_png(client):
     resp.close()
 
 
+def test_stats_reports_queue_and_any_active_download(client, monkeypatch):
+    import processing
+    monkeypatch.setattr("models.get_queue_length", lambda: 3)
+    monkeypatch.setattr("models.get_history_count_today", lambda: 0)
+    data = client.get("/api/stats").get_json()
+    assert data["queued"] == 3
+    assert data["active"] is False
+    monkeypatch.setitem(processing._active_states, 77, {"active": True})
+    data = client.get("/api/stats").get_json()
+    assert data["active"] is True
+    assert data["queued"] == 3
+
+
 def test_service_worker(client):
     resp = client.get("/sw.js")
     assert resp.status_code == 200

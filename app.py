@@ -215,8 +215,8 @@ _PWA_MANIFEST = {
     "start_url": "/",
     "scope": "/",
     "display": "standalone",
-    "background_color": "#09090b",
-    "theme_color": "#09090b",
+    "background_color": "#0a0a0c",
+    "theme_color": "#0a0a0c",
     "icons": [
         {
             "src": "/static/favicon.svg",
@@ -1461,10 +1461,13 @@ def api_remove_banned_url(ban_id):
 @app.route("/api/stats")
 def api_stats():
     downloaded_today = models.get_history_count_today()
-    in_queue = models.get_queue_length() + (1 if download_process["active"] else 0)
+    queued = models.get_queue_length()
+    in_queue = queued + (1 if download_process["active"] else 0)
     return jsonify(
         {
             "in_queue": in_queue,
+            "queued": queued,
+            "active": any_download_active(),
             "downloaded_today": downloaded_today,
         }
     )

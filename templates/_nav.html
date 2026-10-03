@@ -1,0 +1,38 @@
+{% set nav_items = [
+    ('home', '/', 'home', 'Library'),
+    ('downloads', '/downloads', 'download', 'Downloads'),
+    ('youtube', '/youtube', 'youtube', 'YouTube'),
+    ('insights', '/insights', 'chart', 'Insights'),
+    ('logs', '/logs', 'list', 'Logs'),
+    ('settings', '/settings', 'settings', 'Settings'),
+] %}
+<a class="sr-only" href="#main">Skip to content</a>
+<aside class="app-sidebar" aria-label="Primary">
+    <a class="app-brand" href="/" aria-label="Lidarr YouTube Downloader home">
+        <img class="app-brand-mark" src="/static/favicon.svg" alt="" width="32" height="32">
+        <span class="app-brand-text">Lidarr YT<small>Downloader</small></span>
+    </a>
+    <nav class="app-nav" aria-label="Main">
+        <span class="app-nav-indicator" aria-hidden="true"></span>
+        {% for key, href, ico, label in nav_items %}
+        <a class="app-nav-link" href="{{ href }}" data-nav="{{ key }}"{% if active_page == key %} aria-current="page"{% endif %} title="{{ label }}">
+            <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-{{ ico }}"></use></svg>
+            <span class="app-nav-label">{{ label }}</span>
+            {% if key == 'downloads' %}<span class="app-nav-live" data-nav-live hidden title="Download in progress"></span><span class="app-nav-badge" data-nav-queue data-count="0"></span>{% endif %}
+        </a>
+        {% endfor %}
+    </nav>
+    <div class="app-sidebar-foot">
+        <span class="app-version num">v{{ APP_VERSION }}</span>
+        <button type="button" class="ui-btn ui-btn-ghost ui-btn-icon ui-btn-sm" data-theme-toggle aria-label="Toggle theme"></button>
+    </div>
+</aside>
+<nav class="app-tabbar" aria-label="Main">
+    {% for key, href, ico, label in nav_items %}
+    <a class="app-tab" href="{{ href }}"{% if active_page == key %} aria-current="page"{% endif %}>
+        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-{{ ico }}"></use></svg>
+        <span class="app-tab-label">{{ label }}</span>
+        {% if key == 'downloads' %}<span class="app-nav-live" data-nav-live hidden></span><span class="app-nav-badge" data-nav-queue data-count="0"></span>{% endif %}
+    </a>
+    {% endfor %}
+</nav>

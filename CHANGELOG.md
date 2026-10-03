@@ -1,5 +1,96 @@
 # Changelog
 
+## 2.0.0
+
+### Changed
+- **A completely redesigned interface.** Every page now shares one design
+  system (`static/components.css` + `static/app.js`): a sidebar on desktop
+  and a tab bar on phones with a live queue badge and a "downloading" dot,
+  light and dark themes that follow the system (or a manual choice that is
+  remembered), system typography, one indigo accent, layered surfaces,
+  frosted navigation, bulk-action bar and dialogs, soft shadows and
+  motion that respects *Reduce motion*.
+  - **Library** opens with status tiles (Lidarr, ffmpeg, queue, scheduler)
+    and a cover-art grid with hover actions, elegant selection and a
+    floating bulk-action bar; list and table views remain.
+  - **Downloads** shows the active album as a "Now playing" card with
+    per-track progress (searching, downloading with speed, checking,
+    tagging, done, failed, skipped), a reorderable queue and a history you
+    can filter by outcome and audio quality.
+  - **Insights** charts were redrawn: readable labels at any width, hover
+    tooltips, legends and a table view.
+  - **Logs** colour-codes severity, filters by type and retries inline.
+  - **YouTube import** has a prominent URL field and a preview of the
+    playlist before importing.
+  - **Settings** is organised in sections with a jump list, iOS-style
+    switches and segmented controls, inline validation, a clear
+    saved/unsaved state, an always-visible ffmpeg verdict and a drop zone
+    for restoring backups.
+  - **Setup** is a step-by-step wizard with a live connection test.
+- Icons are a bundled SVG sprite; the Font Awesome CDN is no longer loaded,
+  so the UI works fully offline.
+- New app icon; the PWA manifest ships PNG and maskable icons and an iOS
+  touch icon, and the browser/status bar colour follows the theme.
+- `/api/stats` also returns `queued` and `active` (any download, including
+  Lidarr download-client jobs).
+
+### Fixed — downloads and library
+- A track whose worker crashed was reported as a success and its temp file
+  could be copied into the library; it is now recorded as a failure.
+- Albums that stopped early (Lidarr error, no release, path not mounted,
+  permission denied, empty tracklist) wrote no log, so the scheduler retried
+  them every cycle. An empty tracklist was reported as "already complete".
+- A queued album could vanish when a manual or playlist download took the
+  slot first; a Lidarr grab of an album already downloading stayed
+  "Queued" in Lidarr forever.
+- One error in the scheduled check stopped the scheduler until restart.
+- Vinyl-style track numbers ("A1") made tracks download again every run.
+- A non-numeric track number in a manual download blocked all downloads
+  until restart.
+- Skipping a track during conversion could leave a temp file in the album.
+- Bans now match the video, not the exact URL form.
+- Failures caused by a broken ffmpeg no longer push tracks into retry
+  backoff or "give up" them.
+- Loudness normalization broke opus downloads and did nothing for m4a; it is
+  now a separate pass that can never mark ffmpeg as broken.
+- opus is no longer advertised as working without ffmpeg (YouTube serves it
+  in WebM, which needs remuxing).
+- A single corrupt source no longer disables audio conversion until restart.
+- An AcoustID outage no longer makes every candidate "unverified" (all of
+  them were downloaded and thrown away); fixing an invalid AcoustID key works
+  without a restart.
+- Titles with typographic apostrophes or accents ("Don’t", "Déjà Vu",
+  "Beyoncé") no longer fail to match; tracks shorter than 15 s can match.
+- Very long (e.g. Japanese) titles no longer fail with "File name too long".
+- Renamed albums no longer appear twice in the history.
+- A failed sync page no longer removes albums from the missing list.
+
+### Fixed — settings, API and integrations
+- Settings could be wiped by two toggles at the same time or a crash while
+  saving; `config.json` is now written atomically.
+- `LIDARR_URL` / `LIDARR_API_KEY` / `DOWNLOAD_PATH` set in the environment
+  are no longer frozen into `config.json` by the first save.
+- Invalid settings return a clear error instead of a server error or being
+  stored as text (`"false"` was treated as on).
+- The Lidarr API key is no longer returned by `/api/config` or the export.
+- Restore and restart are refused while a Lidarr download-client job runs.
+- Lidarr commands no longer retry for 35 s on errors that can't succeed.
+- Ntfy notifications showed raw JSON and ignored title and priority.
+- Telegram/Discord/ntfy tokens no longer appear in the logs; Telegram no
+  longer rejects messages with a backslash or a long failure reason.
+- Removing a failed job from Lidarr's history no longer lets Lidarr grab the
+  same album again immediately; removing a downloading job stops it.
+- Error pages are no longer embedded as cover art.
+- "Recent imports" on the YouTube page was always empty.
+
+### Fixed — interface
+- Many UI bugs found in an audit: Save reporting success on errors,
+  double-submits (manual downloads, add to queue, toggles), XSS through
+  server messages and cover URLs, Esc/focus handling in dialogs, keyboard
+  access, contrast in the light theme, layouts overflowing on phones,
+  polling that kept running in background tabs, the Logs "All" view hiding
+  entries, insights labels unreadable on phones, and more.
+
 ## 1.9.2
 
 ### Fixed
