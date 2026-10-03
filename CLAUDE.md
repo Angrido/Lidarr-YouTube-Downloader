@@ -198,6 +198,26 @@ Re-check button look like it had broken something. Key distinction: with an `m4a
 containers directly and the native stream is kept as-is; with `mp3` nothing
 can be downloaded, so the panel offers switching format as the first fix.
 
+### MusicBrainz id frames
+
+Lidarr's track resource carries **two different** MusicBrainz ids, and they are
+not interchangeable: `foreignRecordingId` identifies the recording, while
+`foreignTrackId` identifies that recording's slot in one specific release's
+tracklist. Writing the recording id into the release-track tag makes taggers
+that validate it against the release tracklist reject the file outright
+(issue #93), so `metadata._musicbrainz_fields()` is the single source of truth
+for the mapping and both the MP3 and M4A paths go through it.
+
+Frame names follow **Picard's** mapping, because that is what other taggers
+read — `MusicBrainz Release Group Id` (not "Album Release Group Id") and
+`MusicBrainz Album Release Country` (not "Release Country"). `_STALE_MB_DESCS`
+lists the descriptions earlier versions got wrong; they are deleted before
+writing so re-tagging an existing file cannot leave a mislabeled value behind.
+
+Vorbis Comments (Opus) invert the ID3 naming: on disk `musicbrainz_trackid`
+holds the **recording** id and `musicbrainz_releasetrackid` holds the
+release-track id, so `tag_opus()` deliberately does not mirror `tag_mp3()`.
+
 ### Notifications
 
 Telegram, Discord webhooks, and Ntfy push notifications, filtered by `log_type` (e.g., `partial_success`, `album_error`).
