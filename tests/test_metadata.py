@@ -616,3 +616,235 @@ class TestReplayGain:
         f = tmp_path / "track.mp3"
         f.write_bytes(b"x")
         assert metadata.apply_replaygain_tags(str(f)) is None
+
+
+class TestMusicBrainzFrames:
+    """The recording MBID and the release-track MBID are different ids (#93).
+
+    ``foreignRecordingId`` identifies the recording; ``foreignTrackId``
+    identifies its slot in a specific release's tracklist. Writing the
+    former into "MusicBrainz Release Track Id" makes taggers that validate
+    it against the release tracklist refuse the file.
+    """
+
+    TRACK = {
+        "title": "Find My Name",
+        "trackNumber": "1",
+        "foreignRecordingId": "4a106fab-8841-4d7e-a028-bc2a61228dbd",
+        "foreignTrackId": "49f1df87-7cde-4186-9178-bcbd8c3cb7d5",
+    }
+    ALBUM = {
+        "title": "Test Album",
+        "artist": {"artistName": "Test Artist", "foreignArtistId": "art-789"},
+        "releaseDate": "2024-01-15",
+        "trackCount": 10,
+        "foreignAlbumId": "rg-012",
+        "releases": [{"monitored": True}],
+    }
+    RELEASE = {
+        "foreignReleaseId": "d638506c-0087-4754-9ed5-b9373ce0320d",
+        "country": "US",
+    }
+
+    @staticmethod
+    def _txxx(mp3_path):
+        from mutagen.mp3 import MP3
+
+        audio = MP3(str(mp3_path))
+        return {
+            f.desc: str(f.text[0])
+            for f in audio.tags.getall("TXXX")
+            if f.text
+        }
+
+    def _tag(self, tmp_path, track=None, name="t.mp3"):
+        mp3_path = _create_minimal_mp3(tmp_path / name)
+        assert metadata.tag_mp3(
+            str(mp3_path), track or self.TRACK, self.ALBUM, None
+        ) is True
+        return mp3_path
+
+    @patch("metadata.get_monitored_release")
+    def test_mp3_release_track_frame_holds_the_release_track_id(
+        self, mock_release, tmp_path
+    ):
+        mock_release.return_value = self.RELEASE
+        frames = self._txxx(self._tag(tmp_path))
+        assert (
+            frames["MusicBrainz Release Track Id"]
+            == self.TRACK["foreignTrackId"]
+        )
+        assert (
+            frames["MusicBrainz Recording Id"]
+            == self.TRACK["foreignRecordingId"]
+        )
+        assert (
+            frames["MusicBrainz Release Track Id"]
+            != frames["MusicBrainz Recording Id"]
+        )
+
+    @patch("metadata.get_monitored_release")
+    def test_mp3_recording_id_also_goes_to_ufid(self, mock_release, tmp_path):
+        from mutagen.mp3 import MP3
+
+        mock_release.return_value = self.RELEASE
+        audio = MP3(str(self._tag(tmp_path)))
+        ufid = audio.tags.getall("UFID:http://musicbrainz.org")
+        assert len(ufid) == 1
+        assert (
+            ufid[0].data.decode() == self.TRACK["foreignRecordingId"]
+        )
+
+    @patch("metadata.get_monitored_release")
+    def test_mp3_uses_picard_frame_names(self, mock_release, tmp_path):
+        """Picard reads these exact descriptions; the old ones were ignored."""
+        mock_release.return_value = self.RELEASE
+        frames = self._txxx(self._tag(tmp_path))
+        assert frames["MusicBrainz Release Group Id"] == "rg-012"
+        assert frames["MusicBrainz Album Release Country"] == "US"
+        assert "MusicBrainz Album Release Group Id" not in frames
+        assert "MusicBrainz Release Country" not in frames
+
+    @patch("metadata.get_monitored_release")
+    def test_mp3_writes_album_artist_id(self, mock_release, tmp_path):
+        mock_release.return_value = self.RELEASE
+        frames = self._txxx(self._tag(tmp_path))
+        assert frames["MusicBrainz Album Artist Id"] == "art-789"
+        assert frames["MusicBrainz Artist Id"] == "art-789"
+
+    @patch("metadata.get_monitored_release")
+    def test_mp3_omits_release_track_frame_when_lidarr_has_no_track_id(
+        self, mock_release, tmp_path
+    ):
+        """A missing foreignTrackId must not fall back to the recording id."""
+        mock_release.return_value = self.RELEASE
+        track = {k: v for k, v in self.TRACK.items() if k != "foreignTrackId"}
+        frames = self._txxx(self._tag(tmp_path, track=track))
+        assert "MusicBrainz Release Track Id" not in frames
+        assert (
+            frames["MusicBrainz Recording Id"]
+            == self.TRACK["foreignRecordingId"]
+        )
+
+    @patch("metadata.get_monitored_release")
+    def test_mp3_retag_replaces_frames_written_by_older_versions(
+        self, mock_release, tmp_path
+    ):
+        from mutagen.id3 import TXXX
+        from mutagen.mp3 import MP3
+
+        mock_release.return_value = self.RELEASE
+        mp3_path = _create_minimal_mp3(tmp_path / "legacy.mp3")
+        audio = MP3(str(mp3_path))
+        audio.add_tags()
+        for desc, text in (
+            ("MusicBrainz Release Track Id", "4a106fab-8841-4d7e-a028-bc2a61228dbd"),
+            ("MusicBrainz Release Country", "GB"),
+            ("MusicBrainz Album Release Group Id", "rg-old"),
+        ):
+            audio.tags.add(TXXX(encoding=3, desc=desc, text=text))
+        audio.save(v2_version=3)
+
+        assert metadata.tag_mp3(
+            str(mp3_path), self.TRACK, self.ALBUM, None
+        ) is True
+
+        frames = self._txxx(mp3_path)
+        assert (
+            frames["MusicBrainz Release Track Id"]
+            == self.TRACK["foreignTrackId"]
+        )
+        assert "MusicBrainz Release Country" not in frames
+        assert "MusicBrainz Album Release Group Id" not in frames
+        assert frames["MusicBrainz Album Release Country"] == "US"
+        assert frames["MusicBrainz Release Group Id"] == "rg-012"
+
+    @patch("metadata.get_monitored_release")
+    def test_mp3_retag_drops_a_stale_release_track_frame(
+        self, mock_release, tmp_path
+    ):
+        """Without a release-track id the wrong old value must not survive."""
+        from mutagen.id3 import TXXX
+        from mutagen.mp3 import MP3
+
+        mock_release.return_value = self.RELEASE
+        mp3_path = _create_minimal_mp3(tmp_path / "stale.mp3")
+        audio = MP3(str(mp3_path))
+        audio.add_tags()
+        audio.tags.add(
+            TXXX(
+                encoding=3,
+                desc="MusicBrainz Release Track Id",
+                text="4a106fab-8841-4d7e-a028-bc2a61228dbd",
+            )
+        )
+        audio.save(v2_version=3)
+
+        track = {k: v for k, v in self.TRACK.items() if k != "foreignTrackId"}
+        assert metadata.tag_mp3(str(mp3_path), track, self.ALBUM, None) is True
+        assert "MusicBrainz Release Track Id" not in self._txxx(mp3_path)
+
+    @patch("metadata.get_monitored_release")
+    @patch("metadata.MP4")
+    def test_m4a_separates_the_two_ids(self, mock_mp4_cls, mock_release):
+        store = {}
+        mock_audio = MagicMock()
+        mock_audio.__setitem__ = lambda self, k, v: store.update({k: v})
+        mock_audio.__contains__ = lambda self, k: k in store
+        mock_mp4_cls.return_value = mock_audio
+        mock_release.return_value = self.RELEASE
+
+        assert metadata.tag_m4a(
+            "/fake/path.m4a", self.TRACK, self.ALBUM, None
+        ) is True
+
+        def freeform(desc):
+            return bytes(store[f"----:com.apple.iTunes:{desc}"][0]).decode()
+
+        assert (
+            freeform("MusicBrainz Release Track Id")
+            == self.TRACK["foreignTrackId"]
+        )
+        assert (
+            freeform("MusicBrainz Recording Id")
+            == self.TRACK["foreignRecordingId"]
+        )
+        assert freeform("MusicBrainz Release Group Id") == "rg-012"
+        assert freeform("MusicBrainz Album Release Country") == "US"
+        assert freeform("MusicBrainz Album Artist Id") == "art-789"
+        assert (
+            "----:com.apple.iTunes:MusicBrainz Release Country" not in store
+        )
+        assert (
+            "----:com.apple.iTunes:MusicBrainz Album Release Group Id"
+            not in store
+        )
+
+    @patch("metadata.get_monitored_release")
+    @patch("metadata.OggOpus")
+    def test_opus_keeps_vorbis_naming(self, mock_opus_cls, mock_release):
+        """On disk a Vorbis ``musicbrainz_trackid`` is the recording MBID.
+
+        Picard maps the file's ``musicbrainz_trackid`` to its internal
+        ``musicbrainz_recordingid`` and uses ``musicbrainz_releasetrackid``
+        for the release-track id, the opposite of the ID3 naming.
+        """
+        store = {}
+        mock_audio = MagicMock()
+        mock_audio.__setitem__ = lambda self, k, v: store.update({k: v})
+        mock_opus_cls.return_value = mock_audio
+        mock_release.return_value = self.RELEASE
+
+        assert metadata.tag_opus(
+            "/fake/path.opus", self.TRACK, self.ALBUM, None
+        ) is True
+
+        assert store["musicbrainz_trackid"] == [
+            self.TRACK["foreignRecordingId"]
+        ]
+        assert store["musicbrainz_releasetrackid"] == [
+            self.TRACK["foreignTrackId"]
+        ]
+        assert store["musicbrainz_albumartistid"] == ["art-789"]
+        assert store["musicbrainz_artistid"] == ["art-789"]
+        assert store["releasecountry"] == ["US"]

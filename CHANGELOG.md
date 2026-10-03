@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.9.2
+
+### Fixed
+- **MusicBrainz tags are no longer mislabeled, so external taggers accept
+  the files again** (#93). `MusicBrainz Release Track Id` carried the
+  *recording* id — the same value already in the `UFID` frame — and the
+  release-specific track id was written nowhere at all. Taggers that check
+  that id against the release's tracklist found no match and refused to
+  write any tags. The release-track id now goes in that frame, the recording
+  id stays in `UFID` and also gets its own `MusicBrainz Recording Id`. Both
+  ids come from Lidarr, so nothing extra is fetched.
+- **Two tag names nothing could read** — `MusicBrainz Album Release Group
+  Id` and `MusicBrainz Release Country` were not the names taggers look for,
+  so the release group and release country were silently ignored by every
+  player and tagger. They are now written as `MusicBrainz Release Group Id`
+  and `MusicBrainz Album Release Country`.
+- **The album artist's id is now also written as `MusicBrainz Album Artist
+  Id`**, not only as `MusicBrainz Artist Id`.
+- **Opus files get the release-track id too** (`musicbrainz_releasetrackid`).
+  Vorbis Comments name these tags the other way round from MP3, so Opus was
+  already labeling the recording id correctly and only lacked this one.
+- **Re-tagging a file cleans up after the old versions** — the wrongly named
+  tags are removed before writing, so a file tagged by an earlier release
+  doesn't keep a stale value alongside the correct one. If Lidarr has no
+  release-track id for a track, the tag is left out rather than filled with
+  the recording id.
+- **`tools/fix_metadata.py` repairs files you already downloaded.** It used
+  to write the recording id into the release-track tag itself, and only
+  looked at the album id — so it would not have touched a single affected
+  file. It now detects a wrong release-track id, moves the recording id to
+  its proper tags and migrates the renamed ones. Its per-track lookup was
+  also comparing Lidarr's track number as text against the file's as a
+  number, so no recording id was ever applied; that is fixed too.
+
 ## 1.9.1
 
 ### Added

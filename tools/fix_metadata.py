@@ -6,6 +6,11 @@ This script identifies files on disk that have incorrect MusicBrainz release IDs
 (a common issue when files are tagged with the first release instead of the
 monitored release) and fixes them to enable successful Lidarr imports.
 
+It also repairs files written before the "MusicBrainz Release Track Id" fix:
+that frame used to hold the recording MBID, so taggers that validate it
+against the release tracklist rejected the file. The recording MBID moves to
+UFID / "MusicBrainz Recording Id", and the release-track MBID takes its place.
+
 Usage:
     python fix_metadata.py ~/media/music/NADA           # Fix one artist
     python fix_metadata.py ~/media/music                # Fix all artists
@@ -182,6 +187,7 @@ def get_mp3_metadata(filepath):
             "album_id": None,
             "country": None,
             "recording_id": None,
+            "release_track_id": None,
             "track_num": None,
         }
 
@@ -194,10 +200,16 @@ def get_mp3_metadata(filepath):
 
         # Get MusicBrainz Album Id (TXXX frame)
         for frame in audio.getall("TXXX"):
+            value = str(frame.text[0]) if frame.text else None
             if frame.desc == "MusicBrainz Album Id":
-                metadata["album_id"] = str(frame.text[0]) if frame.text else None
-            elif frame.desc == "MusicBrainz Release Country":
-                metadata["country"] = str(frame.text[0]) if frame.text else None
+                metadata["album_id"] = value
+            elif frame.desc == "MusicBrainz Release Track Id":
+                metadata["release_track_id"] = value
+            elif frame.desc in (
+                "MusicBrainz Album Release Country",
+                "MusicBrainz Release Country",
+            ):
+                metadata["country"] = value
 
         # Get Recording Id (UFID frame)
         for frame in audio.getall("UFID"):
@@ -210,7 +222,8 @@ def get_mp3_metadata(filepath):
         return {"error": str(e)}
 
 
-def fix_mp3_metadata(filepath, release_id, country, recording_id=None, dry_run=False):
+def fix_mp3_metadata(filepath, release_id, country, recording_id=None,
+                     release_track_id=None, dry_run=False):
     """Fix MusicBrainz metadata on an MP3 file."""
     try:
         audio = ID3(filepath)
@@ -229,18 +242,28 @@ def fix_mp3_metadata(filepath, release_id, country, recording_id=None, dry_run=F
                 audio.delall("TXXX:MusicBrainz Album Id")
                 audio.add(TXXX(encoding=3, desc="MusicBrainz Album Id", text=release_id))
 
-        # Remove old Country and add new one
+        # Remove old Country and add new one under Picard's frame name
         old_country = None
         for frame in audio.getall("TXXX"):
-            if frame.desc == "MusicBrainz Release Country":
+            if frame.desc in (
+                "MusicBrainz Album Release Country",
+                "MusicBrainz Release Country",
+            ):
                 old_country = str(frame.text[0]) if frame.text else None
                 break
 
         if country and old_country != country:
             changes.append(f"Country: {old_country} -> {country}")
-            if not dry_run:
-                audio.delall("TXXX:MusicBrainz Release Country")
-                audio.add(TXXX(encoding=3, desc="MusicBrainz Release Country", text=country))
+        elif country and audio.getall("TXXX:MusicBrainz Release Country"):
+            changes.append("Country frame renamed to Album Release Country")
+        if country and not dry_run:
+            audio.delall("TXXX:MusicBrainz Release Country")
+            audio.delall("TXXX:MusicBrainz Album Release Country")
+            audio.add(TXXX(
+                encoding=3,
+                desc="MusicBrainz Album Release Country",
+                text=country,
+            ))
 
         # Update Recording Id if provided
         if recording_id:
@@ -252,12 +275,37 @@ def fix_mp3_metadata(filepath, release_id, country, recording_id=None, dry_run=F
 
             if old_recording_id != recording_id:
                 changes.append(f"Recording Id: {old_recording_id[:8] if old_recording_id else 'None'}... -> {recording_id[:8]}...")
-                if not dry_run:
-                    audio.delall("UFID:http://musicbrainz.org")
-                    audio.add(UFID(owner="http://musicbrainz.org", data=recording_id.encode()))
-                    # Also update Release Track Id
-                    audio.delall("TXXX:MusicBrainz Release Track Id")
-                    audio.add(TXXX(encoding=3, desc="MusicBrainz Release Track Id", text=recording_id))
+            elif not audio.getall("TXXX:MusicBrainz Recording Id"):
+                changes.append("Recording Id: added MusicBrainz Recording Id frame")
+            if not dry_run:
+                audio.delall("UFID:http://musicbrainz.org")
+                audio.add(UFID(owner="http://musicbrainz.org", data=recording_id.encode()))
+                audio.delall("TXXX:MusicBrainz Recording Id")
+                audio.add(TXXX(
+                    encoding=3,
+                    desc="MusicBrainz Recording Id",
+                    text=recording_id,
+                ))
+
+        old_release_track_id = None
+        for frame in audio.getall("TXXX"):
+            if frame.desc == "MusicBrainz Release Track Id":
+                old_release_track_id = str(frame.text[0]) if frame.text else None
+                break
+
+        if old_release_track_id != release_track_id:
+            changes.append(
+                f"Release Track Id: {old_release_track_id or 'None'} -> "
+                f"{release_track_id or 'None'}"
+            )
+            if not dry_run:
+                audio.delall("TXXX:MusicBrainz Release Track Id")
+                if release_track_id:
+                    audio.add(TXXX(
+                        encoding=3,
+                        desc="MusicBrainz Release Track Id",
+                        text=release_track_id,
+                    ))
 
         if changes and not dry_run:
             audio.save()
@@ -458,11 +506,20 @@ def main():
             # Get track info from Lidarr
             tracks = get_album_tracks(config, album_id)
             track_recording_ids = {}
+            track_release_track_ids = {}
             for track in tracks:
-                track_num = track.get("trackNumber", 0)
+                try:
+                    track_num = int(track.get("trackNumber") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if not track_num:
+                    continue
                 recording_id = track.get("foreignRecordingId", "")
-                if track_num and recording_id:
+                release_track_id = track.get("foreignTrackId", "")
+                if recording_id:
                     track_recording_ids[track_num] = recording_id
+                if release_track_id:
+                    track_release_track_ids[track_num] = release_track_id
 
             # Find album directory on disk
             # First try the artist path from Lidarr
@@ -506,14 +563,24 @@ def main():
                 current_album_id = metadata.get("album_id", "")
 
                 # Check if file needs fixing
-                if current_album_id and current_album_id != monitored_release_id:
+                track_num = metadata.get("track_num")
+                recording_id = track_recording_ids.get(track_num) if track_num else None
+                release_track_id = (
+                    track_release_track_ids.get(track_num) if track_num else None
+                )
+                wrong_album = bool(current_album_id) and (
+                    current_album_id != monitored_release_id
+                )
+                wrong_release_track = bool(release_track_id) and (
+                    metadata.get("release_track_id") != release_track_id
+                )
+                if wrong_album or wrong_release_track:
                     album_needs_fix = True
-                    track_num = metadata.get("track_num")
-                    recording_id = track_recording_ids.get(track_num) if track_num else None
                     files_to_fix.append({
                         "file": mp3_file,
                         "current_album_id": current_album_id,
                         "recording_id": recording_id,
+                        "release_track_id": release_track_id,
                     })
 
             if album_needs_fix and files_to_fix:
@@ -537,6 +604,7 @@ def main():
                         monitored_release_id,
                         monitored_country,
                         recording_id,
+                        file_info["release_track_id"],
                         dry_run=args.dry_run
                     )
 

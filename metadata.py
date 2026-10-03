@@ -47,7 +47,8 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
 
     Args:
         file_path: Path to the MP3 file.
-        track_info: Dict with title, trackNumber, foreignRecordingId.
+        track_info: Dict with title, trackNumber, foreignRecordingId
+            (recording MBID) and foreignTrackId (release-track MBID).
         album_info: Dict with title, artist, releaseDate, trackCount,
             foreignAlbumId, and releases list.
         cover_data: Raw bytes of cover art image, or None.
@@ -139,12 +140,17 @@ def tag_opus(file_path, track_info, album_info, cover_data):
 
         release = get_monitored_release(album_info)
         if release:
-            if track_info.get("foreignRecordingId"):
-                audio["musicbrainz_trackid"] = [track_info["foreignRecordingId"]]
+            audio.pop("musicbrainz_releasetrackid", None)
+            if track_info.get("foreignTrackId"):
+                audio["musicbrainz_releasetrackid"] = [
+                    track_info["foreignTrackId"]
+                ]
             if release.get("foreignReleaseId"):
                 audio["musicbrainz_albumid"] = [release["foreignReleaseId"]]
-            if album_info["artist"].get("foreignArtistId"):
-                audio["musicbrainz_artistid"] = [album_info["artist"]["foreignArtistId"]]
+            artist_id = album_info["artist"].get("foreignArtistId")
+            if artist_id:
+                audio["musicbrainz_artistid"] = [artist_id]
+                audio["musicbrainz_albumartistid"] = [artist_id]
             if album_info.get("foreignAlbumId"):
                 audio["musicbrainz_releasegroupid"] = [album_info["foreignAlbumId"]]
             country = release.get("country")
@@ -191,26 +197,16 @@ def tag_m4a(file_path, track_info, album_info, cover_data):
 
         release = get_monitored_release(album_info)
         if release:
-            country = release.get("country")
-            if isinstance(country, list):
-                country = country[0] if country else None
-            mb_fields = [
-                (track_info.get("foreignRecordingId"),
-                 "MusicBrainz Release Track Id"),
-                (release.get("foreignReleaseId"), "MusicBrainz Album Id"),
-                (album_info["artist"].get("foreignArtistId"),
-                 "MusicBrainz Artist Id"),
-                (album_info.get("foreignAlbumId"),
-                 "MusicBrainz Album Release Group Id"),
-                (country, "MusicBrainz Release Country"),
-            ]
-            for value, desc in mb_fields:
+            for desc in _STALE_MB_DESCS:
+                audio.pop(f"----:com.apple.iTunes:{desc}", None)
+            fields = _musicbrainz_fields(track_info, album_info, release)
+            for value, desc in fields:
                 if value:
                     key = f"----:com.apple.iTunes:{desc}"
                     audio[key] = [MP4FreeForm(str(value).encode())]
 
         if track_info.get("foreignRecordingId"):
-            key = "----:com.apple.iTunes:MusicBrainz Release Track Id"
+            key = "----:com.apple.iTunes:MusicBrainz Recording Id"
             audio[key] = [
                 MP4FreeForm(track_info["foreignRecordingId"].encode())
             ]
@@ -368,34 +364,48 @@ def apply_replaygain_tags(audio_file):
         return None
 
 
-def _add_musicbrainz_tags(audio, track_info, album_info, release):
-    """Add MusicBrainz-specific TXXX frames to the audio tags."""
+_STALE_MB_DESCS = (
+    "MusicBrainz Album Release Group Id",
+    "MusicBrainz Release Country",
+    "MusicBrainz Release Track Id",
+)
+
+
+def _musicbrainz_fields(track_info, album_info, release):
+    """Return ``(value, frame description)`` pairs for the MusicBrainz tags.
+
+    ``foreignTrackId`` is the release-specific track MBID and is what
+    "MusicBrainz Release Track Id" means; ``foreignRecordingId`` is the
+    recording MBID, which Picard carries in UFID. Writing the recording id
+    into the release-track frame makes taggers that validate it against the
+    release tracklist reject the file (#93). Frame names follow Picard's
+    ID3 mapping, which is what other taggers read.
+
+    ``_STALE_MB_DESCS`` names the frames an earlier version wrote under a
+    non-Picard description, plus the release-track frame that held a
+    recording id; callers clear those first so a re-tag of an existing file
+    cannot leave a stale or mislabeled value behind.
+    """
     country = release.get("country")
     if isinstance(country, list):
         country = country[0] if country else None
-    mb_fields = [
-        (
-            track_info.get("foreignRecordingId"),
-            "MusicBrainz Release Track Id",
-        ),
-        (
-            release.get("foreignReleaseId"),
-            "MusicBrainz Album Id",
-        ),
-        (
-            album_info["artist"].get("foreignArtistId"),
-            "MusicBrainz Artist Id",
-        ),
-        (
-            album_info.get("foreignAlbumId"),
-            "MusicBrainz Album Release Group Id",
-        ),
-        (
-            country,
-            "MusicBrainz Release Country",
-        ),
+    album_artist_id = album_info["artist"].get("foreignArtistId")
+    return [
+        (track_info.get("foreignTrackId"), "MusicBrainz Release Track Id"),
+        (track_info.get("foreignRecordingId"), "MusicBrainz Recording Id"),
+        (release.get("foreignReleaseId"), "MusicBrainz Album Id"),
+        (album_artist_id, "MusicBrainz Artist Id"),
+        (album_artist_id, "MusicBrainz Album Artist Id"),
+        (album_info.get("foreignAlbumId"), "MusicBrainz Release Group Id"),
+        (country, "MusicBrainz Album Release Country"),
     ]
-    for value, desc in mb_fields:
+
+
+def _add_musicbrainz_tags(audio, track_info, album_info, release):
+    """Add MusicBrainz-specific TXXX frames to the audio tags."""
+    for desc in _STALE_MB_DESCS:
+        audio.tags.delall(f"TXXX:{desc}")
+    for value, desc in _musicbrainz_fields(track_info, album_info, release):
         if value:
             audio.tags.add(TXXX(encoding=3, desc=desc, text=value))
 
