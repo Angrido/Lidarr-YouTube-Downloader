@@ -1360,7 +1360,7 @@ code, kbd, pre, samp {
     padding: var(--sp-3) var(--sp-4);
 }
 
-.ui-group-row + .ui-group-row::before {
+.ui-group-row:not([hidden]) ~ .ui-group-row::before {
     content: "";
     position: absolute;
     top: 0;

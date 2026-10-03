@@ -276,12 +276,13 @@
                 '<div class="ui-modal-head"><h2 class="ui-modal-title" id="ui-confirm-title"></h2></div>' +
                 '<div class="ui-modal-body"><p class="t-2" id="ui-confirm-msg"></p></div>' +
                 '<div class="ui-modal-foot"><button type="button" class="ui-btn ui-btn-secondary" data-act="cancel"></button>' +
-                '<button type="button" class="ui-btn" data-act="ok" autofocus></button></div></div>';
+                '<button type="button" class="ui-btn" data-act="ok"></button></div></div>';
             wrap.querySelector(".ui-modal-title").textContent = opts.title || "Are you sure?";
             wrap.querySelector("#ui-confirm-msg").textContent = opts.message || "";
             var ok = wrap.querySelector('[data-act="ok"]');
             ok.textContent = opts.confirmLabel || "Confirm";
             ok.classList.add(opts.danger ? "ui-btn-danger-solid" : "ui-btn-primary");
+            (opts.danger ? wrap.querySelector('[data-act="cancel"]') : ok).setAttribute("autofocus", "");
             wrap.querySelector('[data-act="cancel"]').textContent = opts.cancelLabel || "Cancel";
             document.body.appendChild(wrap);
             var result = false;
