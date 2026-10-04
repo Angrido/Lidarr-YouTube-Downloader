@@ -43,6 +43,7 @@ desktop.ini
 cookies.txt
 *.mp3
 *.m4a
+!tests/fixtures/audio/*.m4a
 *.opus
 *.webm
 *.flac

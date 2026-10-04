@@ -1,6 +1,7 @@
 """Tests for metadata module — ID3 tagging, XML metadata, and iTunes API."""
 
-import subprocess
+import os
+import shutil
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -902,14 +903,10 @@ class TestMusicBrainzFrames:
         from mutagen.mp4 import MP4, MP4FreeForm
 
         m4a = tmp_path / "t.m4a"
-        result = subprocess.run(
-            ["ffmpeg", "-y", "-f", "lavfi", "-i",
-             "anullsrc=r=44100:cl=mono", "-t", "0.1", "-c:a", "aac",
-             str(m4a)],
-            capture_output=True,
+        shutil.copyfile(
+            os.path.join(os.path.dirname(__file__), "fixtures", "audio", "silence.m4a"),
+            m4a,
         )
-        if result.returncode != 0:
-            pytest.skip("ffmpeg cannot encode m4a here")
         old = "----:com.apple.iTunes:MusicBrainz Recording Id"
         audio = MP4(str(m4a))
         audio[old] = [MP4FreeForm(b"stale-recording")]

@@ -3063,9 +3063,12 @@ class TestExploreRoutes:
         assert codes[:15] == [200] * 15
         assert codes[15] == 429
 
-    def test_import_route_starts_a_playlist_import(self, client, monkeypatch):
+    def test_import_route_starts_a_playlist_import(self, client, monkeypatch, tmp_path):
         import app as app_module
         import explore
+        library = tmp_path / "music"
+        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        monkeypatch.setattr(app_module, "load_config", lambda: {"lidarr_path": str(library)})
         monkeypatch.setattr(explore, "import_plan", lambda payload: {
             "artist_name": "Eminem", "album_title": "Revival",
             "entries": [{"url": "https://music.youtube.com/watch?v=iKLU7z_xdYQ", "title": "Walk On Water"}],
@@ -3088,7 +3091,7 @@ class TestExploreRoutes:
         assert started["started"] is True
         artist, album, entries, target, _cfg, thumb, source, year = started["args"]
         assert (artist, album, year) == ("Eminem", "Revival", "2017")
-        assert target.endswith("Eminem/Revival (2017)")
+        assert target == str(library / "Eminem" / "Revival (2017)")
         assert thumb.startswith("https://lh3.googleusercontent.com/")
 
     def test_import_route_refused_while_downloading(self, client, monkeypatch):
