@@ -389,14 +389,234 @@ def api_explore_add():
 def api_explore_import():
     if _explore_limited("import", window=10, max_requests=2):
         return _explore_too_many()
+    payload = _json_object()
     try:
-        plan = explore.import_plan(_json_object())
+        plan = explore.import_plan(payload)
     except explore.ExploreError as e:
         return _explore_error(e)
+    target = None
+    if payload.get("kind") == "album":
+        base = _artist_library_base(load_config())
+        if base:
+            target = os.path.join(
+                base, sanitize_filename(plan["artist_name"]) or "Unknown artist",
+                _release_folder(plan["album_title"], plan.get("year")),
+            )
     return _start_playlist_import(
         plan["artist_name"], plan["album_title"], plan["entries"],
         plan["thumbnail_url"], plan["source_url"],
+        release_year=plan.get("year") or "", target_path=target,
     )
+
+
+_artist_imports = {}
+_artist_imports_lock = threading.Lock()
+
+
+def _artist_library_base(config):
+    return (config.get("lidarr_path") or "").strip() or _resolve_write_base(config)
+
+
+def _release_folder(title, year):
+    name = sanitize_filename(title) or "Untitled"
+    return f"{name} ({year})" if re.match(r"^\d{4}$", str(year or "")) else name
+
+
+def _artist_import_state(channel_id, **fields):
+    with _artist_imports_lock:
+        state = _artist_imports.setdefault(channel_id, {})
+        state.update(fields)
+        return dict(state)
+
+
+def _save_artist_image(url, artist_dir):
+    if not url or not _is_safe_stream_url(url):
+        return
+    import requests as req_lib
+    try:
+        resp = req_lib.get(
+            url, timeout=15,
+            headers={"User-Agent": USER_AGENT, "Referer": "https://music.youtube.com/"},
+        )
+        if resp.status_code != 200 or not resp.content:
+            return
+        for name in ("artist.jpg", "folder.jpg"):
+            path = os.path.join(artist_dir, name)
+            if os.path.exists(path):
+                continue
+            with open(path, "wb") as f:
+                f.write(resp.content)
+            set_permissions(path)
+    except Exception as e:
+        logger.debug("Artist image not saved: %s", e)
+
+
+def _run_artist_import(plan, artist_dir, config):
+    channel_id = plan["artist_id"]
+    artist_name = plan["artist_name"]
+    done = failed = 0
+    try:
+        try:
+            makedirs_safe(artist_dir, _makedirs_bases_for(artist_dir, config))
+        except (BaseNotMountedError, PermissionError) as exc:
+            logger.error("Artist folder unusable: %s", exc)
+            _artist_import_state(channel_id, state="failed", message=str(exc)[:200])
+            return
+        set_permissions(artist_dir)
+        _save_artist_image(plan.get("artist_image"), artist_dir)
+        logutil.milestone(
+            logger, "Explore: adding %s from YouTube (%d releases) into %s",
+            artist_name, len(plan["releases"]), artist_dir, icon=logutil.ICON_APP,
+        )
+        for release in plan["releases"]:
+            if _artist_import_state(channel_id).get("stop"):
+                break
+            _artist_import_state(channel_id, current=release["title"])
+            try:
+                job = explore.release_import(release, artist_name)
+            except explore.ExploreError as e:
+                failed += 1
+                logger.warning(
+                    "   Explore: skipped %s — %s (%s)", artist_name, release["title"], e.message,
+                )
+                _artist_import_state(channel_id, failed=failed)
+                continue
+            target = os.path.join(artist_dir, _release_folder(job["album_title"], job.get("year")))
+            if not _validate_target_path(target, config):
+                failed += 1
+                _artist_import_state(channel_id, failed=failed)
+                continue
+            while True:
+                if _artist_import_state(channel_id).get("stop"):
+                    break
+                ran = _execute_playlist_download(
+                    artist_name, job["album_title"], job["entries"], target, config,
+                    job.get("thumbnail_url") or "", job.get("source_url") or "",
+                    job.get("year") or "",
+                )
+                if ran is not False:
+                    break
+            done += 1
+            _artist_import_state(channel_id, done=done)
+        stopped = _artist_import_state(channel_id).get("stop")
+        _artist_import_state(
+            channel_id, state="stopped" if stopped else "done", current="",
+            message=f"{done} of {len(plan['releases'])} releases processed",
+        )
+    except Exception as e:
+        logger.error("Explore artist import failed for %s: %s", artist_name, e)
+        _artist_import_state(channel_id, state="failed", message=str(e)[:200])
+    finally:
+        db.close_db()
+
+
+def _artist_import_plan(channel_id):
+    page = explore.artist(channel_id)
+    imported = models.get_imported_youtube_album_titles(page["name"])
+    return explore.artist_import_plan(channel_id, already_imported=imported)
+
+
+def _artist_dir(plan, config):
+    base = _artist_library_base(config)
+    if not base:
+        raise explore.ExploreError("No music library or download path is configured.", 400)
+    artist_dir = os.path.join(base, sanitize_filename(plan["artist_name"]) or "Unknown artist")
+    if not _validate_target_path(artist_dir, config):
+        raise explore.ExploreError("Invalid target path.", 400)
+    return artist_dir
+
+
+def _plan_summary(plan, artist_dir):
+    return {
+        "artist": plan["artist_name"],
+        "mode": plan["mode"],
+        "path": artist_dir,
+        "total": len(plan["releases"]),
+        "releases": [
+            {"title": r["title"], "year": r.get("year") or "", "type": r.get("type") or ""}
+            for r in plan["releases"]
+        ],
+        "skipped": plan["skipped"],
+    }
+
+
+@app.route("/api/explore/import-artist/plan")
+def api_explore_import_artist_plan():
+    def loader():
+        plan = _artist_import_plan(request.args.get("id", ""))
+        return _plan_summary(plan, _artist_dir(plan, load_config()))
+
+    return _explore_json(loader, bucket="artist_plan", window=10, max_requests=10)
+
+
+@app.route("/api/explore/import-artist", methods=["POST"])
+def api_explore_import_artist():
+    if _explore_limited("artist_import", window=10, max_requests=2):
+        return _explore_too_many()
+    data = _json_object()
+    channel_id = _str_field(data, "id")
+    try:
+        plan = _artist_import_plan(channel_id)
+        config = load_config()
+        artist_dir = _artist_dir(plan, config)
+    except explore.ExploreError as e:
+        return _explore_error(e)
+    if not plan["releases"]:
+        return jsonify({
+            "success": False,
+            "message": (
+                f"Everything from {plan['artist_name']} is already imported."
+                if plan["skipped"] else
+                f"YouTube Music lists nothing to import for {plan['artist_name']}."
+            ),
+        }), 409
+    with _artist_imports_lock:
+        current = _artist_imports.get(plan["artist_id"])
+        if current and current.get("state") == "running":
+            return jsonify({
+                "success": False,
+                "message": f"{plan['artist_name']} is already being imported.",
+            }), 409
+        _artist_imports[plan["artist_id"]] = {
+            "state": "running", "artist": plan["artist_name"], "path": artist_dir,
+            "total": len(plan["releases"]), "done": 0, "failed": 0, "current": "",
+            "stop": False, "started": time.time(), "message": "",
+        }
+    threading.Thread(
+        target=_run_artist_import, args=(plan, artist_dir, config),
+        daemon=True, name=f"artist-import-{plan['artist_id']}",
+    ).start()
+    return jsonify({
+        "success": True,
+        "message": f"Adding {plan['artist_name']} from YouTube: {len(plan['releases'])} releases.",
+        **_plan_summary(plan, artist_dir),
+    })
+
+
+@app.route("/api/explore/import-artist/status")
+def api_explore_import_artist_status():
+    channel_id = request.args.get("id", "")
+    with _artist_imports_lock:
+        state = dict(_artist_imports.get(channel_id) or {})
+    state.pop("stop", None)
+    imported = []
+    try:
+        imported = models.get_imported_youtube_album_titles(explore.artist(channel_id)["name"])
+    except explore.ExploreError as e:
+        if e.status == 400:
+            return _explore_error(e)
+    return jsonify({"success": True, "job": state or None, "imported": len(imported)})
+
+
+@app.route("/api/explore/import-artist/stop", methods=["POST"])
+def api_explore_import_artist_stop():
+    channel_id = _str_field(_json_object(), "id")
+    with _artist_imports_lock:
+        state = _artist_imports.get(channel_id)
+        if not state or state.get("state") != "running":
+            return jsonify({"success": False, "message": "No import is running for this artist."}), 404
+        state["stop"] = True
+    return jsonify({"success": True, "message": "The import stops after the current release."})
 
 
 @app.route("/favicon.ico")
@@ -3355,6 +3575,7 @@ def api_youtube_playlist_download():
 
 def _start_playlist_import(
     artist_name, album_title, validated_entries, thumbnail_url, source_url,
+    release_year="", target_path=None,
 ):
     with queue_lock:
         if download_process.get("active"):
@@ -3363,6 +3584,11 @@ def _start_playlist_import(
             ), 409
 
     config = load_config()
+    if target_path:
+        return _launch_playlist_import(
+            artist_name, album_title, validated_entries, target_path, config,
+            thumbnail_url, source_url, release_year,
+        )
     # When "save playlist imports to the music library" is on, write under
     # LIDARR_PATH so the files land where Jellyfin/Lidarr look (issue #79);
     # otherwise keep the legacy download-folder location.
@@ -3380,12 +3606,22 @@ def _start_playlist_import(
     path_parts = [p for p in [sanitize_filename(artist_name), sanitize_filename(album_title)] if p]
     target_path = os.path.join(write_base, *path_parts)
 
+    return _launch_playlist_import(
+        artist_name, album_title, validated_entries, target_path, config,
+        thumbnail_url, source_url, release_year,
+    )
+
+
+def _launch_playlist_import(
+    artist_name, album_title, validated_entries, target_path, config,
+    thumbnail_url, source_url, release_year="",
+):
     if not _validate_target_path(target_path, config):
         return jsonify({"success": False, "message": "Invalid target path"}), 400
 
     threading.Thread(
         target=_execute_playlist_download,
-        args=(artist_name, album_title, validated_entries, target_path, config, thumbnail_url, source_url),
+        args=(artist_name, album_title, validated_entries, target_path, config, thumbnail_url, source_url, release_year),
         daemon=True,
     ).start()
     return jsonify(
@@ -3429,7 +3665,8 @@ def _maybe_scan_playlist_into_library(config, target_path, success_count):
 
 
 def _execute_playlist_download(
-    artist_name, album_title, entries, target_path, config, thumbnail_url="", source_url=""
+    artist_name, album_title, entries, target_path, config, thumbnail_url="",
+    source_url="", release_year="",
 ):
     for _ in range(300):
         if not download_process["active"]:
@@ -3440,7 +3677,7 @@ def _execute_playlist_download(
             "Playlist download timed out waiting for active download: %s",
             album_title,
         )
-        return
+        return False
 
     with queue_lock:
         if download_process["active"]:
@@ -3448,7 +3685,7 @@ def _execute_playlist_download(
                 "Playlist download aborted: another download became active: %s",
                 album_title,
             )
-            return
+            return False
         # Allocate the unique negative album_id under the lock, while no
         # other download is active, so two imports can't read the same MIN
         # and collide. It keeps this import's tracks distinct from other
@@ -3483,6 +3720,9 @@ def _execute_playlist_download(
     album_data = _synthetic_album_data(
         display_album, display_artist, track_count=len(entries),
     )
+    if re.match(r"^\d{4}$", str(release_year or "")):
+        album_data["releaseDate"] = f"{release_year}-01-01"
+    cover_bytes = None
 
     total_size = 0
     success_count = 0
@@ -3519,6 +3759,11 @@ def _execute_playlist_download(
                             cf.write(chunk)
                     set_permissions(cover_path)
                     logger.info("Cover art saved: %s", cover_path)
+                    try:
+                        with open(cover_path, "rb") as cf:
+                            cover_bytes = cf.read() or None
+                    except OSError:
+                        cover_bytes = None
                 else:
                     logger.warning(
                         "Cover art fetch returned HTTP %d for %s",
@@ -3657,7 +3902,7 @@ def _execute_playlist_download(
             }
 
             try:
-                tag_audio_file(actual_file, track_info, album_data, None)
+                tag_audio_file(actual_file, track_info, album_data, cover_bytes)
                 file_size = os.path.getsize(actual_file)
                 shutil.move(actual_file, final_file)
                 set_permissions(final_file)
@@ -3800,6 +4045,7 @@ def _execute_playlist_download(
             download_process["album_title"] = ""
             download_process["artist_name"] = ""
             download_process["cover_url"] = ""
+    return True
 
 
 def _record_playlist_track(

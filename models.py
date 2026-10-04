@@ -1127,3 +1127,13 @@ def delete_album_source_hint(album_id):
         "DELETE FROM album_source_hints WHERE album_id = ?", (album_id,),
     )
     conn.commit()
+
+
+def get_imported_youtube_album_titles(artist_name):
+    rows = db.get_db().execute(
+        "SELECT album_title FROM track_downloads"
+        " WHERE album_id < 0 AND success = 1 AND artist_name = ? COLLATE NOCASE"
+        " GROUP BY album_title",
+        (artist_name or "",),
+    ).fetchall()
+    return [r[0] for r in rows]

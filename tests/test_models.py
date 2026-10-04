@@ -996,3 +996,23 @@ def test_album_source_hint_rejects_playlist_import_ids():
     assert models.set_album_source_hint(0, "OLAK5uy_x") is False
     assert models.set_album_source_hint(5, "") is False
     assert models.get_album_source_hint(-3) is None
+
+
+def test_imported_youtube_album_titles():
+    def add(album_id, artist, album, success):
+        models.add_track_download(
+            album_id=album_id, album_title=album, artist_name=artist,
+            track_title="t", track_number=1, success=success,
+            error_message="", youtube_url="", youtube_title="", match_score=0.0,
+            duration_seconds=0, album_path="", lidarr_album_path="", cover_url="",
+        )
+
+    add(-1, "Zo killeuh", "KOUMAY FENN", True)
+    add(-1, "Zo killeuh", "KOUMAY FENN", False)
+    add(-2, "ZO KILLEUH", "Notification", True)
+    add(-3, "Zo killeuh", "Failed One", False)
+    add(5, "Zo killeuh", "Lidarr Album", True)
+    add(-4, "Someone Else", "Other", True)
+    assert sorted(models.get_imported_youtube_album_titles("Zo killeuh")) == [
+        "KOUMAY FENN", "Notification",
+    ]

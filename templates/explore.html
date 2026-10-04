@@ -1309,7 +1309,7 @@
             const a = data.artist;
             current = { kind: "artist", artist: a, match: null };
             setTitle(a.name);
-            const songsList = register(a.songs);
+            const songsList = register(a.songs.length ? a.songs : a.videos);
             const meta = [a.subscribers ? `${esc(a.subscribers)} subscribers` : "", esc(a.monthlyListeners)].filter(Boolean).join(" · ");
             let html = crumbs() + `
                 <header class="ex-head ex-artist-head">
@@ -1321,8 +1321,9 @@
                         <p class="ex-head-meta">${meta}</p>
                         <div class="ex-status" id="artistStatus"><span class="ui-spinner ui-spinner-sm" aria-hidden="true"></span><span>Checking Lidarr…</span></div>
                         <div class="ex-head-actions" id="artistActions">
-                            <button type="button" class="ui-btn ui-btn-secondary" data-action="play-all" data-list="${songsList}" ${a.songs.length ? "" : "disabled"}>${UI.icon("play")}Preview top songs</button>
+                            <button type="button" class="ui-btn ui-btn-secondary" data-action="play-all" data-list="${songsList}" ${a.songs.length || a.videos.length ? "" : "disabled"}>${UI.icon("play")}Preview top songs</button>
                         </div>
+                        <div id="artistJob"></div>
                     </div>
                 </header>`;
             if (a.songs.length) {
@@ -1342,6 +1343,7 @@
             hydrate(view);
             setStatus(`${a.name} loaded`);
             loadArtistMatch(seq, false);
+            refreshArtistJob(seq);
         }
 
         async function loadArtistMatch(seq, refresh) {
@@ -1362,20 +1364,142 @@
             const actions = $("artistActions");
             const preview = actions.querySelector('[data-action="play-all"]').outerHTML;
             let cta = "";
+            let tail = "";
             if (m.status === "error") {
                 box.innerHTML = `<span class="ui-badge ui-badge-outline">${UI.icon("alert")}Lidarr check failed</span><span>${esc(m.message || "")}</span>`;
                 cta = `<button type="button" class="ui-btn ui-btn-plain" data-action="recheck-artist">${UI.icon("refresh")}Retry</button>`;
+                tail = `<button type="button" class="ui-btn ui-btn-plain" data-action="import-artist">${UI.icon("youtube")}Add from YouTube</button>`;
             } else if (m.status === "in_library") {
                 box.innerHTML = statusBadge("in_library");
                 cta = `<a class="ui-btn ui-btn-tinted" href="/?q=${enc(current.artist.name)}">${UI.icon("library")}Open in Library</a>`;
             } else if (m.status === "not_on_musicbrainz") {
-                box.innerHTML = statusBadge("not_on_musicbrainz");
-                cta = `<span class="ui-hint">Open an album to import it from YouTube.</span>`;
+                box.innerHTML = statusBadge("not_on_musicbrainz") + `<span>Lidarr only tracks MusicBrainz artists; this app can create the artist folder itself.</span>`;
+                cta = `<button type="button" class="ui-btn ui-btn-primary" data-action="import-artist">${UI.icon("youtube")}Add from YouTube</button>`;
+                tail = `<a class="ui-btn ui-btn-plain" href="https://musicbrainz.org/artist/create" target="_blank" rel="noopener noreferrer">${UI.icon("external")}Add to MusicBrainz</a>`;
             } else {
                 box.innerHTML = statusBadge(m.status === "ambiguous" ? "ambiguous" : "not_in_library");
                 cta = `<button type="button" class="ui-btn ui-btn-primary" data-action="add-artist">${UI.icon("plus")}Add artist</button><button type="button" class="ui-btn ui-btn-ghost ui-btn-icon" data-action="options" data-artist="1" aria-label="Lidarr options" title="Lidarr options">${UI.icon("sliders")}</button>`;
             }
-            actions.innerHTML = cta + preview;
+            actions.innerHTML = cta + preview + tail;
+            if (current.job) renderArtistJob(current.job);
+            renderImported();
+        }
+
+        function renderImported() {
+            const box = $("artistStatus");
+            if (!box || !current || !current.imported) return;
+            const old = box.querySelector("[data-imported]");
+            if (old) old.remove();
+            box.insertAdjacentHTML("afterbegin", `<span class="ui-badge ui-badge-success" data-imported>${UI.icon("check-circle")}Imported from YouTube · ${esc(current.imported)} ${current.imported === 1 ? "release" : "releases"}</span>`);
+        }
+
+        function renderArtistJob(job) {
+            const box = $("artistJob");
+            if (!box) return;
+            if (!job) {
+                box.innerHTML = "";
+                return;
+            }
+            const total = Number(job.total) || 0;
+            const done = Number(job.done) || 0;
+            const pct = total ? Math.round((done / total) * 100) : 0;
+            const running = job.state === "running";
+            const title = running
+                ? `Adding from YouTube · ${done} of ${total}`
+                : job.state === "done" ? "Added from YouTube" : job.state === "stopped" ? "Import stopped" : "Import failed";
+            const detail = running
+                ? (job.current ? `Now: ${job.current}` : "Starting…")
+                : (job.message || "");
+            box.innerHTML = `<div class="ui-callout ui-callout-${running ? "info" : job.state === "done" ? "success" : "warning"}" style="margin-top:12px;text-align:left">
+                    ${UI.icon(running ? "download" : job.state === "done" ? "check-circle" : "alert")}
+                    <div class="ui-callout-body" style="min-width:0;flex:1">
+                        <div class="ui-callout-title">${esc(title)}</div>
+                        <div class="ui-callout-text"><bdi>${esc(detail)}</bdi>${job.path ? `<br><span class="t-mono t-footnote" style="overflow-wrap:anywhere">${esc(job.path)}</span>` : ""}</div>
+                        ${running ? `<div class="ui-progress" style="margin-top:8px" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}" aria-label="Releases processed"><div class="ui-progress-bar" style="width:${pct}%"></div></div>` : ""}
+                        <div class="ui-row" style="margin-top:8px;flex-wrap:wrap">
+                            <a class="ui-btn ui-btn-sm ui-btn-tinted" href="/downloads">${UI.icon("download")}Downloads</a>
+                            ${running ? `<button type="button" class="ui-btn ui-btn-sm ui-btn-plain" data-action="stop-artist-import">${UI.icon("stop")}Stop after this release</button>` : ""}
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        let artistJobPoll = null;
+
+        async function refreshArtistJob(seq) {
+            if (seq !== viewSeq || !current || current.kind !== "artist") {
+                if (artistJobPoll) {
+                    artistJobPoll.stop();
+                    artistJobPoll = null;
+                }
+                return;
+            }
+            let data;
+            try {
+                data = await api("/api/explore/import-artist/status?id=" + enc(current.artist.id));
+            } catch (e) {
+                return;
+            }
+            if (seq !== viewSeq) return;
+            current.job = data.job;
+            current.imported = data.imported || 0;
+            renderArtistJob(data.job);
+            renderImported();
+            const running = data.job && data.job.state === "running";
+            if (running && !artistJobPoll) artistJobPoll = UI.poll(() => refreshArtistJob(seq), 4000, { immediate: false });
+            else if (!running && artistJobPoll) {
+                artistJobPoll.stop();
+                artistJobPoll = null;
+            }
+        }
+
+        async function importArtist(btn) {
+            const a = current.artist;
+            const seq = viewSeq;
+            let plan;
+            try {
+                UI.setBusy(btn, true, "Checking…");
+                plan = await api("/api/explore/import-artist/plan?id=" + enc(a.id));
+            } catch (e) {
+                UI.toast(e.message || "Could not read this artist's releases.", { type: "error" });
+                return;
+            } finally {
+                UI.setBusy(btn, false);
+            }
+            if (!plan.total) {
+                UI.toast(plan.skipped.length ? `Everything from ${a.name} is already imported.` : `YouTube Music lists nothing to import for ${a.name}.`, { type: "info" });
+                return;
+            }
+            const names = plan.releases.slice(0, 4).map((r) => r.title).join(", ") + (plan.total > 4 ? `, +${plan.total - 4} more` : "");
+            const what = plan.mode === "tracks"
+                ? `${plan.total} ${plan.total === 1 ? "song" : "songs"} as singles (YouTube Music lists no albums for this artist)`
+                : `${plan.total} ${plan.total === 1 ? "release" : "releases"}`;
+            const ok = await UI.confirm({
+                title: `Add ${a.name} from YouTube?`,
+                message: `Creates ${plan.path} the way Lidarr would — one folder per release — and downloads ${what}: ${names}. Tracks are tagged and get covers.${plan.skipped.length ? ` ${plan.skipped.length} already imported ${plan.skipped.length === 1 ? "is" : "are"} skipped.` : ""}`,
+                confirmLabel: "Add from YouTube",
+            });
+            if (!ok) return;
+            await UI.guard(btn, async () => {
+                try {
+                    const data = await api("/api/explore/import-artist", { method: "POST", body: { id: a.id } });
+                    UI.toast(data.message, { type: "success", action: { label: "Downloads", onClick: () => { location.href = "/downloads"; } } });
+                    if (seq === viewSeq) refreshArtistJob(seq);
+                } catch (e) {
+                    UI.toast(e.message || "The import could not start.", { type: e.status === 409 ? "info" : "error" });
+                }
+            }, "Starting…");
+        }
+
+        async function stopArtistImport(btn) {
+            await UI.guard(btn, async () => {
+                try {
+                    const data = await api("/api/explore/import-artist/stop", { method: "POST", body: { id: current.artist.id } });
+                    UI.toast(data.message, { type: "info" });
+                } catch (e) {
+                    UI.toast(e.message || "Could not stop the import.", { type: "error" });
+                }
+            });
         }
 
         function pickArtist(candidates) {
@@ -1879,6 +2003,8 @@
                 loadMatch(viewSeq, true);
             } else if (action === "recheck-artist") loadArtistMatch(viewSeq, true);
             else if (action === "add-artist") addArtist(btn);
+            else if (action === "import-artist") importArtist(btn);
+            else if (action === "stop-artist-import") stopArtistImport(btn);
             else if (action === "options") openOptions(!!btn.dataset.artist);
             else if (action === "about") {
                 const open = $("aboutText").classList.toggle("is-open");

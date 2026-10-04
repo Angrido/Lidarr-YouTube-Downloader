@@ -627,3 +627,76 @@ class TestImportPlan:
     def test_invalid_plans(self, yt, payload):
         with pytest.raises(explore.ExploreError):
             explore.import_plan(payload)
+
+
+class TestArtistImport:
+    @pytest.mark.parametrize("raw,artist,expected", [
+        ("Zo Killeuh -  KOUMAY FENN( Clip Officiel )", "Zo killeuh", "KOUMAY FENN"),
+        ("Zo Killeuh - Back In The Days [Directed by @AFROCONNECTIONSN ]‬", "Zo killeuh", "Back In The Days"),
+        ("ZO KILLEUH_L.W.M.D( Clip Officiel )", "Zo killeuh", "L.W.M.D"),
+        ("Zo Killeuh x Dip Doundou guiss - GALSEN VERSUZ (Clip Officiel)", "Zo killeuh", "GALSEN VERSUZ (feat. Dip Doundou guiss)"),
+        ("Song (feat. Ari) [Official Video]", "Other", "Song (feat. Ari)"),
+        ("Notification", "Zo killeuh", "Notification"),
+        ("Zo Killeuh -  LDD 93%( Clip Officiel )", "Zo killeuh", "LDD 93%"),
+        ("Zoom Out (Official Audio)", "Zo", "Zoom Out"),
+    ])
+    def test_clean_video_title(self, raw, artist, expected):
+        assert explore.clean_video_title(raw, artist) == expected
+
+    def test_plan_lists_albums_and_singles(self, yt):
+        plan = explore.artist_import_plan("UCUDVBtnOQi4c7E8jebpjc9Q")
+        assert plan["mode"] == "releases"
+        assert plan["artist_name"] == "Oasis"
+        assert [r["title"] for r in plan["releases"]] == [
+            "Familiar To Millions",
+            "(What's The Story) Morning Glory? (Remastered)",
+            "Stand By Me (Mustique Demo)",
+        ]
+        assert plan["releases"][0]["year"] == "2018"
+        assert plan["artist_image"].endswith("=w1200-h1200-l90-rj")
+
+    def test_plan_skips_already_imported_titles(self, yt):
+        plan = explore.artist_import_plan(
+            "UCUDVBtnOQi4c7E8jebpjc9Q", already_imported=["familiar to millions"],
+        )
+        assert plan["skipped"] == ["Familiar To Millions"]
+        assert len(plan["releases"]) == 2
+
+    def test_plan_without_singles(self, yt):
+        plan = explore.artist_import_plan("UCUDVBtnOQi4c7E8jebpjc9Q", include_singles=False)
+        assert len(plan["releases"]) == 2
+
+    def test_video_only_artist_becomes_singles(self, yt):
+        yt.overrides["get_artist"] = fx("get_artist_videos_only")
+        plan = explore.artist_import_plan("UCrPe3hLA51968GwxHSZ1llw")
+        assert plan["mode"] == "tracks"
+        assert plan["releases"][0]["videoId"] == "XgTSQwZcHH8"
+        assert all(r["videoId"] for r in plan["releases"])
+        assert all(r["kind"] == "track" and r["type"] == "Single" for r in plan["releases"])
+        assert "get_playlist" in yt.calls
+
+    def test_video_only_artist_falls_back_to_page_videos(self, yt):
+        yt.overrides["get_artist"] = fx("get_artist_videos_only")
+        yt.overrides["get_playlist"] = KeyError("contents")
+        plan = explore.artist_import_plan("UCrPe3hLA51968GwxHSZ1llw")
+        titles = [r["title"] for r in plan["releases"]]
+        assert titles == ["Breed (Live At Paradiso, Amsterdam/1991)", "Lithium (Live At Paradiso, Amsterdam/1991)"]
+        assert plan["releases"][0]["thumbnail_url"].startswith("https://i.ytimg.com/")
+
+    def test_release_import_album_uses_artist_page_name(self, yt):
+        job = explore.release_import(
+            {"kind": "album", "id": "MPREb_abcdef", "title": "Revival", "year": "2017"}, "Oasis",
+        )
+        assert job["artist_name"] == "Oasis"
+        assert job["album_title"] == "Revival"
+        assert job["year"] == "2017"
+        assert len(job["entries"]) == 2
+
+    def test_release_import_track(self, yt):
+        job = explore.release_import(
+            {"kind": "track", "videoId": "aaaaaaaaaaa", "title": "Night", "year": "", "thumbnail_url": "https://i.ytimg.com/x.jpg"},
+            "Zo killeuh",
+        )
+        assert job["entries"] == [{"url": "https://music.youtube.com/watch?v=aaaaaaaaaaa", "title": "Night"}]
+        assert job["album_title"] == "Night"
+        assert job["thumbnail_url"] == "https://i.ytimg.com/x.jpg"

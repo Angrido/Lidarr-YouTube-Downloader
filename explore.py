@@ -953,6 +953,9 @@ def normalize_artist(raw, channel_id):
     songs_playlist = (raw.get("songs") or {}).get("browseId") or ""
     if songs_playlist.startswith("VL"):
         songs_playlist = songs_playlist[2:]
+    videos_playlist = (raw.get("videos") or {}).get("browseId") or ""
+    if videos_playlist.startswith("VL"):
+        videos_playlist = videos_playlist[2:]
     for block in ("albums", "singles"):
         for entry in (raw.get(block) or {}).get("results") or []:
             if isinstance(entry, dict) and "resultType" not in entry:
@@ -968,6 +971,8 @@ def normalize_artist(raw, channel_id):
         "banner": proxied(cover_url(raw.get("thumbnails"), size=1200)),
         "songs": songs,
         "songsPlaylistId": songs_playlist if PLAYLIST_ID_RE.match(songs_playlist) else "",
+        "videosPlaylistId": videos_playlist if PLAYLIST_ID_RE.match(videos_playlist) else "",
+        "imageUrl": cover_url(raw.get("thumbnails"), size=1200),
         "albums": _section_items(raw, "albums", kinds=("album",)),
         "singles": _section_items(raw, "singles", kinds=("album",)),
         "videos": _section_items(raw, "videos", kinds=("video", "song")),
@@ -1440,4 +1445,135 @@ def import_plan(payload):
         "entries": entries,
         "thumbnail_url": page.get("coverUrl") or "",
         "source_url": source,
+        "year": page.get("year") or "",
+    }
+
+
+_VIDEO_NOISE_WORDS = (
+    "official", "officiel", "officielle", "ufficiale", "oficial", "offiziell",
+    "clip", "video", "vidéo", "audio", "lyric", "lyrics", "visualizer",
+    "visualiser", "directed", "realise", "réalisé", "prod", "hd", "4k", "mv",
+    "music video", "live session", "paroles", "testo", "letra",
+)
+_VIDEO_BRACKET_RE = re.compile(r"[\(\[\{]([^\)\]\}]*)[\)\]\}]")
+_INVISIBLE_RE = re.compile(r"[\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
+_SEPARATORS = ("-", "–", "—", ":", "|", "_")
+
+
+def clean_video_title(title, artist_name=""):
+    text = _INVISIBLE_RE.sub("", title or "").strip()
+
+    def drop(match):
+        inner = _fold(match.group(1))
+        if any(re.search(r"(?:^|\W)" + re.escape(w) + r"(?:$|\W)", inner) for w in _VIDEO_NOISE_WORDS) or "@" in inner:
+            return " "
+        return match.group(0)
+
+    text = _VIDEO_BRACKET_RE.sub(drop, text)
+    artist_fold = _fold(artist_name or "").strip()
+    if artist_fold:
+        folded = _fold(text)
+        if folded.startswith(artist_fold):
+            rest = text[len(artist_fold):].lstrip()
+            if rest[:1] in _SEPARATORS:
+                text = rest[1:]
+            elif rest[:1] in ("x", "X", "&", ",") or _fold(rest).startswith(("feat", "ft.")):
+                head, sep, tail = rest.partition(" - ")
+                guests = re.sub(r"^(?:x|&|,|feat\.?|ft\.?)\s*", "", head.strip(), flags=re.I)
+                if sep and guests:
+                    text = f"{tail.strip()} (feat. {guests.strip()})"
+                elif sep:
+                    text = tail
+    text = " ".join(text.split()).strip(" -–—|:_")
+    return text or (title or "").strip()
+
+
+def _unproxy(path):
+    if not path or not path.startswith("/api/thumbnail?url="):
+        return ""
+    return urllib.parse.unquote(path[len("/api/thumbnail?url="):])
+
+
+def _track_releases(page):
+    tracks = []
+    for pid in (page.get("videosPlaylistId"), page.get("songsPlaylistId")):
+        if not pid:
+            continue
+        try:
+            tracks = [t for t in playlist(pid)["tracks"] if t["available"] and t["id"]]
+        except ExploreError:
+            tracks = []
+        if tracks:
+            break
+    if not tracks:
+        tracks = [t for t in (page.get("songs") or []) + (page.get("videos") or []) if t.get("id")]
+    releases = []
+    seen_ids = set()
+    seen_titles = set()
+    for t in tracks:
+        title = clean_video_title(t["title"], page["name"])
+        key = _fold(title)
+        if t["id"] in seen_ids or key in seen_titles:
+            continue
+        seen_ids.add(t["id"])
+        seen_titles.add(key)
+        releases.append({
+            "kind": "track",
+            "videoId": t["id"],
+            "title": title[:200],
+            "year": "",
+            "type": "Single",
+            "thumbnail_url": _unproxy(t.get("thumbnail") or ""),
+        })
+    return releases
+
+
+def artist_import_plan(channel_id, include_singles=True, already_imported=None):
+    page = artist(channel_id)
+    already = {_fold(t) for t in (already_imported or ())}
+    releases = []
+    seen = set()
+    blocks = page["albums"] + (page["singles"] if include_singles else [])
+    for item in blocks:
+        if item["id"] in seen:
+            continue
+        seen.add(item["id"])
+        releases.append({
+            "kind": "album",
+            "id": item["id"],
+            "title": item["title"][:200],
+            "year": item.get("year") or "",
+            "type": item.get("type") or "Album",
+            "thumbnail_url": _unproxy(item.get("thumbnail") or ""),
+        })
+    mode = "releases"
+    if not releases:
+        releases = _track_releases(page)
+        mode = "tracks"
+    todo = [r for r in releases if _fold(r["title"]) not in already]
+    skipped = [r["title"] for r in releases if _fold(r["title"]) in already]
+    return {
+        "artist_id": channel_id,
+        "artist_name": page["name"][:200],
+        "artist_image": page.get("imageUrl") or "",
+        "mode": mode,
+        "releases": todo,
+        "skipped": skipped,
+    }
+
+
+def release_import(release, artist_name):
+    if release["kind"] == "album":
+        plan = import_plan({"kind": "album", "id": release["id"]})
+        plan["artist_name"] = artist_name
+        plan["year"] = plan.get("year") or release.get("year") or ""
+        return plan
+    url = f"https://music.youtube.com/watch?v={release['videoId']}"
+    return {
+        "artist_name": artist_name,
+        "album_title": release["title"],
+        "entries": [{"url": url, "title": release["title"]}],
+        "thumbnail_url": release.get("thumbnail_url") or "",
+        "source_url": url,
+        "year": release.get("year") or "",
     }

@@ -1,6 +1,7 @@
 """Tests for Flask route handlers in app.py."""
 
 import json
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -3094,6 +3095,7 @@ class TestExploreRoutes:
             "entries": [{"url": "https://music.youtube.com/watch?v=iKLU7z_xdYQ", "title": "Walk On Water"}],
             "thumbnail_url": "https://lh3.googleusercontent.com/x=w1200-h1200",
             "source_url": "https://music.youtube.com/playlist?list=OLAK5uy_x",
+            "year": "2017",
         })
         started = {}
 
@@ -3108,9 +3110,9 @@ class TestExploreRoutes:
         resp = client.post("/api/explore/import", json={"kind": "album", "id": "MPREb_abcdef"})
         assert resp.status_code == 200, resp.get_json()
         assert started["started"] is True
-        artist, album, entries, target, _cfg, thumb, source = started["args"]
-        assert (artist, album) == ("Eminem", "Revival")
-        assert target.endswith("Eminem/Revival")
+        artist, album, entries, target, _cfg, thumb, source, year = started["args"]
+        assert (artist, album, year) == ("Eminem", "Revival", "2017")
+        assert target.endswith("Eminem/Revival (2017)")
         assert thumb.startswith("https://lh3.googleusercontent.com/")
 
     def test_import_route_refused_while_downloading(self, client, monkeypatch):
@@ -3136,3 +3138,182 @@ class TestExploreRoutes:
         assert cfg["explore_country"] == "US" and cfg["explore_language"] == "it"
         resp = client.post("/api/config", json={"explore_country": "USA"})
         assert resp.status_code == 400
+
+
+class TestExploreArtistImport:
+    PLAN = {
+        "artist_id": "UCZCjpHpj2MJ2Z_txErorumg",
+        "artist_name": "Zo killeuh",
+        "artist_image": "",
+        "mode": "tracks",
+        "releases": [
+            {"kind": "track", "videoId": "aaaaaaaaaaa", "title": "KOUMAY FENN", "year": "", "type": "Single", "thumbnail_url": ""},
+            {"kind": "album", "id": "MPREb_abcdef", "title": "Galsen", "year": "2021", "type": "Album", "thumbnail_url": ""},
+        ],
+        "skipped": ["Notification"],
+    }
+
+    @pytest.fixture(autouse=True)
+    def _fresh(self, monkeypatch, tmp_path):
+        import app as app_module
+        import explore
+        explore.cache.invalidate()
+        app_module.rate_limit_store.clear()
+        app_module._artist_imports.clear()
+        yield
+        app_module._artist_imports.clear()
+
+    def _wire(self, monkeypatch, tmp_path, plan=None):
+        import app as app_module
+        import copy
+        monkeypatch.setattr(app_module, "_artist_import_plan", lambda cid: copy.deepcopy(plan or self.PLAN))
+        library = tmp_path / "music"
+        monkeypatch.setattr(app_module, "load_config", lambda: {"lidarr_path": str(library)})
+        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        return library
+
+    def test_plan_endpoint(self, client, monkeypatch, tmp_path):
+        library = self._wire(monkeypatch, tmp_path)
+        data = client.get("/api/explore/import-artist/plan?id=UCZCjpHpj2MJ2Z_txErorumg").get_json()
+        assert data["success"] is True
+        assert data["total"] == 2 and data["mode"] == "tracks"
+        assert data["path"] == str(library / "Zo killeuh")
+        assert data["skipped"] == ["Notification"]
+
+    def test_start_runs_in_background(self, client, monkeypatch, tmp_path):
+        import app as app_module
+        self._wire(monkeypatch, tmp_path)
+        started = {}
+
+        class FakeThread:
+            def __init__(self, target, args, daemon, name):
+                started["target"] = target
+                started["args"] = args
+
+            def start(self):
+                started["started"] = True
+
+        monkeypatch.setattr(app_module.threading, "Thread", FakeThread)
+        resp = client.post("/api/explore/import-artist", json={"id": "UCZCjpHpj2MJ2Z_txErorumg"})
+        assert resp.status_code == 200, resp.get_json()
+        assert started["started"] and started["target"] is app_module._run_artist_import
+        job = client.get("/api/explore/import-artist/status?id=UCZCjpHpj2MJ2Z_txErorumg").get_json()["job"]
+        assert job["state"] == "running" and job["total"] == 2
+        again = client.post("/api/explore/import-artist", json={"id": "UCZCjpHpj2MJ2Z_txErorumg"})
+        assert again.status_code == 409
+        stop = client.post("/api/explore/import-artist/stop", json={"id": "UCZCjpHpj2MJ2Z_txErorumg"})
+        assert stop.status_code == 200
+        assert app_module._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]["stop"] is True
+
+    def test_nothing_left_to_import(self, client, monkeypatch, tmp_path):
+        plan = dict(self.PLAN, releases=[])
+        self._wire(monkeypatch, tmp_path, plan)
+        resp = client.post("/api/explore/import-artist", json={"id": "UCZCjpHpj2MJ2Z_txErorumg"})
+        assert resp.status_code == 409
+        assert "already imported" in resp.get_json()["message"]
+
+    def test_invalid_id(self, client):
+        resp = client.post("/api/explore/import-artist", json={"id": "../etc"})
+        assert resp.status_code == 400
+        assert client.get("/api/explore/import-artist/plan?id=x").status_code == 400
+
+    def test_stop_without_job(self, client):
+        resp = client.post("/api/explore/import-artist/stop", json={"id": "UCZCjpHpj2MJ2Z_txErorumg"})
+        assert resp.status_code == 404
+
+    def test_runner_creates_lidarr_style_folders(self, monkeypatch, tmp_path):
+        import app as app_module
+        import explore
+        library = tmp_path / "music"
+        config = {"lidarr_path": str(library)}
+        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", "")
+        calls = []
+        attempts = {"n": 0}
+
+        def fake_execute(artist, album, entries, target, cfg, thumb, source, year):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                return False
+            calls.append((artist, album, target, year, len(entries)))
+            return True
+
+        original = explore.release_import
+
+        def fake_release(release, artist):
+            if release["kind"] == "album":
+                return {"artist_name": artist, "album_title": "Galsen", "entries": [{"url": "u", "title": "t"}] * 3,
+                        "thumbnail_url": "", "source_url": "", "year": "2021"}
+            return original(release, artist)
+
+        monkeypatch.setattr(app_module, "_execute_playlist_download", fake_execute)
+        monkeypatch.setattr(app_module.explore, "release_import", fake_release)
+        app_module._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"] = {"state": "running", "done": 0, "stop": False}
+        artist_dir = str(library / "Zo killeuh")
+        app_module._run_artist_import(dict(self.PLAN), artist_dir, config)
+        assert os.path.isdir(artist_dir)
+        assert calls == [
+            ("Zo killeuh", "KOUMAY FENN", os.path.join(artist_dir, "KOUMAY FENN"), "", 1),
+            ("Zo killeuh", "Galsen", os.path.join(artist_dir, "Galsen (2021)"), "2021", 3),
+        ]
+        state = app_module._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]
+        assert state["state"] == "done" and state["done"] == 2
+
+    def test_runner_skips_unloadable_release_and_honours_stop(self, monkeypatch, tmp_path):
+        import app as app_module
+        import explore
+        config = {"lidarr_path": str(tmp_path / "music")}
+        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", "")
+        ran = []
+
+        def fake_release(release, artist):
+            if release["kind"] == "track":
+                raise explore.ExploreError("This album could not be loaded from YouTube Music.", 502)
+            return {"artist_name": artist, "album_title": "Galsen", "entries": [{"url": "u", "title": "t"}],
+                    "thumbnail_url": "", "source_url": "", "year": ""}
+
+        def fake_execute(*args):
+            ran.append(args[1])
+            app_module._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]["stop"] = True
+            return True
+
+        monkeypatch.setattr(app_module.explore, "release_import", fake_release)
+        monkeypatch.setattr(app_module, "_execute_playlist_download", fake_execute)
+        plan = dict(self.PLAN)
+        plan["releases"] = plan["releases"] + [dict(plan["releases"][1], id="MPREb_second", title="Later")]
+        app_module._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"] = {"state": "running", "done": 0, "stop": False}
+        app_module._run_artist_import(plan, str(tmp_path / "music" / "Zo killeuh"), config)
+        state = app_module._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]
+        assert ran == ["Galsen"]
+        assert state["failed"] == 1 and state["state"] == "stopped"
+
+    def test_playlist_download_tags_year_and_embeds_cover(self, monkeypatch, tmp_path):
+        import app as app_module
+        target = tmp_path / "downloads" / "Zo killeuh" / "Galsen (2021)"
+        config = {"audio_format": "mp3"}
+        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        tagged = []
+
+        def fake_dl(candidate, output_path, **kw):
+            with open(output_path + ".mp3", "wb") as f:
+                f.write(b"AUDIO")
+            return {"success": True, "youtube_title": candidate["title"]}
+
+        class FakeResp:
+            status_code = 200
+
+            def iter_content(self, n):
+                return [b"JPEGDATA"]
+
+        import requests
+        monkeypatch.setattr(requests, "get", lambda *a, **k: FakeResp())
+        monkeypatch.setattr(app_module, "download_youtube_candidate", fake_dl)
+        monkeypatch.setattr(app_module, "tag_audio_file", lambda path, info, album, cover: tagged.append((album["releaseDate"], cover)))
+        monkeypatch.setattr(app_module, "send_notifications", lambda *a, **k: None)
+        monkeypatch.setattr(app_module, "set_permissions", lambda *a, **k: None)
+        ok = app_module._execute_playlist_download(
+            "Zo killeuh", "Galsen", [{"url": "https://music.youtube.com/watch?v=aaaaaaaaaaa", "title": "One"}],
+            str(target), config, "https://lh3.googleusercontent.com/x=w1200-h1200", "", "2021",
+        )
+        assert ok is True
+        assert tagged == [("2021-01-01", b"JPEGDATA")]
+        assert (target / "01 - One.mp3").exists()

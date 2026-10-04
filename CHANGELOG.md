@@ -24,6 +24,20 @@
     tracks directly instead of searching for it again.
   - Releases that are not on MusicBrainz, and playlists, are imported
     through the existing YouTube import (tags and cover included).
+  - **Artists that are not on MusicBrainz** (Lidarr cannot track them) get
+    *Add from YouTube*: one click creates `<music library>/<Artist>/` with
+    one `<Release (Year)>` folder per album or single, the way Lidarr lays
+    out a library, and downloads them in turn with tags, embedded covers,
+    `cover.jpg` and `artist.jpg`. Artists that YouTube Music lists only
+    videos for get each song as a single, with "Artist - Title (Official
+    Video)" noise removed and guests kept as "(feat. …)". Releases already
+    imported are skipped, so clicking again later only fetches new ones.
+    Progress, *Stop after this release* and an "Imported from YouTube"
+    badge show on the artist page; an *Add to MusicBrainz* link is offered
+    too. Albums imported from Explore use the same `Artist/Album (Year)`
+    layout.
+  - YouTube imports now embed the cover in every file and write the
+    release year.
   - Preview any track in a persistent mini player (play/pause, previous /
     next, seek, volume).
   - Search with suggestions (press `/`).

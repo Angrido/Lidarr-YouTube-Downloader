@@ -12,7 +12,8 @@ sys.path.insert(0, ROOT)
 FIXTURES = os.path.join(ROOT, "tests", "fixtures", "ytmusic")
 
 _tmp = tempfile.mkdtemp(prefix="explore-preview-")
-os.environ.setdefault("DOWNLOAD_PATH", os.path.join(_tmp, "downloads"))
+os.environ["DOWNLOAD_PATH"] = os.path.join(_tmp, "downloads")
+os.environ["LIDARR_PATH"] = os.path.join(_tmp, "music")
 os.environ.setdefault("LIDARR_URL", "http://lidarr.invalid:8686")
 os.environ.setdefault("LIDARR_API_KEY", "preview")
 
@@ -150,6 +151,30 @@ def artist_raw():
     return data
 
 
+VIDEO_ONLY_ARTIST = "UCZCjpHpj2MJ2Z_txErorumg"
+
+
+def video_only_artist_raw():
+    titles = [
+        "Zo Killeuh -  KOUMAY FENN( Clip Officiel )",
+        "Zo Killeuh - Back In The Days [Directed by @AFROCONNECTIONSN ]",
+        "ZO KILLEUH_L.W.M.D( Clip Officiel )",
+        "Zo Killeuh x Dip Doundou guiss - GALSEN VERSUZ (Clip Officiel)",
+        "Zo Killeuh - Notification ( Clip Officiel )",
+    ]
+    return {
+        "name": "Zo killeuh", "description": "", "subscribers": "20.3K",
+        "thumbnails": thumbs("zokilleuh"),
+        "songs": {"browseId": None},
+        "videos": {"browseId": None, "results": [
+            {"title": t, "videoId": f"zovid{i:06d}"[:11], "videoType": "MUSIC_VIDEO_TYPE_OMV",
+             "artists": [{"name": "Zo killeuh", "id": VIDEO_ONLY_ARTIST}], "thumbnails": thumbs(f"zo{i}"),
+             "views": f"{i + 1}00K"}
+            for i, t in enumerate(titles)
+        ]},
+    }
+
+
 class PreviewYT:
     def get_home(self, limit=3):
         return fx("get_home")
@@ -174,6 +199,8 @@ class PreviewYT:
         return album_raw(browse_id)
 
     def get_artist(self, channel_id):
+        if channel_id == VIDEO_ONLY_ARTIST:
+            return video_only_artist_raw()
         return artist_raw()
 
     def get_playlist(self, playlist_id, limit=100):
@@ -204,6 +231,8 @@ def candidate(title, artist, **extra):
 
 
 def fake_search(kind, term):
+    if kind == "artist" and "killeuh" in term.lower():
+        return []
     if kind == "artist":
         return [
             {"name": "Oasis", "foreignArtistId": "39ab1aed-75e0-4140-bd47-540276886b60", "disambiguation": "UK rock band", "type": "Group", "genres": ["britpop"], "inLibrary": False},

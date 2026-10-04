@@ -357,6 +357,25 @@ captured live. So:
   selection) and handed to `app._start_playlist_import()`, the same path as
   `/api/youtube/playlist/download` (negative `album_id`, cover from the
   1200 px art).
+- **Artists not on MusicBrainz** (`artist_import_plan`, `release_import`,
+  `app._run_artist_import`): Lidarr cannot hold them, so *Add from YouTube*
+  builds the library folder itself — `<lidarr_path or download base>/<Artist>/
+  <Release (Year)>/` (`_release_folder`), `artist.jpg` + `folder.jpg` in the
+  artist folder — and runs one `_execute_playlist_download` per release in
+  a background thread, one at a time (it returns `False` when another
+  download held the slot, and the runner retries). Releases are the
+  artist's albums + singles; when YouTube Music lists none, the videos
+  (or songs) playlist becomes one single per song with titles cleaned by
+  `clean_video_title()` (artist prefix, "(Clip Officiel)"/"[Official
+  Video]"/"Directed by @…" brackets and bidi marks removed, "Artist x
+  Guest - Title" → "Title (feat. Guest)"). Titles already imported with at
+  least one successful track (`models.get_imported_youtube_album_titles`)
+  are skipped. Job state lives in `app._artist_imports` (in memory):
+  `GET /api/explore/import-artist/plan?id=`, `POST /api/explore/import-artist`,
+  `GET …/status?id=` (also the DB count of imported releases),
+  `POST …/stop` (stops after the current release). Explore album imports
+  use the same layout; `_execute_playlist_download` takes `release_year`
+  and embeds the saved cover in every file.
 - **Endpoints**: `GET /api/explore/home?country=`, `/charts?country=`,
   `/moods`, `/mood/<params>`, `/artist/<id>`, `/album/<id>`,
   `/playlist/<id>`, `/search?q=`, `/suggestions?q=`,
