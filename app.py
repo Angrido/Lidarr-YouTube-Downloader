@@ -61,6 +61,7 @@ from processing import (
     stop_download,
 )
 from scheduler import run_scheduler, setup_scheduler
+import explore
 import library
 import lidarr_sync
 from utils import (
@@ -257,6 +258,145 @@ def api_library_add_album():
 @app.route("/api/library/pending")
 def api_library_pending():
     return jsonify({"pending": library.pending_adds()})
+
+
+@app.route("/explore")
+def explore_page():
+    return render_template("explore.html")
+
+
+def _explore_error(e):
+    return jsonify({"success": False, "message": e.message}), e.status
+
+
+def _explore_limited(bucket, window=10, max_requests=30):
+    client_ip = request.remote_addr or "unknown"
+    return not check_rate_limit(
+        f"explore_{bucket}:{client_ip}", rate_limit_store,
+        window=window, max_requests=max_requests,
+    )
+
+
+def _explore_too_many():
+    return jsonify(
+        {"success": False, "message": "Too many requests, please slow down"}
+    ), 429
+
+
+def _explore_json(loader, bucket="browse", window=10, max_requests=30):
+    if _explore_limited(bucket, window, max_requests):
+        return _explore_too_many()
+    try:
+        return jsonify({"success": True, **loader()})
+    except explore.ExploreError as e:
+        return _explore_error(e)
+    except Exception as e:
+        logger.warning("Explore request failed: %s", e)
+        return jsonify(
+            {"success": False, "message": "YouTube Music is not responding."}
+        ), 502
+
+
+def _explore_home():
+    data = explore.home(request.args.get("country", ""))
+    if not data["sections"] and not data["moods"]:
+        raise explore.ExploreError(
+            "YouTube Music is not responding right now. Try again in a minute.",
+            502,
+        )
+    return data
+
+
+@app.route("/api/explore/home")
+def api_explore_home():
+    return _explore_json(_explore_home)
+
+
+def _explore_charts():
+    data = explore.charts(request.args.get("country", ""))
+    if not data:
+        raise explore.ExploreError("Charts are not available right now.", 502)
+    return data
+
+
+@app.route("/api/explore/charts")
+def api_explore_charts():
+    return _explore_json(_explore_charts)
+
+
+@app.route("/api/explore/moods")
+def api_explore_moods():
+    return _explore_json(lambda: {"categories": explore.mood_categories()})
+
+
+@app.route("/api/explore/mood/<params>")
+def api_explore_mood(params):
+    return _explore_json(lambda: {"items": explore.mood_playlists(params)})
+
+
+@app.route("/api/explore/artist/<browse_id>")
+def api_explore_artist(browse_id):
+    return _explore_json(lambda: {"artist": explore.artist(browse_id)})
+
+
+@app.route("/api/explore/album/<browse_id>")
+def api_explore_album(browse_id):
+    return _explore_json(lambda: {"album": explore.album(browse_id)})
+
+
+@app.route("/api/explore/playlist/<playlist_id>")
+def api_explore_playlist(playlist_id):
+    return _explore_json(lambda: {"playlist": explore.playlist(playlist_id)})
+
+
+@app.route("/api/explore/search")
+def api_explore_search():
+    return _explore_json(
+        lambda: explore.search(request.args.get("q", "")),
+        bucket="search", window=10, max_requests=15,
+    )
+
+
+@app.route("/api/explore/suggestions")
+def api_explore_suggestions():
+    return _explore_json(
+        lambda: {"suggestions": explore.suggestions(request.args.get("q", ""))},
+        bucket="suggest", window=10, max_requests=40,
+    )
+
+
+@app.route("/api/explore/match")
+def api_explore_match():
+    return _explore_json(
+        lambda: {"match": explore.match(
+            request.args.get("kind", ""), request.args.get("id", ""),
+            refresh=request.args.get("refresh") == "1",
+        )},
+        bucket="match", window=10, max_requests=20,
+    )
+
+
+@app.route("/api/explore/add", methods=["POST"])
+def api_explore_add():
+    payload = _json_object()
+    return _explore_json(
+        lambda: {"result": explore.add(payload)},
+        bucket="add", window=10, max_requests=5,
+    )
+
+
+@app.route("/api/explore/import", methods=["POST"])
+def api_explore_import():
+    if _explore_limited("import", window=10, max_requests=2):
+        return _explore_too_many()
+    try:
+        plan = explore.import_plan(_json_object())
+    except explore.ExploreError as e:
+        return _explore_error(e)
+    return _start_playlist_import(
+        plan["artist_name"], plan["album_title"], plan["entries"],
+        plan["thumbnail_url"], plan["source_url"],
+    )
 
 
 @app.route("/favicon.ico")
@@ -3174,12 +3314,6 @@ def api_youtube_playlist_download():
     ):
         return jsonify({"success": False, "message": "Too many requests"}), 429
 
-    with queue_lock:
-        if download_process.get("active"):
-            return jsonify(
-                {"success": False, "message": "A download is already in progress"}
-            ), 409
-
     data = _json_object()
     artist_name = _str_field(data, "artist_name")
     album_title = _str_field(data, "album_title")
@@ -3213,6 +3347,20 @@ def api_youtube_playlist_download():
                 {"success": False, "message": "Invalid YouTube URL in entries"}
             ), 400
         validated_entries.append({**entry, "url": v_url})
+
+    return _start_playlist_import(
+        artist_name, album_title, validated_entries, thumbnail_url, source_url,
+    )
+
+
+def _start_playlist_import(
+    artist_name, album_title, validated_entries, thumbnail_url, source_url,
+):
+    with queue_lock:
+        if download_process.get("active"):
+            return jsonify(
+                {"success": False, "message": "A download is already in progress"}
+            ), 409
 
     config = load_config()
     # When "save playlist imports to the music library" is on, write under

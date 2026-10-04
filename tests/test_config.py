@@ -516,3 +516,16 @@ def test_coerce_config_value_valid(key, raw, expected):
 def test_coerce_config_value_invalid(key, raw):
     with pytest.raises(ValueError):
         config.coerce_config_value(key, raw)
+
+
+def test_explore_keys_are_allowed_and_coerced():
+    from config import ALLOWED_CONFIG_KEYS, coerce_config_value
+    assert {"explore_country", "explore_language"} <= ALLOWED_CONFIG_KEYS
+    assert coerce_config_value("explore_country", " us ") == "US"
+    assert coerce_config_value("explore_language", "it") == "it"
+    for bad in ("USA", "1T", "", 5, None):
+        with pytest.raises(ValueError):
+            coerce_config_value("explore_country", bad)
+    for bad in ("xx", "", None, "EN"):
+        with pytest.raises(ValueError):
+            coerce_config_value("explore_language", bad)

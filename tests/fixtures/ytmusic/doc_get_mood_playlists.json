@@ -1,0 +1,56 @@
+[
+ {
+  "title": "Chill Vibes",
+  "playlistId": "RDCLAK5uy_kb7EBi6y3GrtJri4_ZH56Ms786DFEimbM",
+  "thumbnails": [
+   {
+    "url": "https://lh3.googleusercontent.com/chill=w60-h60-l90-rj",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://lh3.googleusercontent.com/chill=w226-h226-l90-rj",
+    "width": 226,
+    "height": 226
+   },
+   {
+    "url": "https://lh3.googleusercontent.com/chill=w544-h544-l90-rj",
+    "width": 544,
+    "height": 544
+   },
+   {
+    "url": "https://lh3.googleusercontent.com/chill=w1200-h1200-l90-rj",
+    "width": 1200,
+    "height": 1200
+   }
+  ],
+  "description": "Playlist • YouTube Music"
+ },
+ {
+  "title": "Lo-fi Focus",
+  "playlistId": "RDCLAK5uy_lofifocus000000000000000000000",
+  "thumbnails": [
+   {
+    "url": "https://lh3.googleusercontent.com/lofi=w60-h60-l90-rj",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://lh3.googleusercontent.com/lofi=w226-h226-l90-rj",
+    "width": 226,
+    "height": 226
+   },
+   {
+    "url": "https://lh3.googleusercontent.com/lofi=w544-h544-l90-rj",
+    "width": 544,
+    "height": 544
+   },
+   {
+    "url": "https://lh3.googleusercontent.com/lofi=w1200-h1200-l90-rj",
+    "width": 1200,
+    "height": 1200
+   }
+  ],
+  "description": "Playlist • YouTube Music"
+ }
+]

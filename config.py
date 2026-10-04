@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import re
 import threading
 import uuid
 
@@ -66,7 +67,16 @@ ALLOWED_CONFIG_KEYS = {
     "playlist_to_library",
     "search_artist_source",
     "save_lyrics", "apply_replaygain",
+    "explore_country", "explore_language",
 }
+
+EXPLORE_LANGUAGES = frozenset({
+    "ar", "cs", "de", "en", "es", "fr", "hi", "it", "ja", "ko", "nl", "pt",
+    "ru", "tr", "ur", "zh_CN", "zh_TW",
+})
+EXPLORE_COUNTRY_DEFAULT = "IT"
+EXPLORE_LANGUAGE_DEFAULT = "en"
+_COUNTRY_RE = re.compile(r"^[A-Z]{2}$")
 
 # Valid values for search_artist_source: which artist to use when building
 # the YouTube search query for a track. "album" (default) is Lidarr's
@@ -178,8 +188,27 @@ def _parse_float(value):
     return parsed
 
 
+def _parse_explore_country(value):
+    if not isinstance(value, str):
+        raise ValueError("expected a country code")
+    code = value.strip().upper()
+    if not _COUNTRY_RE.match(code):
+        raise ValueError("expected a two-letter country code")
+    return code
+
+
+def _parse_explore_language(value):
+    if not isinstance(value, str) or value.strip() not in EXPLORE_LANGUAGES:
+        raise ValueError("unsupported language")
+    return value.strip()
+
+
 def coerce_config_value(key, value):
     try:
+        if key == "explore_country":
+            return _parse_explore_country(value)
+        if key == "explore_language":
+            return _parse_explore_language(value)
         if key in INT_CONFIG_KEYS:
             return _parse_int(value)
         if key in FLOAT_CONFIG_KEYS:
@@ -316,6 +345,10 @@ def _env_config():
             os.getenv("MIN_MATCH_SCORE", "0.8"),
         ),
         "search_artist_source": os.getenv("SEARCH_ARTIST_SOURCE", "album"),
+        "explore_country": os.getenv("EXPLORE_COUNTRY", EXPLORE_COUNTRY_DEFAULT),
+        "explore_language": os.getenv(
+            "EXPLORE_LANGUAGE", EXPLORE_LANGUAGE_DEFAULT,
+        ),
         "audio_format": os.getenv("AUDIO_FORMAT", "mp3"),
         "audio_quality": os.getenv("AUDIO_QUALITY", "320"),
         # Optional yt-dlp format selector override (e.g. "141" for 256 kbps
@@ -422,6 +455,15 @@ def load_config():
 
     if config.get("search_artist_source") not in SEARCH_ARTIST_SOURCES:
         config["search_artist_source"] = "album"
+
+    try:
+        config["explore_country"] = _parse_explore_country(
+            config.get("explore_country"),
+        )
+    except ValueError:
+        config["explore_country"] = EXPLORE_COUNTRY_DEFAULT
+    if config.get("explore_language") not in EXPLORE_LANGUAGES:
+        config["explore_language"] = EXPLORE_LANGUAGE_DEFAULT
 
     def norm(p):
         return (

@@ -2966,3 +2966,150 @@ class TestLibraryRoutes:
         ]
         app_module.rate_limit_store.clear()
         assert codes[-1] == 429
+
+
+class TestExploreRoutes:
+    @pytest.fixture(autouse=True)
+    def _fresh(self, monkeypatch):
+        import app as app_module
+        import explore
+        explore.cache.invalidate()
+        app_module.rate_limit_store.clear()
+        yield
+        explore.cache.invalidate()
+
+    def test_home_ok(self, client, monkeypatch):
+        import explore
+        monkeypatch.setattr(explore, "home", lambda country="": {
+            "country": "IT", "sections": [{"key": "hero", "items": []}], "moods": [],
+        })
+        data = client.get("/api/explore/home").get_json()
+        assert data["success"] is True and data["country"] == "IT"
+
+    def test_home_reports_youtube_down(self, client, monkeypatch):
+        import explore
+        monkeypatch.setattr(explore, "home", lambda country="": {
+            "country": "IT", "sections": [], "moods": [],
+        })
+        resp = client.get("/api/explore/home")
+        assert resp.status_code == 502
+        assert resp.get_json()["success"] is False
+
+    def test_unexpected_errors_never_leak(self, client, monkeypatch):
+        import explore
+
+        def boom(country=""):
+            raise RuntimeError("Traceback secret")
+
+        monkeypatch.setattr(explore, "home", boom)
+        resp = client.get("/api/explore/home")
+        assert resp.status_code == 502
+        assert "secret" not in resp.get_data(as_text=True)
+
+    @pytest.mark.parametrize("url", [
+        "/api/explore/album/UC_not_an_album",
+        "/api/explore/artist/MPREb_abcdef",
+        "/api/explore/playlist/notaplaylist",
+        "/api/explore/mood/%3Cscript%3E",
+        "/api/explore/charts?country=ITA",
+        "/api/explore/search?q=a",
+        "/api/explore/suggestions?q=",
+        "/api/explore/match?kind=song&id=aaaaaaaaaaa",
+        "/api/explore/match?kind=album&id=../../x",
+    ])
+    def test_invalid_input_is_400(self, client, monkeypatch, url):
+        import explore
+        monkeypatch.setattr(explore, "call", lambda *a, **k: pytest.fail("YouTube was called"))
+        resp = client.get(url)
+        assert resp.status_code == 400
+        assert resp.get_json()["success"] is False
+
+    def test_album_route(self, client, monkeypatch):
+        import explore
+        monkeypatch.setattr(explore, "album", lambda bid: {"id": bid, "title": "Revival"})
+        data = client.get("/api/explore/album/MPREb_abcdef").get_json()
+        assert data["album"] == {"id": "MPREb_abcdef", "title": "Revival"}
+
+    def test_match_route_passes_refresh(self, client, monkeypatch):
+        import explore
+        seen = {}
+        monkeypatch.setattr(
+            explore, "match",
+            lambda kind, item_id, refresh=False: seen.update(kind=kind, id=item_id, refresh=refresh) or {"status": "complete"},
+        )
+        data = client.get("/api/explore/match?kind=album&id=MPREb_abcdef&refresh=1").get_json()
+        assert data["match"]["status"] == "complete"
+        assert seen == {"kind": "album", "id": "MPREb_abcdef", "refresh": True}
+
+    def test_add_route_errors_keep_status(self, client, monkeypatch):
+        import explore
+
+        def boom(payload):
+            raise explore.ExploreError("Several MusicBrainz releases match; pick one.", 409)
+
+        monkeypatch.setattr(explore, "add", boom)
+        resp = client.post("/api/explore/add", json={"kind": "album", "id": "MPREb_abcdef"})
+        assert resp.status_code == 409
+        assert "pick one" in resp.get_json()["message"]
+
+    def test_add_route_rejects_non_object(self, client):
+        resp = client.post("/api/explore/add", json=[1, 2])
+        assert resp.status_code == 400
+
+    def test_search_is_rate_limited(self, client, monkeypatch):
+        import explore
+        monkeypatch.setattr(explore, "search", lambda q: {"query": q, "top": None, "results": {}})
+        codes = [client.get("/api/explore/search?q=abc").status_code for _ in range(16)]
+        assert codes[:15] == [200] * 15
+        assert codes[15] == 429
+
+    def test_import_route_starts_a_playlist_import(self, client, monkeypatch):
+        import app as app_module
+        import explore
+        monkeypatch.setattr(explore, "import_plan", lambda payload: {
+            "artist_name": "Eminem", "album_title": "Revival",
+            "entries": [{"url": "https://music.youtube.com/watch?v=iKLU7z_xdYQ", "title": "Walk On Water"}],
+            "thumbnail_url": "https://lh3.googleusercontent.com/x=w1200-h1200",
+            "source_url": "https://music.youtube.com/playlist?list=OLAK5uy_x",
+        })
+        started = {}
+
+        class FakeThread:
+            def __init__(self, target, args, daemon):
+                started["args"] = args
+
+            def start(self):
+                started["started"] = True
+
+        monkeypatch.setattr(app_module.threading, "Thread", FakeThread)
+        resp = client.post("/api/explore/import", json={"kind": "album", "id": "MPREb_abcdef"})
+        assert resp.status_code == 200, resp.get_json()
+        assert started["started"] is True
+        artist, album, entries, target, _cfg, thumb, source = started["args"]
+        assert (artist, album) == ("Eminem", "Revival")
+        assert target.endswith("Eminem/Revival")
+        assert thumb.startswith("https://lh3.googleusercontent.com/")
+
+    def test_import_route_refused_while_downloading(self, client, monkeypatch):
+        import app as app_module
+        import explore
+        monkeypatch.setattr(explore, "import_plan", lambda payload: {
+            "artist_name": "A", "album_title": "B",
+            "entries": [{"url": "https://music.youtube.com/watch?v=iKLU7z_xdYQ", "title": "x"}],
+            "thumbnail_url": "", "source_url": "",
+        })
+        monkeypatch.setitem(app_module.download_process, "active", True)
+        resp = client.post("/api/explore/import", json={"kind": "album", "id": "MPREb_abcdef"})
+        assert resp.status_code == 409
+
+    def test_import_route_validation(self, client):
+        resp = client.post("/api/explore/import", json={"kind": "song", "id": "x"})
+        assert resp.status_code == 400
+
+    def test_explore_config_keys_via_api(self, client):
+        resp = client.post("/api/config", json={"explore_country": "us", "explore_language": "it"})
+        assert resp.status_code == 200
+        cfg = client.get("/api/config").get_json()
+        assert cfg["explore_country"] == "US" and cfg["explore_language"] == "it"
+        resp = client.post("/api/config", json={"explore_country": "USA"})
+        assert resp.status_code == 400
