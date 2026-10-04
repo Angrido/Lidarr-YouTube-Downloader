@@ -2,7 +2,7 @@
 
 # 🎵 Lidarr YouTube Downloader
 
-![Version](https://img.shields.io/badge/version-2.1.0-blue.svg?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-2.2.0-blue.svg?style=for-the-badge)
 ![Python Slim](https://img.shields.io/badge/python-3--slim-yellow.svg?style=for-the-badge&logo=python&logoColor=white)
 ![Docker](https://img.shields.io/badge/docker-ready-blue.svg?style=for-the-badge&logo=docker&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge)
@@ -21,6 +21,7 @@ A free, open-source bridge between **[Lidarr](https://lidarr.audio/)** and **You
 - 🎯 **AcoustID fingerprinting** — optional chromaprint verification rejects mismatched audio before import
 - 🏷️ **Full metadata tagging** — MP3 / M4A / Opus with MusicBrainz IDs, iTunes 3000×3000 cover art, year, track numbers, and optional XML sidecars for Lidarr re-import
 - 📦 **Native Lidarr integration** — copies tagged files into your Lidarr library path and triggers `RefreshArtist`; background paginated sync of `wanted/missing` for instant UI
+- 🧭 **Explore** — browse new releases, top songs per country, trending tracks, top artists, charts and moods; open artist, album and playlist pages, preview any track in a mini player, and in two clicks add an album to Lidarr and download it from the YouTube Music album you were looking at. Releases that are not on MusicBrainz (and playlists) can be imported from YouTube instead
 - ➕ **Add music without opening Lidarr** — search MusicBrainz for an artist or album, pick root folder and profiles, add it to Lidarr and (for albums) queue the download in one step
 - 🔌 **Lidarr download client** — optionally registers in Lidarr as a **Newznab indexer + SABnzbd download client**, so Lidarr searches, grabs and imports automatically (see [Use as a Lidarr download client](#-use-as-a-lidarr-download-client))
 - ⚡ **Parallel downloads** — configurable concurrent tracks (1–5) with mid-download skip, per-track progress, speed, and ETA
@@ -211,6 +212,8 @@ source .venv/bin/activate && python -m pytest tests/ -v
 ## ⚠️ Disclaimer
 
 This project is provided for **personal, educational use** to manage your own music library. Users are solely responsible for complying with copyright laws and YouTube's Terms of Service.
+
+The **Explore** section reads public YouTube Music pages through the unofficial [ytmusicapi](https://github.com/sigma67/ytmusicapi) library, unauthenticated. It is not affiliated with or endorsed by YouTube or Google; what it shows depends on what YouTube serves to your server (charts and some shelves are missing in some regions or from datacenter IPs) and can change without notice. Use it to find music for your own library.
 
 ---
 

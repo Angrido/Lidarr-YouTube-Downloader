@@ -82,6 +82,7 @@ docker run -p 5005:5000 \
 | `lidarr.py` | Lidarr API wrapper |
 | `lidarr_sync.py` | Background paginated sync of Lidarr's missing albums into `missing_albums_cache` |
 | `library.py` | Search MusicBrainz through Lidarr's lookup API and add artists/albums to Lidarr from the app (`/add`) |
+| `explore.py` | Explore catalog: shared YT Music client, TTL cache, normalizers + raw-shelf fallback parser, YT Music → MusicBrainz/Lidarr mapping, add / YouTube-import actions (`/explore`) |
 | `notifications.py` | Telegram/Discord webhooks, Ntfy push |
 | `config.py` | Config load/save, constants |
 | `scheduler.py` | Scheduled polling/auto-download |
@@ -101,11 +102,11 @@ docker run -p 5005:5000 \
 
 ### Database
 
-State is stored in SQLite at `/config/lidarr-downloader.db`. Tables: `schema_version`, `track_downloads`, `download_logs`, `download_queue`, `banned_urls`, `candidate_attempts`, `missing_albums_cache`, `sync_state`, `download_client_jobs`.
+State is stored in SQLite at `/config/lidarr-downloader.db`. Tables: `schema_version`, `track_downloads`, `download_logs`, `download_queue`, `banned_urls`, `candidate_attempts`, `missing_albums_cache`, `sync_state`, `download_client_jobs`, `album_source_hints`.
 
 **`album_id` id space:** a positive `album_id` is a real Lidarr album id. YouTube playlist imports have no Lidarr album, so each import is assigned a **unique negative `album_id`** (`models.next_playlist_album_id()`), keeping its tracks distinct in the history / failed-track retry views. This negative space is disjoint from Lidarr's and must never be joined to Lidarr or sent to the Lidarr API (e.g. `download_client.py` assumes positive ids). Retry resolves a negative id's context from the stored `track_downloads` row instead of Lidarr.
 
-Current schema version: **11**. Migrations:
+Current schema version: **12**. Migrations:
 - V1→V2: Replaced `download_history` + `failed_tracks` with `track_downloads` (per-track download records with YouTube URL, match score, duration, album/track metadata).
 - V2→V3: Added AcoustID fingerprint columns to `track_downloads` (`acoustid_fingerprint_id`, `acoustid_score`, `acoustid_recording_id`, `acoustid_recording_title`).
 - V3→V4: Added `banned_urls` table for tracking banned YouTube URLs per album/track.
@@ -116,6 +117,7 @@ Current schema version: **11**. Migrations:
 - V8→V9: Added `track_artist` to `track_downloads`, storing the per-track artist resolved via `search_artist_source` (MusicBrainz/iTunes), distinct from the Lidarr album-level `artist_name`, so compilation ("Various Artists") tracks can be searched/retried with their real artist.
 - V9→V10: Added `source_format` to `track_downloads`, a human-readable summary of the YouTube source stream actually downloaded (format id · container · bitrate, e.g. `140 · m4a · 128 kbps`), for the per-track audio-quality report in the download history.
 - V10→V11: Added `force` to `download_queue`, marking an entry as an explicit user request (manual "Add to Queue"). A forced entry bypasses the per-track retry backoff; the scheduler enqueues without it.
+- V11→V12: Added `album_source_hints` (`album_id` → YT Music `playlist_id` + `browse_id`), written when Explore adds an album so `process_album_download` downloads from that album playlist instead of searching for it. Positive `album_id`s only.
 
 Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
@@ -130,7 +132,7 @@ Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
 ### Config
 
-Loaded from env vars + `/config/config.json`. File config overrides env vars, except `lidarr_url`, `lidarr_api_key` and `download_path` (`ENV_PREFERRED_KEYS`), where a non-empty env var wins. Saved via `save_config()`, which writes atomically (temp file + `os.replace`) and persists only `ALLOWED_CONFIG_KEYS` plus values that differ from the env; handlers that read-modify-write use `update_config(mutator)` so concurrent toggles don't lose updates. API input goes through `coerce_config_value()` (typed int/float/bool/list keys; invalid → HTTP 400). `GET /api/config` and the export never include `lidarr_api_key`. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API. Notable config keys beyond the basics: `concurrent_tracks`, `yt_cookies_file`, `yt_force_ipv4`, `yt_player_client`, `yt_retries`, `yt_fragment_retries`, `yt_sleep_requests`, `yt_sleep_interval`, `yt_max_sleep_interval`, `discord_enabled`, `discord_webhook_url`, `discord_log_types`, `acoustid_enabled`, `acoustid_api_key`, `download_client_enabled`, `download_client_api_key`, `download_client_category`, `yt_po_token` (manual yt-dlp PO token(s), comma-separated), `audio_normalize` (EBU R128 loudnorm, forces re-encode), `yt_pot_provider_url` (URL of a bgutil PO-token provider sidecar for automatic PO tokens; `bgutil-ytdlp-pot-provider` plugin is in requirements and a sidecar is wired in docker-compose), `search_artist_source` (per-track YouTube search artist: `album` default, or `mb_itunes`/`itunes_mb`/`mb`/`itunes` to resolve the real artist for compilations), `save_lyrics` (write a `.lrc` synced-lyrics sidecar per track, fetched from LRCLIB), `apply_replaygain` (measure loudness with ffmpeg and write ReplayGain track tags — non-destructive volume normalization), `track_retry_backoff` (default on; a track that keeps failing waits `scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days, instead of being retried every cycle forever — issue #90), `max_track_retries` (0 = never give up; otherwise drop a track after this many consecutive failures).
+Loaded from env vars + `/config/config.json`. File config overrides env vars, except `lidarr_url`, `lidarr_api_key` and `download_path` (`ENV_PREFERRED_KEYS`), where a non-empty env var wins. Saved via `save_config()`, which writes atomically (temp file + `os.replace`) and persists only `ALLOWED_CONFIG_KEYS` plus values that differ from the env; handlers that read-modify-write use `update_config(mutator)` so concurrent toggles don't lose updates. API input goes through `coerce_config_value()` (typed int/float/bool/list keys; invalid → HTTP 400). `GET /api/config` and the export never include `lidarr_api_key`. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API. Notable config keys beyond the basics: `concurrent_tracks`, `yt_cookies_file`, `yt_force_ipv4`, `yt_player_client`, `yt_retries`, `yt_fragment_retries`, `yt_sleep_requests`, `yt_sleep_interval`, `yt_max_sleep_interval`, `discord_enabled`, `discord_webhook_url`, `discord_log_types`, `acoustid_enabled`, `acoustid_api_key`, `download_client_enabled`, `download_client_api_key`, `download_client_category`, `yt_po_token` (manual yt-dlp PO token(s), comma-separated), `audio_normalize` (EBU R128 loudnorm, forces re-encode), `yt_pot_provider_url` (URL of a bgutil PO-token provider sidecar for automatic PO tokens; `bgutil-ytdlp-pot-provider` plugin is in requirements and a sidecar is wired in docker-compose), `search_artist_source` (per-track YouTube search artist: `album` default, or `mb_itunes`/`itunes_mb`/`mb`/`itunes` to resolve the real artist for compilations), `save_lyrics` (write a `.lrc` synced-lyrics sidecar per track, fetched from LRCLIB), `apply_replaygain` (measure loudness with ffmpeg and write ReplayGain track tags — non-destructive volume normalization), `track_retry_backoff` (default on; a track that keeps failing waits `scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days, instead of being retried every cycle forever — issue #90), `max_track_retries` (0 = never give up; otherwise drop a track after this many consecutive failures), `explore_country` (two-letter code, default `IT`; charts and YT Music `location`) and `explore_language` (one of ytmusicapi's languages, default `en`); both are validated in `coerce_config_value()` and normalised in `load_config()`.
 
 ### Lidarr download-client bridge (`download_client.py`)
 
@@ -299,6 +301,75 @@ after 15 s and 90 s so the Library shows the new missing albums.
 `lidarr_request()` supports `PUT` and turns Lidarr's 400 validation list into
 a readable `"Lidarr rejected the request: …"` error.
 
+### Explore (`explore.py`, `templates/explore.html`)
+
+A music catalog backed by YouTube Music through **ytmusicapi** (unauthenticated).
+Live behaviour drives the design, not the docs: from a datacenter IP
+`get_explore` raises a `KeyError` (a podcast item lacks `musicVideoType`),
+`get_mood_categories` and `get_album` can fail, search filters for albums /
+songs return `[]`, charts have no song list without Premium. The real
+responses (and the errors) are in `tests/fixtures/ytmusic/`; the `doc_*`
+fixtures follow ytmusicapi's docstring shapes for what could not be
+captured live. So:
+
+- **One client per (language, country)** (`downloader._ytmusicapi_client`
+  with `language`/`location`), each guarded by a lock; every YT call goes
+  through `explore.call()`.
+- **`TTLCache`**, keyed with the locale: feeds 30 min, artist/album/playlist
+  24 h, matches 10 min, suggestions 1 h. A failed loader is cached as a
+  60 s negative entry so a dead YouTube isn't hammered. `invalidate(prefix)`.
+- **One item shape** from `normalize_item()`: `{kind, id, title, subtitle,
+  artists[], year, type, thumbnail, explicit, duration}` (+ `album`,
+  `available`, `rank` for songs; `playlistId` for albums). Podcasts and
+  episodes are dropped, ids are validated by regex, bogus years ("Two Steps
+  From Hell") ignored. `thumbnail` is always a `/api/thumbnail?url=` path;
+  `best_thumbnail_url()` picks the largest ≤ 544 px and resizes
+  googleusercontent `=wN-hN` / `=sN` URLs.
+- **Raw fallback**: when a ytmusicapi parser raises, `raw_browse()` fetches
+  the InnerTube page and `raw_sections()` reads carousel / shelf / grid
+  renderers itself (`musicTwoRowItemRenderer`,
+  `musicResponsiveListItemRenderer`, mood buttons). That keeps the live
+  trending shelf when `get_explore` breaks.
+- **Every section degrades**: loaders never raise to the UI, empty sections
+  are omitted, top songs fall back to the first chart playlist's tracks.
+  `/api/explore/home` answers 502 only when *everything* is empty;
+  unexpected exceptions become a generic 502 message.
+- **Mapping** (`match_album`): the YT album is searched through
+  `library.search("album", …)` (first "artist title", then the title alone,
+  "Various Artists" never used as a term) and every candidate scored —
+  0.6 × title (`norm_title()` drops edition brackets / " - 2004 Remaster"
+  suffixes, keeps real parenthesised titles) + 0.3 × artist (any credited
+  artist, Various Artists only matches Various Artists) + bonuses for year,
+  track count, release type, exact title, already in library. Accept at
+  ≥ 0.85 with a 0.08 lead; otherwise `ambiguous` with up to 5 candidates;
+  no candidate past the title/artist gates → `not_on_musicbrainz`. Status of
+  the match: `complete` / `missing` / `unmonitored` / `not_in_library`.
+  Artists: exact (folded) name, one hit or one already in the library.
+- **Add & download** (`add_album`): `library.add_album(download=False)`,
+  then `models.set_album_source_hint()`, **then**
+  `library.queue_when_ready()` — the hint exists before the album can be
+  processed. `processing._hinted_ytmusic_album()` turns it into the same
+  `ytmusic_album` dict `find_album_on_ytmusic()` returns
+  (`downloader.album_from_ytmusic_hint`), logging "Using the YT Music album
+  picked in Explore"; an unusable hint falls back to the search.
+- **YouTube import** (`import_plan`): album or playlist pages are re-read
+  server-side (the client only sends ids and an optional `videoIds`
+  selection) and handed to `app._start_playlist_import()`, the same path as
+  `/api/youtube/playlist/download` (negative `album_id`, cover from the
+  1200 px art).
+- **Endpoints**: `GET /api/explore/home?country=`, `/charts?country=`,
+  `/moods`, `/mood/<params>`, `/artist/<id>`, `/album/<id>`,
+  `/playlist/<id>`, `/search?q=`, `/suggestions?q=`,
+  `/match?kind=album|artist&id=[&refresh=1]`; `POST /api/explore/add`
+  (`{kind, id, foreignAlbumId|foreignArtistId?, download?, rootFolderPath?,
+  qualityProfileId?, metadataProfileId?, monitor?}`) and
+  `POST /api/explore/import` (`{kind: album|playlist, id, videoIds?}`).
+  Each has its own rate-limit bucket (`_explore_json`).
+- `tools/explore_preview.py` runs the app on port 5099 with fixture-backed
+  YT Music and Lidarr fakes, a silent audio stream and generated
+  thumbnails (`--down` simulates YouTube being unreachable). Use it for UI
+  work and Playwright checks; it never downloads.
+
 ### Notifications
 
 Telegram, Discord webhooks, and Ntfy push notifications, filtered by `log_type` (e.g., `partial_success`, `album_error`). Ntfy is called with a JSON body on the **server root** (`POST {ntfy_url}/`, topic inside the JSON — ntfy ignores JSON posted to `/<topic>`) and an integer priority (1–5). Exception messages are logged through `_redact()` so bot tokens / webhook tokens never reach the logs.
@@ -323,7 +394,10 @@ variables, theme toggles, navigation or Font Awesome**.
   status edge, album cards, per-track progress `.ui-track`, now-playing
   card, empty states, skeletons, callouts, modals that become bottom
   sheets on phones, stacked toasts, bulk bar, drop zone, steps, tabs,
-  tooltip). `prefers-reduced-motion` collapses all durations. Contrast
+  tooltip, horizontal shelves `.ui-shelf` with `-wide`/`-rows`/`-round`
+  variants, and the fixed mini player `.ui-player` — `body.has-player`
+  pads `.app-main` so it never covers content). `prefers-reduced-motion`
+  collapses all durations. Contrast
   targets WCAG AA in both themes. Under `(max-width: 720px), (pointer:
   coarse)` controls grow to touch-sized hit targets (36–42px); keep new
   controls on the shared classes so they inherit this. Frosted surfaces use
@@ -367,6 +441,21 @@ variables, theme toggles, navigation or Font Awesome**.
   bar has no room for it, so `_nav.html` skips the `add` item there and
   highlights Library instead. The Library accepts `/?q=` to pre-fill its
   search.
+- `templates/explore.html` — **Explore** (`/explore`), a client-routed
+  page: `?album=`, `?artist=`, `?playlist=`, `?mood=&title=`, `?q=` are deep
+  links (history API, `a[data-route]` links). Home shelves (`.ui-shelf`):
+  new-releases hero, top songs with a country `<select>` (stored in
+  `localStorage.exploreCountry`), trending, new albums, top artists
+  (`.ui-shelf-round`), charts, videos, mood chips. Album pages render the
+  match as a badge plus the contextual CTA and the candidate picker; artist
+  pages the *Add artist* flow (a picker modal when ambiguous); playlists
+  selection + bulk import. Lidarr add options reuse
+  `localStorage.addMusicPrefs` (editable from the sliders button). The
+  `.ui-player` mini player streams previews from `/api/youtube/stream`
+  (volume in `localStorage.explorePlayerVolume`, Media Session handlers) and
+  lives as long as the page. Search suggests as you type (combobox, arrow
+  keys, `/` focuses it). On phones Explore takes YouTube's tab-bar slot;
+  `_nav.html` skips `youtube` there and highlights Explore on `/youtube`.
 - `templates/setup.html` — first-run setup wizard (`/setup`, no nav); the
   dashboard redirects unconfigured instances here (client-side, skippable).
 - `static/favicon.svg` + PNG icons (`apple-touch-icon.png`, `icon-192.png`,
@@ -383,6 +472,7 @@ Standalone scripts not part of the main app:
 - `migrate_directories.py` — migrate album directory structure
 - `migrate_json_to_db.py` — migrate JSON state files to SQLite (one-time upgrade)
 - `verify_fingerprints.py` — AcoustID fingerprint verification tool
+- `explore_preview.py` — run the UI against mocked YT Music + Lidarr (see Explore)
 
 ## Key Dependencies
 
@@ -395,7 +485,7 @@ Standalone scripts not part of the main app:
 
 ## Version Updates
 
-The version string is defined in `version.py`: `VERSION = "2.1.0"`. The README badge also references it and must be updated manually.
+The version string is defined in `version.py`: `VERSION = "2.2.0"`. The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 
@@ -409,4 +499,4 @@ Run tests with the venv:
 source .venv/bin/activate && python -m pytest tests/ -v
 ```
 
-Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`.
+Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`, `test_explore.py` (fixtures in `tests/fixtures/ytmusic/`).

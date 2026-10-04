@@ -1,5 +1,44 @@
 # Changelog
 
+## 2.2.0
+
+### Added
+- **Explore** (`/explore`): a music catalog inside the app.
+  - Home with new releases, top songs per country (picker), trending
+    tracks, new albums, top artists, chart playlists, new music videos and
+    moods & genres, as horizontal shelves.
+  - Artist pages (popular songs, albums, singles & EPs, videos, similar
+    artists, *Add artist*), album pages (big cover, tracklist with
+    durations) and playlist pages (track selection, bulk import). Deep
+    links work: `/explore?album=<browseId>`, `?artist=`, `?playlist=`,
+    `?q=`.
+  - Every album is matched to a MusicBrainz release group through Lidarr
+    (title, artist, year, track count; remasters, deluxe editions,
+    compilations and "Various Artists" handled) and shows its state:
+    complete, tracks missing, not monitored, not in Lidarr, not on
+    MusicBrainz, or several matches to pick from. The main button follows
+    it: *Add & download*, *Download missing*, *Monitor & download*,
+    *Complete*, *Import from YouTube*.
+  - *Add & download* adds the album to Lidarr, queues it, and remembers the
+    YouTube Music album it came from: the download uses that album's
+    tracks directly instead of searching for it again.
+  - Releases that are not on MusicBrainz, and playlists, are imported
+    through the existing YouTube import (tags and cover included).
+  - Preview any track in a persistent mini player (play/pause, previous /
+    next, seek, volume).
+  - Search with suggestions (press `/`).
+  - When YouTube Music does not answer, Explore says so and offers
+    *Retry*; the rest of the app is unaffected. Results are cached (feeds
+    30 min, pages 24 h).
+- Settings keys `explore_country` (default `IT`) and `explore_language`
+  (default `en`); env `EXPLORE_COUNTRY` / `EXPLORE_LANGUAGE`.
+- *Browse in Explore* link on the Add music page.
+
+### Changed
+- The phone tab bar shows **Explore** instead of YouTube; the YouTube
+  import stays in the sidebar and is linked from Explore (*Import a link*).
+- Database schema v12: new `album_source_hints` table.
+
 ## 2.1.0
 
 ### Added
