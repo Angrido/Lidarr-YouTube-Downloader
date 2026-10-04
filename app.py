@@ -61,6 +61,7 @@ from processing import (
     stop_download,
 )
 from scheduler import run_scheduler, setup_scheduler
+import library
 import lidarr_sync
 from utils import (
     BaseNotMountedError,
@@ -197,6 +198,65 @@ def logs():
 @app.route("/insights")
 def insights():
     return render_template("insights.html")
+
+
+@app.route("/add")
+def add_music():
+    return render_template("add.html")
+
+
+def _library_error(e):
+    return jsonify({"success": False, "message": e.message}), e.status
+
+
+@app.route("/api/library/search")
+def api_library_search():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"library_search:{client_ip}", rate_limit_store,
+        window=10, max_requests=20,
+    ):
+        return jsonify(
+            {"success": False, "message": "Too many searches, please slow down"}
+        ), 429
+    try:
+        results = library.search(
+            request.args.get("type", "artist"), request.args.get("term", ""),
+        )
+    except library.LibraryError as e:
+        return _library_error(e)
+    return jsonify({"success": True, "results": results})
+
+
+@app.route("/api/library/options")
+def api_library_options():
+    try:
+        return jsonify({"success": True, **library.get_add_options()})
+    except library.LibraryError as e:
+        return _library_error(e)
+
+
+@app.route("/api/library/artist", methods=["POST"])
+def api_library_add_artist():
+    try:
+        artist = library.add_artist(_json_object())
+    except library.LibraryError as e:
+        return _library_error(e)
+    return jsonify({"success": True, "artist": artist})
+
+
+@app.route("/api/library/album", methods=["POST"])
+def api_library_add_album():
+    try:
+        album = library.add_album(_json_object())
+    except library.LibraryError as e:
+        return _library_error(e)
+    return jsonify({"success": True, "album": album})
+
+
+@app.route("/api/library/pending")
+def api_library_pending():
+    return jsonify({"pending": library.pending_adds()})
 
 
 @app.route("/favicon.ico")

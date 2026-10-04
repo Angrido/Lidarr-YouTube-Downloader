@@ -2910,3 +2910,59 @@ class TestJsonBodyValidation:
     def test_pot_provider_array_body(self, client):
         resp = client.post("/api/pot-provider/test", json=["x"])
         assert resp.status_code == 400
+
+
+class TestLibraryRoutes:
+    def test_add_page_renders(self, client):
+        resp = client.get("/add")
+        assert resp.status_code == 200
+        assert b"Add music" in resp.data
+
+    def test_search_returns_results(self, client, monkeypatch):
+        import library
+        monkeypatch.setattr(
+            library, "search",
+            lambda kind, term: [{"kind": kind, "term": term}],
+        )
+        data = client.get("/api/library/search?type=album&term=disc").get_json()
+        assert data == {
+            "success": True, "results": [{"kind": "album", "term": "disc"}],
+        }
+
+    def test_library_errors_keep_their_status(self, client, monkeypatch):
+        import library
+
+        def boom(payload):
+            raise library.LibraryError("already in your library", 409)
+
+        monkeypatch.setattr(library, "add_artist", boom)
+        resp = client.post("/api/library/artist", json={})
+        assert resp.status_code == 409
+        assert resp.get_json() == {
+            "success": False, "message": "already in your library",
+        }
+
+    def test_add_album(self, client, monkeypatch):
+        import library
+        monkeypatch.setattr(
+            library, "add_album", lambda payload: {"id": 3, "echo": payload},
+        )
+        data = client.post(
+            "/api/library/album", json={"foreignAlbumId": "x", "download": True},
+        ).get_json()
+        assert data["album"]["echo"]["download"] is True
+
+    def test_pending(self, client):
+        assert client.get("/api/library/pending").get_json() == {"pending": []}
+
+    def test_search_is_rate_limited(self, client, monkeypatch):
+        import app as app_module
+        import library
+        app_module.rate_limit_store.clear()
+        monkeypatch.setattr(library, "search", lambda kind, term: [])
+        codes = [
+            client.get("/api/library/search?term=ab").status_code
+            for _ in range(21)
+        ]
+        app_module.rate_limit_store.clear()
+        assert codes[-1] == 429

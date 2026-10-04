@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.1.0
+
+### Added
+- **Add music** page (`/add`, also from the Library header and its empty
+  state): search MusicBrainz for artists or albums and add them to Lidarr
+  without opening Lidarr.
+  - Artists: choose root folder, quality and metadata profile, which albums
+    to monitor (all, missing, existing, future, latest, first, none) and
+    whether new releases are monitored. Their missing albums then appear in
+    the Library.
+  - Albums: added with their artist when needed (only that album
+    monitored), and with *Download now* they are queued here as soon as
+    Lidarr has loaded the tracklist. Albums already in Lidarr can be
+    monitored and downloaded from the same results.
+  - Results show what is already in your library, complete, or not
+    monitored; the last choices are remembered.
+  - Lidarr is never asked to search its own indexers for these items.
+- Lidarr validation errors (HTTP 400) are now reported in plain words.
+- The Library accepts `/?q=` to open with a search.
+
 ## 2.0.1
 
 ### Fixed — found in real download logs

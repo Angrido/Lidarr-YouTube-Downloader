@@ -292,3 +292,31 @@ def test_retry_retries_server_errors_then_succeeds(
 def test_retry_without_retryable_key_keeps_retrying(mock_req, mock_sleep):
     lidarr.lidarr_request_with_retry("command", data={}, max_attempts=3)
     assert mock_req.call_count == 3
+
+
+@patch("lidarr.load_config", return_value=_CFG)
+@patch("lidarr.requests.put")
+def test_lidarr_request_supports_put(mock_put, mock_cfg):
+    mock_put.return_value = MagicMock(status_code=202)
+    mock_put.return_value.json.return_value = [{"id": 7}]
+    result = lidarr.lidarr_request(
+        "album/monitor", method="PUT", data={"albumIds": [7]},
+    )
+    assert result == [{"id": 7}]
+    assert mock_put.call_args.kwargs["json"] == {"albumIds": [7]}
+
+
+@patch("lidarr.load_config", return_value=_CFG)
+@patch("lidarr.requests.post")
+def test_lidarr_validation_errors_are_readable(mock_post, mock_cfg):
+    response = _http_error_response(400)
+    response.json.return_value = [
+        {"propertyName": "Path", "errorMessage": "Path is already configured"},
+        {"propertyName": "Path", "errorMessage": "Path is already configured"},
+    ]
+    mock_post.return_value = response
+    result = lidarr.lidarr_request("artist", method="POST", data={})
+    assert result["error"] == (
+        "Lidarr rejected the request: Path is already configured"
+    )
+    assert result["retryable"] is False

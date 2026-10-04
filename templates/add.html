@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="en">
+<head>
+    {% include "_head.html" %}
+    <title>Add music — Lidarr YouTube Downloader</title>
+    <style>
+        .add-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--sp-3);
+            align-items: center;
+            margin-bottom: var(--sp-5);
+        }
+
+        .add-search {
+            flex: 1 1 320px;
+            min-width: 0;
+        }
+
+        .add-search .ui-input {
+            min-height: 48px;
+            font-size: var(--text-body);
+        }
+
+        .add-toolbar .ui-segmented {
+            flex: none;
+        }
+
+        @media (max-width: 560px) {
+            .add-toolbar .ui-segmented {
+                width: 100%;
+                grid-auto-columns: 1fr;
+            }
+        }
+
+        .add-pending {
+            margin-bottom: var(--sp-5);
+        }
+
+        .add-pending ul {
+            list-style: none;
+            margin: var(--sp-1) 0 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .add-pending li {
+            overflow-wrap: anywhere;
+        }
+
+        .add-results-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: var(--sp-3);
+            margin-bottom: var(--sp-4);
+            color: var(--text-3);
+            font-size: var(--text-footnote);
+        }
+
+        .add-artist .ui-album-cover {
+            border-radius: 50%;
+        }
+
+        .add-cover + .ui-album-text .ui-album-meta {
+            display: block;
+        }
+
+        .add-card-sub {
+            font-size: var(--text-footnote);
+            color: var(--text-3);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            unicode-bidi: isolate;
+        }
+
+        .add-card-actions {
+            display: flex;
+            gap: var(--sp-2);
+            margin-top: var(--sp-2);
+        }
+
+        .add-card-actions .ui-btn {
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .add-card-actions .ui-btn > span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .add-cover img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .add-sheet-head {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-3);
+            min-width: 0;
+        }
+
+        .add-sheet-head .ui-artwork {
+            flex: none;
+        }
+
+        .add-sheet-text {
+            min-width: 0;
+        }
+
+        .add-sheet-title {
+            font-weight: 600;
+            overflow-wrap: anywhere;
+        }
+
+        .add-switch-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: var(--sp-4);
+        }
+    </style>
+</head>
+<body class="app">
+    {% set active_page = 'add' %}
+    {% include "_nav.html" %}
+    <main class="app-main" id="main">
+        <div class="app-content">
+            {% include "_topbar.html" %}
+            <header class="page-header">
+                <div class="page-header-text">
+                    <p class="t-eyebrow">Library</p>
+                    <h1 class="page-title">Add music</h1>
+                    <p class="page-subtitle">Find artists and albums on MusicBrainz and add them to Lidarr without leaving this app.</p>
+                </div>
+            </header>
+
+            <form class="add-toolbar" id="searchForm" role="search" autocomplete="off">
+                <div class="ui-segmented" role="group" aria-label="Search for">
+                    <button type="button" data-kind="artist" aria-pressed="true">
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-user"></use></svg>Artists
+                    </button>
+                    <button type="button" data-kind="album" aria-pressed="false">
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-disc"></use></svg>Albums
+                    </button>
+                </div>
+                <div class="ui-input-group add-search">
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-search"></use></svg>
+                    <label class="sr-only" for="searchInput">Search MusicBrainz</label>
+                    <input type="search" class="ui-input" id="searchInput" placeholder="Artist name" aria-keyshortcuts="/" spellcheck="false" enterkeyhint="search" aria-describedby="searchStatus">
+                    <kbd class="ui-kbd ui-input-kbd" aria-hidden="true">/</kbd>
+                </div>
+            </form>
+
+            <div class="ui-callout ui-callout-info add-pending" id="pendingBox" hidden>
+                <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-clock"></use></svg>
+                <div class="ui-callout-body">
+                    <div class="ui-callout-title">Recently added</div>
+                    <ul class="ui-callout-text" id="pendingList"></ul>
+                </div>
+            </div>
+
+            <section aria-labelledby="resultsHeading">
+                <h2 class="sr-only" id="resultsHeading">Results</h2>
+                <p class="sr-only" id="searchStatus" role="status" aria-live="polite"></p>
+                <div id="results"></div>
+            </section>
+        </div>
+    </main>
+
+    <div class="ui-modal ui-modal-sm" id="addModal" hidden>
+        <div class="ui-modal-box" role="dialog" aria-labelledby="addModal-title" aria-describedby="addSubject">
+            <div class="ui-modal-grabber"></div>
+            <div class="ui-modal-head">
+                <h2 class="ui-modal-title" id="addModal-title">Add to Lidarr</h2>
+                <button type="button" class="ui-btn ui-btn-ghost ui-btn-icon ui-modal-close" data-modal-close aria-label="Close">
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-x"></use></svg>
+                </button>
+            </div>
+            <form class="ui-modal-body ui-stack" id="addForm" novalidate>
+                <div class="add-sheet-head" id="addSubject"></div>
+                <p class="ui-hint" id="addArtistNote" hidden></p>
+                <div class="ui-stack" id="addProfileFields">
+                    <div class="ui-field">
+                        <label class="ui-label" for="addRoot">Root folder</label>
+                        <select class="ui-select" id="addRoot"></select>
+                    </div>
+                    <div class="ui-field">
+                        <label class="ui-label" for="addQuality">Quality profile</label>
+                        <select class="ui-select" id="addQuality"></select>
+                    </div>
+                    <div class="ui-field">
+                        <label class="ui-label" for="addMetadata">Metadata profile</label>
+                        <select class="ui-select" id="addMetadata" aria-describedby="addMetadataHint"></select>
+                        <p class="ui-hint" id="addMetadataHint">Decides which release types (albums, singles, EPs…) Lidarr lists for the artist.</p>
+                    </div>
+                </div>
+                <div class="ui-stack" id="addArtistFields">
+                    <div class="ui-field">
+                        <label class="ui-label" for="addMonitor">Monitor</label>
+                        <select class="ui-select" id="addMonitor" aria-describedby="addMonitorHint">
+                            <option value="all">All albums</option>
+                            <option value="missing">Missing albums</option>
+                            <option value="existing">Existing albums</option>
+                            <option value="future">Future albums only</option>
+                            <option value="latest">Latest album</option>
+                            <option value="first">First album</option>
+                            <option value="none">None</option>
+                        </select>
+                        <p class="ui-hint" id="addMonitorHint">Monitored albums without files show up in the Library as missing, ready to download.</p>
+                    </div>
+                    <div class="ui-field">
+                        <label class="ui-label" for="addNewItems">New releases</label>
+                        <select class="ui-select" id="addNewItems">
+                            <option value="all">Monitor all new albums</option>
+                            <option value="new">Monitor new albums only</option>
+                            <option value="none">Don't monitor new albums</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="add-switch-row" id="addDownloadRow">
+                    <div>
+                        <div class="ui-label" id="addDownload-label">Download now</div>
+                        <p class="ui-hint" id="addDownload-desc">Queue it here as soon as Lidarr has loaded the tracklist.</p>
+                    </div>
+                    <label class="ui-switch"><input type="checkbox" role="switch" id="addDownload" aria-labelledby="addDownload-label" aria-describedby="addDownload-desc" checked><span class="ui-switch-track"></span></label>
+                </div>
+                <p class="ui-error-text" id="addError" role="alert"></p>
+            </form>
+            <div class="ui-modal-foot">
+                <button type="button" class="ui-btn ui-btn-secondary" data-modal-close>Cancel</button>
+                <button type="submit" form="addForm" class="ui-btn ui-btn-primary" id="addSubmit">
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-plus"></use></svg>
+                    <span id="addSubmitLabel">Add</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const $ = (id) => document.getElementById(id);
+        const esc = (v) => UI.escape(v);
+        const STORE_KEY = "addMusicPrefs";
+        const KIND_COPY = {
+            artist: { placeholder: "Artist name", noun: "artist", nouns: "artists" },
+            album: { placeholder: "Album title, optionally with the artist", noun: "album", nouns: "albums" },
+        };
+
+        let kind = "artist";
+        let results = [];
+        let options = null;
+        let current = null;
+        let searchSeq = 0;
+        let debounce = null;
+        let lastTerm = "";
+        let pendingPoll = null;
+
+        function readPrefs() {
+            try {
+                return JSON.parse(localStorage.getItem(STORE_KEY) || "{}") || {};
+            } catch (e) {
+                return {};
+            }
+        }
+
+        function writePrefs(prefs) {
+            try {
+                localStorage.setItem(STORE_KEY, JSON.stringify(prefs));
+            } catch (e) {
+            }
+        }
+
+        function emptyArt(name) {
+            const paths = {
+                search: '<circle cx="38" cy="38" r="20"/><path d="M53 53l15 15"/>',
+                error: '<circle cx="44" cy="44" r="26"/><path d="M44 31v16M44 56v1"/>',
+                empty: '<circle cx="44" cy="44" r="26"/><circle cx="44" cy="44" r="7"/>',
+            };
+            return '<div class="ui-empty-art"><svg viewBox="0 0 88 88" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths[name] + "</svg></div>";
+        }
+
+        function setStatus(text) {
+            $("searchStatus").textContent = text;
+        }
+
+        function renderIntro() {
+            $("results").innerHTML = `<div class="ui-card"><div class="ui-empty">${emptyArt("search")}
+                <div class="ui-empty-title">Search MusicBrainz</div>
+                <div class="ui-empty-text">Look up an ${esc(KIND_COPY[kind].noun)} and add it to Lidarr. Missing albums then appear in the Library, ready to download.</div>
+            </div></div>`;
+        }
+
+        function renderSkeleton() {
+            let html = '<div class="ui-album-grid" aria-hidden="true">';
+            for (let i = 0; i < 8; i++) {
+                html += '<div class="ui-album' + (kind === "artist" ? " add-artist" : "") + '"><div class="ui-skeleton ui-skeleton-cover"></div><div class="ui-album-text"><div class="ui-skeleton ui-skeleton-title"></div><div class="ui-skeleton ui-skeleton-text"></div></div></div>';
+            }
+            $("results").innerHTML = html + "</div>";
+        }
+
+        function renderError(message) {
+            const needsSetup = /not configured|authentication|cannot connect/i.test(message);
+            $("results").innerHTML = `<div class="ui-card" role="alert"><div class="ui-empty">${emptyArt("error")}
+                <div class="ui-empty-title">Search failed</div>
+                <div class="ui-empty-text">${esc(message)}</div>
+                <div class="ui-empty-actions">
+                    <button type="button" class="ui-btn ui-btn-tinted" data-action="retry">${UI.icon("refresh")}Retry</button>
+                    ${needsSetup ? `<a class="ui-btn ui-btn-secondary" href="/setup">${UI.icon("plug")}Check Lidarr connection</a>` : ""}
+                </div>
+            </div></div>`;
+        }
+
+        function coverHtml(url) {
+            if (!url) return '<span class="ui-album-cover-fallback">' + UI.icon(kind === "artist" ? "user" : "disc") + "</span>";
+            return `<img src="${esc(url)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" width="300" height="300" onerror="coverFailed(this)">`;
+        }
+
+        function coverFailed(img) {
+            const span = document.createElement("span");
+            span.className = "ui-album-cover-fallback";
+            span.innerHTML = UI.icon(img.closest(".add-artist") ? "user" : "disc");
+            img.replaceWith(span);
+        }
+
+        function artistCard(item, index) {
+            const name = esc(item.name);
+            const sub = [item.disambiguation, item.type].filter(Boolean).map(esc).join(" · ");
+            const meta = item.inLibrary && item.albumCount != null
+                ? `${Number(item.albumCount)} album${Number(item.albumCount) === 1 ? "" : "s"}`
+                : esc((item.genres || []).slice(0, 2).join(" · "));
+            const action = item.inLibrary
+                ? `<a class="ui-btn ui-btn-sm ui-btn-secondary" href="/?q=${encodeURIComponent(item.name)}">${UI.icon("library")}<span>In library</span></a>`
+                : `<button type="button" class="ui-btn ui-btn-sm ui-btn-tinted" data-action="add" data-index="${index}" aria-haspopup="dialog" aria-label="${esc("Add " + item.name)}">${UI.icon("plus")}<span>Add artist</span></button>`;
+            return `<article class="ui-album add-artist">
+                <div class="ui-album-cover add-cover">${coverHtml(item.image)}</div>
+                <div class="ui-album-text">
+                    <div class="ui-album-title" title="${name}"><bdi>${name}</bdi></div>
+                    <div class="add-card-sub" title="${sub}">${sub || "&nbsp;"}</div>
+                    <div class="ui-album-meta">${meta || "&nbsp;"}</div>
+                    <div class="add-card-actions">${action}</div>
+                </div>
+            </article>`;
+        }
+
+        function albumBadge(item) {
+            if (!item.inLibrary) return "";
+            if (item.missingTracks === 0) return '<span class="ui-album-badge"><span class="ui-badge">Complete</span></span>';
+            if (!item.monitored) return '<span class="ui-album-badge"><span class="ui-badge">Not monitored</span></span>';
+            return '<span class="ui-album-badge"><span class="ui-badge">In library</span></span>';
+        }
+
+        function albumCard(item, index) {
+            const title = esc(item.title);
+            const artist = esc(item.artistName);
+            const type = [item.type].concat(item.secondaryTypes || []).filter(Boolean).join(" · ");
+            const meta = esc([
+                item.year,
+                type,
+                item.trackCount ? `${Number(item.trackCount)} tracks` : "",
+            ].filter(Boolean).join(" · "));
+            let action;
+            if (!item.inLibrary) {
+                action = `<button type="button" class="ui-btn ui-btn-sm ui-btn-tinted" data-action="add" data-index="${index}" aria-haspopup="dialog" aria-label="${esc("Add " + item.title + " by " + item.artistName)}">${UI.icon("plus")}<span>Add album</span></button>`;
+            } else if (item.missingTracks === 0) {
+                action = `<button type="button" class="ui-btn ui-btn-sm ui-btn-secondary" disabled>${UI.icon("check")}<span>Complete</span></button>`;
+            } else {
+                action = `<button type="button" class="ui-btn ui-btn-sm ui-btn-tinted" data-action="download" data-index="${index}" aria-label="${esc("Download " + item.title + " by " + item.artistName)}">${UI.icon("download")}<span>${item.monitored ? "Download" : "Monitor & download"}</span></button>`;
+            }
+            return `<article class="ui-album">
+                <div class="ui-album-cover add-cover">${coverHtml(item.image)}${albumBadge(item)}</div>
+                <div class="ui-album-text">
+                    <div class="ui-album-title" title="${title}"><bdi>${title}</bdi></div>
+                    <div class="ui-album-artist" title="${artist}"><bdi>${artist}</bdi></div>
+                    <div class="ui-album-meta">${meta || "&nbsp;"}</div>
+                    <div class="add-card-actions">${action}</div>
+                </div>
+            </article>`;
+        }
+
+        function renderResults(term) {
+            const copy = KIND_COPY[kind];
+            if (!results.length) {
+                $("results").innerHTML = `<div class="ui-card"><div class="ui-empty">${emptyArt("empty")}
+                    <div class="ui-empty-title">No ${esc(copy.nouns)} found</div>
+                    <div class="ui-empty-text">MusicBrainz has no ${esc(copy.noun)} matching “<bdi>${esc(term)}</bdi>”. Check the spelling${kind === "album" ? " or add the artist's name" : ""}.</div>
+                </div></div>`;
+                setStatus(`No ${copy.nouns} found`);
+                return;
+            }
+            const card = kind === "artist" ? artistCard : albumCard;
+            $("results").innerHTML = `<div class="add-results-head"><span class="num">${results.length} ${results.length === 1 ? copy.noun : copy.nouns}</span><span>Results from MusicBrainz via Lidarr</span></div>
+                <div class="ui-album-grid">${results.map(card).join("")}</div>`;
+            setStatus(`${results.length} ${results.length === 1 ? copy.noun : copy.nouns} found`);
+        }
+
+        async function runSearch() {
+            const term = $("searchInput").value.trim();
+            clearTimeout(debounce);
+            if (term.length < 2) {
+                searchSeq++;
+                lastTerm = "";
+                results = [];
+                renderIntro();
+                setStatus("");
+                return;
+            }
+            const seq = ++searchSeq;
+            lastTerm = term;
+            renderSkeleton();
+            setStatus("Searching…");
+            try {
+                const data = await UI.fetchJSON(`/api/library/search?type=${kind}&term=${encodeURIComponent(term)}`);
+                if (seq !== searchSeq) return;
+                results = (data && data.results) || [];
+                renderResults(term);
+            } catch (e) {
+                if (seq !== searchSeq) return;
+                renderError(e.message || "Lidarr did not answer.");
+                setStatus("Search failed");
+            }
+        }
+
+        function scheduleSearch() {
+            clearTimeout(debounce);
+            debounce = setTimeout(runSearch, 450);
+        }
+
+        function setKind(next) {
+            if (next === kind) return;
+            kind = next;
+            document.querySelectorAll("[data-kind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === kind)));
+            $("searchInput").placeholder = KIND_COPY[kind].placeholder;
+            const url = new URL(location.href);
+            url.searchParams.set("type", kind);
+            history.replaceState(null, "", url);
+            if ($("searchInput").value.trim().length >= 2) runSearch(); else renderIntro();
+        }
+
+        function fillSelect(select, items, value, label) {
+            select.innerHTML = items.map((it) => `<option value="${esc(it.value)}">${esc(label(it))}</option>`).join("");
+            if (value != null && items.some((it) => String(it.value) === String(value))) select.value = String(value);
+        }
+
+        function formatSpace(bytes) {
+            const n = Number(bytes);
+            if (!n) return "";
+            const gb = n / 1073741824;
+            return gb >= 1024 ? (gb / 1024).toFixed(1) + " TB free" : Math.round(gb) + " GB free";
+        }
+
+        function applyFolderDefaults(prefs) {
+            const folder = options.rootFolders.find((f) => f.path === $("addRoot").value) || {};
+            const quality = prefs.qualityProfileId || folder.defaultQualityProfileId;
+            const metadata = prefs.metadataProfileId || folder.defaultMetadataProfileId;
+            fillSelect($("addQuality"), options.qualityProfiles.map((q) => ({ value: q.id, name: q.name })), quality, (q) => q.name);
+            fillSelect($("addMetadata"), options.metadataProfiles.map((m) => ({ value: m.id, name: m.name })), metadata, (m) => m.name);
+        }
+
+        async function loadOptions() {
+            if (options) return options;
+            options = await UI.fetchJSON("/api/library/options");
+            return options;
+        }
+
+        function subjectHtml(item) {
+            const img = item.image ? `<img src="${esc(item.image)}" alt="" referrerpolicy="no-referrer" width="88" height="88" onerror="this.remove()">` : UI.icon(current.kind === "artist" ? "user" : "disc");
+            const title = current.kind === "artist" ? item.name : item.title;
+            const sub = current.kind === "artist"
+                ? [item.disambiguation, item.type].filter(Boolean).join(" · ")
+                : [item.artistName, item.year].filter(Boolean).join(" · ");
+            return `<span class="ui-artwork">${img}</span><div class="add-sheet-text"><div class="add-sheet-title"><bdi>${esc(title)}</bdi></div><div class="t-footnote t-3"><bdi>${esc(sub)}</bdi></div></div>`;
+        }
+
+        async function openAdd(index) {
+            const item = results[index];
+            if (!item) return;
+            current = { kind, item };
+            const isArtist = kind === "artist";
+            const newArtist = isArtist || !item.artistInLibrary;
+            $("addModal-title").textContent = isArtist ? "Add artist" : "Add album";
+            $("addSubject").innerHTML = subjectHtml(item);
+            $("addSubmitLabel").textContent = isArtist ? "Add artist" : "Add album";
+            $("addArtistFields").hidden = !isArtist;
+            $("addDownloadRow").hidden = isArtist;
+            $("addProfileFields").hidden = !newArtist;
+            $("addArtistNote").hidden = newArtist;
+            $("addArtistNote").textContent = newArtist ? "" : `${item.artistName} is already in your library; the album is added to it.`;
+            if (!isArtist && newArtist) {
+                $("addArtistNote").hidden = false;
+                $("addArtistNote").textContent = `${item.artistName} is added too, with only this album monitored.`;
+            }
+            $("addError").textContent = "";
+            const prefs = readPrefs();
+            $("addMonitor").value = prefs.monitor || "all";
+            $("addNewItems").value = prefs.monitorNewItems || "all";
+            $("addDownload").checked = prefs.download !== false;
+            $("addSubmit").disabled = newArtist;
+            UI.openModal("addModal");
+            if (!newArtist) return;
+            try {
+                await loadOptions();
+                if (!options.rootFolders.length) {
+                    $("addError").textContent = "Lidarr has no root folder yet. Add one in Lidarr under Settings → Media Management.";
+                    return;
+                }
+                fillSelect($("addRoot"), options.rootFolders.map((f) => ({ value: f.path, name: f.name, space: f.freeSpace })), prefs.rootFolderPath, (f) => f.value + (formatSpace(f.space) ? " — " + formatSpace(f.space) : ""));
+                applyFolderDefaults(prefs);
+                $("addSubmit").disabled = false;
+            } catch (e) {
+                options = null;
+                $("addError").textContent = e.message || "Could not read Lidarr's settings.";
+            }
+        }
+
+        function markAdded(item, patch) {
+            Object.assign(item, patch);
+            renderResults(lastTerm);
+        }
+
+        async function submitAdd(ev) {
+            ev.preventDefault();
+            if (!current || $("addSubmit").disabled) return;
+            const { item } = current;
+            const isArtist = current.kind === "artist";
+            const body = {};
+            if (!$("addProfileFields").hidden) {
+                body.rootFolderPath = $("addRoot").value;
+                body.qualityProfileId = Number($("addQuality").value);
+                body.metadataProfileId = Number($("addMetadata").value);
+            }
+            if (isArtist) {
+                body.foreignArtistId = item.foreignArtistId;
+                body.monitor = $("addMonitor").value;
+                body.monitorNewItems = $("addNewItems").value;
+            } else {
+                body.foreignAlbumId = item.foreignAlbumId;
+                body.download = $("addDownload").checked;
+            }
+            $("addError").textContent = "";
+            await UI.guard($("addSubmit"), async () => {
+                try {
+                    const prefs = Object.assign(readPrefs(), {
+                        rootFolderPath: body.rootFolderPath || readPrefs().rootFolderPath,
+                        qualityProfileId: body.qualityProfileId || readPrefs().qualityProfileId,
+                        metadataProfileId: body.metadataProfileId || readPrefs().metadataProfileId,
+                    });
+                    if (isArtist) {
+                        const data = await UI.fetchJSON("/api/library/artist", { method: "POST", body });
+                        prefs.monitor = body.monitor;
+                        prefs.monitorNewItems = body.monitorNewItems;
+                        writePrefs(prefs);
+                        UI.closeModal("addModal");
+                        markAdded(item, { inLibrary: true, id: data.artist.id, albumCount: null });
+                        UI.toast(body.monitor === "none"
+                            ? `${item.name} added to Lidarr.`
+                            : `${item.name} added. Its missing albums appear in the Library once Lidarr has loaded them.`, { type: "success" });
+                    } else {
+                        const data = await UI.fetchJSON("/api/library/album", { method: "POST", body });
+                        prefs.download = body.download;
+                        writePrefs(prefs);
+                        UI.closeModal("addModal");
+                        markAdded(item, { inLibrary: true, monitored: true, id: data.album.id, missingTracks: null, artistInLibrary: true });
+                        UI.toast(body.download
+                            ? `${item.title} added — it will be queued as soon as Lidarr has its tracklist.`
+                            : `${item.title} added. It appears in the Library after the next sync.`, { type: "success" });
+                        if (data.album.queued) refreshPending();
+                    }
+                } catch (e) {
+                    if (e.status === 409) {
+                        $("addError").textContent = e.message;
+                        return;
+                    }
+                    $("addError").textContent = e.message || "Lidarr could not add it.";
+                }
+            }, "Adding…");
+        }
+
+        async function downloadExisting(index, btn) {
+            const item = results[index];
+            if (!item) return;
+            await UI.guard(btn, async () => {
+                try {
+                    await UI.fetchJSON("/api/library/album", { method: "POST", body: { foreignAlbumId: item.foreignAlbumId, download: true } });
+                    markAdded(item, { monitored: true });
+                    UI.toast(`${item.title} will be added to the download queue.`, { type: "success", action: { label: "Downloads", onClick: () => { location.href = "/downloads"; } } });
+                    refreshPending();
+                } catch (e) {
+                    UI.toast(e.message || "Could not queue the album.", { type: "error" });
+                }
+            });
+        }
+
+        const PENDING_TEXT = {
+            waiting: "waiting for Lidarr's tracklist…",
+            queued: "added to the download queue",
+            timeout: "tracklist not ready yet — queue it from the Library later",
+            failed: "could not be queued",
+        };
+
+        async function refreshPending() {
+            let data;
+            try {
+                data = await UI.fetchJSON("/api/library/pending");
+            } catch (e) {
+                return;
+            }
+            const items = (data && data.pending) || [];
+            $("pendingBox").hidden = !items.length;
+            $("pendingList").innerHTML = items.slice(0, 5).map((p) => {
+                const name = [p.artistName, p.title].filter(Boolean).join(" — ") || `Album ${Number(p.albumId)}`;
+                return `<li><bdi>${esc(name)}</bdi>: ${esc(PENDING_TEXT[p.state] || p.message || p.state)}</li>`;
+            }).join("");
+            const waiting = items.some((p) => p.state === "waiting");
+            if (waiting && !pendingPoll) {
+                pendingPoll = UI.poll(refreshPending, 5000, { immediate: false });
+            } else if (!waiting && pendingPoll) {
+                pendingPoll.stop();
+                pendingPoll = null;
+            }
+        }
+
+        document.querySelectorAll("[data-kind]").forEach((b) => b.addEventListener("click", () => setKind(b.dataset.kind)));
+        $("searchForm").addEventListener("submit", (ev) => {
+            ev.preventDefault();
+            runSearch();
+        });
+        $("searchInput").addEventListener("input", scheduleSearch);
+        $("results").addEventListener("click", (ev) => {
+            const btn = ev.target.closest("[data-action]");
+            if (!btn) return;
+            const index = Number(btn.dataset.index);
+            if (btn.dataset.action === "add") openAdd(index);
+            else if (btn.dataset.action === "download") downloadExisting(index, btn);
+            else if (btn.dataset.action === "retry") runSearch();
+        });
+        $("addRoot").addEventListener("change", () => applyFolderDefaults({}));
+        $("addForm").addEventListener("submit", submitAdd);
+
+        function init() {
+            const params = new URLSearchParams(location.search);
+            const initialKind = params.get("type") === "album" ? "album" : "artist";
+            kind = initialKind;
+            document.querySelectorAll("[data-kind]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.kind === kind)));
+            $("searchInput").placeholder = KIND_COPY[kind].placeholder;
+            const q = params.get("q");
+            if (q) {
+                $("searchInput").value = q;
+                runSearch();
+            } else {
+                renderIntro();
+                $("searchInput").focus();
+            }
+            refreshPending();
+        }
+
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+        else init();
+    </script>
+</body>
+</html>

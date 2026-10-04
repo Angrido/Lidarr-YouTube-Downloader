@@ -644,7 +644,8 @@ code, kbd, pre, samp {
     .app-topbar { display: flex; }
     .app-tabbar {
         display: grid;
-        grid-template-columns: repeat(6, 1fr);
+        grid-auto-flow: column;
+        grid-auto-columns: minmax(0, 1fr);
         position: fixed;
         left: 0;
         right: 0;

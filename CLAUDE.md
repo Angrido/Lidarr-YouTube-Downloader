@@ -81,6 +81,7 @@ docker run -p 5005:5000 \
 | `metadata.py` | ID3 tagging, XML sidecar, iTunes API |
 | `lidarr.py` | Lidarr API wrapper |
 | `lidarr_sync.py` | Background paginated sync of Lidarr's missing albums into `missing_albums_cache` |
+| `library.py` | Search MusicBrainz through Lidarr's lookup API and add artists/albums to Lidarr from the app (`/add`) |
 | `notifications.py` | Telegram/Discord webhooks, Ntfy push |
 | `config.py` | Config load/save, constants |
 | `scheduler.py` | Scheduled polling/auto-download |
@@ -277,6 +278,27 @@ Vorbis Comments (Opus) invert the ID3 naming: on disk `musicbrainz_trackid`
 holds the **recording** id and `musicbrainz_releasetrackid` holds the
 release-track id, so `tag_opus()` deliberately does not mirror `tag_mp3()`.
 
+### Adding artists and albums (`library.py`)
+
+Everything goes through Lidarr's own API, so Lidarr stays the single source
+of truth and its metadata server does the MusicBrainz lookups:
+`GET artist/lookup` / `album/lookup?term=` (a `lidarr:<mbid>` term resolves
+one id), `POST artist`, `POST album` (Lidarr adds an unknown artist itself;
+we send it with `addOptions.monitor = "none"` so only that album is
+monitored), and `PUT album/monitor` for an album already in the library but
+unmonitored. An item counts as "in library" when the lookup returns an `id`
+> 0. The server re-looks up the MBID instead of trusting a client payload and
+validates root folder / profiles against Lidarr (the reserved "None"
+metadata profile is hidden). It never asks Lidarr to search its indexers
+(`searchForMissingAlbums` / `searchForNewAlbum` are false): downloads are
+this app's job. *Download now* starts `queue_when_ready()`, a thread that
+polls `GET track?albumId=` until Lidarr has loaded the tracklist (up to 4
+minutes) and then `models.enqueue_album(force=True)`; its state is served by
+`/api/library/pending`. Each add also schedules `lidarr_sync.trigger_sync()`
+after 15 s and 90 s so the Library shows the new missing albums.
+`lidarr_request()` supports `PUT` and turns Lidarr's 400 validation list into
+a readable `"Lidarr rejected the request: …"` error.
+
 ### Notifications
 
 Telegram, Discord webhooks, and Ntfy push notifications, filtered by `log_type` (e.g., `partial_success`, `album_error`). Ntfy is called with a JSON body on the **server root** (`POST {ntfy_url}/`, topic inside the JSON — ntfy ignores JSON posted to `/<topic>`) and an integer priority (1–5). Exception messages are logged through `_redact()` so bot tokens / webhook tokens never reach the logs.
@@ -336,6 +358,15 @@ variables, theme toggles, navigation or Font Awesome**.
   copy of the DB; `/api/backup/import` validates the upload, atomically
   replaces the DB, and restarts — refused while any download is active).
 - `templates/youtube.html` — manual YouTube URL / playlist import.
+- `templates/add.html` — **Add music** (`/add`): search artists or albums
+  (`/api/library/search?type=artist|album&term=`), then add them to Lidarr
+  in a sheet with root folder, quality and metadata profile (defaults from
+  the root folder, last choice remembered in `localStorage.addMusicPrefs`),
+  artist monitor / new-release options, and for albums a *Download now*
+  switch. Reachable from the sidebar and the Library header; the phone tab
+  bar has no room for it, so `_nav.html` skips the `add` item there and
+  highlights Library instead. The Library accepts `/?q=` to pre-fill its
+  search.
 - `templates/setup.html` — first-run setup wizard (`/setup`, no nav); the
   dashboard redirects unconfigured instances here (client-side, skippable).
 - `static/favicon.svg` + PNG icons (`apple-touch-icon.png`, `icon-192.png`,
@@ -364,7 +395,7 @@ Standalone scripts not part of the main app:
 
 ## Version Updates
 
-The version string is defined in `version.py`: `VERSION = "2.0.1"`. The README badge also references it and must be updated manually.
+The version string is defined in `version.py`: `VERSION = "2.1.0"`. The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 
@@ -378,4 +409,4 @@ Run tests with the venv:
 source .venv/bin/activate && python -m pytest tests/ -v
 ```
 
-Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`.
+Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`.
