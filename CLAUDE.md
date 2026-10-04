@@ -81,7 +81,7 @@ docker run -p 5005:5000 \
 | `metadata.py` | ID3 tagging, XML sidecar, iTunes API |
 | `lidarr.py` | Lidarr API wrapper |
 | `lidarr_sync.py` | Background paginated sync of Lidarr's missing albums into `missing_albums_cache` |
-| `library.py` | Search MusicBrainz through Lidarr's lookup API and add artists/albums to Lidarr from the app (`/add`) |
+| `library.py` | Lidarr lookup / add API used by Explore: MusicBrainz search through Lidarr, add artists/albums, monitor, queue when the tracklist is ready |
 | `explore.py` | Explore catalog: shared YT Music client, TTL cache, normalizers + raw-shelf fallback parser, YT Music → MusicBrainz/Lidarr mapping, add / YouTube-import actions (`/explore`) |
 | `notifications.py` | Telegram/Discord webhooks, Ntfy push |
 | `config.py` | Config load/save, constants |
@@ -293,10 +293,12 @@ unmonitored. An item counts as "in library" when the lookup returns an `id`
 validates root folder / profiles against Lidarr (the reserved "None"
 metadata profile is hidden). It never asks Lidarr to search its indexers
 (`searchForMissingAlbums` / `searchForNewAlbum` are false): downloads are
-this app's job. *Download now* starts `queue_when_ready()`, a thread that
+this app's job. A download request starts `queue_when_ready()`, a thread that
 polls `GET track?albumId=` until Lidarr has loaded the tracklist (up to 4
-minutes) and then `models.enqueue_album(force=True)`; its state is served by
-`/api/library/pending`. Each add also schedules `lidarr_sync.trigger_sync()`
+minutes) and then `models.enqueue_album(force=True)`. The only HTTP route left
+here is `/api/library/options` (root folders / profiles for Explore's sliders
+button); the old **Add music** page is gone and `/add` 301-redirects to
+`/explore` (keeping `?q=`). Each add also schedules `lidarr_sync.trigger_sync()`
 after 15 s and 90 s so the Library shows the new missing albums.
 `lidarr_request()` supports `PUT` and turns Lidarr's 400 validation list into
 a readable `"Lidarr rejected the request: …"` error.
@@ -376,6 +378,18 @@ captured live. So:
   `POST …/stop` (stops after the current release). Explore album imports
   use the same layout; `_execute_playlist_download` takes `release_year`
   and embeds the saved cover in every file.
+- **Artist image** (`metadata.ensure_artist_image`): after any successful
+  download for an artist — a Lidarr album (`processing._ensure_artist_image`
+  on the final artist folder, i.e. the library copy when `lidarr_path` is
+  set; skipped for download-client grabs), a YouTube import into an
+  `Artist/Release` folder (`app._ensure_import_artist_image`) or an artist
+  import — the artist folder gets `artist.jpg` + `folder.jpg` **only if it
+  has no artist/folder image yet** (any of jpg/jpeg/png, case-insensitive);
+  an existing one is never touched. Sources in order: Lidarr's artist
+  `poster` remoteUrl (or the YT Music artist art for artist imports),
+  Deezer's artist search (exact name), then YT Music's artist search
+  (`explore.artist_image_for_name`). Tests stub the two network lookups in
+  `tests/conftest.py`; mark a test `real_artist_image` to keep them.
 - **Endpoints**: `GET /api/explore/home?country=`, `/charts?country=`,
   `/moods`, `/mood/<params>`, `/artist/<id>`, `/album/<id>`,
   `/playlist/<id>`, `/search?q=`, `/suggestions?q=`,
@@ -451,15 +465,8 @@ variables, theme toggles, navigation or Font Awesome**.
   copy of the DB; `/api/backup/import` validates the upload, atomically
   replaces the DB, and restarts — refused while any download is active).
 - `templates/youtube.html` — manual YouTube URL / playlist import.
-- `templates/add.html` — **Add music** (`/add`): search artists or albums
-  (`/api/library/search?type=artist|album&term=`), then add them to Lidarr
-  in a sheet with root folder, quality and metadata profile (defaults from
-  the root folder, last choice remembered in `localStorage.addMusicPrefs`),
-  artist monitor / new-release options, and for albums a *Download now*
-  switch. Reachable from the sidebar and the Library header; the phone tab
-  bar has no room for it, so `_nav.html` skips the `add` item there and
-  highlights Library instead. The Library accepts `/?q=` to pre-fill its
-  search.
+- The Library accepts `/?q=` to pre-fill its search; its header and empty
+  state link to Explore.
 - `templates/explore.html` — **Explore** (`/explore`), a client-routed
   page: `?album=`, `?artist=`, `?playlist=`, `?mood=&title=`, `?q=` are deep
   links (history API, `a[data-route]` links). Home shelves (`.ui-shelf`):
@@ -504,7 +511,7 @@ Standalone scripts not part of the main app:
 
 ## Version Updates
 
-The version string is defined in `version.py`: `VERSION = "2.2.0"`. The README badge also references it and must be updated manually.
+The version string is defined in `version.py`: `VERSION = "2.0.0"` (the whole 2.0 line is one beta release; bump only after it is published on main). The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 

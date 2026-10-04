@@ -974,3 +974,77 @@ class TestMusicBrainzFrames:
         assert store["musicbrainz_albumartistid"] == ["art-789"]
         assert store["musicbrainz_artistid"] == ["art-789"]
         assert store["releasecountry"] == ["US"]
+
+
+class TestEnsureArtistImage:
+    class Resp:
+        def __init__(self, status=200, content=b"\xff\xd8\xff\xe0JPEG", ctype="image/jpeg"):
+            self.status_code = status
+            self.content = content
+            self.headers = {"Content-Type": ctype}
+
+    def test_existing_image_is_left_alone(self, tmp_path, monkeypatch):
+        import metadata
+        (tmp_path / "Folder.JPG").write_bytes(b"old")
+        monkeypatch.setattr(metadata.requests, "get", lambda *a, **k: pytest.fail("no download"))
+        assert metadata.ensure_artist_image(str(tmp_path), "A", ["https://x/y.jpg"]) == "exists"
+        assert not (tmp_path / "artist.jpg").exists()
+
+    def test_downloads_first_working_url(self, tmp_path, monkeypatch):
+        import metadata
+        seen = []
+
+        def fake_get(url, **k):
+            seen.append(url)
+            return self.Resp(404) if "bad" in url else self.Resp()
+
+        monkeypatch.setattr(metadata.requests, "get", fake_get)
+        result = metadata.ensure_artist_image(
+            str(tmp_path), "A", ["/MediaCover/1/poster.jpg", "https://img/bad.jpg", "https://img/good.jpg"],
+        )
+        assert result == "saved"
+        assert seen == ["https://img/bad.jpg", "https://img/good.jpg"]
+        assert (tmp_path / "artist.jpg").read_bytes().startswith(b"\xff\xd8")
+        assert (tmp_path / "folder.jpg").exists()
+
+    def test_falls_back_to_deezer_then_callables(self, tmp_path, monkeypatch):
+        import metadata
+        order = []
+        monkeypatch.setattr(metadata, "get_deezer_artist_image", lambda name: order.append("deezer") or None)
+        monkeypatch.setattr(metadata.requests, "get", lambda url, **k: order.append(url) or self.Resp())
+        result = metadata.ensure_artist_image(
+            str(tmp_path), "Zo killeuh", [], fallbacks=(lambda: "https://yt3.googleusercontent.com/a=w1200-h1200",),
+        )
+        assert result == "saved"
+        assert order == ["deezer", "https://yt3.googleusercontent.com/a=w1200-h1200"]
+
+    def test_nothing_found(self, tmp_path, monkeypatch):
+        import metadata
+        monkeypatch.setattr(metadata.requests, "get", lambda *a, **k: self.Resp(200, b"<html>", "text/html"))
+        assert metadata.ensure_artist_image(str(tmp_path), "A", ["https://x/y"]) == "missing"
+        assert list(tmp_path.iterdir()) == []
+
+    def test_missing_folder(self, tmp_path):
+        import metadata
+        assert metadata.ensure_artist_image(str(tmp_path / "nope"), "A") == "missing"
+
+    @pytest.mark.real_artist_image
+    def test_deezer_artist_exact_name_only(self, monkeypatch):
+        import metadata
+        real = metadata.get_deezer_artist_image
+        calls = []
+
+        class JsonResp:
+            def json(self):
+                return {"data": [
+                    {"name": "Oasis Tribute", "picture_xl": "https://e/tribute.jpg"},
+                    {"name": "OASIS", "picture_xl": "https://e/oasis.jpg"},
+                ]}
+
+        def fake_get(url, **k):
+            calls.append(url)
+            return JsonResp() if "search" in url else self.Resp()
+
+        monkeypatch.setattr(metadata.requests, "get", fake_get)
+        assert real("Oasis").startswith(b"\xff\xd8")
+        assert calls[-1] == "https://e/oasis.jpg"

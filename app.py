@@ -22,6 +22,7 @@ from flask import (
     Flask,
     Response,
     jsonify,
+    redirect,
     render_template,
     request,
     send_file,
@@ -49,7 +50,12 @@ from downloader import (
 )
 from fingerprint import fingerprint_track
 from lidarr import get_missing_albums, lidarr_request
-from metadata import create_xml_metadata, get_itunes_tracks, tag_audio_file
+from metadata import (
+    create_xml_metadata,
+    ensure_artist_image,
+    get_itunes_tracks,
+    tag_audio_file,
+)
 from notifications import send_notifications
 from processing import (
     any_download_active,
@@ -203,30 +209,12 @@ def insights():
 
 @app.route("/add")
 def add_music():
-    return render_template("add.html")
+    query = (request.args.get("q") or "").strip()
+    return redirect("/explore" + (f"?q={urllib.parse.quote(query)}" if query else ""), code=301)
 
 
 def _library_error(e):
     return jsonify({"success": False, "message": e.message}), e.status
-
-
-@app.route("/api/library/search")
-def api_library_search():
-    client_ip = request.remote_addr or "unknown"
-    if not check_rate_limit(
-        f"library_search:{client_ip}", rate_limit_store,
-        window=10, max_requests=20,
-    ):
-        return jsonify(
-            {"success": False, "message": "Too many searches, please slow down"}
-        ), 429
-    try:
-        results = library.search(
-            request.args.get("type", "artist"), request.args.get("term", ""),
-        )
-    except library.LibraryError as e:
-        return _library_error(e)
-    return jsonify({"success": True, "results": results})
 
 
 @app.route("/api/library/options")
@@ -235,29 +223,6 @@ def api_library_options():
         return jsonify({"success": True, **library.get_add_options()})
     except library.LibraryError as e:
         return _library_error(e)
-
-
-@app.route("/api/library/artist", methods=["POST"])
-def api_library_add_artist():
-    try:
-        artist = library.add_artist(_json_object())
-    except library.LibraryError as e:
-        return _library_error(e)
-    return jsonify({"success": True, "artist": artist})
-
-
-@app.route("/api/library/album", methods=["POST"])
-def api_library_add_album():
-    try:
-        album = library.add_album(_json_object())
-    except library.LibraryError as e:
-        return _library_error(e)
-    return jsonify({"success": True, "album": album})
-
-
-@app.route("/api/library/pending")
-def api_library_pending():
-    return jsonify({"pending": library.pending_adds()})
 
 
 @app.route("/explore")
@@ -429,28 +394,6 @@ def _artist_import_state(channel_id, **fields):
         return dict(state)
 
 
-def _save_artist_image(url, artist_dir):
-    if not url or not _is_safe_stream_url(url):
-        return
-    import requests as req_lib
-    try:
-        resp = req_lib.get(
-            url, timeout=15,
-            headers={"User-Agent": USER_AGENT, "Referer": "https://music.youtube.com/"},
-        )
-        if resp.status_code != 200 or not resp.content:
-            return
-        for name in ("artist.jpg", "folder.jpg"):
-            path = os.path.join(artist_dir, name)
-            if os.path.exists(path):
-                continue
-            with open(path, "wb") as f:
-                f.write(resp.content)
-            set_permissions(path)
-    except Exception as e:
-        logger.debug("Artist image not saved: %s", e)
-
-
 def _run_artist_import(plan, artist_dir, config):
     channel_id = plan["artist_id"]
     artist_name = plan["artist_name"]
@@ -463,7 +406,7 @@ def _run_artist_import(plan, artist_dir, config):
             _artist_import_state(channel_id, state="failed", message=str(exc)[:200])
             return
         set_permissions(artist_dir)
-        _save_artist_image(plan.get("artist_image"), artist_dir)
+        _ensure_artist_dir_image(artist_dir, artist_name, [plan.get("artist_image") or ""])
         logutil.milestone(
             logger, "Explore: adding %s from YouTube (%d releases) into %s",
             artist_name, len(plan["releases"]), artist_dir, icon=logutil.ICON_APP,
@@ -3629,6 +3572,25 @@ def _launch_playlist_import(
     )
 
 
+def _ensure_import_artist_image(target_path, artist_name, album_title):
+    if not artist_name or not album_title:
+        return
+    artist_dir = os.path.dirname(os.path.normpath(target_path))
+    if os.path.basename(artist_dir) != sanitize_filename(artist_name):
+        return
+    _ensure_artist_dir_image(artist_dir, artist_name)
+
+
+def _ensure_artist_dir_image(artist_dir, artist_name, image_urls=()):
+    try:
+        ensure_artist_image(
+            artist_dir, artist_name, image_urls,
+            fallbacks=(lambda: explore.artist_image_for_name(artist_name),),
+        )
+    except Exception as e:
+        logger.debug("Artist image step failed for %s: %s", artist_name, e)
+
+
 def _maybe_scan_playlist_into_library(config, target_path, success_count):
     """Ask Lidarr to scan a finished playlist import into the library.
 
@@ -3946,6 +3908,8 @@ def _execute_playlist_download(
             )
 
         set_permissions(target_path)
+        if success_count > 0:
+            _ensure_import_artist_image(target_path, artist_name, album_title)
         _maybe_scan_playlist_into_library(config, target_path, success_count)
 
     except Exception as e:

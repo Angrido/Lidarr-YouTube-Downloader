@@ -1577,3 +1577,21 @@ def release_import(release, artist_name):
         "source_url": url,
         "year": release.get("year") or "",
     }
+
+
+def artist_image_for_name(name):
+    target = _fold(name or "").strip()
+    if not target:
+        return ""
+
+    def loader():
+        raws = call("search", name, filter="artists", limit=5) or []
+        for item in normalize_items(raws, kinds=("artist",)):
+            if _fold(item["title"]).strip() == target and item["thumbnail"]:
+                url = _unproxy(item["thumbnail"])
+                if "googleusercontent.com" in url and _SIZE_RE.search(url):
+                    url = _resize(url, 1200)
+                return url
+        return ""
+
+    return cached(("artist_image", target), PAGE_TTL, loader) or ""

@@ -629,9 +629,9 @@
                     </p>
                 </div>
                 <div class="page-actions lib-actions">
-                    <a class="ui-btn ui-btn-secondary" href="/add" id="addMusicBtn">
-                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-plus"></use></svg>
-                        Add music
+                    <a class="ui-btn ui-btn-secondary" href="/explore" id="exploreBtn">
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-compass"></use></svg>
+                        Explore
                     </a>
                     <button type="button" class="ui-btn ui-btn-secondary" id="checkConnBtn">
                         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-plug"></use></svg>
@@ -1111,7 +1111,7 @@
                 container.innerHTML = `<div class="ui-card"><div class="ui-empty">${emptyArt("complete")}
                     <div class="ui-empty-title">Your library is complete</div>
                     <div class="ui-empty-text">Lidarr has no missing albums right now. New releases show up here after the next sync.</div>
-                    <div class="ui-empty-actions"><a class="ui-btn ui-btn-tinted" href="/add">${UI.icon("plus")}Add music</a><button type="button" class="ui-btn ui-btn-secondary" data-action="sync">${UI.icon("refresh")}Sync again</button></div>
+                    <div class="ui-empty-actions"><a class="ui-btn ui-btn-tinted" href="/explore">${UI.icon("compass")}Find more music</a><button type="button" class="ui-btn ui-btn-secondary" data-action="sync">${UI.icon("refresh")}Sync again</button></div>
                 </div></div>`;
                 return;
             }

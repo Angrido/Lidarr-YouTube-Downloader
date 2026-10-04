@@ -32,7 +32,7 @@ from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
 from mutagen.oggopus import OggOpus
 
 from lidarr import get_monitored_release
-from utils import sanitize_filename
+from utils import sanitize_filename, set_permissions
 from version import USER_AGENT
 
 logger = logging.getLogger(__name__)
@@ -622,6 +622,91 @@ def get_deezer_artwork(artist, album):
     except Exception as e:
         logger.debug(f"Deezer artwork lookup failed: {e}")
     return None
+
+
+ARTIST_IMAGE_NAMES = (
+    "artist.jpg", "artist.jpeg", "artist.png",
+    "folder.jpg", "folder.jpeg", "folder.png",
+)
+
+
+def has_artist_image(artist_dir):
+    try:
+        names = {n.lower() for n in os.listdir(artist_dir)}
+    except OSError:
+        return False
+    return any(n in names for n in ARTIST_IMAGE_NAMES)
+
+
+def get_deezer_artist_image(artist):
+    name = (artist or "").strip()
+    if not name:
+        return None
+    try:
+        r = requests.get(
+            "https://api.deezer.com/search/artist",
+            params={"q": name, "limit": 5}, timeout=10,
+        )
+        for entry in (r.json() or {}).get("data", []) or []:
+            if (entry.get("name") or "").strip().casefold() != name.casefold():
+                continue
+            url = entry.get("picture_xl") or entry.get("picture_big") or ""
+            if not url or "/artist//" in url:
+                continue
+            data = _image_bytes(requests.get(url, timeout=15))
+            if data:
+                return data
+    except Exception as e:
+        logger.debug("Deezer artist image lookup failed: %s", e)
+    return None
+
+
+def _image_from_urls(urls):
+    for url in urls or ():
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            continue
+        try:
+            data = _image_bytes(requests.get(
+                url, timeout=15, headers={"User-Agent": USER_AGENT},
+            ))
+        except Exception as e:
+            logger.debug("Artist image fetch failed for %s: %s", url[:120], e)
+            continue
+        if data:
+            return data
+    return None
+
+
+def ensure_artist_image(artist_dir, artist_name, image_urls=(), fallbacks=()):
+    if not artist_dir or not os.path.isdir(artist_dir):
+        return "missing"
+    if has_artist_image(artist_dir):
+        return "exists"
+    data = _image_from_urls(image_urls)
+    if not data:
+        data = get_deezer_artist_image(artist_name)
+    for fallback in fallbacks or ():
+        if data:
+            break
+        try:
+            data = _image_from_urls([fallback()])
+        except Exception as e:
+            logger.debug("Artist image fallback failed: %s", e)
+    if not data:
+        return "missing"
+    written = False
+    for name in ("artist.jpg", "folder.jpg"):
+        path = os.path.join(artist_dir, name)
+        try:
+            with open(path, "wb") as f:
+                f.write(data)
+            set_permissions(path)
+            written = True
+        except OSError as e:
+            logger.warning("Could not write %s: %s", path, e)
+    if written:
+        logger.info("   Artist image saved for %s", artist_name)
+    return "saved" if written else "missing"
 
 
 _mb_rate_lock = threading.Lock()

@@ -3429,3 +3429,40 @@ class TestTrackLogLabels:
                 None, lambda: False, state,
             )
         assert seen == ["07"]
+
+
+class TestArtistImageAfterDownload:
+    def _run(self, monkeypatch, tmp_path, import_path):
+        import processing
+        calls, logs, seen = [], [], []
+        TestDeferredAlbumSkipsNetworkWork()._wire(monkeypatch, tmp_path, calls, logs)
+        album = TestDeferredAlbumSkipsNetworkWork()._album()
+        album["artist"]["images"] = [
+            {"coverType": "fanart", "remoteUrl": "https://img/fanart.jpg"},
+            {"coverType": "poster", "url": "/MediaCover/1/poster.jpg", "remoteUrl": "https://img/poster.jpg"},
+        ]
+        monkeypatch.setattr(processing, "lidarr_request", lambda *a, **k: album)
+        monkeypatch.setattr(
+            processing, "load_config",
+            lambda: {"track_retry_backoff": True, "max_track_retries": 0,
+                     "scheduler_retry_after_hours": 24, "audio_format": "mp3",
+                     "lidarr_path": str(tmp_path / "music")},
+        )
+        monkeypatch.setattr(processing, "_download_tracks", lambda *a, **k: ([], [{"title": "Song"}], 0, {}))
+        monkeypatch.setattr(processing, "_handle_post_download", lambda *a, **k: None)
+        monkeypatch.setattr(processing, "_copy_to_lidarr", lambda *a: (import_path, import_path, True))
+        monkeypatch.setattr(processing, "_log_import_result", lambda *a, **k: None)
+        monkeypatch.setattr(
+            processing, "ensure_artist_image",
+            lambda artist_dir, name, urls, fallbacks=(): seen.append((artist_dir, name, urls, len(fallbacks))) or "saved",
+        )
+        processing.process_album_download(77, ignore_backoff=True)
+        return seen
+
+    def test_saves_into_the_final_artist_folder(self, tmp_path, monkeypatch):
+        album_dir = str(tmp_path / "music" / "Art" / "A (2020)")
+        seen = self._run(monkeypatch, tmp_path, album_dir)
+        assert seen == [(str(tmp_path / "music" / "Art"), "Art", ["https://img/poster.jpg"], 1)]
+
+    def test_no_import_path_no_image(self, tmp_path, monkeypatch):
+        assert self._run(monkeypatch, tmp_path, "") == []

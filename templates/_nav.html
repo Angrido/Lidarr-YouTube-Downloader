@@ -1,6 +1,5 @@
 {% set nav_items = [
     ('home', '/', 'home', 'Library'),
-    ('add', '/add', 'plus', 'Add'),
     ('explore', '/explore', 'compass', 'Explore'),
     ('downloads', '/downloads', 'download', 'Downloads'),
     ('youtube', '/youtube', 'youtube', 'YouTube'),
@@ -30,8 +29,8 @@
     </div>
 </aside>
 <nav class="app-tabbar" aria-label="Main">
-    {% for key, href, ico, label in nav_items if key not in ('add', 'youtube') %}
-    <a class="app-tab" href="{{ href }}"{% if active_page == key or (key == 'home' and active_page == 'add') or (key == 'explore' and active_page == 'youtube') %} aria-current="page"{% endif %}>
+    {% for key, href, ico, label in nav_items if key != 'youtube' %}
+    <a class="app-tab" href="{{ href }}"{% if active_page == key or (key == 'explore' and active_page == 'youtube') %} aria-current="page"{% endif %}>
         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-{{ ico }}"></use></svg>
         <span class="app-tab-label">{{ label }}</span>
         {% if key == 'downloads' %}<span class="app-nav-live" data-nav-live hidden></span><span class="app-nav-badge" data-nav-queue data-count="0"></span>{% endif %}

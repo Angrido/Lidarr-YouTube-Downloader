@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.2.0
+## 2.0.0
 
 ### Added
 - **Explore** (`/explore`): a music catalog inside the app.
@@ -46,34 +46,56 @@
     30 min, pages 24 h).
 - Settings keys `explore_country` (default `IT`) and `explore_language`
   (default `en`); env `EXPLORE_COUNTRY` / `EXPLORE_LANGUAGE`.
-- *Browse in Explore* link on the Add music page.
-
-### Changed
-- The phone tab bar shows **Explore** instead of YouTube; the YouTube
-  import stays in the sidebar and is linked from Explore (*Import a link*).
-- Database schema v12: new `album_source_hints` table.
-
-## 2.1.0
-
-### Added
-- **Add music** page (`/add`, also from the Library header and its empty
-  state): search MusicBrainz for artists or albums and add them to Lidarr
-  without opening Lidarr.
-  - Artists: choose root folder, quality and metadata profile, which albums
-    to monitor (all, missing, existing, future, latest, first, none) and
-    whether new releases are monitored. Their missing albums then appear in
-    the Library.
-  - Albums: added with their artist when needed (only that album
-    monitored), and with *Download now* they are queued here as soon as
-    Lidarr has loaded the tracklist. Albums already in Lidarr can be
-    monitored and downloaded from the same results.
-  - Results show what is already in your library, complete, or not
-    monitored; the last choices are remembered.
-  - Lidarr is never asked to search its own indexers for these items.
+- Explore adds artists and albums to Lidarr through Lidarr's own API
+  (root folder, quality and metadata profile taken from the root folder
+  defaults or the sliders button); Lidarr is never asked to search its own
+  indexers for them.
+- Albums and tracks downloaded for an artist whose folder has no
+  `artist.jpg`/`folder.jpg` get one (Lidarr's artist poster, then Deezer,
+  then YouTube Music); an existing image is never replaced.
 - Lidarr validation errors (HTTP 400) are now reported in plain words.
 - The Library accepts `/?q=` to open with a search.
 
-## 2.0.1
+### Changed
+- **A completely redesigned interface.** Every page now shares one design
+  system (`static/components.css` + `static/app.js`): a sidebar on desktop
+  and a tab bar on phones with a live queue badge and a "downloading" dot,
+  light and dark themes that follow the system (or a manual choice that is
+  remembered), system typography, one indigo accent, layered surfaces,
+  frosted navigation, bulk-action bar and dialogs, soft shadows and
+  motion that respects *Reduce motion*.
+  - **Library** opens with status tiles (Lidarr, ffmpeg, queue, scheduler)
+    and a cover-art grid with hover actions, elegant selection and a
+    floating bulk-action bar; list and table views remain.
+  - **Downloads** shows the active album as a "Now playing" card with
+    per-track progress (searching, downloading with speed, checking,
+    tagging, done, failed, skipped), a reorderable queue and a history you
+    can filter by outcome and audio quality.
+  - **Insights** charts were redrawn: readable labels at any width, hover
+    tooltips, legends and a table view.
+  - **Logs** colour-codes severity, filters by type and retries inline.
+  - **YouTube import** has a prominent URL field and a preview of the
+    playlist before importing.
+  - **Settings** is organised in sections with a jump list, iOS-style
+    switches and segmented controls, inline validation, a clear
+    saved/unsaved state, an always-visible ffmpeg verdict and a drop zone
+    for restoring backups.
+  - **Setup** is a step-by-step wizard with a live connection test.
+- Icons are a bundled SVG sprite; the Font Awesome CDN is no longer loaded,
+  so the UI works fully offline.
+- New app icon; the PWA manifest ships PNG and maskable icons and an iOS
+  touch icon, and the browser/status bar colour follows the theme.
+- `/api/stats` also returns `queued` and `active` (any download, including
+  Lidarr download-client jobs).
+- Press `/` to jump to the search field on Library and Settings.
+- Phone-friendly hit targets: buttons, fields, chips and segmented controls
+  grow to 36–42px on touch screens.
+- The phone tab bar shows **Explore** instead of YouTube; the YouTube
+  import stays in the sidebar and is linked from Explore (*Import a link*).
+- Database schema v12: new `album_source_hints` table.
+- Log lines of an album run carry the track number (`[02]`), so tracks
+  downloading in parallel no longer interleave anonymously, and the few
+  album-run lines that lacked the indent now have it.
 
 ### Fixed — found in real download logs
 - **Age-restricted videos no longer stall an album for minutes.** yt-dlp's
@@ -116,48 +138,6 @@
   Among identically titled album tracks the closest duration wins.
 - The "any source" search phase reuses the results of the "artist channel"
   phase instead of running the same ten queries again.
-
-### Changed
-- Log lines of an album run carry the track number (`[02]`), so tracks
-  downloading in parallel no longer interleave anonymously, and the few
-  album-run lines that lacked the indent now have it.
-
-## 2.0.0
-
-### Changed
-- **A completely redesigned interface.** Every page now shares one design
-  system (`static/components.css` + `static/app.js`): a sidebar on desktop
-  and a tab bar on phones with a live queue badge and a "downloading" dot,
-  light and dark themes that follow the system (or a manual choice that is
-  remembered), system typography, one indigo accent, layered surfaces,
-  frosted navigation, bulk-action bar and dialogs, soft shadows and
-  motion that respects *Reduce motion*.
-  - **Library** opens with status tiles (Lidarr, ffmpeg, queue, scheduler)
-    and a cover-art grid with hover actions, elegant selection and a
-    floating bulk-action bar; list and table views remain.
-  - **Downloads** shows the active album as a "Now playing" card with
-    per-track progress (searching, downloading with speed, checking,
-    tagging, done, failed, skipped), a reorderable queue and a history you
-    can filter by outcome and audio quality.
-  - **Insights** charts were redrawn: readable labels at any width, hover
-    tooltips, legends and a table view.
-  - **Logs** colour-codes severity, filters by type and retries inline.
-  - **YouTube import** has a prominent URL field and a preview of the
-    playlist before importing.
-  - **Settings** is organised in sections with a jump list, iOS-style
-    switches and segmented controls, inline validation, a clear
-    saved/unsaved state, an always-visible ffmpeg verdict and a drop zone
-    for restoring backups.
-  - **Setup** is a step-by-step wizard with a live connection test.
-- Icons are a bundled SVG sprite; the Font Awesome CDN is no longer loaded,
-  so the UI works fully offline.
-- New app icon; the PWA manifest ships PNG and maskable icons and an iOS
-  touch icon, and the browser/status bar colour follows the theme.
-- `/api/stats` also returns `queued` and `active` (any download, including
-  Lidarr download-client jobs).
-- Press `/` to jump to the search field on Library and Settings.
-- Phone-friendly hit targets: buttons, fields, chips and segmented controls
-  grow to 36–42px on touch screens.
 
 ### Fixed — downloads and library
 - A track whose worker crashed was reported as a success and its temp file

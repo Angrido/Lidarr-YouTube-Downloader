@@ -32,6 +32,7 @@ from lidarr import get_valid_release_id, lidarr_request, lidarr_request_with_ret
 from metadata import (
     apply_replaygain_tags,
     create_xml_metadata,
+    ensure_artist_image,
     tag_audio_file,
     get_artwork_from_url,
     get_cover_art_archive_artwork,
@@ -900,6 +901,9 @@ def process_album_download(
             lidarr_path, album_path, sanitized_artist,
             album_folder_name,
         )
+
+        if succeeded_tracks and import_path:
+            _ensure_artist_image(os.path.dirname(import_path), artist_name, album)
 
         logutil.milestone(
             logger,
@@ -2528,6 +2532,24 @@ def _handle_post_download(
             )
 
     return None
+
+
+def _ensure_artist_image(artist_dir, artist_name, album):
+    artist = (album or {}).get("artist") or {}
+    urls = [
+        img.get("remoteUrl") or img.get("url") or ""
+        for img in artist.get("images") or []
+        if isinstance(img, dict) and (img.get("coverType") or "").lower() == "poster"
+    ]
+
+    def from_ytmusic():
+        import explore
+        return explore.artist_image_for_name(artist_name)
+
+    try:
+        ensure_artist_image(artist_dir, artist_name, urls, fallbacks=(from_ytmusic,))
+    except Exception as exc:
+        logger.debug("Artist image step failed for %s: %s", artist_name, exc)
 
 
 def _write_cover_art(

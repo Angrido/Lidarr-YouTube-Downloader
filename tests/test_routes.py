@@ -2914,59 +2914,37 @@ class TestJsonBodyValidation:
 
 
 class TestLibraryRoutes:
-    def test_add_page_renders(self, client):
+    def test_add_page_is_gone_and_redirects_to_explore(self, client):
         resp = client.get("/add")
-        assert resp.status_code == 200
-        assert b"Add music" in resp.data
+        assert resp.status_code == 301
+        assert resp.headers["Location"].endswith("/explore")
+        resp = client.get("/add?q=daft punk")
+        assert resp.headers["Location"].endswith("/explore?q=daft%20punk")
 
-    def test_search_returns_results(self, client, monkeypatch):
+    @pytest.mark.parametrize("method,url", [
+        ("get", "/api/library/search?type=album&term=disc"),
+        ("post", "/api/library/artist"),
+        ("post", "/api/library/album"),
+        ("get", "/api/library/pending"),
+    ])
+    def test_add_page_endpoints_are_removed(self, client, method, url):
+        assert getattr(client, method)(url).status_code in (404, 405)
+
+    def test_options_still_served_for_explore(self, client, monkeypatch):
         import library
-        monkeypatch.setattr(
-            library, "search",
-            lambda kind, term: [{"kind": kind, "term": term}],
-        )
-        data = client.get("/api/library/search?type=album&term=disc").get_json()
-        assert data == {
-            "success": True, "results": [{"kind": "album", "term": "disc"}],
-        }
+        monkeypatch.setattr(library, "get_add_options", lambda: {"rootFolders": []})
+        assert client.get("/api/library/options").get_json() == {"success": True, "rootFolders": []}
 
     def test_library_errors_keep_their_status(self, client, monkeypatch):
         import library
 
-        def boom(payload):
-            raise library.LibraryError("already in your library", 409)
+        def boom():
+            raise library.LibraryError("Cannot read Lidarr root folders: down", 502)
 
-        monkeypatch.setattr(library, "add_artist", boom)
-        resp = client.post("/api/library/artist", json={})
-        assert resp.status_code == 409
-        assert resp.get_json() == {
-            "success": False, "message": "already in your library",
-        }
-
-    def test_add_album(self, client, monkeypatch):
-        import library
-        monkeypatch.setattr(
-            library, "add_album", lambda payload: {"id": 3, "echo": payload},
-        )
-        data = client.post(
-            "/api/library/album", json={"foreignAlbumId": "x", "download": True},
-        ).get_json()
-        assert data["album"]["echo"]["download"] is True
-
-    def test_pending(self, client):
-        assert client.get("/api/library/pending").get_json() == {"pending": []}
-
-    def test_search_is_rate_limited(self, client, monkeypatch):
-        import app as app_module
-        import library
-        app_module.rate_limit_store.clear()
-        monkeypatch.setattr(library, "search", lambda kind, term: [])
-        codes = [
-            client.get("/api/library/search?term=ab").status_code
-            for _ in range(21)
-        ]
-        app_module.rate_limit_store.clear()
-        assert codes[-1] == 429
+        monkeypatch.setattr(library, "get_add_options", boom)
+        resp = client.get("/api/library/options")
+        assert resp.status_code == 502
+        assert resp.get_json()["success"] is False
 
 
 class TestExploreRoutes:
@@ -2989,6 +2967,7 @@ class TestExploreRoutes:
     def test_explore_is_in_the_navigation(self, client):
         html = client.get("/").get_data(as_text=True)
         assert 'href="/explore" data-nav="explore"' in html
+        assert 'href="/add"' not in html
         tabbar = html.split('class="app-tabbar"', 1)[1].split("</nav>", 1)[0]
         assert 'href="/explore"' in tabbar
         assert 'href="/youtube"' not in tabbar
@@ -2998,9 +2977,6 @@ class TestExploreRoutes:
         html = client.get("/youtube").get_data(as_text=True)
         tabbar = html.split('class="app-tabbar"', 1)[1].split("</nav>", 1)[0]
         assert 'href="/explore" aria-current="page"' in tabbar
-
-    def test_add_page_links_to_explore(self, client):
-        assert 'href="/explore"' in client.get("/add").get_data(as_text=True)
 
     def test_home_ok(self, client, monkeypatch):
         import explore
@@ -3317,3 +3293,39 @@ class TestExploreArtistImport:
         assert ok is True
         assert tagged == [("2021-01-01", b"JPEGDATA")]
         assert (target / "01 - One.mp3").exists()
+
+
+class TestImportArtistImage:
+    def test_only_for_artist_folders(self, monkeypatch, tmp_path):
+        import app as app_module
+        seen = []
+        monkeypatch.setattr(
+            app_module, "ensure_artist_image",
+            lambda artist_dir, name, urls, fallbacks=(): seen.append((artist_dir, name, list(urls))) or "saved",
+        )
+        base = tmp_path / "downloads"
+        app_module._ensure_import_artist_image(str(base / "Zo killeuh" / "Galsen (2021)"), "Zo killeuh", "Galsen")
+        app_module._ensure_import_artist_image(str(base / "My Playlist"), "", "My Playlist")
+        app_module._ensure_import_artist_image(str(base / "Other" / "Album"), "Zo killeuh", "Album")
+        assert seen == [(str(base / "Zo killeuh"), "Zo killeuh", [])]
+
+    def test_playlist_download_calls_it_after_success(self, monkeypatch, tmp_path):
+        import app as app_module
+        target = tmp_path / "downloads" / "Zo killeuh" / "Galsen"
+        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        called = []
+
+        def fake_dl(candidate, output_path, **kw):
+            with open(output_path + ".mp3", "wb") as f:
+                f.write(b"AUDIO")
+            return {"success": True, "youtube_title": candidate["title"]}
+
+        monkeypatch.setattr(app_module, "download_youtube_candidate", fake_dl)
+        monkeypatch.setattr(app_module, "tag_audio_file", lambda *a, **k: None)
+        monkeypatch.setattr(app_module, "send_notifications", lambda *a, **k: None)
+        monkeypatch.setattr(app_module, "_ensure_import_artist_image", lambda *a: called.append(a))
+        app_module._execute_playlist_download(
+            "Zo killeuh", "Galsen", [{"url": "https://music.youtube.com/watch?v=aaaaaaaaaaa", "title": "One"}],
+            str(target), {"audio_format": "mp3"},
+        )
+        assert called == [(str(target), "Zo killeuh", "Galsen")]
