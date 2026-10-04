@@ -1,0 +1,1953 @@
+<!doctype html>
+<html lang="en">
+<head>
+    {% include "_head.html" %}
+    <title>Explore — Lidarr YouTube Downloader</title>
+    <style>
+        .ex-toolbar {
+            position: relative;
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--sp-3);
+            align-items: center;
+            margin-bottom: var(--sp-6);
+        }
+
+        .ex-search {
+            position: relative;
+            flex: 1 1 320px;
+            min-width: 0;
+        }
+
+        .ex-search .ui-input {
+            min-height: 48px;
+        }
+
+        .ex-suggest {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            z-index: 30;
+            padding: var(--sp-1);
+            border-radius: var(--r-md);
+            background: var(--bg-elevated);
+            box-shadow: var(--shadow-3), var(--hairline);
+        }
+
+        .ex-suggest button {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-2);
+            width: 100%;
+            min-height: 40px;
+            padding: 0 var(--sp-3);
+            border: 0;
+            border-radius: var(--r-sm);
+            background: transparent;
+            text-align: left;
+            color: var(--text-1);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ex-suggest button .ico {
+            color: var(--text-3);
+            flex: none;
+        }
+
+        .ex-suggest button[aria-selected="true"],
+        .ex-suggest button:hover {
+            background: var(--fill-1);
+        }
+
+        .ex-crumbs {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-2);
+            margin-bottom: var(--sp-4);
+        }
+
+        .ex-view:focus {
+            outline: none;
+        }
+
+        .ex-card .ui-album-cover {
+            display: block;
+            color: inherit;
+        }
+
+        .ex-card a.ui-album-title,
+        .ex-card button.ui-album-title {
+            display: block;
+            padding: 0;
+            border: 0;
+            background: none;
+            color: var(--text-1);
+            width: 100%;
+        }
+
+        .ex-card a.ui-album-title:hover,
+        .ex-card button.ui-album-title:hover {
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+
+        .ex-cover-btn {
+            position: relative;
+            display: block;
+            width: 100%;
+            padding: 0;
+            border: 0;
+            background: none;
+        }
+
+        .ex-play-chip {
+            position: absolute;
+            right: var(--sp-2);
+            bottom: var(--sp-2);
+            display: grid;
+            place-items: center;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--accent);
+            color: #ffffff;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+            opacity: 0;
+            transform: translateY(6px) scale(0.92);
+            transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+        }
+
+        .ex-card:hover .ex-play-chip,
+        .ex-card:focus-within .ex-play-chip,
+        .ex-card.is-playing .ex-play-chip {
+            opacity: 1;
+            transform: none;
+        }
+
+        @media (hover: none) {
+            .ex-play-chip {
+                opacity: 1;
+                transform: none;
+            }
+        }
+
+        .ex-hero-card {
+            position: relative;
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: var(--sp-5);
+            align-items: center;
+            min-height: 220px;
+            padding: var(--sp-5);
+            border-radius: var(--r-xl);
+            overflow: hidden;
+            isolation: isolate;
+            background: var(--bg-elevated);
+            box-shadow: var(--shadow-2), var(--hairline);
+            color: var(--text-1);
+        }
+
+        .ex-hero-card:hover {
+            text-decoration: none;
+            box-shadow: var(--shadow-3), var(--hairline);
+        }
+
+        .ex-blur {
+            position: absolute;
+            inset: -40px;
+            z-index: -1;
+            background-size: cover;
+            background-position: center;
+            filter: blur(48px) saturate(160%);
+            opacity: 0.3;
+            transform: scale(1.15);
+        }
+
+        .ex-hero-cover {
+            width: 180px;
+            aspect-ratio: 1;
+            border-radius: var(--r-md);
+            overflow: hidden;
+            background: var(--fill-2);
+            box-shadow: var(--shadow-3);
+        }
+
+        .ex-hero-cover img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .ex-hero-text {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            min-width: 0;
+        }
+
+        .ex-hero-text > span {
+            max-width: 100%;
+        }
+
+        .ex-shelves {
+            display: flex;
+            flex-direction: column;
+            gap: var(--sp-8);
+        }
+
+        .ex-shelves .ui-shelf + .ui-shelf {
+            margin-top: 0;
+        }
+
+        @media (max-width: 720px) {
+            .ex-shelves {
+                gap: var(--sp-6);
+            }
+        }
+
+        .ex-hero-title {
+            margin-top: var(--sp-1);
+            font-size: var(--text-title2);
+            font-weight: 700;
+            letter-spacing: -0.024em;
+            line-height: 1.15;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            overflow-wrap: anywhere;
+        }
+
+        .ex-hero-sub {
+            margin-top: var(--sp-1);
+            color: var(--text-2);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .ex-hero-cta {
+            margin-top: var(--sp-4);
+        }
+
+        @media (max-width: 560px) {
+            .ex-hero-card {
+                grid-template-columns: 1fr;
+                gap: var(--sp-3);
+                padding: var(--sp-4);
+            }
+            .ex-hero-cover {
+                width: 120px;
+            }
+        }
+
+        .ex-row {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto auto;
+            align-items: center;
+            gap: var(--sp-3);
+            min-height: 56px;
+            padding: var(--sp-1) var(--sp-2);
+            border-radius: var(--r-sm);
+            transition: background var(--dur-fast) var(--ease);
+        }
+
+        .ex-row:hover,
+        .ex-row:focus-within {
+            background: var(--fill-1);
+        }
+
+        .ex-row.is-playing .ex-row-title {
+            color: var(--accent-text);
+        }
+
+        .ex-row[aria-disabled="true"] {
+            opacity: 0.55;
+        }
+
+        .ex-row-play {
+            position: relative;
+            display: grid;
+            place-items: center;
+            width: 44px;
+            height: 44px;
+            padding: 0;
+            border: 0;
+            border-radius: var(--r-xs);
+            overflow: hidden;
+            background: var(--fill-2);
+            color: var(--text-2);
+            font-variant-numeric: tabular-nums;
+            font-size: var(--text-subhead);
+            flex: none;
+        }
+
+        .ex-row-play img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .ex-row-play.is-number {
+            background: transparent;
+            width: 32px;
+        }
+
+        .ex-row-play .ex-row-icon {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            background: rgba(0, 0, 0, 0.45);
+            color: #ffffff;
+            opacity: 0;
+            transition: opacity var(--dur-fast) var(--ease);
+        }
+
+        .ex-row-play.is-number .ex-row-icon {
+            background: var(--bg-elevated);
+            color: var(--text-1);
+        }
+
+        .ex-row:hover .ex-row-icon,
+        .ex-row-play:focus-visible .ex-row-icon,
+        .ex-row.is-playing .ex-row-icon {
+            opacity: 1;
+        }
+
+        .ex-row.is-playing .ex-row-play.is-number .ex-row-icon {
+            color: var(--accent-text);
+        }
+
+        .ex-row-play:disabled {
+            cursor: default;
+        }
+
+        .ex-row-main {
+            min-width: 0;
+        }
+
+        .ex-row-title {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-2);
+            min-width: 0;
+            font-size: var(--text-callout);
+            font-weight: 550;
+        }
+
+        .ex-row-title span {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            unicode-bidi: isolate;
+        }
+
+        .ex-row-sub {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: var(--text-footnote);
+            color: var(--text-2);
+            unicode-bidi: isolate;
+        }
+
+        .ex-row-sub a {
+            color: inherit;
+        }
+
+        .ex-row-dur {
+            font-size: var(--text-footnote);
+            color: var(--text-3);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .ex-row-rank {
+            width: 2ch;
+            text-align: right;
+            font-size: var(--text-footnote);
+            font-weight: 600;
+            color: var(--text-3);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .ex-row-check {
+            display: flex;
+        }
+
+        .ex-explicit {
+            flex: none;
+            display: inline-grid;
+            place-items: center;
+            min-width: 16px;
+            height: 16px;
+            padding: 0 3px;
+            border-radius: 3px;
+            background: var(--fill-3);
+            color: var(--text-2);
+            font-size: 10px;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .ex-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .ex-head {
+            position: relative;
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr);
+            gap: var(--sp-6);
+            align-items: end;
+            padding: var(--sp-6);
+            margin-bottom: var(--sp-6);
+            border-radius: var(--r-xl);
+            overflow: hidden;
+            isolation: isolate;
+            background: var(--bg-elevated);
+            box-shadow: var(--shadow-2), var(--hairline);
+        }
+
+        .ex-head-cover {
+            width: 232px;
+            aspect-ratio: 1;
+            border-radius: var(--r-lg);
+            overflow: hidden;
+            background: var(--fill-2);
+            box-shadow: var(--shadow-3);
+            display: grid;
+            place-items: center;
+            color: var(--text-3);
+        }
+
+        .ex-head-cover img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .ex-head-cover.is-round {
+            border-radius: 50%;
+        }
+
+        .ex-head-title {
+            margin: var(--sp-1) 0 var(--sp-2);
+            font-size: clamp(1.5rem, 1.1rem + 2vw, 2.5rem);
+            font-weight: 750;
+            letter-spacing: -0.03em;
+            line-height: 1.08;
+            overflow-wrap: anywhere;
+        }
+
+        .ex-head-meta {
+            color: var(--text-2);
+            font-size: var(--text-callout);
+            overflow-wrap: anywhere;
+        }
+
+        .ex-head-meta a {
+            color: var(--text-1);
+            font-weight: 600;
+        }
+
+        .ex-head-actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: var(--sp-2);
+            margin-top: var(--sp-4);
+        }
+
+        .ex-status {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: var(--sp-2);
+            margin-top: var(--sp-3);
+            min-height: 24px;
+            font-size: var(--text-footnote);
+            color: var(--text-2);
+        }
+
+        .ex-artist-head {
+            align-items: center;
+            min-height: 280px;
+        }
+
+        .ex-about {
+            color: var(--text-2);
+            font-size: var(--text-callout);
+            white-space: pre-line;
+            overflow-wrap: anywhere;
+            display: -webkit-box;
+            -webkit-line-clamp: 5;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .ex-about.is-open {
+            display: block;
+        }
+
+        @media (max-width: 720px) {
+            .ex-head {
+                grid-template-columns: 1fr;
+                justify-items: center;
+                text-align: center;
+                gap: var(--sp-4);
+                padding: var(--sp-5) var(--sp-4);
+            }
+            .ex-head-cover {
+                width: min(200px, 60vw);
+            }
+            .ex-head-actions,
+            .ex-status {
+                justify-content: center;
+            }
+            .ex-artist-head {
+                min-height: 0;
+            }
+        }
+
+        .ex-candidates {
+            display: flex;
+            flex-direction: column;
+            gap: var(--sp-2);
+            margin-top: var(--sp-3);
+            text-align: left;
+        }
+
+        .ex-candidate {
+            display: grid;
+            grid-template-columns: auto minmax(0, 1fr) auto;
+            align-items: center;
+            gap: var(--sp-3);
+            padding: var(--sp-2) var(--sp-3);
+            border-radius: var(--r-sm);
+            background: var(--fill-1);
+            cursor: pointer;
+        }
+
+        .ex-candidate input {
+            width: 18px;
+            height: 18px;
+            margin: 0;
+            accent-color: var(--accent);
+        }
+
+        .ex-candidate:has(input:checked) {
+            background: var(--accent-soft);
+            box-shadow: inset 0 0 0 1.5px var(--accent);
+        }
+
+        .ex-candidate-title {
+            font-weight: 600;
+            overflow-wrap: anywhere;
+        }
+
+        .ex-candidate-sub {
+            font-size: var(--text-footnote);
+            color: var(--text-2);
+        }
+
+        .ex-moods {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--sp-2);
+        }
+
+        .ex-mood-group + .ex-mood-group {
+            margin-top: var(--sp-4);
+        }
+
+        .ex-mood-group h3 {
+            margin-bottom: var(--sp-2);
+            font-size: var(--text-subhead);
+            font-weight: 600;
+            color: var(--text-2);
+        }
+
+        .ex-country {
+            width: auto;
+            min-width: 0;
+            max-width: 190px;
+        }
+
+        .ex-select-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: var(--sp-3);
+            padding: var(--sp-2) var(--sp-2) var(--sp-3);
+        }
+
+        .ex-top {
+            display: grid;
+            grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+            gap: var(--sp-6);
+            align-items: start;
+        }
+
+        .ex-top-card {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: var(--sp-3);
+            padding: var(--sp-5);
+            border-radius: var(--r-lg);
+            background: var(--bg-elevated);
+            box-shadow: var(--shadow-1), var(--hairline);
+        }
+
+        .ex-top-card .ui-album-cover {
+            width: 112px;
+        }
+
+        @media (max-width: 860px) {
+            .ex-top {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body class="app">
+    {% set active_page = 'explore' %}
+    {% include "_nav.html" %}
+    <main class="app-main" id="main">
+        <div class="app-content">
+            {% include "_topbar.html" %}
+            <header class="page-header">
+                <div class="page-header-text">
+                    <p class="t-eyebrow">Discover</p>
+                    <h1 class="page-title">Explore</h1>
+                    <p class="page-subtitle">Browse new releases, charts and moods, preview a track, and add what you like to Lidarr.</p>
+                </div>
+                <div class="page-actions">
+                    <a class="ui-btn ui-btn-secondary" href="/youtube">
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-link"></use></svg>Import a link
+                    </a>
+                    <a class="ui-btn ui-btn-secondary" href="/add">
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-plus"></use></svg>Add music
+                    </a>
+                </div>
+            </header>
+
+            <form class="ex-toolbar" id="searchForm" role="search" autocomplete="off">
+                <div class="ui-input-group ex-search">
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-search"></use></svg>
+                    <label class="sr-only" for="searchInput">Search artists, albums and songs</label>
+                    <input type="search" class="ui-input" id="searchInput" placeholder="Search artists, albums, songs" aria-keyshortcuts="/" spellcheck="false" enterkeyhint="search" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggestBox">
+                    <kbd class="ui-kbd ui-input-kbd" aria-hidden="true">/</kbd>
+                    <div class="ex-suggest" id="suggestBox" role="listbox" aria-label="Suggestions" hidden></div>
+                </div>
+            </form>
+
+            <p class="sr-only" id="viewStatus" role="status" aria-live="polite"></p>
+            <div class="ex-view" id="view" tabindex="-1"></div>
+        </div>
+    </main>
+
+    <div class="ui-player" id="player" hidden>
+        <div class="ui-player-box" role="region" aria-label="Preview player">
+            <div class="ui-player-art" id="playerArt"></div>
+            <div class="ui-player-meta">
+                <div class="ui-player-title" id="playerTitle"></div>
+                <div class="ui-player-artist" id="playerArtist"></div>
+            </div>
+            <div class="ui-player-controls">
+                <button type="button" class="ui-btn ui-btn-ghost ui-btn-icon ui-btn-sm ui-player-prev" id="playerPrev" aria-label="Previous track">
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-skip-back"></use></svg>
+                </button>
+                <button type="button" class="ui-btn ui-btn-primary ui-btn-icon ui-btn-round" id="playerToggle" aria-label="Play">
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-play"></use></svg>
+                </button>
+                <button type="button" class="ui-btn ui-btn-ghost ui-btn-icon ui-btn-sm" id="playerNext" aria-label="Next track">
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-forward"></use></svg>
+                </button>
+                <div class="ui-player-volume">
+                    <button type="button" class="ui-btn ui-btn-ghost ui-btn-icon ui-btn-sm" id="playerMute" aria-label="Mute">
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-volume"></use></svg>
+                    </button>
+                    <input type="range" class="ui-range" id="playerVolume" min="0" max="1" step="0.05" value="0.8" aria-label="Volume">
+                </div>
+                <button type="button" class="ui-btn ui-btn-ghost ui-btn-icon ui-btn-sm" id="playerClose" aria-label="Close player">
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-x"></use></svg>
+                </button>
+            </div>
+            <div class="ui-player-progress">
+                <span id="playerTime">0:00</span>
+                <input type="range" class="ui-range" id="playerSeek" min="0" max="0" step="1" value="0" aria-label="Seek" disabled>
+                <span id="playerDuration">0:00</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="ui-modal ui-modal-sm" id="optionsModal" hidden>
+        <div class="ui-modal-box" role="dialog" aria-labelledby="optionsModal-title">
+            <div class="ui-modal-grabber"></div>
+            <div class="ui-modal-head">
+                <h2 class="ui-modal-title" id="optionsModal-title">Lidarr options</h2>
+                <button type="button" class="ui-btn ui-btn-ghost ui-btn-icon ui-modal-close" data-modal-close aria-label="Close">
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-x"></use></svg>
+                </button>
+            </div>
+            <form class="ui-modal-body ui-stack" id="optionsForm" novalidate>
+                <p class="ui-hint">Used when Explore adds a new artist to Lidarr. Shared with Add music.</p>
+                <div class="ui-field">
+                    <label class="ui-label" for="optRoot">Root folder</label>
+                    <select class="ui-select" id="optRoot"></select>
+                </div>
+                <div class="ui-field">
+                    <label class="ui-label" for="optQuality">Quality profile</label>
+                    <select class="ui-select" id="optQuality"></select>
+                </div>
+                <div class="ui-field">
+                    <label class="ui-label" for="optMetadata">Metadata profile</label>
+                    <select class="ui-select" id="optMetadata"></select>
+                </div>
+                <div class="ui-field" id="optMonitorField">
+                    <label class="ui-label" for="optMonitor">Monitor (when adding an artist)</label>
+                    <select class="ui-select" id="optMonitor">
+                        <option value="all">All albums</option>
+                        <option value="missing">Missing albums</option>
+                        <option value="existing">Existing albums</option>
+                        <option value="future">Future albums only</option>
+                        <option value="latest">Latest album</option>
+                        <option value="first">First album</option>
+                        <option value="none">None</option>
+                    </select>
+                </div>
+                <p class="ui-error-text" id="optError" role="alert"></p>
+            </form>
+            <div class="ui-modal-foot">
+                <button type="button" class="ui-btn ui-btn-secondary" data-modal-close>Cancel</button>
+                <button type="submit" form="optionsForm" class="ui-btn ui-btn-primary" id="optSave">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="ui-modal ui-modal-sm" id="pickModal" hidden>
+        <div class="ui-modal-box" role="dialog" aria-labelledby="pickModal-title">
+            <div class="ui-modal-grabber"></div>
+            <div class="ui-modal-head">
+                <h2 class="ui-modal-title" id="pickModal-title">Which artist?</h2>
+                <button type="button" class="ui-btn ui-btn-ghost ui-btn-icon ui-modal-close" data-modal-close aria-label="Close">
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-x"></use></svg>
+                </button>
+            </div>
+            <form class="ui-modal-body" id="pickForm" novalidate>
+                <p class="ui-hint">Several MusicBrainz artists have this name. Pick the right one.</p>
+                <div class="ex-candidates" id="pickList"></div>
+                <p class="ui-error-text" id="pickError" role="alert"></p>
+            </form>
+            <div class="ui-modal-foot">
+                <button type="button" class="ui-btn ui-btn-secondary" data-modal-close>Cancel</button>
+                <button type="submit" form="pickForm" class="ui-btn ui-btn-primary" id="pickSubmit">
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-plus"></use></svg>Add artist
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const $ = (id) => document.getElementById(id);
+        const esc = (v) => UI.escape(v == null ? "" : String(v));
+        const PREFS_KEY = "addMusicPrefs";
+        const COUNTRY_KEY = "exploreCountry";
+        const VOLUME_KEY = "explorePlayerVolume";
+        const STATUS = {
+            complete: { badge: "success", label: "In your library", icon: "check-circle" },
+            missing: { badge: "warning", label: "In Lidarr", icon: "clock" },
+            unmonitored: { badge: "info", label: "In Lidarr — not monitored", icon: "eye" },
+            not_in_library: { badge: "accent", label: "Not in Lidarr yet", icon: "plus" },
+            not_on_musicbrainz: { badge: "outline", label: "Not on MusicBrainz", icon: "info" },
+            ambiguous: { badge: "warning", label: "Several MusicBrainz matches", icon: "alert" },
+            queued: { badge: "success", label: "Added — download queued", icon: "download" },
+            in_library: { badge: "success", label: "In your library", icon: "check-circle" },
+        };
+
+        const lists = {};
+        let listSeq = 0;
+        let viewSeq = 0;
+        let route = {};
+        let current = null;
+        let lidarrOptions = null;
+        let pickResolve = null;
+
+        function readStore(key, fallback) {
+            try {
+                const raw = localStorage.getItem(key);
+                return raw == null ? fallback : JSON.parse(raw);
+            } catch (e) {
+                return fallback;
+            }
+        }
+
+        function writeStore(key, value) {
+            try {
+                localStorage.setItem(key, JSON.stringify(value));
+            } catch (e) {
+            }
+        }
+
+        function api(path, opts) {
+            return UI.fetchJSON(path, opts);
+        }
+
+        function enc(v) {
+            return encodeURIComponent(v);
+        }
+
+        function fmt(sec) {
+            sec = Math.max(0, Math.round(Number(sec) || 0));
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = String(sec % 60).padStart(2, "0");
+            return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+        }
+
+        function totalTime(sec) {
+            sec = Math.round(Number(sec) || 0);
+            if (!sec) return "";
+            const h = Math.floor(sec / 3600);
+            const m = Math.round((sec % 3600) / 60);
+            return h ? `${h} h ${m} min` : `${m} min`;
+        }
+
+        function countryName(code) {
+            try {
+                if (code === "ZZ") return "Global";
+                return new Intl.DisplayNames([navigator.language || "en"], { type: "region" }).of(code) || code;
+            } catch (e) {
+                return code;
+            }
+        }
+
+        function hrefFor(item) {
+            if (!item) return "";
+            if (item.kind === "album") return "/explore?album=" + enc(item.id);
+            if (item.kind === "artist") return "/explore?artist=" + enc(item.id);
+            if (item.kind === "playlist") return "/explore?playlist=" + enc(item.id);
+            if (item.album && item.album.id) return "/explore?album=" + enc(item.album.id);
+            return "";
+        }
+
+        function artistLinks(artists, plain) {
+            return (artists || []).map((a) => a.id && !plain
+                ? `<a href="/explore?artist=${enc(a.id)}" data-route><bdi>${esc(a.name)}</bdi></a>`
+                : `<bdi>${esc(a.name)}</bdi>`).join(", ");
+        }
+
+        function register(items) {
+            const key = "l" + (++listSeq);
+            lists[key] = items;
+            return key;
+        }
+
+        function img(url, alt, w) {
+            if (!url) return "";
+            return `<img src="${esc(url)}" alt="${esc(alt || "")}" loading="lazy" decoding="async" width="${w || 300}" height="${w || 300}" onerror="this.remove()">`;
+        }
+
+        function fallbackIcon(kind) {
+            const name = kind === "artist" ? "user" : kind === "playlist" ? "list-music" : kind === "album" ? "disc" : "music";
+            return `<span class="ui-album-cover-fallback">${UI.icon(name)}</span>`;
+        }
+
+        function emptyArt(name) {
+            const paths = {
+                search: '<circle cx="38" cy="38" r="20"/><path d="M53 53l15 15"/>',
+                error: '<circle cx="44" cy="44" r="26"/><path d="M44 31v16M44 56v1"/>',
+                empty: '<circle cx="44" cy="44" r="26"/><circle cx="44" cy="44" r="7"/>',
+            };
+            return '<div class="ui-empty-art"><svg viewBox="0 0 88 88" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + paths[name] + "</svg></div>";
+        }
+
+        function emptyHtml(title, text, opts) {
+            opts = opts || {};
+            return `<div class="ui-card"${opts.alert ? ' role="alert"' : ""}><div class="ui-empty">${emptyArt(opts.art || "empty")}
+                <div class="ui-empty-title">${esc(title)}</div>
+                <div class="ui-empty-text">${esc(text)}</div>
+                ${opts.retry ? `<div class="ui-empty-actions"><button type="button" class="ui-btn ui-btn-tinted" data-action="retry">${UI.icon("refresh")}Retry</button>${opts.extra || ""}</div>` : ""}
+            </div></div>`;
+        }
+
+        function errorHtml(message, status) {
+            const offline = status >= 500 || /not responding|not available|timed out|failed to fetch/i.test(message || "");
+            return emptyHtml(
+                offline ? "YouTube Music isn't responding" : "Something went wrong",
+                (message || "The request failed.") + (offline ? " The rest of the app keeps working; try again in a minute." : ""),
+                { alert: true, retry: true, art: "error", extra: '<a class="ui-btn ui-btn-secondary" href="/">' + UI.icon("library") + "Library</a>" },
+            );
+        }
+
+        function setStatus(text) {
+            $("viewStatus").textContent = text;
+        }
+
+        function card(item, list, index) {
+            const playable = item.kind === "song" || item.kind === "video";
+            const href = hrefFor(item);
+            const cover = (item.thumbnail ? img(item.thumbnail, "") : "") + fallbackIconIfNone(item);
+            const coverEl = playable
+                ? `<button type="button" class="ui-album-cover ex-cover-btn" data-play="${list}:${index}" aria-label="Play preview of ${esc(item.title)}">${cover}<span class="ex-play-chip" aria-hidden="true">${UI.icon("play")}</span></button>`
+                : `<a class="ui-album-cover" href="${esc(href)}" data-route tabindex="-1" aria-hidden="true">${cover}</a>`;
+            const titleEl = href
+                ? `<a class="ui-album-title" href="${esc(href)}" data-route><bdi>${esc(item.title)}</bdi></a>`
+                : `<button type="button" class="ui-album-title" data-play="${list}:${index}"><bdi>${esc(item.title)}</bdi></button>`;
+            const explicit = item.explicit ? '<span class="ex-explicit" title="Explicit" aria-label="Explicit">E</span>' : "";
+            return `<div class="ui-album ex-card" data-vid="${playable ? esc(item.id) : ""}">
+                ${coverEl}
+                <div class="ui-album-text">${titleEl}<div class="ui-album-artist ui-row">${explicit}<span class="truncate"><bdi>${esc(item.subtitle || "")}</bdi></span></div></div>
+            </div>`;
+        }
+
+        function fallbackIconIfNone(item) {
+            return item.thumbnail ? "" : fallbackIcon(item.kind);
+        }
+
+        function row(item, list, index, opts) {
+            opts = opts || {};
+            const available = item.available !== false && !!item.id;
+            const art = opts.numbers
+                ? `<span>${esc(item.trackNumber || index + 1)}</span>`
+                : (item.thumbnail ? img(item.thumbnail, "", 88) : UI.icon("music"));
+            const albumLink = !opts.noAlbum && item.album && item.album.name
+                ? (item.album.id ? ` · <a href="/explore?album=${enc(item.album.id)}" data-route><bdi>${esc(item.album.name)}</bdi></a>` : ` · <bdi>${esc(item.album.name)}</bdi>`)
+                : "";
+            const sub = artistLinks(item.artists, opts.plainArtists) + albumLink;
+            const check = opts.select
+                ? `<span class="ui-check ex-row-check"><input type="checkbox" data-select="${esc(item.id)}" ${available ? "checked" : "disabled"} aria-label="Select ${esc(item.title)}"><span class="ui-check-box"></span></span>`
+                : "";
+            const rank = opts.rank && item.rank ? `<span class="ex-row-rank">${esc(item.rank)}</span>` : "";
+            return `<div class="ex-row" data-vid="${esc(item.id)}"${available ? "" : ' aria-disabled="true"'} style="${check || rank ? "grid-template-columns: auto auto minmax(0,1fr) auto auto" : ""}">
+                ${check}${rank}
+                <button type="button" class="ex-row-play${opts.numbers ? " is-number" : ""}" data-play="${list}:${index}" ${available ? "" : "disabled"} aria-label="${available ? "Play preview of " + esc(item.title) : esc(item.title) + " is unavailable"}">${art}<span class="ex-row-icon" aria-hidden="true">${UI.icon("play")}</span></button>
+                <div class="ex-row-main">
+                    <div class="ex-row-title"><span><bdi>${esc(item.title)}</bdi></span>${item.explicit ? '<span class="ex-explicit" title="Explicit" aria-label="Explicit">E</span>' : ""}</div>
+                    <div class="ex-row-sub">${sub || "&nbsp;"}</div>
+                </div>
+                <span class="ex-row-dur">${item.duration ? fmt(item.duration) : ""}</span>
+                <span></span>
+            </div>`;
+        }
+
+        function shelf(title, inner, opts) {
+            opts = opts || {};
+            const id = "shelf" + (++listSeq);
+            const cls = ["ui-shelf", opts.cls || ""].join(" ").trim();
+            return `<section class="${cls}" aria-labelledby="${id}-t" data-shelf>
+                <div class="ui-shelf-head">
+                    <h2 class="ui-shelf-title" id="${id}-t">${esc(title)}</h2>
+                    <div class="ui-shelf-tools">${opts.tools || ""}
+                        <button type="button" class="ui-btn ui-btn-ghost ui-btn-icon ui-btn-sm ui-shelf-nav" data-shelf-dir="-1" aria-label="Scroll ${esc(title)} left">${UI.icon("chevron-left")}</button>
+                        <button type="button" class="ui-btn ui-btn-ghost ui-btn-icon ui-btn-sm ui-shelf-nav" data-shelf-dir="1" aria-label="Scroll ${esc(title)} right">${UI.icon("chevron-right")}</button>
+                    </div>
+                </div>
+                <div class="ui-shelf-track" tabindex="0" role="group" aria-label="${esc(title)}">${inner}</div>
+            </section>`;
+        }
+
+        function cardsShelf(title, items, opts) {
+            const list = register(items);
+            return shelf(title, items.map((it, i) => card(it, list, i)).join(""), opts);
+        }
+
+        function rowsShelf(title, items, opts) {
+            const list = register(items);
+            const rows = items.length <= 4 ? Math.max(1, items.length) : 4;
+            return shelf(title, items.map((it, i) => row(it, list, i, { rank: true, plainArtists: false })).join(""), Object.assign({ cls: "ui-shelf-rows" }, opts || {})).replace('class="ui-shelf ui-shelf-rows"', `class="ui-shelf ui-shelf-rows" style="--shelf-rows:${rows}"`);
+        }
+
+        function heroShelf(items) {
+            const inner = items.map((it) => `<a class="ex-hero-card" href="${esc(hrefFor(it))}" data-route>
+                    <span class="ex-blur" data-bg="${esc(it.thumbnail)}" aria-hidden="true"></span>
+                    <span class="ex-hero-cover">${it.thumbnail ? img(it.thumbnail, "", 360) : fallbackIcon("album")}</span>
+                    <span class="ex-hero-text">
+                        <span class="t-eyebrow">New ${esc((it.type || "release").toLowerCase())}</span>
+                        <span class="ex-hero-title"><bdi>${esc(it.title)}</bdi></span>
+                        <span class="ex-hero-sub"><bdi>${esc((it.artists || []).map((a) => a.name).join(", "))}</bdi></span>
+                        <span class="ui-btn ui-btn-primary ex-hero-cta">${UI.icon("disc")}Open album</span>
+                    </span>
+                </a>`).join("");
+            return shelf("New releases", inner, { cls: "ui-shelf-wide" });
+        }
+
+        function moodsHtml(categories) {
+            if (!categories || !categories.length) return "";
+            const groups = categories.map((c) => `<div class="ex-mood-group"><h3>${esc(c.title)}</h3><div class="ex-moods">${c.items.map((m) => `<a class="ui-chip" href="/explore?mood=${enc(m.params)}&title=${enc(m.title)}" data-route>${esc(m.title)}</a>`).join("")}</div></div>`).join("");
+            return `<section class="ui-shelf" aria-labelledby="moodsTitle"><div class="ui-shelf-head"><h2 class="ui-shelf-title" id="moodsTitle">Moods &amp; genres</h2></div>${groups}</section>`;
+        }
+
+        function hydrate(scope) {
+            scope.querySelectorAll("[data-bg]").forEach((el) => {
+                const url = el.getAttribute("data-bg");
+                if (url && url.startsWith("/api/thumbnail?")) el.style.backgroundImage = `url("${url.replace(/"/g, "%22")}")`;
+            });
+            scope.querySelectorAll("[data-shelf]").forEach(updateShelfNav);
+            markPlaying();
+        }
+
+        function updateShelfNav(section) {
+            const track = section.querySelector(".ui-shelf-track");
+            if (!track) return;
+            const max = track.scrollWidth - track.clientWidth - 2;
+            const prev = section.querySelector('[data-shelf-dir="-1"]');
+            const next = section.querySelector('[data-shelf-dir="1"]');
+            if (prev) prev.disabled = track.scrollLeft <= 2;
+            if (next) next.disabled = track.scrollLeft >= max;
+            if (prev && next && max <= 0) {
+                prev.hidden = true;
+                next.hidden = true;
+            }
+        }
+
+        function scrollShelf(track, dir) {
+            const step = Math.max(track.clientWidth * 0.85, 160);
+            track.scrollBy({ left: dir * step, behavior: UI.prefersReducedMotion() ? "auto" : "smooth" });
+        }
+
+        function skeletonCards(n, round) {
+            let html = "";
+            for (let i = 0; i < n; i++) html += `<div class="ui-album"><div class="ui-skeleton ui-skeleton-cover"${round ? ' style="border-radius:50%"' : ""}></div><div class="ui-album-text"><div class="ui-skeleton ui-skeleton-title"></div><div class="ui-skeleton ui-skeleton-text"></div></div></div>`;
+            return html;
+        }
+
+        function skeletonShelf(round) {
+            return `<section class="ui-shelf" aria-hidden="true"><div class="ui-shelf-head"><div class="ui-skeleton ui-skeleton-title" style="width:180px"></div></div><div class="ui-shelf-track">${skeletonCards(7, round)}</div></section>`;
+        }
+
+        function skeletonHead() {
+            return `<div class="ex-head" aria-hidden="true"><div class="ex-head-cover ui-skeleton"></div><div style="width:100%"><div class="ui-skeleton ui-skeleton-text" style="width:90px"></div><div class="ui-skeleton ui-skeleton-title" style="width:60%;height:34px;margin:12px 0"></div><div class="ui-skeleton ui-skeleton-text" style="width:40%"></div></div></div>`;
+        }
+
+        function skeletonRows(n) {
+            let html = '<div class="ex-list" aria-hidden="true">';
+            for (let i = 0; i < n; i++) html += '<div class="ex-row"><div class="ui-skeleton" style="width:44px;height:44px;border-radius:6px"></div><div><div class="ui-skeleton ui-skeleton-title" style="width:50%"></div><div class="ui-skeleton ui-skeleton-text" style="width:30%"></div></div><span></span><span></span></div>';
+            return html + "</div>";
+        }
+
+        function parseRoute() {
+            const p = new URLSearchParams(location.search);
+            for (const kind of ["album", "artist", "playlist"]) {
+                if (p.get(kind)) return { view: kind, id: p.get(kind) };
+            }
+            if (p.get("mood")) return { view: "mood", id: p.get("mood"), title: p.get("title") || "Mood" };
+            if (p.get("q")) return { view: "search", q: p.get("q") };
+            return { view: "home" };
+        }
+
+        function go(url, replace) {
+            if (replace) history.replaceState(null, "", url);
+            else history.pushState(null, "", url);
+            render(true);
+        }
+
+        function crumbs() {
+            return `<nav class="ex-crumbs" aria-label="Breadcrumb"><a class="ui-btn ui-btn-ghost ui-btn-sm" href="/explore" data-route>${UI.icon("chevron-left")}Explore</a></nav>`;
+        }
+
+        async function render(scroll) {
+            route = parseRoute();
+            current = null;
+            closeSuggest();
+            const seq = ++viewSeq;
+            const view = $("view");
+            if (route.view !== "search") $("searchInput").value = "";
+            if (scroll) window.scrollTo({ top: 0, behavior: "auto" });
+            try {
+                if (route.view === "home") await renderHome(seq);
+                else if (route.view === "album") await renderAlbum(seq);
+                else if (route.view === "artist") await renderArtist(seq);
+                else if (route.view === "playlist") await renderPlaylist(seq);
+                else if (route.view === "mood") await renderMood(seq);
+                else if (route.view === "search") await renderSearch(seq);
+            } catch (e) {
+                if (seq !== viewSeq) return;
+                view.innerHTML = (route.view === "home" ? "" : crumbs()) + errorHtml(e.message, e.status);
+                document.title = "Explore — Lidarr YouTube Downloader";
+                setStatus(e.message || "Failed to load");
+            }
+        }
+
+        function setTitle(text) {
+            document.title = (text ? text + " · " : "") + "Explore — Lidarr YouTube Downloader";
+        }
+
+        function homeCountry() {
+            const stored = readStore(COUNTRY_KEY, "");
+            return typeof stored === "string" && /^[A-Z]{2}$/.test(stored) ? stored : "";
+        }
+
+        async function renderHome(seq) {
+            const view = $("view");
+            setTitle("");
+            view.innerHTML = skeletonShelf() + skeletonShelf() + skeletonShelf(true);
+            const country = homeCountry();
+            const data = await api("/api/explore/home" + (country ? "?country=" + enc(country) : ""));
+            if (seq !== viewSeq) return;
+            let html = "";
+            for (const s of data.sections) {
+                if (!s.items || !s.items.length) continue;
+                if (s.layout === "hero") html += heroShelf(s.items);
+                else if (s.layout === "tracks") {
+                    let tools = "";
+                    if (s.key === "top_songs" && s.countries && s.countries.length) {
+                        const opts = s.countries.slice().sort((a, b) => countryName(a).localeCompare(countryName(b))).map((c) => `<option value="${esc(c)}"${c === s.country ? " selected" : ""}>${esc(countryName(c))}</option>`).join("");
+                        tools = `<label class="sr-only" for="countrySelect">Chart country</label><select class="ui-select ex-country" id="countrySelect">${opts}</select>`;
+                    }
+                    const title = s.key === "top_songs" ? `Top songs · ${countryName(s.country)}` : s.title;
+                    html += `<div data-section="${esc(s.key)}">${rowsShelf(title, s.items, { tools })}</div>`;
+                } else if (s.layout === "artists") html += cardsShelf(s.title, s.items, { cls: "ui-shelf-round" });
+                else html += cardsShelf(s.title, s.items);
+            }
+            html += moodsHtml(data.moods);
+            view.innerHTML = html ? `<div class="ex-shelves">${html}</div>` : emptyHtml("Nothing to show", "YouTube Music returned no music for this region right now.", { retry: true });
+            hydrate(view);
+            setStatus("Explore loaded");
+        }
+
+        async function changeCountry(code) {
+            writeStore(COUNTRY_KEY, code);
+            const section = document.querySelector('[data-section="top_songs"]');
+            if (!section) return;
+            section.style.opacity = "0.5";
+            try {
+                const data = await api("/api/explore/charts?country=" + enc(code));
+                const songs = (data.songs || []).slice(0, 20);
+                if (!songs.length) {
+                    UI.toast(`No song chart for ${countryName(code)}.`, { type: "warning" });
+                    section.style.opacity = "";
+                    return;
+                }
+                const opts = Array.from($("countrySelect").options).map((o) => `<option value="${esc(o.value)}"${o.value === code ? " selected" : ""}>${esc(o.textContent)}</option>`).join("");
+                section.innerHTML = rowsShelf(`Top songs · ${countryName(code)}`, songs, { tools: `<label class="sr-only" for="countrySelect">Chart country</label><select class="ui-select ex-country" id="countrySelect">${opts}</select>` });
+                hydrate(section);
+            } catch (e) {
+                UI.toast(e.message || "Charts are not available.", { type: "error" });
+            }
+            section.style.opacity = "";
+        }
+
+        function lidarrPrefs() {
+            const prefs = readStore(PREFS_KEY, {}) || {};
+            const out = {};
+            if (prefs.rootFolderPath) out.rootFolderPath = prefs.rootFolderPath;
+            if (prefs.qualityProfileId) out.qualityProfileId = Number(prefs.qualityProfileId);
+            if (prefs.metadataProfileId) out.metadataProfileId = Number(prefs.metadataProfileId);
+            return out;
+        }
+
+        function statusBadge(status, extra) {
+            const s = STATUS[status];
+            if (!s) return "";
+            return `<span class="ui-badge ui-badge-${s.badge}">${UI.icon(s.icon)}${esc(s.label)}${extra ? " · " + esc(extra) : ""}</span>`;
+        }
+
+        async function renderAlbum(seq) {
+            const view = $("view");
+            view.innerHTML = crumbs() + skeletonHead() + skeletonRows(8);
+            const data = await api("/api/explore/album/" + enc(route.id));
+            if (seq !== viewSeq) return;
+            const album = data.album;
+            current = { kind: "album", album, match: null };
+            setTitle(album.title);
+            const list = register(album.tracks);
+            const playable = album.tracks.filter((t) => t.available).length;
+            const meta = [esc(album.type), album.year ? esc(album.year) : "", `${album.trackCount} ${album.trackCount === 1 ? "track" : "tracks"}`, esc(totalTime(album.duration))].filter(Boolean).join(" · ");
+            view.innerHTML = crumbs() + `
+                <header class="ex-head">
+                    <span class="ex-blur" data-bg="${esc(album.thumbnail)}" aria-hidden="true"></span>
+                    <div class="ex-head-cover">${album.thumbnail ? img(album.thumbnail, "Cover of " + album.title, 544) : UI.icon("disc", "ico-xl")}</div>
+                    <div>
+                        <p class="t-eyebrow">${esc(album.type)}</p>
+                        <h2 class="ex-head-title"><bdi>${esc(album.title)}</bdi>${album.explicit ? ' <span class="ex-explicit" title="Explicit" aria-label="Explicit">E</span>' : ""}</h2>
+                        <p class="ex-head-meta">${artistLinks(album.artists)}${album.artists.length ? " · " : ""}${meta}</p>
+                        <div class="ex-status" id="matchStatus"><span class="ui-spinner ui-spinner-sm" aria-hidden="true"></span><span>Checking Lidarr…</span></div>
+                        <div id="candidateBox"></div>
+                        <div class="ex-head-actions" id="albumActions">
+                            <button type="button" class="ui-btn ui-btn-secondary" data-action="play-all" data-list="${list}" ${playable ? "" : "disabled"}>${UI.icon("play")}Preview</button>
+                        </div>
+                    </div>
+                </header>
+                <section aria-labelledby="tracksTitle">
+                    <h2 class="sr-only" id="tracksTitle">Tracks</h2>
+                    <div class="ex-list">${album.tracks.map((t, i) => row(t, list, i, { numbers: true, noAlbum: true, plainArtists: true })).join("")}</div>
+                </section>
+                ${album.otherVersions && album.otherVersions.length ? `<div class="section">${cardsShelf("Other versions", album.otherVersions)}</div>` : ""}`;
+            hydrate(view);
+            setStatus(`${album.title} loaded`);
+            loadMatch(seq, false);
+        }
+
+        async function loadMatch(seq, refresh) {
+            const box = $("matchStatus");
+            try {
+                const data = await api(`/api/explore/match?kind=album&id=${enc(current.album.id)}${refresh ? "&refresh=1" : ""}`);
+                if (seq !== viewSeq) return;
+                current.match = data.match;
+                renderMatch();
+            } catch (e) {
+                if (seq !== viewSeq) return;
+                current.match = { status: "error", message: e.message, candidates: [] };
+                renderMatch();
+            }
+        }
+
+        function matchSummary(c) {
+            return [c.artistName, c.year, c.type, c.trackCount ? c.trackCount + " tracks" : ""].filter(Boolean).join(" · ");
+        }
+
+        function renderMatch() {
+            const m = current.match;
+            const album = current.album;
+            const box = $("matchStatus");
+            const actions = $("albumActions");
+            const preview = actions.querySelector('[data-action="play-all"]').outerHTML;
+            const optionsBtn = `<button type="button" class="ui-btn ui-btn-ghost ui-btn-icon" data-action="options" aria-label="Lidarr options" title="Lidarr options">${UI.icon("sliders")}</button>`;
+            const importBtn = (primary) => `<button type="button" class="ui-btn ${primary ? "ui-btn-primary" : "ui-btn-plain"}" data-action="import-album">${UI.icon("youtube")}Import from YouTube</button>`;
+            let cta = "";
+            let tail = "";
+            let note = "";
+            $("candidateBox").innerHTML = "";
+            if (m.status === "error") {
+                box.innerHTML = `<span class="ui-badge ui-badge-outline">${UI.icon("alert")}Lidarr check failed</span><span>${esc(m.message || "")}</span>`;
+                cta = importBtn(true);
+                tail = `<button type="button" class="ui-btn ui-btn-plain" data-action="recheck">${UI.icon("refresh")}Retry</button>`;
+            } else {
+                const match = m.match;
+                const missing = match && match.missingTracks ? `${match.missingTracks} missing` : "";
+                box.innerHTML = statusBadge(m.status, m.status === "missing" ? missing : "") + (match ? `<span>MusicBrainz: <bdi>${esc(match.title)}</bdi> · ${esc(matchSummary(match))}</span>` : "");
+                if (m.status === "not_in_library") {
+                    cta = `<button type="button" class="ui-btn ui-btn-primary" data-action="add-album">${UI.icon("download")}Add &amp; download</button>`;
+                    tail = optionsBtn;
+                }
+                else if (m.status === "missing") cta = `<button type="button" class="ui-btn ui-btn-primary" data-action="add-album">${UI.icon("download")}Download missing</button>`;
+                else if (m.status === "unmonitored") cta = `<button type="button" class="ui-btn ui-btn-primary" data-action="add-album">${UI.icon("download")}Monitor &amp; download</button>`;
+                else if (m.status === "complete") cta = `<button type="button" class="ui-btn ui-btn-success" disabled>${UI.icon("check")}Complete</button>`;
+                else if (m.status === "queued") cta = `<a class="ui-btn ui-btn-tinted" href="/downloads">${UI.icon("download")}View downloads</a>`;
+                else if (m.status === "not_on_musicbrainz") {
+                    cta = importBtn(true);
+                    note = "This release isn't on MusicBrainz, so Lidarr can't track it. Import it as a YouTube album instead: files are tagged and get the cover.";
+                } else if (m.status === "ambiguous") {
+                    renderCandidates(m.candidates);
+                    tail = importBtn(false) + optionsBtn;
+                }
+                if (m.status !== "not_on_musicbrainz") tail += `<button type="button" class="ui-btn ui-btn-plain ui-btn-icon" data-action="recheck" title="Check Lidarr again" aria-label="Check Lidarr again">${UI.icon("refresh")}</button>`;
+            }
+            actions.innerHTML = cta + preview + tail;
+            if (note) box.insertAdjacentHTML("beforeend", `<span>${esc(note)}</span>`);
+        }
+
+        function renderCandidates(candidates) {
+            const items = candidates.map((c, i) => `<label class="ex-candidate">
+                    <input type="radio" name="candidate" value="${esc(c.foreignAlbumId)}"${i === 0 ? " checked" : ""}>
+                    <span><span class="ex-candidate-title"><bdi>${esc(c.title)}</bdi></span>${c.disambiguation ? ` <span class="ui-muted">(${esc(c.disambiguation)})</span>` : ""}<span class="ex-candidate-sub" style="display:block">${esc(matchSummary(c))}</span></span>
+                    ${c.inLibrary ? statusBadge(c.missingTracks ? "missing" : "complete") : ""}
+                </label>`).join("");
+            $("candidateBox").innerHTML = `<div class="ex-candidates" role="radiogroup" aria-label="MusicBrainz releases">${items}</div>
+                <div class="ex-head-actions"><button type="button" class="ui-btn ui-btn-primary" data-action="add-album" data-choose="1">${UI.icon("download")}Add &amp; download selected</button></div>`;
+        }
+
+        async function addAlbum(btn) {
+            const body = Object.assign({ kind: "album", id: current.album.id, download: true }, lidarrPrefs());
+            if (btn.dataset.choose) {
+                const chosen = document.querySelector('input[name="candidate"]:checked');
+                if (!chosen) return;
+                body.foreignAlbumId = chosen.value;
+            }
+            const seq = viewSeq;
+            await UI.guard(btn, async () => {
+                try {
+                    const data = await api("/api/explore/add", { method: "POST", body });
+                    const r = data.result;
+                    UI.toast(r.queued
+                        ? `${r.title || current.album.title} is in Lidarr — it downloads from this YouTube Music album as soon as Lidarr has its tracklist.`
+                        : `${r.title || current.album.title} added to Lidarr.`, { type: "success", action: { label: "Downloads", onClick: () => { location.href = "/downloads"; } } });
+                    if (seq !== viewSeq) return;
+                    current.match = Object.assign({}, current.match, { status: "queued", match: current.match.match || { title: r.title, artistName: r.artistName } });
+                    renderMatch();
+                } catch (e) {
+                    if (e.status === 409 && /pick one/i.test(e.message)) {
+                        await loadMatch(seq, true);
+                    }
+                    UI.toast(e.message || "Lidarr could not add the album.", { type: "error" });
+                }
+            }, "Adding…");
+        }
+
+        async function importItem(btn, kind, id, videoIds, label) {
+            const ok = await UI.confirm({
+                title: "Import from YouTube?",
+                message: `${label} is downloaded as a YouTube import: an artist/album folder with tagged files and the cover, outside Lidarr's tracking.`,
+                confirmLabel: "Import",
+            });
+            if (!ok) return;
+            const body = { kind, id };
+            if (videoIds) body.videoIds = videoIds;
+            await UI.guard(btn, async () => {
+                try {
+                    const data = await api("/api/explore/import", { method: "POST", body });
+                    UI.toast(data.message || "Import started.", { type: "success", action: { label: "Downloads", onClick: () => { location.href = "/downloads"; } } });
+                } catch (e) {
+                    UI.toast(e.message || "Import failed to start.", { type: "error" });
+                }
+            }, "Starting…");
+        }
+
+        async function renderArtist(seq) {
+            const view = $("view");
+            view.innerHTML = crumbs() + skeletonHead() + skeletonRows(5) + skeletonShelf();
+            const data = await api("/api/explore/artist/" + enc(route.id));
+            if (seq !== viewSeq) return;
+            const a = data.artist;
+            current = { kind: "artist", artist: a, match: null };
+            setTitle(a.name);
+            const songsList = register(a.songs);
+            const meta = [a.subscribers ? `${esc(a.subscribers)} subscribers` : "", esc(a.monthlyListeners)].filter(Boolean).join(" · ");
+            let html = crumbs() + `
+                <header class="ex-head ex-artist-head">
+                    <span class="ex-blur" data-bg="${esc(a.banner || a.thumbnail)}" aria-hidden="true"></span>
+                    <div class="ex-head-cover is-round">${a.thumbnail ? img(a.thumbnail, a.name, 544) : UI.icon("user", "ico-xl")}</div>
+                    <div>
+                        <p class="t-eyebrow">Artist</p>
+                        <h2 class="ex-head-title"><bdi>${esc(a.name)}</bdi></h2>
+                        <p class="ex-head-meta">${meta}</p>
+                        <div class="ex-status" id="artistStatus"><span class="ui-spinner ui-spinner-sm" aria-hidden="true"></span><span>Checking Lidarr…</span></div>
+                        <div class="ex-head-actions" id="artistActions">
+                            <button type="button" class="ui-btn ui-btn-secondary" data-action="play-all" data-list="${songsList}" ${a.songs.length ? "" : "disabled"}>${UI.icon("play")}Preview top songs</button>
+                        </div>
+                    </div>
+                </header>`;
+            if (a.songs.length) {
+                html += `<section class="ui-shelf" aria-labelledby="popularTitle"><div class="ui-shelf-head"><h2 class="ui-shelf-title" id="popularTitle">Popular songs</h2>${a.songsPlaylistId ? `<a class="ui-btn ui-btn-plain ui-btn-sm" href="/explore?playlist=${enc(a.songsPlaylistId)}" data-route>See all</a>` : ""}</div><div class="ex-list">${a.songs.map((t, i) => row(t, songsList, i)).join("")}</div></section>`;
+            }
+            if (a.albums.length) html += cardsShelf("Albums", a.albums);
+            if (a.singles.length) html += cardsShelf("Singles & EPs", a.singles);
+            if (a.videos.length) html += cardsShelf("Videos", a.videos);
+            if (a.related.length) html += cardsShelf("Fans also like", a.related, { cls: "ui-shelf-round" });
+            if (!a.songs.length && !a.albums.length && !a.singles.length && !a.videos.length) {
+                html += emptyHtml("No releases listed", "YouTube Music did not return releases for this artist.", {});
+            }
+            if (a.description) {
+                html += `<section class="ui-shelf" aria-labelledby="aboutTitle"><div class="ui-shelf-head"><h2 class="ui-shelf-title" id="aboutTitle">About</h2></div><div class="ui-card"><p class="ex-about" id="aboutText">${esc(a.description)}</p><button type="button" class="ui-btn ui-btn-plain ui-btn-sm" data-action="about" aria-expanded="false" aria-controls="aboutText">Read more</button></div></section>`;
+            }
+            view.innerHTML = html;
+            hydrate(view);
+            setStatus(`${a.name} loaded`);
+            loadArtistMatch(seq, false);
+        }
+
+        async function loadArtistMatch(seq, refresh) {
+            try {
+                const data = await api(`/api/explore/match?kind=artist&id=${enc(current.artist.id)}${refresh ? "&refresh=1" : ""}`);
+                if (seq !== viewSeq) return;
+                current.match = data.match;
+            } catch (e) {
+                if (seq !== viewSeq) return;
+                current.match = { status: "error", message: e.message, candidates: [] };
+            }
+            renderArtistMatch();
+        }
+
+        function renderArtistMatch() {
+            const m = current.match;
+            const box = $("artistStatus");
+            const actions = $("artistActions");
+            const preview = actions.querySelector('[data-action="play-all"]').outerHTML;
+            let cta = "";
+            if (m.status === "error") {
+                box.innerHTML = `<span class="ui-badge ui-badge-outline">${UI.icon("alert")}Lidarr check failed</span><span>${esc(m.message || "")}</span>`;
+                cta = `<button type="button" class="ui-btn ui-btn-plain" data-action="recheck-artist">${UI.icon("refresh")}Retry</button>`;
+            } else if (m.status === "in_library") {
+                box.innerHTML = statusBadge("in_library");
+                cta = `<a class="ui-btn ui-btn-tinted" href="/?q=${enc(current.artist.name)}">${UI.icon("library")}Open in Library</a>`;
+            } else if (m.status === "not_on_musicbrainz") {
+                box.innerHTML = statusBadge("not_on_musicbrainz");
+                cta = `<span class="ui-hint">Open an album to import it from YouTube.</span>`;
+            } else {
+                box.innerHTML = statusBadge(m.status === "ambiguous" ? "ambiguous" : "not_in_library");
+                cta = `<button type="button" class="ui-btn ui-btn-primary" data-action="add-artist">${UI.icon("plus")}Add artist</button><button type="button" class="ui-btn ui-btn-ghost ui-btn-icon" data-action="options" data-artist="1" aria-label="Lidarr options" title="Lidarr options">${UI.icon("sliders")}</button>`;
+            }
+            actions.innerHTML = cta + preview;
+        }
+
+        function pickArtist(candidates) {
+            $("pickList").innerHTML = candidates.map((c, i) => `<label class="ex-candidate">
+                    <input type="radio" name="pick" value="${esc(c.foreignArtistId)}"${i === 0 ? " checked" : ""}>
+                    <span><span class="ex-candidate-title"><bdi>${esc(c.name)}</bdi></span><span class="ex-candidate-sub" style="display:block">${esc([c.disambiguation, c.type, (c.genres || []).join(", ")].filter(Boolean).join(" · ") || "No description on MusicBrainz")}</span></span>
+                    ${c.inLibrary ? statusBadge("in_library") : ""}
+                </label>`).join("");
+            $("pickError").textContent = "";
+            UI.openModal("pickModal");
+            return new Promise((resolve) => { pickResolve = resolve; });
+        }
+
+        async function addArtist(btn) {
+            const m = current.match;
+            const body = Object.assign({ kind: "artist", id: current.artist.id }, lidarrPrefs());
+            const prefs = readStore(PREFS_KEY, {}) || {};
+            if (prefs.monitor) body.monitor = prefs.monitor;
+            if (prefs.monitorNewItems) body.monitorNewItems = prefs.monitorNewItems;
+            if (m.status === "ambiguous") {
+                const chosen = await pickArtist(m.candidates);
+                if (!chosen) return;
+                body.foreignArtistId = chosen;
+            }
+            const seq = viewSeq;
+            await UI.guard(btn, async () => {
+                try {
+                    const data = await api("/api/explore/add", { method: "POST", body });
+                    UI.toast(`${data.result.name || current.artist.name} added to Lidarr. Its missing albums appear in the Library once Lidarr has loaded them.`, { type: "success" });
+                    if (seq !== viewSeq) return;
+                    current.match = { status: "in_library", match: null, candidates: [] };
+                    renderArtistMatch();
+                } catch (e) {
+                    UI.toast(e.message || "Lidarr could not add the artist.", { type: "error" });
+                }
+            }, "Adding…");
+        }
+
+        async function renderPlaylist(seq) {
+            const view = $("view");
+            view.innerHTML = crumbs() + skeletonHead() + skeletonRows(10);
+            const data = await api("/api/explore/playlist/" + enc(route.id));
+            if (seq !== viewSeq) return;
+            const p = data.playlist;
+            current = { kind: "playlist", playlist: p };
+            setTitle(p.title);
+            const list = register(p.tracks);
+            const playable = p.tracks.filter((t) => t.available).length;
+            const meta = [p.author ? `<bdi>${esc(p.author)}</bdi>` : "", `${p.trackCount} tracks`, esc(totalTime(p.duration))].filter(Boolean).join(" · ");
+            view.innerHTML = crumbs() + `
+                <header class="ex-head">
+                    <span class="ex-blur" data-bg="${esc(p.thumbnail)}" aria-hidden="true"></span>
+                    <div class="ex-head-cover">${p.thumbnail ? img(p.thumbnail, "", 544) : UI.icon("list-music", "ico-xl")}</div>
+                    <div>
+                        <p class="t-eyebrow">Playlist</p>
+                        <h2 class="ex-head-title"><bdi>${esc(p.title)}</bdi></h2>
+                        <p class="ex-head-meta">${meta}</p>
+                        ${p.description ? `<p class="ex-head-meta" style="margin-top:8px">${esc(p.description.slice(0, 240))}</p>` : ""}
+                        <div class="ex-head-actions">
+                            <button type="button" class="ui-btn ui-btn-primary" data-action="import-playlist" ${playable ? "" : "disabled"}>${UI.icon("download")}<span id="importLabel">Import ${playable} tracks</span></button>
+                            <button type="button" class="ui-btn ui-btn-secondary" data-action="play-all" data-list="${list}" ${playable ? "" : "disabled"}>${UI.icon("play")}Preview</button>
+                        </div>
+                    </div>
+                </header>
+                <section aria-labelledby="plTracks">
+                    <h2 class="sr-only" id="plTracks">Tracks</h2>
+                    <div class="ex-select-bar">
+                        <label class="ui-row" for="selectAll"><span class="ui-check"><input type="checkbox" id="selectAll" ${playable ? "checked" : "disabled"}><span class="ui-check-box"></span></span><span>Select all</span></label>
+                        <span class="ui-muted t-footnote" id="selectCount"></span>
+                    </div>
+                    <div class="ex-list" id="playlistRows">${p.tracks.map((t, i) => row(t, list, i, { select: true })).join("")}</div>
+                </section>`;
+            hydrate(view);
+            updateSelection();
+            setStatus(`${p.title} loaded`);
+        }
+
+        function selectedIds() {
+            return Array.from(document.querySelectorAll("#playlistRows [data-select]:checked")).map((el) => el.dataset.select);
+        }
+
+        function updateSelection() {
+            const boxes = Array.from(document.querySelectorAll("#playlistRows [data-select]:not(:disabled)"));
+            const ids = selectedIds();
+            const all = $("selectAll");
+            if (all) {
+                all.checked = ids.length === boxes.length && boxes.length > 0;
+                all.indeterminate = ids.length > 0 && ids.length < boxes.length;
+            }
+            const label = $("importLabel");
+            if (label) label.textContent = `Import ${ids.length} ${ids.length === 1 ? "track" : "tracks"}`;
+            const btn = document.querySelector('[data-action="import-playlist"]');
+            if (btn) btn.disabled = !ids.length;
+            const count = $("selectCount");
+            if (count) count.textContent = `${ids.length} of ${boxes.length} selected`;
+        }
+
+        async function renderMood(seq) {
+            const view = $("view");
+            setTitle(route.title);
+            view.innerHTML = crumbs() + `<h2 class="section-title" style="margin-bottom:16px">${esc(route.title)}</h2><div class="ui-album-grid">${skeletonCards(10)}</div>`;
+            const data = await api("/api/explore/mood/" + enc(route.id));
+            if (seq !== viewSeq) return;
+            const list = register(data.items);
+            view.innerHTML = crumbs() + `<h2 class="section-title" style="margin-bottom:16px"><bdi>${esc(route.title)}</bdi></h2>` + (data.items.length
+                ? `<div class="ui-album-grid">${data.items.map((it, i) => card(it, list, i)).join("")}</div>`
+                : emptyHtml("No playlists", "YouTube Music has no playlists for this mood right now.", {}));
+            hydrate(view);
+            setStatus(`${route.title} loaded`);
+        }
+
+        async function renderSearch(seq) {
+            const view = $("view");
+            $("searchInput").value = route.q;
+            setTitle(route.q);
+            view.innerHTML = skeletonShelf(true) + skeletonShelf() + skeletonRows(5);
+            const data = await api("/api/explore/search?q=" + enc(route.q));
+            if (seq !== viewSeq) return;
+            const r = data.results;
+            let html = "";
+            if (data.top) {
+                const top = data.top;
+                const list = register([top]);
+                const playable = top.kind === "song" || top.kind === "video";
+                html += `<section class="ui-shelf" aria-labelledby="topTitle"><div class="ui-shelf-head"><h2 class="ui-shelf-title" id="topTitle">Top result</h2></div>
+                    <div class="ex-top"><div class="ex-top-card ex-card${top.kind === "artist" ? " ui-shelf-round" : ""}" data-vid="${playable ? esc(top.id) : ""}">
+                        ${card(top, list, 0)}
+                        ${playable ? "" : `<a class="ui-btn ui-btn-tinted ui-btn-sm" href="${esc(hrefFor(top))}" data-route>${UI.icon("arrow-right")}Open</a>`}
+                    </div>
+                    <div>${r.songs.length ? `<div class="ex-list">${r.songs.slice(0, 4).map((t, i) => row(t, register(r.songs), i)).join("")}</div>` : ""}</div></div></section>`;
+            }
+            if (r.artists.length) html += cardsShelf("Artists", r.artists, { cls: "ui-shelf-round" });
+            if (r.albums.length) html += cardsShelf("Albums", r.albums);
+            if (r.songs.length > 4) html += rowsShelf("Songs", r.songs);
+            if (r.playlists.length) html += cardsShelf("Playlists", r.playlists);
+            if (r.videos.length) html += cardsShelf("Videos", r.videos);
+            const total = Object.values(r).reduce((n, v) => n + v.length, 0);
+            view.innerHTML = total ? html : emptyHtml("No results", `Nothing on YouTube Music matches “${route.q}”.`, { art: "search" });
+            hydrate(view);
+            setStatus(total ? `${total} results for ${route.q}` : `No results for ${route.q}`);
+        }
+
+        let suggestTimer = null;
+        let suggestSeq = 0;
+        let suggestIndex = -1;
+
+        function closeSuggest() {
+            $("suggestBox").hidden = true;
+            $("suggestBox").innerHTML = "";
+            $("searchInput").setAttribute("aria-expanded", "false");
+            $("searchInput").removeAttribute("aria-activedescendant");
+            suggestIndex = -1;
+        }
+
+        function showSuggest(items) {
+            const box = $("suggestBox");
+            if (!items.length || document.activeElement !== $("searchInput")) {
+                closeSuggest();
+                return;
+            }
+            box.innerHTML = items.map((s, i) => `<button type="button" role="option" id="sg${i}" aria-selected="false" data-suggest="${esc(s)}" tabindex="-1">${UI.icon("search")}<bdi>${esc(s)}</bdi></button>`).join("");
+            box.hidden = false;
+            $("searchInput").setAttribute("aria-expanded", "true");
+            suggestIndex = -1;
+        }
+
+        function moveSuggest(delta) {
+            const opts = Array.from($("suggestBox").querySelectorAll("[role=option]"));
+            if (!opts.length) return false;
+            suggestIndex = (suggestIndex + delta + opts.length) % opts.length;
+            opts.forEach((o, i) => o.setAttribute("aria-selected", String(i === suggestIndex)));
+            $("searchInput").setAttribute("aria-activedescendant", opts[suggestIndex].id);
+            return true;
+        }
+
+        function scheduleSuggest() {
+            clearTimeout(suggestTimer);
+            const q = $("searchInput").value.trim();
+            if (q.length < 2) {
+                closeSuggest();
+                return;
+            }
+            suggestTimer = setTimeout(async () => {
+                const seq = ++suggestSeq;
+                try {
+                    const data = await api("/api/explore/suggestions?q=" + enc(q));
+                    if (seq === suggestSeq) showSuggest(data.suggestions || []);
+                } catch (e) {
+                    closeSuggest();
+                }
+            }, 220);
+        }
+
+        function search(q) {
+            q = (q || "").trim();
+            if (q.length < 2) {
+                UI.toast("Type at least 2 characters.", { type: "info" });
+                return;
+            }
+            closeSuggest();
+            go("/explore?q=" + enc(q));
+        }
+
+        const Player = {
+            audio: new Audio(),
+            queue: [],
+            index: -1,
+            loading: false,
+        };
+        Player.audio.preload = "none";
+
+        function playerTrack() {
+            return Player.queue[Player.index] || null;
+        }
+
+        function playable(t) {
+            return t && t.id && t.available !== false && (t.kind === "song" || t.kind === "video" || !t.kind);
+        }
+
+        function playFrom(list, index) {
+            const items = lists[list] || [];
+            if (!items[index]) return;
+            const t = items[index];
+            if (playerTrack() && playerTrack().id === t.id && Player.queue === items) {
+                togglePlay();
+                return;
+            }
+            Player.queue = items;
+            Player.index = index;
+            loadTrack();
+        }
+
+        function playAll(list) {
+            const items = lists[list] || [];
+            const first = items.findIndex(playable);
+            if (first >= 0) {
+                Player.queue = items;
+                Player.index = first;
+                loadTrack();
+            }
+        }
+
+        function loadTrack() {
+            const t = playerTrack();
+            if (!t) return;
+            if (!playable(t)) {
+                step(1);
+                return;
+            }
+            const art = t.thumbnail || (current && current.album && current.album.thumbnail) || "";
+            $("playerArt").innerHTML = art ? `<img src="${esc(art)}" alt="" width="88" height="88">` : "";
+            $("playerTitle").innerHTML = `<bdi>${esc(t.title)}</bdi>`;
+            $("playerArtist").innerHTML = `<bdi>${esc((t.artists || []).map((a) => a.name).join(", ") || t.subtitle || "")}</bdi>`;
+            $("player").hidden = false;
+            document.body.classList.add("has-player");
+            $("playerSeek").value = 0;
+            $("playerSeek").max = t.duration || 0;
+            $("playerSeek").disabled = true;
+            $("playerTime").textContent = "0:00";
+            $("playerDuration").textContent = t.duration ? fmt(t.duration) : "0:00";
+            Player.loading = true;
+            setToggle();
+            Player.audio.src = "/api/youtube/stream?url=" + enc("https://music.youtube.com/watch?v=" + t.id);
+            Player.audio.play().catch((e) => {
+                if (e && e.name === "AbortError") return;
+                Player.loading = false;
+                setToggle();
+            });
+            markPlaying();
+            if ("mediaSession" in navigator && window.MediaMetadata) {
+                try {
+                    navigator.mediaSession.metadata = new MediaMetadata({
+                        title: t.title,
+                        artist: (t.artists || []).map((a) => a.name).join(", "),
+                        artwork: art ? [{ src: art, sizes: "544x544" }] : [],
+                    });
+                } catch (e) {
+                }
+            }
+        }
+
+        function step(delta) {
+            let i = Player.index;
+            for (let n = 0; n < Player.queue.length; n++) {
+                i += delta;
+                if (i < 0 || i >= Player.queue.length) return stopAtEnd();
+                if (playable(Player.queue[i])) {
+                    Player.index = i;
+                    loadTrack();
+                    return;
+                }
+            }
+            stopAtEnd();
+        }
+
+        function stopAtEnd() {
+            Player.audio.pause();
+            setToggle();
+            markPlaying();
+        }
+
+        function togglePlay() {
+            if (!playerTrack()) return;
+            if (Player.audio.paused) Player.audio.play().catch(() => {});
+            else Player.audio.pause();
+        }
+
+        function setToggle() {
+            const btn = $("playerToggle");
+            const paused = Player.audio.paused && !Player.loading;
+            btn.innerHTML = Player.loading
+                ? '<span class="ui-spinner ui-spinner-sm" aria-hidden="true"></span>'
+                : UI.icon(paused ? "play" : "pause");
+            btn.setAttribute("aria-label", Player.loading ? "Loading" : paused ? "Play" : "Pause");
+            $("playerPrev").disabled = Player.index <= 0;
+            $("playerNext").disabled = Player.index >= Player.queue.length - 1;
+        }
+
+        function markPlaying() {
+            const t = playerTrack();
+            const id = t && !Player.audio.paused ? t.id : (t && Player.loading ? t.id : "");
+            document.querySelectorAll(".is-playing").forEach((el) => el.classList.remove("is-playing"));
+            document.querySelectorAll("[data-play] .ex-row-icon, .ex-play-chip").forEach((el) => { el.innerHTML = UI.icon("play"); });
+            if (!id) return;
+            document.querySelectorAll(`[data-vid="${CSS.escape(id)}"]`).forEach((el) => {
+                el.classList.add("is-playing");
+                el.querySelectorAll(".ex-row-icon, .ex-play-chip").forEach((i) => { i.innerHTML = UI.icon("pause"); });
+            });
+        }
+
+        function closePlayer() {
+            Player.audio.pause();
+            Player.audio.removeAttribute("src");
+            Player.audio.load();
+            Player.queue = [];
+            Player.index = -1;
+            Player.loading = false;
+            $("player").hidden = true;
+            document.body.classList.remove("has-player");
+            markPlaying();
+        }
+
+        function setVolume(v) {
+            v = Math.min(1, Math.max(0, Number(v)));
+            Player.audio.volume = v;
+            Player.audio.muted = v === 0;
+            $("playerVolume").value = v;
+            $("playerMute").innerHTML = UI.icon(v === 0 ? "volume-off" : "volume");
+            $("playerMute").setAttribute("aria-label", v === 0 ? "Unmute" : "Mute");
+            writeStore(VOLUME_KEY, v);
+        }
+
+        Player.audio.addEventListener("playing", () => { Player.loading = false; setToggle(); markPlaying(); });
+        Player.audio.addEventListener("pause", () => { setToggle(); markPlaying(); });
+        Player.audio.addEventListener("waiting", () => { Player.loading = true; setToggle(); });
+        Player.audio.addEventListener("loadedmetadata", () => {
+            const d = Player.audio.duration;
+            if (isFinite(d) && d > 0) {
+                $("playerSeek").max = Math.round(d);
+                $("playerDuration").textContent = fmt(d);
+            }
+            $("playerSeek").disabled = false;
+        });
+        Player.audio.addEventListener("timeupdate", () => {
+            if (document.activeElement !== $("playerSeek")) $("playerSeek").value = Math.round(Player.audio.currentTime);
+            $("playerTime").textContent = fmt(Player.audio.currentTime);
+        });
+        Player.audio.addEventListener("ended", () => step(1));
+        Player.audio.addEventListener("error", () => {
+            if (!Player.audio.getAttribute("src")) return;
+            Player.loading = false;
+            setToggle();
+            markPlaying();
+            const t = playerTrack();
+            UI.toast(`Preview unavailable${t ? " for “" + t.title + "”" : ""}.`, { type: "warning" });
+        });
+        if ("mediaSession" in navigator) {
+            try {
+                navigator.mediaSession.setActionHandler("play", togglePlay);
+                navigator.mediaSession.setActionHandler("pause", togglePlay);
+                navigator.mediaSession.setActionHandler("previoustrack", () => step(-1));
+                navigator.mediaSession.setActionHandler("nexttrack", () => step(1));
+            } catch (e) {
+            }
+        }
+
+        $("playerToggle").addEventListener("click", togglePlay);
+        $("playerPrev").addEventListener("click", () => step(-1));
+        $("playerNext").addEventListener("click", () => step(1));
+        $("playerClose").addEventListener("click", closePlayer);
+        $("playerSeek").addEventListener("input", (ev) => { Player.audio.currentTime = Number(ev.target.value); });
+        $("playerVolume").addEventListener("input", (ev) => setVolume(ev.target.value));
+        $("playerMute").addEventListener("click", () => {
+            const v = Player.audio.volume === 0 || Player.audio.muted ? (Player.lastVolume || 0.8) : 0;
+            if (v === 0) Player.lastVolume = Player.audio.volume;
+            setVolume(v);
+        });
+
+        function fillSelect(select, items, value) {
+            select.innerHTML = items.map((it) => `<option value="${esc(it.value)}">${esc(it.label)}</option>`).join("");
+            if (value != null && items.some((it) => String(it.value) === String(value))) select.value = String(value);
+        }
+
+        function applyFolderDefaults(prefs) {
+            const folder = lidarrOptions.rootFolders.find((f) => f.path === $("optRoot").value) || {};
+            fillSelect($("optQuality"), lidarrOptions.qualityProfiles.map((q) => ({ value: q.id, label: q.name })), prefs.qualityProfileId || folder.defaultQualityProfileId);
+            fillSelect($("optMetadata"), lidarrOptions.metadataProfiles.map((m) => ({ value: m.id, label: m.name })), prefs.metadataProfileId || folder.defaultMetadataProfileId);
+        }
+
+        async function openOptions(forArtist) {
+            const prefs = readStore(PREFS_KEY, {}) || {};
+            $("optError").textContent = "";
+            $("optMonitorField").hidden = !forArtist;
+            $("optMonitor").value = prefs.monitor || "all";
+            $("optSave").disabled = true;
+            UI.openModal("optionsModal");
+            try {
+                lidarrOptions = lidarrOptions || await api("/api/library/options");
+                if (!lidarrOptions.rootFolders.length) {
+                    $("optError").textContent = "Lidarr has no root folder yet. Add one in Lidarr under Settings → Media Management.";
+                    return;
+                }
+                fillSelect($("optRoot"), lidarrOptions.rootFolders.map((f) => ({ value: f.path, label: f.path })), prefs.rootFolderPath);
+                applyFolderDefaults(prefs);
+                $("optSave").disabled = false;
+            } catch (e) {
+                lidarrOptions = null;
+                $("optError").textContent = e.message || "Could not read Lidarr's settings.";
+            }
+        }
+
+        $("optRoot").addEventListener("change", () => applyFolderDefaults({}));
+        $("optionsForm").addEventListener("submit", (ev) => {
+            ev.preventDefault();
+            if ($("optSave").disabled) return;
+            const prefs = Object.assign(readStore(PREFS_KEY, {}) || {}, {
+                rootFolderPath: $("optRoot").value,
+                qualityProfileId: Number($("optQuality").value),
+                metadataProfileId: Number($("optMetadata").value),
+            });
+            if (!$("optMonitorField").hidden) prefs.monitor = $("optMonitor").value;
+            writeStore(PREFS_KEY, prefs);
+            UI.closeModal("optionsModal");
+            UI.toast("Lidarr options saved.", { type: "success" });
+        });
+
+        $("pickForm").addEventListener("submit", (ev) => {
+            ev.preventDefault();
+            const chosen = document.querySelector('input[name="pick"]:checked');
+            if (!chosen) {
+                $("pickError").textContent = "Pick an artist.";
+                return;
+            }
+            const resolve = pickResolve;
+            pickResolve = null;
+            UI.closeModal("pickModal");
+            if (resolve) resolve(chosen.value);
+        });
+        $("pickModal").addEventListener("modal:closed", () => {
+            if (pickResolve) {
+                const resolve = pickResolve;
+                pickResolve = null;
+                resolve(null);
+            }
+        });
+
+        document.addEventListener("click", (ev) => {
+            const link = ev.target.closest("a[data-route]");
+            if (link && !ev.defaultPrevented && ev.button === 0 && !ev.metaKey && !ev.ctrlKey && !ev.shiftKey && !ev.altKey) {
+                ev.preventDefault();
+                go(link.getAttribute("href"));
+                return;
+            }
+            const sug = ev.target.closest("[data-suggest]");
+            if (sug) {
+                search(sug.dataset.suggest);
+                return;
+            }
+            const play = ev.target.closest("[data-play]");
+            if (play && !play.disabled) {
+                const [list, index] = play.dataset.play.split(":");
+                playFrom(list, Number(index));
+                return;
+            }
+            const nav = ev.target.closest("[data-shelf-dir]");
+            if (nav) {
+                const track = nav.closest("[data-shelf]").querySelector(".ui-shelf-track");
+                scrollShelf(track, Number(nav.dataset.shelfDir));
+                return;
+            }
+            const btn = ev.target.closest("[data-action]");
+            if (!btn || btn.disabled) return;
+            const action = btn.dataset.action;
+            if (action === "retry") render(false);
+            else if (action === "play-all") playAll(btn.dataset.list);
+            else if (action === "add-album") addAlbum(btn);
+            else if (action === "import-album") importItem(btn, "album", current.album.id, null, `“${current.album.title}”`);
+            else if (action === "import-playlist") importItem(btn, "playlist", current.playlist.id, selectedIds(), `${selectedIds().length} track(s) from “${current.playlist.title}”`);
+            else if (action === "recheck") {
+                $("matchStatus").innerHTML = '<span class="ui-spinner ui-spinner-sm" aria-hidden="true"></span><span>Checking Lidarr…</span>';
+                loadMatch(viewSeq, true);
+            } else if (action === "recheck-artist") loadArtistMatch(viewSeq, true);
+            else if (action === "add-artist") addArtist(btn);
+            else if (action === "options") openOptions(!!btn.dataset.artist);
+            else if (action === "about") {
+                const open = $("aboutText").classList.toggle("is-open");
+                btn.textContent = open ? "Show less" : "Read more";
+                btn.setAttribute("aria-expanded", String(open));
+            }
+        });
+
+        document.addEventListener("change", (ev) => {
+            if (ev.target.id === "countrySelect") changeCountry(ev.target.value);
+            else if (ev.target.id === "selectAll") {
+                document.querySelectorAll("#playlistRows [data-select]:not(:disabled)").forEach((el) => { el.checked = ev.target.checked; });
+                updateSelection();
+            } else if (ev.target.matches("#playlistRows [data-select]")) updateSelection();
+        });
+
+        document.addEventListener("scroll", (ev) => {
+            const track = ev.target;
+            if (track && track.classList && track.classList.contains("ui-shelf-track")) {
+                const section = track.closest("[data-shelf]");
+                if (section) updateShelfNav(section);
+            }
+        }, true);
+
+        document.addEventListener("keydown", (ev) => {
+            const track = ev.target.classList && ev.target.classList.contains("ui-shelf-track") ? ev.target : null;
+            if (track && (ev.key === "ArrowRight" || ev.key === "ArrowLeft")) {
+                ev.preventDefault();
+                scrollShelf(track, ev.key === "ArrowRight" ? 1 : -1);
+            }
+        });
+
+        window.addEventListener("resize", () => document.querySelectorAll("[data-shelf]").forEach(updateShelfNav));
+
+        $("searchInput").addEventListener("input", scheduleSuggest);
+        $("searchInput").addEventListener("keydown", (ev) => {
+            if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+                if (moveSuggest(ev.key === "ArrowDown" ? 1 : -1)) ev.preventDefault();
+            } else if (ev.key === "Escape") {
+                if (!$("suggestBox").hidden) {
+                    ev.preventDefault();
+                    closeSuggest();
+                }
+            } else if (ev.key === "Enter" && suggestIndex >= 0) {
+                const opt = $("suggestBox").querySelectorAll("[role=option]")[suggestIndex];
+                if (opt) {
+                    ev.preventDefault();
+                    search(opt.dataset.suggest);
+                }
+            }
+        });
+        $("searchInput").addEventListener("blur", () => setTimeout(() => {
+            if (!$("suggestBox").contains(document.activeElement)) closeSuggest();
+        }, 150));
+        $("searchForm").addEventListener("submit", (ev) => {
+            ev.preventDefault();
+            search($("searchInput").value);
+        });
+
+        window.addEventListener("popstate", () => render(false));
+
+        function init() {
+            setVolume(readStore(VOLUME_KEY, 0.8));
+            setToggle();
+            render(false);
+        }
+
+        if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+        else init();
+    </script>
+</body>
+</html>

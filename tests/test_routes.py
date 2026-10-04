@@ -2978,6 +2978,29 @@ class TestExploreRoutes:
         yield
         explore.cache.invalidate()
 
+    def test_page_renders(self, client):
+        resp = client.get("/explore")
+        assert resp.status_code == 200
+        html = resp.get_data(as_text=True)
+        assert "<title>Explore" in html
+        assert 'id="player"' in html
+
+    def test_explore_is_in_the_navigation(self, client):
+        html = client.get("/").get_data(as_text=True)
+        assert 'href="/explore" data-nav="explore"' in html
+        tabbar = html.split('class="app-tabbar"', 1)[1].split("</nav>", 1)[0]
+        assert 'href="/explore"' in tabbar
+        assert 'href="/youtube"' not in tabbar
+        assert tabbar.count('class="app-tab"') == 6
+
+    def test_youtube_page_highlights_explore_tab(self, client):
+        html = client.get("/youtube").get_data(as_text=True)
+        tabbar = html.split('class="app-tabbar"', 1)[1].split("</nav>", 1)[0]
+        assert 'href="/explore" aria-current="page"' in tabbar
+
+    def test_add_page_links_to_explore(self, client):
+        assert 'href="/explore"' in client.get("/add").get_data(as_text=True)
+
     def test_home_ok(self, client, monkeypatch):
         import explore
         monkeypatch.setattr(explore, "home", lambda country="": {
