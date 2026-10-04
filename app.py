@@ -38,7 +38,10 @@ from config import (
     update_config,
 )
 from downloader import (
+    cookiefile_for_ytdlp,
     ffmpeg_status,
+    inspect_cookies_file,
+    inspect_cookies_text,
     get_ytdlp_version,
     list_video_formats,
     download_youtube_candidate,
@@ -761,26 +764,6 @@ COOKIES_PATH = "/config/cookies.txt"
 COOKIES_MAX_BYTES = 2 * 1024 * 1024
 
 
-def _looks_like_netscape_cookies(content):
-    """Best-effort sniff for Netscape-format cookies.txt."""
-    if not content:
-        return False
-    head = content[:512].lstrip()
-    if head.startswith("# Netscape HTTP Cookie File"):
-        return True
-    # Some browser exporters drop the header; accept tab-separated
-    # rows with a domain in the first column too.
-    for line in content.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        parts = line.split("\t")
-        if len(parts) >= 7 and "." in parts[0]:
-            return True
-        break
-    return False
-
-
 @app.route("/api/cookies/upload", methods=["POST"])
 def api_cookies_upload():
     if "file" not in request.files:
@@ -799,25 +782,36 @@ def api_cookies_upload():
         return jsonify(
             {"success": False, "message": "Cookies file must be UTF-8 text"}
         ), 400
-    if not _looks_like_netscape_cookies(content):
+    if content.startswith("\ufeff"):
+        content = content[1:]
+    info = inspect_cookies_text(content)
+    if not info["valid"]:
         return jsonify(
             {
                 "success": False,
                 "message": (
-                    "File does not look like a Netscape cookies.txt."
+                    f"Not a usable cookies.txt: {info['reason']}."
                     " Export from your browser with a 'Get cookies.txt' extension."
                 ),
             }
         ), 400
+    if not info["header"]:
+        content = "# Netscape HTTP Cookie File\n" + content
+    tmp_path = f"{COOKIES_PATH}.upload"
     try:
         os.makedirs(os.path.dirname(COOKIES_PATH), exist_ok=True)
-        with open(COOKIES_PATH, "w", encoding="utf-8") as f:
+        with open(tmp_path, "w", encoding="utf-8") as f:
             f.write(content)
         try:
-            os.chmod(COOKIES_PATH, 0o600)
+            os.chmod(tmp_path, 0o600)
         except OSError:
             pass
+        os.replace(tmp_path, COOKIES_PATH)
     except OSError as e:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
         return jsonify(
             {"success": False, "message": f"Failed to write cookies file: {e}"}
         ), 500
@@ -839,6 +833,10 @@ def api_cookies_status():
             info["mtime"] = int(os.path.getmtime(path))
         except OSError:
             pass
+        check = inspect_cookies_file(path)
+        info["valid"] = check["valid"]
+        info["entries"] = check["entries"]
+        info["reason"] = check["reason"]
     return jsonify(info)
 
 
@@ -864,16 +862,26 @@ def api_cookies_test():
     # SAPISID-family cookies it signs API requests with (SAPISIDHASH).
     # YouTube clears LOGIN_INFO when it rotates/invalidates a session while
     # the SAPISID cookies survive, so "SAPISID without LOGIN_INFO" is the
-    # signature of a rotated session — worth its own diagnosis, because
-    # yt-dlp rewrites the cookies file after every run (cookiejar.save on
-    # close), persisting the logged-out jar over the user's export.
+    # signature of a rotated session — worth its own diagnosis.
     # Parse with yt-dlp's own cookie jar (the same parser the download path
     # uses for ``cookiefile``): it understands the ``#HttpOnly_`` line
     # prefix browsers use for HttpOnly cookies — LOGIN_INFO is one, so a
     # naive "skip # comments" parser misreads real exports as logged out.
+    check = inspect_cookies_file(path)
+    if not check["valid"]:
+        return jsonify({
+            "success": False,
+            "message": f"Cookies file is not usable: {check['reason']}.",
+        })
+    snapshot = cookiefile_for_ytdlp(path)
+    if not snapshot:
+        return jsonify({
+            "success": False,
+            "message": "Could not prepare a private copy of the cookies file.",
+        })
     try:
         from yt_dlp.cookies import YoutubeDLCookieJar
-        jar = YoutubeDLCookieJar(path)
+        jar = YoutubeDLCookieJar(snapshot)
         jar.load(ignore_discard=True, ignore_expires=True)
     except Exception as e:
         return jsonify({
@@ -895,7 +903,7 @@ def api_cookies_test():
             "quiet": True,
             "no_warnings": True,
             "skip_download": True,
-            "cookiefile": path,
+            "cookiefile": snapshot,
             "extract_flat": False,
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -920,8 +928,7 @@ def api_cookies_test():
         if has_sapisid:
             # Account cookies survive rotation, LOGIN_INFO doesn't: this
             # file held a real login that YouTube has since rotated or
-            # invalidated (and each download run rewrites the file, so the
-            # logged-out jar replaced the original export).
+            # invalidated.
             return jsonify({
                 "success": False,
                 "message": (
@@ -929,8 +936,7 @@ def api_cookies_test():
                     " but the session is no longer logged in: the account"
                     " (SAPISID) cookies are present while youtube.com"
                     " LOGIN_INFO is missing — YouTube clears it when it"
-                    " rotates or invalidates a session, and yt-dlp rewrites"
-                    " this file after every run. Re-export fresh cookies"
+                    " rotates or invalidates a session. Re-export fresh cookies"
                     " from a private/incognito window logged in to"
                     " youtube.com, then close that window so the browser"
                     " doesn't rotate them again."
@@ -1635,9 +1641,11 @@ def api_youtube_search():
         "extract_flat": True,
         "noplaylist": True,
     }
-    cookies_path = (config.get("yt_cookies_file") or "").strip()
-    if cookies_path and os.path.exists(cookies_path):
-        ydl_opts["cookiefile"] = cookies_path
+    cookiefile = cookiefile_for_ytdlp(
+        (config.get("yt_cookies_file") or "").strip(),
+    )
+    if cookiefile:
+        ydl_opts["cookiefile"] = cookiefile
     if config.get("yt_force_ipv4", True):
         ydl_opts["source_address"] = "0.0.0.0"
     pc = config.get("yt_player_client", "android")
@@ -1733,9 +1741,11 @@ def api_youtube_stream():
             "format": "bestaudio/best",
             "noplaylist": True,
         }
-        cookies_path = (config.get("yt_cookies_file") or "").strip()
-        if cookies_path and os.path.exists(cookies_path):
-            ydl_opts["cookiefile"] = cookies_path
+        cookiefile = cookiefile_for_ytdlp(
+            (config.get("yt_cookies_file") or "").strip(),
+        )
+        if cookiefile:
+            ydl_opts["cookiefile"] = cookiefile
         if config.get("yt_force_ipv4", True):
             ydl_opts["source_address"] = "0.0.0.0"
         pc = config.get("yt_player_client", "android")
@@ -2818,9 +2828,11 @@ def api_youtube_playlist_info():
         "extract_flat": True,
         "noplaylist": False,
     }
-    cookies_path = (config.get("yt_cookies_file") or "").strip()
-    if cookies_path and os.path.exists(cookies_path):
-        ydl_opts["cookiefile"] = cookies_path
+    cookiefile = cookiefile_for_ytdlp(
+        (config.get("yt_cookies_file") or "").strip(),
+    )
+    if cookiefile:
+        ydl_opts["cookiefile"] = cookiefile
     if config.get("yt_force_ipv4", True):
         ydl_opts["source_address"] = "0.0.0.0"
     pc = config.get("yt_player_client", "android")

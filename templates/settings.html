@@ -2243,8 +2243,13 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     setStatusLine('cookiesStatus', 'Configured path does not exist: ' + s.path, 'err');
                     return;
                 }
+                if (s.valid === false) {
+                    setStatusLine('cookiesStatus', 'Ignored: ' + s.path + ' — ' + (s.reason || 'not a Netscape cookies.txt') + '. Upload a fresh export.', 'err');
+                    return;
+                }
                 const kb = s.size ? (s.size / 1024).toFixed(1) : '?';
-                setStatusLine('cookiesStatus', 'Active: ' + s.path + ' (' + kb + ' KB)', 'ok');
+                const n = s.entries ? ', ' + s.entries + ' cookies' : '';
+                setStatusLine('cookiesStatus', 'Active: ' + s.path + ' (' + kb + ' KB' + n + ')', 'ok');
             } catch (e) {
                 setStatusLine('cookiesStatus', 'Could not read cookies status.', 'err');
             }

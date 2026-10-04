@@ -166,6 +166,13 @@ with three spaces so they sit under its header — keep that convention when
 adding album-flow logging; a line carrying an icon has that indent stripped,
 so icons always sit one space from their text and protrude from the flow.
 
+Each track of an album run is processed inside `logutil.track_label("02")`
+(a `contextvars` label copied onto records by `TrackLabelFilter`), and the
+formatter prints it after the indent/icon: `   [02] Search phase: …`. Tracks
+download in parallel, so without it their lines interleave anonymously. A
+thread started inside a track must run in `contextvars.copy_context()` to
+keep the label (`_download_candidate_threaded` does).
+
 **Icons must be East_Asian_Width "W" (exactly two columns).** The alignment
 depends on it, and a test enforces it. This is why the warning icon is not
 the obvious "⚠" (U+26A0): that codepoint is Ambiguous width, so terminals
@@ -209,6 +216,41 @@ marks ffmpeg broken. `audio_normalize` is a separate ffmpeg loudnorm pass after
 the download (`_normalize_loudness()`: −14 LUFS, re-encoded to the target codec
 at `audio_quality`); if it fails the un-normalized file is kept and ffmpeg is
 never marked broken.
+
+### YouTube cookies and unavailable videos
+
+yt-dlp is **never** handed the user's `yt_cookies_file`:
+`downloader.cookiefile_for_ytdlp()` validates it (`inspect_cookies_text()`:
+Netscape rows of 7 tab-separated fields, `#HttpOnly_` allowed, JSON
+rejected), adds the `# Netscape HTTP Cookie File` header when missing, and
+returns a private per-thread copy. yt-dlp rewrites its cookie file on every
+close without locking, so a shared file broke parallel runs ("does not look
+like a Netscape format cookies file") and could overwrite a signed-in export
+with a rotated jar. An unusable file is skipped with one warning, and
+`/api/cookies/status` reports `valid`/`entries`/`reason`. Every place that
+builds yt-dlp options (including `app.py`) must go through it.
+
+`download_youtube_candidate()` classifies extraction errors with
+`_classify_unavailable()`: an age gate without cookies, or a private /
+removed / members-only / region-locked video, stops immediately; an age gate
+with cookies tries each player client once. The result carries
+`unavailable: True` and a one-line hint instead of ~40 retries.
+
+### Album-first matching
+
+`match_album_track()` matches by title (bracket-insensitive, closest duration
+wins ties) and otherwise **by position** when the YT Music album has as many
+tracks as Lidarr's and the entry at the same position (`processing.
+_album_position()`: medium, then track number) has the same duration
+(±max(5 s, 5 %)). A positional match is marked `matched_by: "position"` and is
+**not** flagged `from_official_album`, so an AcoustID mismatch rejects it.
+When the album candidate fails (download error, mismatch), `_download_tracks`
+lazily extends the candidate list with a per-track search, skipping the same
+video id. An unverified file is kept on disk as the fallback rather than
+deleted and downloaded again. In the search, generic titles (`_is_generic_title`:
+Intro, Outro, Interlude, Skit, [untitled]…) require the artist's channel,
+YT Music artist credit or name in the title, and phase 2 reuses phase 1's
+fetched results.
 
 ### MusicBrainz id frames
 
@@ -322,7 +364,7 @@ Standalone scripts not part of the main app:
 
 ## Version Updates
 
-The version string is defined in `version.py`: `VERSION = "2.0.0"`. The README badge also references it and must be updated manually.
+The version string is defined in `version.py`: `VERSION = "2.0.1"`. The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 

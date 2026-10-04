@@ -272,6 +272,21 @@ class TestVerifyFingerprint:
         )
         assert result["status"] == "mismatch"
 
+    def test_unverified_when_results_have_no_recordings(self, monkeypatch):
+        monkeypatch.setattr("fingerprint.is_fpcalc_available", lambda: True)
+        monkeypatch.setattr(
+            "fingerprint._run_fpcalc", lambda f: (200, "AQAA...")
+        )
+        monkeypatch.setattr(
+            "fingerprint._lookup_acoustid",
+            lambda k, d, fp: [{"id": "fp-1", "score": 0.91}],
+        )
+        result = verify_fingerprint(
+            "/file.mp3", "expected-rec", "test-key",
+        )
+        assert result["status"] == "unverified"
+        assert result["matched_id"] is None
+
     def test_unverified_when_empty_results(self, monkeypatch):
         monkeypatch.setattr("fingerprint.is_fpcalc_available", lambda: True)
         monkeypatch.setattr(

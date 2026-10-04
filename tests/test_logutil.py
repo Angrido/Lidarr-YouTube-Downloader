@@ -238,3 +238,39 @@ class TestSectionBreaks:
 
         logutil.section(_L(), "x", extra={"other": 1})
         assert seen[0]["extra"] == {"other": 1, "section": True}
+
+
+class TestTrackLabels:
+    def _labelled(self, msg, level=logging.INFO):
+        record = _record(msg, level)
+        logutil.TrackLabelFilter().filter(record)
+        return record
+
+    def test_label_sits_after_the_album_indent(self):
+        with logutil.track_label("02"):
+            record = self._labelled("   Search phase: any source")
+        line = logutil.ConsoleFormatter().format(record)
+        assert line[9:] == "   [02] Search phase: any source"
+
+    def test_label_follows_the_icon(self):
+        with logutil.track_label("02"):
+            record = self._labelled("   'Song' is age-restricted", logging.WARNING)
+        line = logutil.ConsoleFormatter().format(record)
+        assert line[9:] == "❗ [02] 'Song' is age-restricted"
+
+    def test_no_label_outside_a_track(self):
+        record = self._labelled("   plain")
+        assert logutil.ConsoleFormatter().format(record)[9:] == "   plain"
+
+    def test_label_is_reset_after_the_block(self):
+        with logutil.track_label("05"):
+            pass
+        assert self._labelled("x").track_label == ""
+
+    def test_same_message_from_two_tracks_is_not_collapsed(self):
+        dedupe = logutil.DedupeFilter()
+        with logutil.track_label("01"):
+            first = self._labelled("   Search (1/10)")
+        with logutil.track_label("02"):
+            second = self._labelled("   Search (1/10)")
+        assert dedupe.filter(first) and dedupe.filter(second)

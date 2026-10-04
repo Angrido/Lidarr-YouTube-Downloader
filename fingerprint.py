@@ -255,9 +255,15 @@ def verify_fingerprint(
     # release, so accept it above a strict threshold rather than discarding
     # good audio over an MBID mismatch (issue #58).
     best = _extract_best_match(results)
-    if best and best.get("acoustid_score", 0.0) >= accept_score_threshold:
+    if best is None:
+        return {
+            "status": "unverified",
+            "fp_data": {},
+            "matched_id": None,
+        }
+    if best.get("acoustid_score", 0.0) >= accept_score_threshold:
         logger.info(
-            "AcoustID accepted on score %.2f despite MBID mismatch (%s)",
+            "   AcoustID accepted on score %.2f despite MBID mismatch (%s)",
             best.get("acoustid_score", 0.0),
             best.get("acoustid_recording_id", ""),
         )
@@ -267,11 +273,10 @@ def verify_fingerprint(
             "matched_id": best.get("acoustid_recording_id"),
         }
 
-    matched_id = best["acoustid_recording_id"] if best else None
     return {
         "status": "mismatch",
-        "fp_data": best or {},
-        "matched_id": matched_id,
+        "fp_data": best,
+        "matched_id": best["acoustid_recording_id"],
     }
 
 
@@ -313,11 +318,11 @@ def fingerprint_track(filepath, acoustid_api_key):
     match = _extract_best_match(results)
     if match:
         logger.info(
-            "AcoustID match for %s: recording=%s score=%.2f title='%s'",
+            "   AcoustID match for %s: recording=%s score=%.2f title='%s'",
             filepath, match["acoustid_recording_id"],
             match["acoustid_score"], match["acoustid_recording_title"],
         )
     else:
-        logger.info("AcoustID: no recordings matched for %s", filepath)
+        logger.info("   AcoustID: no recordings matched for %s", filepath)
 
     return match

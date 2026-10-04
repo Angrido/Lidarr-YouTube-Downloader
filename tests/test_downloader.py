@@ -1,3 +1,4 @@
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -2661,3 +2662,307 @@ def test_encoder_quality_args_follow_yt_dlp_mapping():
     assert _encoder_quality_args("libmp3lame", "0") == ["-q:a", "0.0"]
     assert _encoder_quality_args("libopus", "5") == []
     assert _encoder_quality_args("aac", "best") == []
+
+
+_COOKIE_ROW = (
+    ".youtube.com\tTRUE\t/\tTRUE\t1999999999\tLOGIN_INFO\tabc\n"
+)
+
+
+class TestCookiesFile:
+    def test_headered_export_is_valid(self):
+        info = downloader.inspect_cookies_text(
+            "# Netscape HTTP Cookie File\n" + _COOKIE_ROW
+        )
+        assert info == {
+            "valid": True, "entries": 1, "header": True, "reason": "",
+        }
+
+    def test_headerless_export_is_valid_but_flagged(self):
+        info = downloader.inspect_cookies_text(_COOKIE_ROW)
+        assert info["valid"] is True
+        assert info["header"] is False
+
+    def test_httponly_rows_count(self):
+        info = downloader.inspect_cookies_text("#HttpOnly_" + _COOKIE_ROW)
+        assert info["entries"] == 1
+
+    def test_json_export_is_rejected(self):
+        info = downloader.inspect_cookies_text('[{"name": "SID"}]')
+        assert info["valid"] is False
+        assert "JSON" in info["reason"]
+
+    def test_garbage_is_rejected(self):
+        info = downloader.inspect_cookies_text("hello world\nnot cookies\n")
+        assert info["valid"] is False
+
+    def test_empty_is_rejected(self):
+        assert downloader.inspect_cookies_text("")["valid"] is False
+
+    def test_snapshot_adds_header_and_leaves_original_alone(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.setattr(downloader.tempfile, "gettempdir", lambda: str(tmp_path))
+        source = tmp_path / "cookies.txt"
+        source.write_text(_COOKIE_ROW)
+        snapshot = downloader.cookiefile_for_ytdlp(str(source))
+        assert snapshot and snapshot != str(source)
+        assert source.read_text() == _COOKIE_ROW
+        from yt_dlp.cookies import YoutubeDLCookieJar
+        jar = YoutubeDLCookieJar(snapshot)
+        jar.load(ignore_discard=True, ignore_expires=True)
+        assert {c.name for c in jar} == {"LOGIN_INFO"}
+
+    def test_snapshot_is_private_to_each_thread(self, tmp_path, monkeypatch):
+        import threading
+        monkeypatch.setattr(downloader.tempfile, "gettempdir", lambda: str(tmp_path))
+        source = tmp_path / "cookies.txt"
+        source.write_text("# Netscape HTTP Cookie File\n" + _COOKIE_ROW)
+        paths = []
+        workers = [
+            threading.Thread(
+                target=lambda: paths.append(
+                    downloader.cookiefile_for_ytdlp(str(source))
+                ),
+            )
+            for _ in range(2)
+        ]
+        main_path = downloader.cookiefile_for_ytdlp(str(source))
+        for w in workers:
+            w.start()
+            w.join()
+        assert main_path not in paths
+
+    def test_invalid_file_is_skipped_and_warned_once(
+        self, tmp_path, monkeypatch, caplog,
+    ):
+        monkeypatch.setattr(downloader.tempfile, "gettempdir", lambda: str(tmp_path))
+        monkeypatch.setattr(downloader, "_cookies_warned", set())
+        source = tmp_path / "cookies.txt"
+        source.write_text("not a cookies file\n")
+        with caplog.at_level("WARNING", logger="downloader"):
+            assert downloader.cookiefile_for_ytdlp(str(source)) is None
+            assert downloader.cookiefile_for_ytdlp(str(source)) is None
+        warnings = [
+            r for r in caplog.records if "Ignoring YouTube cookies" in r.message
+        ]
+        assert len(warnings) == 1
+
+    def test_common_opts_never_hand_ytdlp_the_original(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.setattr(downloader.tempfile, "gettempdir", lambda: str(tmp_path))
+        source = tmp_path / "cookies.txt"
+        source.write_text("# Netscape HTTP Cookie File\n" + _COOKIE_ROW)
+        monkeypatch.setattr(
+            downloader, "load_config",
+            lambda: {"yt_cookies_file": str(source)},
+        )
+        opts = _build_common_opts()
+        assert opts["cookiefile"] != str(source)
+        assert os.path.exists(opts["cookiefile"])
+
+
+class TestUnavailableVideos:
+    _AGE = (
+        "ERROR: [youtube] F9EIBnTVckM: Sign in to confirm your age. This"
+        " video may be inappropriate for some users."
+    )
+
+    def _candidate(self):
+        return {"url": "u", "title": "All Night Long", "duration": 200, "score": 1.0}
+
+    def test_classify(self):
+        classify = downloader._classify_unavailable
+        assert classify(self._AGE.lower()) == "age"
+        assert classify("error: private video. sign in") == "gone"
+        assert classify("video unavailable. this video is not available") == "unavailable"
+        assert classify("video unavailable. this content isn't available, try again later") is None
+        assert classify("requested format is not available") is None
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_age_gate_without_cookies_stops_after_one_attempt(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(self._AGE)
+        result = download_youtube_candidate(self._candidate(), "/tmp/output")
+        assert result["success"] is False
+        assert result["unavailable"] is True
+        assert "cookies" in result["error_message"]
+        assert mock_ydl.download.call_count == 1
+
+    @patch("downloader.cookiefile_for_ytdlp", return_value="/tmp/c.txt")
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_age_gate_with_cookies_tries_each_client_once(
+        self, mock_config, mock_ydl_class, _cookies,
+    ):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(self._AGE)
+        clients = downloader._client_fallback_chain(
+            mock_config.return_value, False,
+        ) + [None]
+        result = download_youtube_candidate(self._candidate(), "/tmp/output")
+        assert result["unavailable"] is True
+        assert "not signed in" in result["error_message"]
+        assert mock_ydl.download.call_count == len(clients)
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_private_video_stops_immediately(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception("ERROR: [youtube] x: Private video")
+        result = download_youtube_candidate(self._candidate(), "/tmp/output")
+        assert result["unavailable"] is True
+        assert mock_ydl.download.call_count == 1
+
+    def test_age_gate_errors_from_ytdlp_are_not_warnings(self, caplog):
+        with caplog.at_level("DEBUG", logger="downloader"):
+            downloader._SILENT_YDL_LOGGER.error(self._AGE)
+        assert all(r.levelname == "DEBUG" for r in caplog.records)
+
+
+def _search_entry(title, channel, duration=150, url=None):
+    return {
+        "title": title,
+        "url": url or f"https://www.youtube.com/watch?v={(title + 'x' * 11)[:11].replace(' ', '_')}",
+        "duration": duration,
+        "channel": channel,
+        "view_count": 1000,
+    }
+
+
+class TestGenericAndBracketedTitles:
+    _CFG = {
+        "forbidden_words": [],
+        "duration_tolerance": 15,
+        "yt_player_client": "android",
+    }
+
+    def test_generic_title_detection(self):
+        generic = downloader._is_generic_title
+        assert generic("[untitled]")
+        assert generic("Intro")
+        assert generic("Interlude II")
+        assert generic("Skit 3")
+        assert not generic("Into the Night")
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_bracketed_title_matches_unbracketed_upload(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = dict(self._CFG)
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [_search_entry("Untitled", "Mac DeMarco - Topic", 163)],
+        }
+        candidates = search_youtube_candidates(
+            "Mac DeMarco [untitled] official audio", "[untitled]",
+            expected_duration_ms=163000,
+        )
+        assert [c["title"] for c in candidates] == ["Untitled"]
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_generic_title_needs_artist_evidence(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = dict(self._CFG)
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                _search_entry(
+                    "Epic Dj intro - Tomorrowland style by Micro Jingles",
+                    "Micro Jingles", 67,
+                ),
+                _search_entry("Intro - Album 2023", "Some Uploader", 67),
+            ],
+        }
+        candidates = search_youtube_candidates(
+            "Gigi D'Alessio Intro official audio", "Intro",
+            expected_duration_ms=67000,
+        )
+        assert candidates == []
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_generic_title_from_artist_channel_is_kept(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = dict(self._CFG)
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                _search_entry("SUNDRENCHED: EAGLES [OUTRO]", "Someone", 53),
+                _search_entry("Outro", "Gigi D'Alessio - Topic", 53),
+            ],
+        }
+        candidates = search_youtube_candidates(
+            "Gigi D'Alessio Outro official audio", "Outro",
+            expected_duration_ms=53000,
+        )
+        assert [c["title"] for c in candidates] == ["Outro"]
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_fallback_phase_reuses_phase_one_results(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = dict(self._CFG)
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {"entries": []}
+        search_youtube_candidates(
+            "Artist Song official audio", "Song", expected_duration_ms=200000,
+        )
+        targets = [c.args[0] for c in mock_ydl.extract_info.call_args_list]
+        assert targets
+        assert len(targets) == len(set(targets))
+
+
+class TestAlbumTrackMatching:
+    def _entries(self, *items):
+        return [
+            {"url": f"https://music.youtube.com/watch?v={i:011d}",
+             "title": title, "duration": duration}
+            for i, (title, duration) in enumerate(items)
+        ]
+
+    def test_bracketed_title_matches(self):
+        entries = self._entries(("Untitled", 163))
+        cand = match_album_track(entries, "[untitled]", 163000)
+        assert cand and cand["title"] == "Untitled"
+
+    def test_duration_breaks_title_ties(self):
+        entries = self._entries(("Intro", 40), ("Intro", 67))
+        cand = match_album_track(entries, "Intro", 67000)
+        assert cand["duration"] == 67
+
+    def test_positional_fallback_when_titles_differ(self):
+        entries = self._entries(("One", 163), ("Two", 468), ("Three", 132))
+        cand = match_album_track(
+            entries, "[untitled]", 468500, position=2, total_tracks=3,
+        )
+        assert cand["title"] == "Two"
+        assert cand["matched_by"] == "position"
+
+    def test_positional_fallback_needs_same_track_count(self):
+        entries = self._entries(("One", 163), ("Two", 468))
+        assert match_album_track(
+            entries, "[untitled]", 468000, position=2, total_tracks=3,
+        ) is None
+
+    def test_positional_fallback_needs_matching_duration(self):
+        entries = self._entries(("One", 163), ("Two", 300))
+        assert match_album_track(
+            entries, "[untitled]", 468000, position=2, total_tracks=2,
+        ) is None
+
+    def test_title_match_is_marked(self):
+        entries = self._entries(("Song", 200))
+        assert match_album_track(entries, "Song", 200000)["matched_by"] == "title"

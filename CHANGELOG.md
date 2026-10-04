@@ -1,5 +1,54 @@
 # Changelog
 
+## 2.0.1
+
+### Fixed — found in real download logs
+- **Age-restricted videos no longer stall an album for minutes.** yt-dlp's
+  "Sign in to confirm your age" was retried for every player client ×
+  format selector × postprocessor (≈40 attempts, 6+ minutes per track) and
+  every attempt was logged as a warning. Without cookies the download now
+  stops at the first age gate; with cookies each client is tried once.
+  Private, removed, members-only and region-locked videos stop at once.
+  The track gets one line explaining what to do (upload a signed-in
+  cookies.txt, or re-export it if it is not signed in).
+- **An unusable album-playlist track falls back to a normal search.** When
+  the official YT Music album entry cannot be downloaded (e.g. it is
+  age-restricted) other uploads of the same song are tried instead of
+  failing the track.
+- **cookies.txt no longer breaks under parallel downloads.** yt-dlp rewrites
+  its cookie file at the end of every run without locking, so two tracks
+  downloading at once could read a half-written file ("does not look like a
+  Netscape format cookies file") and the rewrite could replace a signed-in
+  export with a rotated, logged-out jar. Every yt-dlp run now gets a private
+  copy; your file is never modified. Files without the Netscape header line
+  are accepted (the header is added), JSON exports are rejected on upload
+  with a clear message, and an unusable file is ignored with a single
+  warning. Settings shows when the configured file is being ignored.
+- **Tracks are no longer downloaded twice.** When AcoustID had no data for
+  any candidate, the best one was deleted and downloaded again; the first
+  download is now kept.
+- **Official album tracks without AcoustID data are kept** right away
+  instead of going through the unverified fallback.
+- **AcoustID results without linked recordings count as "no data", not as a
+  mismatch**, so the candidate is no longer banned ("got=None").
+- **Generic titles (Intro, Outro, Interlude, Skit, [untitled]…) need the
+  artist's channel or name.** Any video containing "intro" used to qualify,
+  so an album intro could match a DJ jingle.
+- **Bracketed titles such as "[untitled]" match uploads without the
+  brackets**, both in the per-track search and in the album playlist.
+- **Album-playlist matching by position.** When titles differ but the YT
+  Music album has the same number of tracks and the track at the same
+  position has the same duration, it is used. Such a match is still checked
+  by AcoustID (a mismatch rejects it and falls back to search).
+  Among identically titled album tracks the closest duration wins.
+- The "any source" search phase reuses the results of the "artist channel"
+  phase instead of running the same ten queries again.
+
+### Changed
+- Log lines of an album run carry the track number (`[02]`), so tracks
+  downloading in parallel no longer interleave anonymously, and the few
+  album-run lines that lacked the indent now have it.
+
 ## 2.0.0
 
 ### Changed

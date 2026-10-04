@@ -5,6 +5,7 @@ downloads (search, download, tag, import to Lidarr), and processes
 the download queue.
 """
 
+import contextvars
 import copy
 import logging
 import os
@@ -429,6 +430,33 @@ def _track_number(track, album_tracks=(), fallback=0):
         if other is track:
             return position + 1
     return fallback
+
+
+def _int_or(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _album_position(track, album_tracks):
+    ordered = sorted(
+        album_tracks or (),
+        key=lambda t: (
+            _int_or(t.get("mediumNumber"), 1),
+            _int_or(
+                t.get("absoluteTrackNumber"),
+                _int_or(t.get("trackNumber"), 0),
+            ),
+        ),
+    )
+    track_id = track.get("id")
+    for index, other in enumerate(ordered):
+        if other is track or (
+            track_id is not None and other.get("id") == track_id
+        ):
+            return index + 1, len(ordered)
+    return None, len(ordered)
 
 
 def process_album_download(
@@ -863,7 +891,7 @@ def process_album_download(
 
         if config.get("lidarr_rename_after_import", False):
             logger.info(
-                "Triggering Lidarr RenameFiles for albumId=%s", album_id
+                "   Triggering Lidarr RenameFiles for albumId=%s", album_id
             )
             lidarr_request_with_retry(
                 "command",
@@ -877,7 +905,7 @@ def process_album_download(
         if lidarr_path and copy_succeeded and os.path.exists(artist_path):
             try:
                 logger.info(
-                    f"Cleaning up download folder: {artist_path}"
+                    f"   Cleaning up download folder: {artist_path}"
                 )
                 shutil.rmtree(artist_path)
                 logger.info("Download folder cleaned up successfully")
@@ -1141,7 +1169,9 @@ def _download_candidate_threaded(
         except Exception as exc:
             dl_error_box[0] = exc
 
-    dl_thread = threading.Thread(target=_run_dl, daemon=True)
+    dl_thread = threading.Thread(
+        target=contextvars.copy_context().run, args=(_run_dl,), daemon=True,
+    )
     dl_thread.start()
 
     while dl_thread.is_alive():
@@ -1180,6 +1210,7 @@ def _download_candidate_threaded(
         return None
 
     if not dl_result.get("success"):
+        track_state["last_download_error"] = dl_result.get("error_message", "")
         if dl_result.get("postprocess_error"):
             track_state["postprocess_error"] = True
             track_state["error_message"] = dl_result.get("error_message", "")
@@ -1424,6 +1455,11 @@ def _download_tracks(
     )
 
     def _process_single_track(idx, track):
+        label = f"{_track_number(track, album.get('tracks'), idx + 1):02d}"
+        with logutil.track_label(label):
+            _process_track_body(idx, track)
+
+    def _process_track_body(idx, track):
         nonlocal total_downloaded_size
 
         track_state = state["tracks"][idx]
@@ -1466,10 +1502,15 @@ def _download_tracks(
         ytm_album = album_ctx.get("ytmusic_album")
         album_candidate = None
         if ytm_album:
+            album_position, album_total = _album_position(
+                track, album.get("tracks"),
+            )
             album_candidate = match_album_track(
                 ytm_album.get("entries", []),
                 track_title,
                 track_duration_ms,
+                position=album_position,
+                total_tracks=album_total,
             )
             banned_ids = {
                 _extract_video_id(u) or u for u in banned_url_set
@@ -1484,18 +1525,42 @@ def _download_tracks(
                 )
                 album_candidate = None
 
-        if album_candidate:
+        base_query = f"{track_artist} {track_title} official audio"
+        searched = [False]
+
+        def _search_candidates():
+            searched[0] = True
             logger.info(
-                "   Album-first match: '%s' from official playlist %s",
-                album_candidate["title"],
-                ytm_album.get("playlist_url", ""),
+                "   Per-track search query for '%s': \"%s\""
+                " (track_artist='%s')",
+                track_title, base_query, track_artist,
             )
-            # Coming from the artist's official YT Music album playlist,
-            # the song mapping is already canonical. AcoustID's job here
-            # is only to catch wrong/garbage uploads, so a recording-id
-            # mismatch (same song, different MusicBrainz recording) must
-            # not reject it. (Issue #58.)
-            album_candidate["from_official_album"] = True
+            return search_youtube_candidates(
+                base_query,
+                track_title, track_duration_ms,
+                skip_check=_skip_check, banned_urls=banned_url_set,
+            )
+
+        if album_candidate:
+            if album_candidate.get("matched_by") == "position":
+                logger.info(
+                    "   Album-first match by position: '%s' (#%d of %d,"
+                    " same duration) from official playlist %s",
+                    album_candidate["title"], album_position, album_total,
+                    ytm_album.get("playlist_url", ""),
+                )
+            else:
+                logger.info(
+                    "   Album-first match: '%s' from official playlist %s",
+                    album_candidate["title"],
+                    ytm_album.get("playlist_url", ""),
+                )
+                # Coming from the artist's official YT Music album playlist,
+                # the song mapping is already canonical. AcoustID's job here
+                # is only to catch wrong/garbage uploads, so a recording-id
+                # mismatch (same song, different MusicBrainz recording) must
+                # not reject it. (Issue #58.)
+                album_candidate["from_official_album"] = True
             candidates = [album_candidate]
         else:
             if ytm_album:
@@ -1503,17 +1568,36 @@ def _download_tracks(
                     "   No album-playlist match for '%s';"
                     " falling back to per-track search", track_title,
                 )
-            base_query = f"{track_artist} {track_title} official audio"
+            candidates = _search_candidates()
+
+        def _extend_with_search():
+            if searched[0] or _skip_check():
+                return False
             logger.info(
-                "   Per-track search query for '%s': \"%s\""
-                " (track_artist='%s')",
-                track_title, base_query, track_artist,
+                "   Album-playlist track for '%s' was not usable;"
+                " searching YouTube for another upload", track_title,
             )
-            candidates = search_youtube_candidates(
-                base_query,
-                track_title, track_duration_ms,
-                skip_check=_skip_check, banned_urls=banned_url_set,
-            )
+            tried = {
+                _extract_video_id(c.get("url")) or c.get("url")
+                for c in candidates
+            }
+            extra = [
+                c for c in _search_candidates()
+                if (_extract_video_id(c.get("url")) or c.get("url"))
+                not in tried
+            ]
+            candidates.extend(extra)
+            return bool(extra)
+
+        def _iter_candidates():
+            position = 0
+            while True:
+                if position >= len(candidates):
+                    if not _extend_with_search():
+                        return
+                    continue
+                yield position, candidates[position]
+                position += 1
 
         if not candidates:
             if _skip_check():
@@ -1562,8 +1646,17 @@ def _download_tracks(
         any_low_score_skipped = False
         candidate_attempts_buf = []
 
-        for ci, candidate in enumerate(candidates):
+        held_unverified = None
+
+        def _drop_held_unverified():
+            nonlocal held_unverified
+            if held_unverified:
+                _cleanup_temp_files(held_unverified[2])
+            held_unverified = None
+
+        for ci, candidate in _iter_candidates():
             if _skip_check():
+                _drop_held_unverified()
                 track_state["status"] = "skipped"
                 return
 
@@ -1584,7 +1677,7 @@ def _download_tracks(
                     )
                 )
                 logger.info(
-                    "Rejected '%s' for '%s': score %.2f < min %.2f (%s)",
+                    "   Rejected '%s' for '%s': score %.2f < min %.2f (%s)",
                     candidate.get("title", ""), track_title,
                     candidate.get("score", 0.0), min_match_score,
                     no_verify_reason,
@@ -1608,16 +1701,18 @@ def _download_tracks(
                         candidate,
                         CandidateOutcome.DOWNLOAD_FAILED,
                         expected_recording_id,
-                        error_message=track_state.get(
-                            "error_message", "",
+                        error_message=(
+                            track_state.get("error_message")
+                            or track_state.get("last_download_error", "")
                         ),
                     )
                 )
                 if track_state["status"] == "skipped":
+                    _drop_held_unverified()
                     return
                 if track_state.get("postprocess_error"):
                     logger.error(
-                        "Aborting remaining candidates for '%s': %s",
+                        "   Aborting remaining candidates for '%s': %s",
                         track_title,
                         track_state.get("error_message", ""),
                     )
@@ -1692,7 +1787,7 @@ def _download_tracks(
                         )
                     )
                     logger.info(
-                        "AcoustID recording-id mismatch for '%s' accepted"
+                        "   AcoustID recording-id mismatch for '%s' accepted"
                         " (official album playlist, score=%.2f)",
                         track_title,
                         fp_data.get("acoustid_score", 0.0),
@@ -1724,14 +1819,17 @@ def _download_tracks(
                         mismatch_attempt,
                     )
                     remaining = len(candidates) - ci - 1
-                    next_msg = (
-                        f"Trying next candidate"
-                        f" ({ci + 2}/{len(candidates)})."
-                        if remaining > 0
-                        else "No more candidates."
-                    )
+                    if remaining > 0:
+                        next_msg = (
+                            f"Trying next candidate"
+                            f" ({ci + 2}/{len(candidates)})."
+                        )
+                    elif not searched[0]:
+                        next_msg = "Searching YouTube for alternatives."
+                    else:
+                        next_msg = "No more candidates."
                     logger.info(
-                        "AcoustID verification failed for"
+                        "   AcoustID verification failed for"
                         " '%s': expected=%s, got=%s"
                         " (score=%.2f). %s",
                         track_title,
@@ -1762,6 +1860,21 @@ def _download_tracks(
                     track_state["youtube_url"] = ""
                     track_state["youtube_title"] = ""
                     continue
+                elif (
+                    vresult["status"] == "unverified"
+                    and candidate.get("from_official_album")
+                ):
+                    candidate_attempts_buf.append(
+                        _build_candidate_attempt(
+                            candidate,
+                            CandidateOutcome.ACCEPTED_NO_VERIFY,
+                            expected_recording_id,
+                        )
+                    )
+                    logger.info(
+                        "   AcoustID has no data for '%s'; kept (official"
+                        " album playlist)", track_title,
+                    )
                 elif vresult["status"] == "unverified":
                     candidate_attempts_buf.append(
                         _build_candidate_attempt(
@@ -1777,7 +1890,11 @@ def _download_tracks(
                     )
                     if best_unverified_candidate is None:
                         best_unverified_candidate = candidate
-                    _cleanup_temp_files(attempt_temp)
+                        held_unverified = (
+                            actual_file, dl_result, attempt_temp,
+                        )
+                    else:
+                        _cleanup_temp_files(attempt_temp)
                     continue
             else:
                 if cfg.get("acoustid_enabled", True):
@@ -1798,6 +1915,7 @@ def _download_tracks(
                     )
                 )
 
+            _drop_held_unverified()
             file_size, td_id = _accept_track_file(
                 actual_file, track_num, sanitized_track,
                 dl_result, fp_data,
@@ -1847,7 +1965,7 @@ def _download_tracks(
                     )
                 )
                 logger.info(
-                    "Skipping unverified fallback for '%s':"
+                    "   Skipping unverified fallback for '%s':"
                     " best score %.2f < min %.2f",
                     track_title,
                     best_unverified_candidate.get("score", 0.0),
@@ -1855,23 +1973,35 @@ def _download_tracks(
                 )
                 low_score_fallback = True
                 best_unverified_candidate = None
+                _drop_held_unverified()
             if best_unverified_candidate:
-                track_state["status"] = "downloading"
-                fallback_temp = os.path.join(
-                    album_path,
-                    f"temp_{track_num:02d}"
-                    f"_{uuid.uuid4().hex[:8]}",
-                )
-                fb_result = download_youtube_candidate(
-                    best_unverified_candidate, fallback_temp,
-                    progress_hook=progress_hook,
-                    skip_check=_skip_check,
-                )
-                if fb_result.get("skipped"):
-                    _cleanup_temp_files(fallback_temp)
-                    track_state["status"] = "skipped"
-                    return
-                fb_file = fallback_temp + f".{load_config().get('audio_format', 'mp3')}"
+                if held_unverified and os.path.exists(held_unverified[0]):
+                    fb_file, fb_result, fallback_temp = held_unverified
+                    held_unverified = None
+                    logger.info(
+                        "   Keeping unverified '%s' for '%s' (no verified"
+                        " match among %d candidates)",
+                        best_unverified_candidate["title"], track_title,
+                        len(candidates),
+                    )
+                else:
+                    _drop_held_unverified()
+                    track_state["status"] = "downloading"
+                    fallback_temp = os.path.join(
+                        album_path,
+                        f"temp_{track_num:02d}"
+                        f"_{uuid.uuid4().hex[:8]}",
+                    )
+                    fb_result = download_youtube_candidate(
+                        best_unverified_candidate, fallback_temp,
+                        progress_hook=progress_hook,
+                        skip_check=_skip_check,
+                    )
+                    if fb_result.get("skipped"):
+                        _cleanup_temp_files(fallback_temp)
+                        track_state["status"] = "skipped"
+                        return
+                    fb_file = fallback_temp + f".{load_config().get('audio_format', 'mp3')}"
                 if (
                     fb_result.get("success")
                     and os.path.exists(fb_file)
@@ -1965,6 +2095,9 @@ def _download_tracks(
                     "All candidate downloads failed"
                     f" (tried {len(candidates)} candidates)"
                 )
+                last_error = track_state.get("last_download_error")
+                if last_error:
+                    fail_reason += f": {last_error}"
             else:
                 fail_reason = (
                     "AcoustID verification failed: no"
@@ -2418,7 +2551,7 @@ def _copy_to_lidarr(
             lidarr_path = ""
         else:
             logger.info(
-                f"Moving files to Lidarr music folder: {lidarr_path}"
+                f"   Moving files to Lidarr music folder: {lidarr_path}"
             )
         lidarr_artist_path = os.path.join(
             lidarr_path, sanitized_artist

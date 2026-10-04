@@ -12,6 +12,8 @@ finishing) carry one inline. Everything else stays plain so the important
 lines stand out.
 """
 
+import contextlib
+import contextvars
 import logging
 import threading
 import time
@@ -32,6 +34,25 @@ _LEVEL_ICONS = {
 # whose width is Ambiguous: terminals disagree, so it cannot be aligned.
 # A test enforces it.
 _TEXT_COLUMN = 3
+
+
+_TRACK_LABEL = contextvars.ContextVar("track_label", default="")
+
+
+@contextlib.contextmanager
+def track_label(label):
+    token = _TRACK_LABEL.set(str(label or ""))
+    try:
+        yield
+    finally:
+        _TRACK_LABEL.reset(token)
+
+
+class TrackLabelFilter(logging.Filter):
+    def filter(self, record):
+        if not getattr(record, "track_label", ""):
+            record.track_label = _TRACK_LABEL.get()
+        return True
 
 
 class DedupeFilter(logging.Filter):
@@ -71,7 +92,7 @@ class DedupeFilter(logging.Filter):
 
     def filter(self, record):
         try:
-            message = record.getMessage()
+            message = (getattr(record, "track_label", ""), record.getMessage())
         except Exception:
             return True
         now = time.monotonic()
@@ -132,6 +153,10 @@ class ConsoleFormatter(logging.Formatter):
         stamp = time.strftime("%H:%M:%S", time.localtime(record.created))
         icon = getattr(record, "icon", None) or _LEVEL_ICONS.get(record.levelno)
         message = record.getMessage()
+        label = getattr(record, "track_label", "")
+        if label:
+            text = message.lstrip(" ")
+            message = f"{message[:len(message) - len(text)]}[{label}] {text}"
         if icon:
             message = f"{icon} {message.lstrip()}"
         indent = " " * (len(stamp) + 1 + _TEXT_COLUMN)
@@ -153,6 +178,7 @@ def setup_logging(level=logging.INFO):
     """
     handler = logging.StreamHandler()
     handler.setFormatter(ConsoleFormatter())
+    handler.addFilter(TrackLabelFilter())
     handler.addFilter(DedupeFilter(handler))
     root = logging.getLogger()
     for existing in list(root.handlers):

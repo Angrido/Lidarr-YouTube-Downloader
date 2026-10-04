@@ -717,12 +717,10 @@ class TestVerifyRetryLoop:
         )
 
         assert len(failed) == 0
-        # 2 initial downloads + 1 re-download of best candidate
-        assert dl_count[0] == 3
+        assert dl_count[0] == 2
         # No URLs should be banned (unverified != mismatch)
         banned = models.get_banned_urls_for_track(42, "Obscure Song")
         assert len(banned) == 0
-        # Track recorded with best-scored URL (re-downloaded)
         tracks = models.get_track_downloads_for_album(42)
         assert len(tracks) == 1
         assert tracks[0]["youtube_url"] == "url_best"
@@ -3134,7 +3132,7 @@ class TestBannedUrlMatchesByVideoId:
         )
         monkeypatch.setattr(
             processing, "match_album_track",
-            lambda *a: {
+            lambda *a, **k: {
                 "url": "https://music.youtube.com/watch?v=abcdefghijk",
                 "title": "Song",
             },
@@ -3183,3 +3181,196 @@ class TestAnyDownloadActive:
         import processing
         processing._active_states[7] = {"active": False}
         assert processing.any_download_active() is False
+
+
+class TestAlbumFirstRecovery:
+    _VERIFY_CFG = {
+        "xml_metadata_enabled": False, "acoustid_enabled": True,
+        "acoustid_api_key": "k", "audio_format": "mp3",
+    }
+
+    def _run(self, tmp_path, monkeypatch, cfg, album_candidate, search,
+             download, verify=None, track=None):
+        import processing
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path, exist_ok=True)
+        track = track or {
+            "title": "Song", "trackNumber": 1, "duration": 200000,
+            "foreignRecordingId": "rec",
+        }
+        searched = []
+        monkeypatch.setattr(processing, "load_config", lambda: cfg)
+        monkeypatch.setattr(processing, "tag_audio_file", lambda *a, **k: None)
+        monkeypatch.setattr(
+            processing, "match_album_track",
+            lambda *a, **k: dict(album_candidate) if album_candidate else None,
+        )
+
+        def fake_search(*a, **k):
+            searched.append(a)
+            return [dict(c) for c in search]
+
+        monkeypatch.setattr(processing, "search_youtube_candidates", fake_search)
+        monkeypatch.setattr(processing, "download_youtube_candidate", download)
+        if verify:
+            monkeypatch.setattr(processing, "verify_fingerprint", verify)
+        state = processing._make_download_state()
+        state["tracks"] = [_state_track(track["title"], 1)]
+        ctx = _make_album_ctx(
+            ytmusic_album={"entries": [{}], "playlist_url": "p"},
+        )
+        failed, succeeded, _, _ = processing._download_tracks(
+            [track], album_path, {"tracks": [track]}, ctx, state,
+        )
+        return failed, succeeded, searched, album_path
+
+    def test_unavailable_album_track_falls_back_to_search(
+        self, tmp_path, monkeypatch,
+    ):
+        album = {
+            "url": "https://music.youtube.com/watch?v=AAAAAAAAAAA",
+            "title": "Song", "duration": 200, "score": 1.0,
+            "source": "ytmusic",
+        }
+        other = {
+            "url": "https://www.youtube.com/watch?v=BBBBBBBBBBB",
+            "title": "Artist - Song", "duration": 200, "score": 0.9,
+        }
+        same = dict(other, url="https://www.youtube.com/watch?v=AAAAAAAAAAA")
+
+        def download(candidate, output_path, **kwargs):
+            if "AAAAAAAAAAA" in candidate["url"]:
+                return {
+                    "success": False, "unavailable": True,
+                    "error_message": "Age-restricted video",
+                }
+            return _ok_download(candidate, output_path)
+
+        failed, succeeded, searched, _ = self._run(
+            tmp_path, monkeypatch, _PLAIN_CFG, album, [same, other], download,
+        )
+        assert failed == []
+        assert len(searched) == 1
+        assert succeeded[0]["youtube_url"].endswith("BBBBBBBBBBB")
+
+    def test_failure_reason_says_why_the_download_failed(
+        self, tmp_path, monkeypatch,
+    ):
+        album = {
+            "url": "https://music.youtube.com/watch?v=AAAAAAAAAAA",
+            "title": "Song", "duration": 200, "score": 1.0,
+        }
+
+        def download(candidate, output_path, **kwargs):
+            return {
+                "success": False, "unavailable": True,
+                "error_message": "Age-restricted video: upload a cookies.txt",
+            }
+
+        failed, _, searched, _ = self._run(
+            tmp_path, monkeypatch, _PLAIN_CFG, album, [], download,
+        )
+        assert len(searched) == 1
+        assert "Age-restricted" in failed[0]["reason"]
+
+    def test_official_album_track_without_acoustid_data_is_kept(
+        self, tmp_path, monkeypatch,
+    ):
+        album = {
+            "url": "https://music.youtube.com/watch?v=AAAAAAAAAAA",
+            "title": "Song", "duration": 200, "score": 1.0,
+        }
+        downloads = []
+
+        def download(candidate, output_path, **kwargs):
+            downloads.append(candidate["url"])
+            return _ok_download(candidate, output_path)
+
+        failed, succeeded, searched, _ = self._run(
+            tmp_path, monkeypatch, self._VERIFY_CFG, album, [], download,
+            verify=lambda *a, **k: {
+                "status": "unverified", "fp_data": {}, "matched_id": None,
+            },
+        )
+        assert failed == []
+        assert len(downloads) == 1
+        assert searched == []
+
+    def test_positional_match_is_not_trusted_on_mismatch(
+        self, tmp_path, monkeypatch,
+    ):
+        album = {
+            "url": "https://music.youtube.com/watch?v=AAAAAAAAAAA",
+            "title": "Other Song", "duration": 200, "score": 1.0,
+            "matched_by": "position",
+        }
+        failed, succeeded, searched, _ = self._run(
+            tmp_path, monkeypatch, self._VERIFY_CFG, album, [], _ok_download,
+            verify=lambda *a, **k: {
+                "status": "mismatch",
+                "fp_data": {"acoustid_score": 0.9,
+                            "acoustid_recording_id": "x"},
+                "matched_id": "x",
+            },
+        )
+        assert len(failed) == 1
+        assert len(searched) == 1
+        assert models.get_banned_urls_for_track(42, "Song")
+
+    def test_unverified_fallback_is_not_downloaded_twice(
+        self, tmp_path, monkeypatch,
+    ):
+        downloads = []
+
+        def download(candidate, output_path, **kwargs):
+            downloads.append(candidate["url"])
+            return _ok_download(candidate, output_path)
+
+        search = [
+            {"url": "https://www.youtube.com/watch?v=CCCCCCCCCCC",
+             "title": "Song", "duration": 200, "score": 0.95},
+        ]
+        failed, succeeded, _, album_path = self._run(
+            tmp_path, monkeypatch, self._VERIFY_CFG, None, search, download,
+            verify=lambda *a, **k: {
+                "status": "unverified", "fp_data": {}, "matched_id": None,
+            },
+        )
+        assert failed == []
+        assert len(downloads) == 1
+        assert not [n for n in os.listdir(album_path) if n.startswith("temp_")]
+
+
+class TestAlbumPosition:
+    def test_orders_by_medium_then_track(self):
+        import processing
+        tracks = [
+            {"id": 3, "mediumNumber": 2, "absoluteTrackNumber": 1},
+            {"id": 1, "mediumNumber": 1, "absoluteTrackNumber": 1},
+            {"id": 2, "mediumNumber": 1, "absoluteTrackNumber": 2},
+        ]
+        assert processing._album_position({"id": 3}, tracks) == (3, 3)
+        assert processing._album_position({"id": 9}, tracks) == (None, 3)
+
+
+class TestTrackLogLabels:
+    def test_download_thread_keeps_the_track_label(self, tmp_path, monkeypatch):
+        import logging
+        import logutil
+        import processing
+        seen = []
+
+        def download(candidate, output_path, **kwargs):
+            record = logging.LogRecord("t", logging.INFO, "", 1, "x", (), None)
+            logutil.TrackLabelFilter().filter(record)
+            seen.append(record.track_label)
+            return _ok_download(candidate, output_path)
+
+        monkeypatch.setattr(processing, "download_youtube_candidate", download)
+        state = {"status": "downloading"}
+        with logutil.track_label("07"):
+            processing._download_candidate_threaded(
+                {"url": "u", "title": "t"}, str(tmp_path / "temp_07_x"),
+                None, lambda: False, state,
+            )
+        assert seen == ["07"]

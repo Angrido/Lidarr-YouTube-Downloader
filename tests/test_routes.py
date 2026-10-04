@@ -1880,6 +1880,65 @@ def test_cookies_test_no_file(client, monkeypatch):
     assert data["success"] is False
 
 
+_COOKIE_ROW = ".youtube.com\tTRUE\t/\tTRUE\t0\tLOGIN_INFO\tabc\n"
+
+
+def _upload_cookies(client, text):
+    import io
+    return client.post(
+        "/api/cookies/upload",
+        data={"file": (io.BytesIO(text.encode("utf-8")), "cookies.txt")},
+        content_type="multipart/form-data",
+    )
+
+
+def test_cookies_upload_adds_missing_header(client, tmp_path, monkeypatch):
+    target = tmp_path / "cfg" / "cookies.txt"
+    monkeypatch.setattr("app.COOKIES_PATH", str(target))
+    resp = _upload_cookies(client, _COOKIE_ROW)
+    assert resp.status_code == 200
+    assert target.read_text() == _COOKIES_HEADER + _COOKIE_ROW
+    from yt_dlp.cookies import YoutubeDLCookieJar
+    jar = YoutubeDLCookieJar(str(target))
+    jar.load(ignore_discard=True, ignore_expires=True)
+    assert [c.name for c in jar] == ["LOGIN_INFO"]
+
+
+def test_cookies_upload_rejects_json_export(client, tmp_path, monkeypatch):
+    target = tmp_path / "cookies.txt"
+    monkeypatch.setattr("app.COOKIES_PATH", str(target))
+    resp = _upload_cookies(client, '[{"name": "SID", "value": "x"}]')
+    assert resp.status_code == 400
+    assert "JSON" in resp.get_json()["message"]
+    assert not target.exists()
+
+
+def test_cookies_status_reports_unusable_file(client, tmp_path, monkeypatch):
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text("this is not a cookies file\n")
+    monkeypatch.setattr(
+        "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
+    )
+    data = client.get("/api/cookies/status").get_json()
+    assert data["valid"] is False
+    assert data["reason"]
+
+
+def test_cookies_test_never_lets_ytdlp_rewrite_the_export(
+    client, tmp_path, monkeypatch,
+):
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text(_COOKIES_HEADER + _COOKIE_ROW)
+    monkeypatch.setattr(
+        "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
+    )
+    import yt_dlp
+    ydl = _mock_ydl_with_formats(3)
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", ydl)
+    client.post("/api/cookies/test")
+    assert ydl.call_args.args[0]["cookiefile"] != str(cookies)
+
+
 class TestPlaylistToLibrary:
     def test_scan_triggered_when_enabled(self, monkeypatch):
         # With playlist_to_library on, Lidarr configured and tracks done, a
