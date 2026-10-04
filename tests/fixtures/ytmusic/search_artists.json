@@ -1,0 +1,82 @@
+[
+ {
+  "category": "Artisti",
+  "resultType": "artist",
+  "artist": "Nirvana",
+  "shuffleId": "RDAODz952MrmDXLULMlo7SEXUw",
+  "radioId": "RDEMDz952MrmDXLULMlo7SEXUw",
+  "browseId": "UCrPe3hLA51968GwxHSZ1llw",
+  "thumbnails": [
+   {
+    "url": "https://yt3.googleusercontent.com/yoFwkvvbmM3u7q0VM_HpjCnsaViQx3gWuycm5OsdmRqWBHL4LyIpNQ5kemdcoW7zrGETTutR_5c_xk8=w60-h60-p-l90-rj",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://yt3.googleusercontent.com/yoFwkvvbmM3u7q0VM_HpjCnsaViQx3gWuycm5OsdmRqWBHL4LyIpNQ5kemdcoW7zrGETTutR_5c_xk8=w120-h120-p-l90-rj",
+    "width": 120,
+    "height": 120
+   }
+  ]
+ },
+ {
+  "category": "Artisti",
+  "resultType": "artist",
+  "artist": "Kurt Cobain",
+  "shuffleId": "RDAOXIaDF0oo7L3XT8SGqUmTvw",
+  "radioId": "RDEMXIaDF0oo7L3XT8SGqUmTvw",
+  "browseId": "UC9wzL8oSw8lD6ucrTSS6C_Q",
+  "thumbnails": [
+   {
+    "url": "https://yt3.googleusercontent.com/O339XNbfMDKTA874KjOYYeOQfzyrYraG7pmpzAArEMX8_03y2NfpT9HRG-12G5rdKNTv97F7dXU1KEA=w60-h60-p-l90-rj",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://yt3.googleusercontent.com/O339XNbfMDKTA874KjOYYeOQfzyrYraG7pmpzAArEMX8_03y2NfpT9HRG-12G5rdKNTv97F7dXU1KEA=w120-h120-p-l90-rj",
+    "width": 120,
+    "height": 120
+   }
+  ]
+ },
+ {
+  "category": "Artisti",
+  "resultType": "artist",
+  "artist": "Sleeping In Nirvana",
+  "shuffleId": "RDAOfvurKUxT3ukiHBPGJWFb2A",
+  "radioId": "RDEMfvurKUxT3ukiHBPGJWFb2A",
+  "browseId": "UC7-xEjeYJhZA-rnphKCuD_Q",
+  "thumbnails": [
+   {
+    "url": "https://yt3.googleusercontent.com/oKjBGr1t1Ugm2S7NCxq9GOMdyODdUM3Z4Fytf_M5RjQOd2jgqiHwx917_RYCbyLZqn37EtXW=w60-h60-l90-rj-dciVGORyIJ",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://yt3.googleusercontent.com/oKjBGr1t1Ugm2S7NCxq9GOMdyODdUM3Z4Fytf_M5RjQOd2jgqiHwx917_RYCbyLZqn37EtXW=w120-h120-l90-rj-dciVGORyIJ",
+    "width": 120,
+    "height": 120
+   }
+  ]
+ },
+ {
+  "category": "Artisti",
+  "resultType": "artist",
+  "artist": "Marigold",
+  "shuffleId": "RDAOTYV3oKByyc5xlTcjECnOXA",
+  "radioId": "RDEMTYV3oKByyc5xlTcjECnOXA",
+  "browseId": "UCNqJUg1BTsdmBvHTm4ISS5w",
+  "thumbnails": [
+   {
+    "url": "https://yt3.googleusercontent.com/MwY2f52-Q0P7NhbTEdKL4G1qJcvoTrhhAHbVhqsozRpwPU3Pgb4rvx2Gu5Do4YbCj7m_MAP1m8pDQhMV=w60-h60-l90-rj",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://yt3.googleusercontent.com/MwY2f52-Q0P7NhbTEdKL4G1qJcvoTrhhAHbVhqsozRpwPU3Pgb4rvx2Gu5Do4YbCj7m_MAP1m8pDQhMV=w120-h120-l90-rj",
+    "width": 120,
+    "height": 120
+   }
+  ]
+ }
+]

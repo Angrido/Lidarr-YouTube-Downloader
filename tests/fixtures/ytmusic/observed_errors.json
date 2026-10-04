@@ -1,0 +1,10 @@
+{
+ "client": "ytmusicapi 1.12.3, unauthenticated, language=it location=IT, captured 2026-10-04 from a datacenter IP",
+ "get_explore": "KeyError: Unable to find 'playNavigationEndpoint' (podcast item in the Popular episodes shelf)",
+ "get_mood_categories": "YTMusicServerError: HTTP 404 Not Found",
+ "get_album": "KeyError: Unable to find 'contents' (musicResponsiveHeaderRenderer missing)",
+ "get_song_related": "KeyError: Unable to find 'sectionListRenderer' (messageRenderer: no extra content)",
+ "search_filter_albums": "returned []",
+ "search_filter_songs": "returned []",
+ "get_artist": "songs.browseId null, no albums/singles keys"
+}

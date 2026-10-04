@@ -1,0 +1,526 @@
+{
+ "contents": {
+  "singleColumnBrowseResultsRenderer": {
+   "tabs": [
+    {
+     "tabRenderer": {
+      "content": {
+       "sectionListRenderer": {
+        "contents": [
+         {
+          "gridRenderer": {
+           "items": [
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/tvY_FoW4ljqv0NReDLzWTFBnMV2R7BQdiRDvYha0k3P5dufo-dQuPVgBDO6W4T_Fx1PkNmqdNLdvzGQ=w226-h226-l90-rj",
+                   "width": 226,
+                   "height": 226
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/tvY_FoW4ljqv0NReDLzWTFBnMV2R7BQdiRDvYha0k3P5dufo-dQuPVgBDO6W4T_Fx1PkNmqdNLdvzGQ=w544-h544-l90-rj",
+                   "width": 544,
+                   "height": 544
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+               }
+              },
+              "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_SQUARE",
+              "title": {
+               "runs": [
+                {
+                 "text": "NUOVE USCITE",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "VLRDCLAK5uy_k5n4srrEB1wgvIjPNTXS9G1ufE9WQxhnA",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "Playlist"
+                },
+                {
+                 "text": " • "
+                },
+                {
+                 "text": "YouTube Music"
+                }
+               ]
+              },
+              "navigationEndpoint": {
+               "browseEndpoint": {
+                "browseId": "VLRDCLAK5uy_k5n4srrEB1wgvIjPNTXS9G1ufE9WQxhnA",
+                "browseEndpointContextSupportedConfigs": {
+                 "browseEndpointContextMusicConfig": {
+                  "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                 }
+                }
+               }
+              },
+              "thumbnailOverlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchPlaylistEndpoint": {
+                    "playlistId": "RDCLAK5uy_k5n4srrEB1wgvIjPNTXS9G1ufE9WQxhnA",
+                    "params": "wAEB"
+                   }
+                  },
+                  "playIcon": {
+                   "iconType": "PLAY_ARROW"
+                  },
+                  "pauseIcon": {
+                   "iconType": "PAUSE"
+                  },
+                  "iconColor": 4294967295,
+                  "backgroundColor": 2566914048,
+                  "activeBackgroundColor": 4278190080,
+                  "loadingIndicatorColor": 14745645,
+                  "playingIcon": {
+                   "iconType": "VOLUME_UP"
+                  },
+                  "iconLoadingColor": 1308622847,
+                  "activeScaleFactor": 1.2,
+                  "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_MEDIUM",
+                  "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                  "accessibilityPlayData": {
+                   "accessibilityData": {
+                    "label": "Riproduci NUOVE USCITE"
+                   }
+                  }
+                 }
+                },
+                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_BOTTOM_RIGHT",
+                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_HOVER"
+               }
+              }
+             }
+            }
+           ]
+          }
+         },
+         {
+          "musicCarouselShelfRenderer": {
+           "header": {
+            "musicCarouselShelfBasicHeaderRenderer": {
+             "title": {
+              "runs": [
+               {
+                "text": "Video musicali",
+                "navigationEndpoint": {
+                 "browseEndpoint": {
+                  "browseId": "FEmusic_new_releases_videos"
+                 }
+                }
+               }
+              ]
+             },
+             "accessibilityData": {
+              "accessibilityData": {
+               "label": "Video musicali"
+              }
+             },
+             "headerStyle": "MUSIC_CAROUSEL_SHELF_BASIC_HEADER_STYLE_DISPLAY_TWO",
+             "moreContentButton": {
+              "buttonRenderer": {
+               "style": "STYLE_TEXT",
+               "text": {
+                "runs": [
+                 {
+                  "text": "Altro"
+                 }
+                ]
+               },
+               "navigationEndpoint": {
+                "browseEndpoint": {
+                 "browseId": "FEmusic_new_releases_videos"
+                }
+               },
+               "accessibilityData": {
+                "accessibilityData": {
+                 "label": "Altro"
+                }
+               }
+              }
+             }
+            }
+           },
+           "contents": [
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/fA8KNCz-4CM/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kYVte_JpLZnphtwD6LvcrRSA-exg",
+                   "width": 400,
+                   "height": 225
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/fA8KNCz-4CM/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3mCjRokySK6KgE0ZIPrd1K6k7F-bg",
+                   "width": 800,
+                   "height": 450
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+               }
+              },
+              "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_RECTANGLE_16_9",
+              "title": {
+               "runs": [
+                {
+                 "text": "Amarnos No Fue Suficiente | FireVolk"
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "FireVolk",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "UCweU4ua1zvliFuBO9gdPnbw",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                   }
+                  }
+                 }
+                },
+                {
+                 "text": " • "
+                },
+                {
+                 "text": "39K visualizzazioni"
+                }
+               ],
+               "accessibility": {
+                "accessibilityData": {
+                 "label": "FireVolk • 39 mila visualizzazioni"
+                }
+               }
+              },
+              "navigationEndpoint": {
+               "watchEndpoint": {
+                "videoId": "fA8KNCz-4CM",
+                "watchEndpointMusicSupportedConfigs": {
+                 "watchEndpointMusicConfig": {
+                  "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                 }
+                }
+               }
+              },
+              "thumbnailOverlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "fA8KNCz-4CM",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                     }
+                    }
+                   }
+                  },
+                  "playIcon": {
+                   "iconType": "PLAY_ARROW"
+                  },
+                  "pauseIcon": {
+                   "iconType": "PAUSE"
+                  },
+                  "iconColor": 4294967295,
+                  "backgroundColor": 0,
+                  "activeBackgroundColor": 0,
+                  "loadingIndicatorColor": 14745645,
+                  "playingIcon": {
+                   "iconType": "VOLUME_UP"
+                  },
+                  "iconLoadingColor": 0,
+                  "activeScaleFactor": 1,
+                  "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_HUGE",
+                  "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_ANCESTOR",
+                  "accessibilityPlayData": {
+                   "accessibilityData": {
+                    "label": "Riproduci Amarnos No Fue Suficiente | FireVolk - FireVolk"
+                   }
+                  }
+                 }
+                },
+                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+               }
+              }
+             }
+            },
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/Ra8d9NRi7X4/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mYfj-I8xWKz7lHsqA9DTFiwQMNlg",
+                   "width": 400,
+                   "height": 225
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/Ra8d9NRi7X4/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3myCjBDcflICQ3ukri-vz0t-XN6dQ",
+                   "width": 800,
+                   "height": 450
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+               }
+              },
+              "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_RECTANGLE_16_9",
+              "title": {
+               "runs": [
+                {
+                 "text": "Ya No Quiero Volver   FireVolk"
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "FireVolk",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "UCCTAmJyy3lwopWTqkZGNXXw",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                    }
+                   }
+                  }
+                 }
+                },
+                {
+                 "text": " • "
+                },
+                {
+                 "text": "12K visualizzazioni"
+                }
+               ],
+               "accessibility": {
+                "accessibilityData": {
+                 "label": "FireVolk • 12 mila visualizzazioni"
+                }
+               }
+              },
+              "navigationEndpoint": {
+               "watchEndpoint": {
+                "videoId": "Ra8d9NRi7X4",
+                "watchEndpointMusicSupportedConfigs": {
+                 "watchEndpointMusicConfig": {
+                  "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                 }
+                }
+               }
+              },
+              "thumbnailOverlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "Ra8d9NRi7X4",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                     }
+                    }
+                   }
+                  },
+                  "playIcon": {
+                   "iconType": "PLAY_ARROW"
+                  },
+                  "pauseIcon": {
+                   "iconType": "PAUSE"
+                  },
+                  "iconColor": 4294967295,
+                  "backgroundColor": 0,
+                  "activeBackgroundColor": 0,
+                  "loadingIndicatorColor": 14745645,
+                  "playingIcon": {
+                   "iconType": "VOLUME_UP"
+                  },
+                  "iconLoadingColor": 0,
+                  "activeScaleFactor": 1,
+                  "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_HUGE",
+                  "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_ANCESTOR",
+                  "accessibilityPlayData": {
+                   "accessibilityData": {
+                    "label": "Riproduci Ya No Quiero Volver   FireVolk - FireVolk"
+                   }
+                  }
+                 }
+                },
+                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+               }
+              }
+             }
+            },
+            {
+             "musicTwoRowItemRenderer": {
+              "thumbnailRenderer": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/wjWud5YXNT4/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3kwa6nKEv7b7PVOdcyo9MGHTpS0hQ",
+                   "width": 400,
+                   "height": 225
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/wjWud5YXNT4/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3k5ZDzife4Mh4VvsXCdryMnOt1IQw",
+                   "width": 800,
+                   "height": 450
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FILL"
+               }
+              },
+              "aspectRatio": "MUSIC_TWO_ROW_ITEM_THUMBNAIL_ASPECT_RATIO_RECTANGLE_16_9",
+              "title": {
+               "runs": [
+                {
+                 "text": "Me Acostumbré a Tu Ausencia"
+                }
+               ]
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "FireVolk",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "UCweU4ua1zvliFuBO9gdPnbw",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                    }
+                   }
+                  }
+                 }
+                },
+                {
+                 "text": " • "
+                },
+                {
+                 "text": "38K visualizzazioni"
+                }
+               ],
+               "accessibility": {
+                "accessibilityData": {
+                 "label": "FireVolk • 38 mila visualizzazioni"
+                }
+               }
+              },
+              "navigationEndpoint": {
+               "watchEndpoint": {
+                "videoId": "wjWud5YXNT4",
+                "watchEndpointMusicSupportedConfigs": {
+                 "watchEndpointMusicConfig": {
+                  "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                 }
+                }
+               }
+              },
+              "thumbnailOverlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "wjWud5YXNT4",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                     }
+                    }
+                   }
+                  },
+                  "playIcon": {
+                   "iconType": "PLAY_ARROW"
+                  },
+                  "pauseIcon": {
+                   "iconType": "PAUSE"
+                  },
+                  "iconColor": 4294967295,
+                  "backgroundColor": 0,
+                  "activeBackgroundColor": 0,
+                  "loadingIndicatorColor": 14745645,
+                  "playingIcon": {
+                   "iconType": "VOLUME_UP"
+                  },
+                  "iconLoadingColor": 0,
+                  "activeScaleFactor": 1,
+                  "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_HUGE",
+                  "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_ANCESTOR",
+                  "accessibilityPlayData": {
+                   "accessibilityData": {
+                    "label": "Riproduci Me Acostumbré a Tu Ausencia - FireVolk"
+                   }
+                  }
+                 }
+                },
+                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+               }
+              }
+             }
+            }
+           ],
+           "itemSize": "COLLECTION_STYLE_ITEM_SIZE_MEDIUM"
+          }
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ "header": {
+  "musicHeaderRenderer": {
+   "title": {
+    "runs": [
+     {
+      "text": "Nuove uscite"
+     }
+    ]
+   }
+  }
+ },
+ "maxAgeStoreSeconds": 300
+}
