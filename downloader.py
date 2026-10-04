@@ -880,15 +880,20 @@ def _extract_ytm_album_entries(playlist_url, player_client):
     return out
 
 
-def _ytmusicapi_client():
+def _ytmusicapi_client(language=None, location=None):
     """Lazy-import ytmusicapi; return YTMusic instance or None."""
     try:
         from ytmusicapi import YTMusic
     except Exception as exc:
         logger.debug("ytmusicapi not available: %s", exc)
         return None
+    kwargs = {}
+    if language:
+        kwargs["language"] = language
+    if location:
+        kwargs["location"] = location
     try:
-        return YTMusic()
+        return YTMusic(**kwargs)
     except Exception as exc:
         logger.debug("ytmusicapi client init failed: %s", exc)
         return None
@@ -995,9 +1000,18 @@ def _find_album_via_ytmusicapi(artist, album, skip_check=None):
         playlist_id = album_details.get("audioPlaylistId", "") or ""
     if not playlist_id:
         return None
-    raw_tracks = album_details.get("tracks", []) or []
+    result = _ytm_album_result(playlist_id, album_details, artist)
+    if result:
+        logger.info(
+            "   Resolved official YT Music album via ytmusicapi: %s (%d tracks)",
+            result["playlist_url"], len(result["entries"]),
+        )
+    return result
+
+
+def _ytm_album_entries(album_details, artist):
     entries = []
-    for t in raw_tracks:
+    for t in album_details.get("tracks", []) or []:
         if not isinstance(t, dict):
             continue
         vid = t.get("videoId") or ""
@@ -1008,33 +1022,54 @@ def _find_album_via_ytmusicapi(artist, album, skip_check=None):
             (a.get("name", "") if isinstance(a, dict) else str(a))
             for a in t_artists
         ) or artist
+        duration = t.get("duration_seconds")
+        if not isinstance(duration, int) or duration <= 0:
+            duration = _parse_ytmusicapi_duration(t.get("duration", "") or "")
         entries.append({
             "url": f"https://music.youtube.com/watch?v={vid}",
             "title": (t.get("title") or "").strip(),
-            "duration": _parse_ytmusicapi_duration(t.get("duration", "")),
+            "duration": duration,
             "channel": channel_name,
         })
+    return entries
+
+
+def _ytm_album_result(playlist_id, album_details, artist):
+    entries = _ytm_album_entries(album_details or {}, artist)
+    playlist_url = f"https://music.youtube.com/playlist?list={playlist_id}"
     if not entries:
         cfg = load_config()
         player_client = cfg.get("yt_player_client", "android") or None
-        playlist_url = (
-            f"https://music.youtube.com/playlist?list={playlist_id}"
-        )
         entries = _extract_ytm_album_entries(playlist_url, player_client)
     if not entries:
         return None
-    playlist_url = (
-        f"https://music.youtube.com/playlist?list={playlist_id}"
-    )
-    logger.info(
-        "   Resolved official YT Music album via ytmusicapi: %s (%d tracks)",
-        playlist_url, len(entries),
-    )
     return {
         "playlist_url": playlist_url,
         "playlist_id": playlist_id,
         "entries": entries,
     }
+
+
+_HINT_PLAYLIST_RE = re.compile(r"^(?:OLAK5uy_|RDCLAK5uy_|PL)[A-Za-z0-9_-]{6,80}$")
+_HINT_BROWSE_RE = re.compile(r"^MPREb_[A-Za-z0-9_-]{4,40}$")
+
+
+def album_from_ytmusic_hint(playlist_id, browse_id="", artist=""):
+    playlist_id = (playlist_id or "").strip()
+    if not _HINT_PLAYLIST_RE.match(playlist_id):
+        return None
+    album_details = {}
+    if browse_id and _HINT_BROWSE_RE.match(browse_id):
+        yt = _ytmusicapi_client()
+        if yt is not None:
+            try:
+                album_details = yt.get_album(browse_id) or {}
+            except Exception as exc:
+                logger.debug("ytmusicapi get_album(%s) failed: %s", browse_id, exc)
+    hinted = album_details.get("audioPlaylistId") or ""
+    if hinted and hinted != playlist_id:
+        album_details = {}
+    return _ytm_album_result(playlist_id, album_details, artist)
 
 
 def find_album_on_ytmusic(artist, album, skip_check=None):

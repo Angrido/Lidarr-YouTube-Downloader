@@ -552,5 +552,52 @@ def test_v10_to_v11_adds_queue_force_column():
     version = conn.execute(
         "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
     ).fetchone()[0]
-    assert version == SCHEMA_VERSION == 11
+    assert version == SCHEMA_VERSION
+    assert conn.execute(
+        "SELECT COUNT(*) FROM schema_version WHERE version = 11"
+    ).fetchone()[0] == 1
     close_db()
+
+
+def test_v11_to_v12_adds_album_source_hints(temp_db):
+    conn = sqlite3.connect(temp_db)
+    conn.executescript(
+        "CREATE TABLE schema_version (version INTEGER NOT NULL,"
+        " applied_at REAL NOT NULL);"
+        "INSERT INTO schema_version VALUES (11, 0);"
+    )
+    conn.commit()
+    conn.close()
+    import db as db_mod
+    db_mod._migrate_v11_to_v12(get_db())
+    get_db().commit()
+    cols = {r[1] for r in get_db().execute(
+        "PRAGMA table_info(album_source_hints)"
+    )}
+    assert {"album_id", "playlist_id", "browse_id", "source", "created_at"} <= cols
+
+
+def test_fresh_install_reaches_v12_with_hints_table(temp_db):
+    init_db()
+    conn = get_db()
+    tables = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    )}
+    assert "album_source_hints" in tables
+    versions = [r[0] for r in conn.execute(
+        "SELECT version FROM schema_version ORDER BY version"
+    )]
+    assert versions[-1] == SCHEMA_VERSION == 12
+    assert 12 in versions
+
+
+def test_ensure_current_tables_recreates_missing_hints_table(temp_db):
+    init_db()
+    conn = get_db()
+    conn.execute("DROP TABLE album_source_hints")
+    conn.commit()
+    init_db()
+    tables = {r[0] for r in get_db().execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    )}
+    assert "album_source_hints" in tables

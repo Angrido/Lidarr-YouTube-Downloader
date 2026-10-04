@@ -2729,6 +2729,61 @@ class TestDeferredAlbumSkipsNetworkWork:
         assert "ytmusic" in calls
 
 
+
+class TestAlbumSourceHint:
+    def _run(self, monkeypatch, tmp_path, hinted):
+        import processing
+        calls, logs, seen = [], [], {}
+        TestDeferredAlbumSkipsNetworkWork()._wire(
+            monkeypatch, tmp_path, calls, logs,
+        )
+        monkeypatch.setattr(
+            processing, "load_config",
+            lambda: {"track_retry_backoff": True, "max_track_retries": 0,
+                     "scheduler_retry_after_hours": 24, "audio_format": "mp3"},
+        )
+        monkeypatch.setattr(
+            processing, "album_from_ytmusic_hint",
+            lambda pid, bid, artist: (
+                seen.setdefault("hint", (pid, bid, artist)) and hinted
+            ),
+        )
+
+        def fake_download(tracks, path, album, ctx, state):
+            seen["ctx"] = ctx
+            return [], [{"title": "Song"}], 0, {}
+
+        monkeypatch.setattr(processing, "_download_tracks", fake_download)
+        monkeypatch.setattr(
+            processing, "_handle_post_download", lambda *a, **k: {"ok": True},
+        )
+        processing.process_album_download(77)
+        return calls, seen
+
+    def test_hint_is_used_and_album_search_skipped(self, tmp_path, monkeypatch):
+        models.set_album_source_hint(77, "OLAK5uy_picked", "MPREb_picked")
+        album = {
+            "playlist_url": "https://music.youtube.com/playlist?list=OLAK5uy_picked",
+            "playlist_id": "OLAK5uy_picked",
+            "entries": [{"url": "u", "title": "Song", "duration": 1, "channel": "Art"}],
+        }
+        calls, seen = self._run(monkeypatch, tmp_path, album)
+        assert seen["hint"] == ("OLAK5uy_picked", "MPREb_picked", "Art")
+        assert seen["ctx"]["ytmusic_album"] is album
+        assert "ytmusic" not in calls
+
+    def test_unusable_hint_falls_back_to_search(self, tmp_path, monkeypatch):
+        models.set_album_source_hint(77, "OLAK5uy_gone")
+        calls, seen = self._run(monkeypatch, tmp_path, None)
+        assert seen["hint"][0] == "OLAK5uy_gone"
+        assert "ytmusic" in calls
+
+    def test_no_hint_searches_as_before(self, tmp_path, monkeypatch):
+        calls, seen = self._run(monkeypatch, tmp_path, None)
+        assert "hint" not in seen
+        assert "ytmusic" in calls
+
+
 def _state_track(title, number):
     return {
         "track_title": title, "track_number": number, "status": "pending",

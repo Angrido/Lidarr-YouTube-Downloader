@@ -2966,3 +2966,68 @@ class TestAlbumTrackMatching:
     def test_title_match_is_marked(self):
         entries = self._entries(("Song", 200))
         assert match_album_track(entries, "Song", 200000)["matched_by"] == "title"
+
+
+class TestAlbumFromYtmusicHint:
+    def test_builds_entries_from_the_hinted_album(self, monkeypatch):
+        import downloader
+
+        class FakeYT:
+            def get_album(self, browse_id):
+                assert browse_id == "MPREb_abcdef"
+                return {
+                    "audioPlaylistId": "OLAK5uy_hinted123",
+                    "tracks": [
+                        {"videoId": "aaaaaaaaaaa", "title": "One ",
+                         "artists": [{"name": "Band"}], "duration": "3:01",
+                         "duration_seconds": 181},
+                        {"videoId": None, "title": "Unavailable"},
+                        {"videoId": "bbbbbbbbbbb", "title": "Two",
+                         "artists": [], "duration": "1:02:03"},
+                    ],
+                }
+
+        monkeypatch.setattr(downloader, "_ytmusicapi_client", lambda *a, **k: FakeYT())
+        result = downloader.album_from_ytmusic_hint(
+            "OLAK5uy_hinted123", "MPREb_abcdef", "Band",
+        )
+        assert result["playlist_url"].endswith("list=OLAK5uy_hinted123")
+        assert [e["title"] for e in result["entries"]] == ["One", "Two"]
+        assert [e["duration"] for e in result["entries"]] == [181, 3723]
+        assert result["entries"][1]["channel"] == "Band"
+
+    def test_falls_back_to_playlist_extraction(self, monkeypatch):
+        import downloader
+        monkeypatch.setattr(downloader, "_ytmusicapi_client", lambda *a, **k: None)
+        monkeypatch.setattr(downloader, "load_config", lambda: {})
+        monkeypatch.setattr(
+            downloader, "_extract_ytm_album_entries",
+            lambda url, pc: [{"url": "u", "title": "T", "duration": 5, "channel": "c"}],
+        )
+        result = downloader.album_from_ytmusic_hint("OLAK5uy_hinted123", "MPREb_abcdef")
+        assert result["playlist_id"] == "OLAK5uy_hinted123"
+        assert len(result["entries"]) == 1
+
+    def test_mismatched_album_details_are_ignored(self, monkeypatch):
+        import downloader
+
+        class FakeYT:
+            def get_album(self, browse_id):
+                return {"audioPlaylistId": "OLAK5uy_other99999",
+                        "tracks": [{"videoId": "aaaaaaaaaaa", "title": "X"}]}
+
+        monkeypatch.setattr(downloader, "_ytmusicapi_client", lambda *a, **k: FakeYT())
+        monkeypatch.setattr(downloader, "load_config", lambda: {})
+        monkeypatch.setattr(downloader, "_extract_ytm_album_entries", lambda u, p: [])
+        assert downloader.album_from_ytmusic_hint(
+            "OLAK5uy_hinted123", "MPREb_abcdef",
+        ) is None
+
+    def test_rejects_invalid_ids(self, monkeypatch):
+        import downloader
+        monkeypatch.setattr(
+            downloader, "_ytmusicapi_client",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call")),
+        )
+        assert downloader.album_from_ytmusic_hint("../etc", "MPREb_x") is None
+        assert downloader.album_from_ytmusic_hint("", "") is None

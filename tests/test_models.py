@@ -974,3 +974,25 @@ def test_track_failure_counts_host_failure_does_not_reset(monkeypatch):
     )
     _add_dl(track_title="Song", success=False, error_message=None)
     assert models.get_track_failure_counts(1)["Song"]["failures"] == 3
+
+
+def test_album_source_hint_roundtrip_and_upsert():
+    assert models.get_album_source_hint(7) is None
+    assert models.set_album_source_hint(7, "OLAK5uy_first", "MPREb_one")
+    hint = models.get_album_source_hint(7)
+    assert hint["playlist_id"] == "OLAK5uy_first"
+    assert hint["browse_id"] == "MPREb_one"
+    assert hint["source"] == "explore"
+    models.set_album_source_hint(7, "OLAK5uy_second")
+    hint = models.get_album_source_hint(7)
+    assert hint["playlist_id"] == "OLAK5uy_second"
+    assert hint["browse_id"] == ""
+    models.delete_album_source_hint(7)
+    assert models.get_album_source_hint(7) is None
+
+
+def test_album_source_hint_rejects_playlist_import_ids():
+    assert models.set_album_source_hint(-3, "OLAK5uy_x") is False
+    assert models.set_album_source_hint(0, "OLAK5uy_x") is False
+    assert models.set_album_source_hint(5, "") is False
+    assert models.get_album_source_hint(-3) is None

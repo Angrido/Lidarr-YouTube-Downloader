@@ -22,6 +22,7 @@ from models import CandidateOutcome
 from downloader import (
     _extract_video_id,
     download_youtube_candidate,
+    album_from_ytmusic_hint,
     find_album_on_ytmusic,
     match_album_track,
     search_youtube_candidates,
@@ -459,6 +460,34 @@ def _album_position(track, album_tracks):
     return None, len(ordered)
 
 
+def _hinted_ytmusic_album(album_id, artist_name):
+    try:
+        hint = models.get_album_source_hint(album_id)
+    except Exception as exc:
+        logger.debug("Album source hint lookup failed: %s", exc)
+        return None
+    if not hint:
+        return None
+    try:
+        album = album_from_ytmusic_hint(
+            hint["playlist_id"], hint.get("browse_id") or "", artist_name,
+        )
+    except Exception as exc:
+        logger.debug("Hinted YT Music album failed: %s", exc)
+        album = None
+    if album:
+        logger.info(
+            "   Using the YT Music album picked in Explore: %s (%d tracks)",
+            album["playlist_url"], len(album["entries"]),
+        )
+    else:
+        logger.info(
+            "   The YT Music album picked in Explore is unavailable;"
+            " searching instead",
+        )
+    return album
+
+
 def process_album_download(
     album_id, force=False, client_grab=False, state=None,
     ignore_backoff=False,
@@ -741,11 +770,12 @@ def process_album_download(
         if not cover_data:
             logger.info("   No album cover found in any source")
 
-        ytmusic_album = None
-        try:
-            ytmusic_album = find_album_on_ytmusic(artist_name, album_title)
-        except Exception as exc:
-            logger.debug("YT Music album discovery raised: %s", exc)
+        ytmusic_album = _hinted_ytmusic_album(album_id, artist_name)
+        if ytmusic_album is None:
+            try:
+                ytmusic_album = find_album_on_ytmusic(artist_name, album_title)
+            except Exception as exc:
+                logger.debug("YT Music album discovery raised: %s", exc)
         state["ytmusic_album"] = ytmusic_album
 
         if cover_data and cfg.get("save_cover_art_file", True):

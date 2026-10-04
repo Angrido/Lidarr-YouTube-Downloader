@@ -1089,3 +1089,41 @@ def get_cached_album(album_id):
         (int(album_id),),
     ).fetchone()
     return dict(row) if row else None
+
+
+def set_album_source_hint(album_id, playlist_id, browse_id="", source="explore"):
+    if not isinstance(album_id, int) or album_id <= 0 or not playlist_id:
+        return False
+    conn = db.get_db()
+    conn.execute(
+        "INSERT INTO album_source_hints"
+        " (album_id, playlist_id, browse_id, source, created_at)"
+        " VALUES (?, ?, ?, ?, ?)"
+        " ON CONFLICT(album_id) DO UPDATE SET"
+        " playlist_id = excluded.playlist_id,"
+        " browse_id = excluded.browse_id,"
+        " source = excluded.source,"
+        " created_at = excluded.created_at",
+        (album_id, playlist_id, browse_id or "", source, time.time()),
+    )
+    conn.commit()
+    return True
+
+
+def get_album_source_hint(album_id):
+    if not isinstance(album_id, int) or album_id <= 0:
+        return None
+    row = db.get_db().execute(
+        "SELECT album_id, playlist_id, browse_id, source, created_at"
+        " FROM album_source_hints WHERE album_id = ?",
+        (album_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def delete_album_source_hint(album_id):
+    conn = db.get_db()
+    conn.execute(
+        "DELETE FROM album_source_hints WHERE album_id = ?", (album_id,),
+    )
+    conn.commit()
