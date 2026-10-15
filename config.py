@@ -64,7 +64,7 @@ ALLOWED_CONFIG_KEYS = {
     "download_client_enabled", "download_client_api_key",
     "download_client_category", "download_client_concurrent_albums",
     "yt_po_token", "audio_normalize", "yt_pot_provider_url",
-    "playlist_to_library",
+    "playlist_to_library", "queue_paused",
     "search_artist_source",
     "save_lyrics", "apply_replaygain",
     "explore_country", "explore_language",
@@ -103,6 +103,7 @@ BOOL_CONFIG_KEYS = frozenset({
     "audio_normalize", "save_lyrics", "apply_replaygain", "discord_enabled",
     "ntfy_enabled", "acoustid_enabled", "lidarr_rename_after_import",
     "save_cover_art_file", "download_client_enabled", "playlist_to_library",
+    "queue_paused",
 })
 
 LIST_CONFIG_KEYS = frozenset({
@@ -383,6 +384,7 @@ def _env_config():
         # files land where Jellyfin/Lidarr look instead of only the download
         # folder. Default false keeps the legacy download-folder-only flow.
         "playlist_to_library": _env_bool("PLAYLIST_TO_LIBRARY", False),
+        "queue_paused": False,
         # YouTube playlists checked periodically: every video not yet
         # downloaded is imported as one album (issue #96).
         "yt_watch_playlists": [],

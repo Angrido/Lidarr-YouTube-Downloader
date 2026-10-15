@@ -1774,6 +1774,11 @@ def api_clear_queue():
     return jsonify({"success": True})
 
 
+@app.route("/api/download/queue/pause", methods=["POST"])
+def api_pause_queue():
+    return jsonify({"paused": _toggle_config("queue_paused", False)})
+
+
 @app.route("/api/download/queue/reorder", methods=["PUT"])
 def api_reorder_queue():
     new_order = _json_object().get("queue", [])
@@ -1905,6 +1910,7 @@ def api_stats():
             "queued": queued,
             "active": any_download_active(),
             "downloaded_today": downloaded_today,
+            "queue_paused": bool(load_config().get("queue_paused")),
         }
     )
 

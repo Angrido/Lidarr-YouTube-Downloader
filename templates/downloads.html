@@ -43,6 +43,7 @@
         .ui-track[data-state="searching"] .ui-spinner { border-top-color: var(--info-mark); }
 
         .section-head-text { min-width: 0; }
+        #queuePausedNote { margin-bottom: var(--sp-3); }
         .section-title-row { display: flex; align-items: center; gap: var(--sp-2); }
 
         .q-list .q-item { flex-wrap: wrap; row-gap: 0; }
@@ -197,11 +198,16 @@
                         <div class="section-title-row">
                             <h2 class="section-title" id="queueHeading" tabindex="-1">Queue</h2>
                             <span class="ui-badge ui-badge-accent num" id="queueCount" hidden></span>
+                            <span class="ui-badge ui-badge-warning" id="queuePausedBadge" hidden>Paused</span>
                         </div>
                         <p class="section-desc">Albums waiting to download, in order. Drag the handle or use the arrow buttons to reorder.</p>
                     </div>
-                    <button type="button" class="ui-btn ui-btn-danger ui-btn-sm" id="clearQueueBtn" hidden><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-trash"></use></svg>Clear queue</button>
+                    <div class="ui-row">
+                        <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" id="pauseQueueBtn"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-pause"></use></svg>Pause</button>
+                        <button type="button" class="ui-btn ui-btn-danger ui-btn-sm" id="clearQueueBtn" hidden><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-trash"></use></svg>Clear queue</button>
+                    </div>
                 </div>
+                <div class="ui-callout ui-callout-info" id="queuePausedNote" role="status" hidden><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-pause"></use></svg><div>Queue paused — nothing new will start</div></div>
                 <div id="downloadQueue" aria-busy="true">
                     <div class="ui-list" aria-hidden="true">
                         <div class="skeleton-row"><div class="ui-skeleton ui-skeleton-art"></div><div class="skeleton-lines"><div class="ui-skeleton ui-skeleton-title"></div><div class="ui-skeleton ui-skeleton-text q-skeleton"></div></div></div>
@@ -2012,6 +2018,28 @@
             }
         }
 
+        function renderQueuePaused(paused) {
+            var btn = document.getElementById('pauseQueueBtn');
+            document.getElementById('queuePausedBadge').hidden = !paused;
+            document.getElementById('queuePausedNote').hidden = !paused;
+            btn.innerHTML = UI.icon(paused ? 'play' : 'pause');
+            btn.appendChild(document.createTextNode(paused ? 'Resume' : 'Pause'));
+            btn.setAttribute('aria-pressed', paused ? 'true' : 'false');
+        }
+
+        async function toggleQueuePause(btn) {
+            try {
+                var data = await UI.guard(btn, function () {
+                    return UI.fetchJSON('/api/download/queue/pause', { method: 'POST' });
+                });
+                if (!data) return;
+                renderQueuePaused(data.paused);
+                UI.toast(data.paused ? 'Queue paused' : 'Queue resumed', { type: 'success' });
+            } catch (e) {
+                UI.toast('Failed to change the queue state', { type: 'error' });
+            }
+        }
+
         async function clearQueue(btn) {
             const queued = currentQueue.length;
             if (!queued) return;
@@ -2160,6 +2188,8 @@
         document.addEventListener('DOMContentLoaded', function () {
             document.getElementById('clearHistoryBtn').addEventListener('click', function () { clearAllHistory(this); });
             document.getElementById('clearQueueBtn').addEventListener('click', function () { clearQueue(this); });
+            document.getElementById('pauseQueueBtn').addEventListener('click', function () { toggleQueuePause(this); });
+            UI.fetchJSON('/api/stats').then(function (s) { renderQueuePaused(!!s.queue_paused); }, function () {});
             document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDeleteTrack);
             document.getElementById('deleteTrackModal').addEventListener('modal:closed', function () { _deleteModalData = null; });
             document.getElementById('retryFailedModal').addEventListener('modal:closed', function () { retryFailedAlbumId = null; });
