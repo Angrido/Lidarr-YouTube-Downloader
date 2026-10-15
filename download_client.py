@@ -162,6 +162,21 @@ def is_client_album(album_id):
         )
 
 
+def cancel_queued(album_id):
+    """Drop a Lidarr grab the user removed from the download queue.
+
+    Without this its job stays "Queued" in Lidarr forever, the album is
+    hidden from the indexer, and restore_jobs() re-queues it on restart.
+    Only a job still waiting is dropped; a running one is left alone.
+    """
+    with _lock:
+        nzo_id = _album_to_nzo.get(int(album_id))
+        job = _jobs.get(nzo_id) if nzo_id else None
+        if not job or job["status"] != _STATUS_QUEUED:
+            return False
+    return remove_job(nzo_id)
+
+
 def mark_downloading(album_id):
     with _lock:
         job = _active_job(album_id)

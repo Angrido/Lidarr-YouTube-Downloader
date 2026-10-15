@@ -1753,12 +1753,16 @@ def api_add_to_queue_bulk():
 @app.route("/api/download/queue/<int:album_id>", methods=["DELETE"])
 def api_remove_from_queue(album_id):
     models.dequeue_album(album_id)
+    download_client.cancel_queued(album_id)
     return jsonify({"success": True})
 
 
 @app.route("/api/download/queue/clear", methods=["POST"])
 def api_clear_queue():
+    queued = [row["album_id"] for row in models.get_queue()]
     models.clear_queue()
+    for album_id in queued:
+        download_client.cancel_queued(album_id)
     return jsonify({"success": True})
 
 

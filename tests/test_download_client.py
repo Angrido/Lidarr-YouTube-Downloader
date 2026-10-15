@@ -740,3 +740,23 @@ def test_pubdate_follows_the_retry_bucket(configured, monkeypatch, release_date)
     from email.utils import formatdate
     assert _item_field(a, "pubDate") != formatdate(t0, usegmt=True)
     assert _item_field(a, "title") == _item_field(c, "title")
+
+
+@pytest.mark.parametrize("remove", ["one", "clear"])
+def test_removing_a_grab_from_the_queue_drops_its_job(client, remove):
+    """The Downloads page's remove / Clear queue must not leave the job
+    "Queued" in Lidarr forever (or re-queued by restore_jobs on restart)."""
+    download_client.register_grab(42, "Daft Punk - Discovery", "music")
+    models.enqueue_album(42)
+    download_client.register_grab(43, "Other", "music")
+    download_client.mark_downloading(43)
+    if remove == "one":
+        resp = client.delete("/api/download/queue/42")
+    else:
+        resp = client.post("/api/download/queue/clear")
+    assert resp.status_code == 200
+    assert not download_client.is_client_album(42)
+    assert 42 not in download_client._active_album_ids()
+    assert all(j["album_id"] != 42 for j in models.get_all_client_jobs())
+    # A job that is already running is not touched by the queue buttons.
+    assert download_client.is_client_album(43)
