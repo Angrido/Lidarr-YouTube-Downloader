@@ -30,6 +30,7 @@ from flask import Response, request  # noqa: E402
 import app as app_module  # noqa: E402
 import explore  # noqa: E402
 import library  # noqa: E402
+import youtube_import  # noqa: E402
 
 
 def _slug(text):
@@ -531,6 +532,8 @@ def install(down=False, demo=False, base_url="http://127.0.0.1:5099"):
     library.queue_when_ready = lambda *a: "waiting"
     library.get_add_options = fake_options
     app_module._execute_playlist_download = lambda *a, **k: None
+    youtube_import._execute_playlist_download = lambda *a, **k: None
+    youtube_import.check_rate_limit = lambda *a, **k: True
     app_module.app.view_functions["api_youtube_stream"] = fake_stream
     app_module.app.view_functions["api_thumbnail_proxy"] = fake_thumbnail
     app_module.check_rate_limit = lambda *a, **k: True
