@@ -536,6 +536,7 @@ def process_album_download(
     lidarr_album_path = ""
     total_downloaded_size = 0
     album_mbid = ""
+    run_start = time.time()
 
     try:
         album = lidarr_request(f"album/{album_id}")
@@ -901,6 +902,9 @@ def process_album_download(
             lidarr_path, album_path, sanitized_artist,
             album_folder_name,
         )
+        if copy_succeeded:
+            # The download folder is deleted below; history must find the library copy.
+            models.set_lidarr_album_path(album_id, run_start, lidarr_album_path)
 
         if succeeded_tracks and import_path:
             _ensure_artist_image(os.path.dirname(import_path), artist_name, album)

@@ -136,6 +136,21 @@ def add_track_download(
     return cursor.lastrowid
 
 
+def set_lidarr_album_path(album_id, since_ts, path):
+    """Point this run's track rows at the library copy of the album.
+
+    Negative ids are YouTube imports, which keep their source URL in this
+    column, so they are never touched.
+    """
+    conn = db.get_db()
+    conn.execute(
+        "UPDATE track_downloads SET lidarr_album_path = ?"
+        " WHERE album_id = ? AND timestamp >= ? AND album_id > 0",
+        (path, album_id, since_ts),
+    )
+    conn.commit()
+
+
 def get_track_downloads_for_album(album_id):
     """Return all track download records for an album, newest first."""
     conn = db.get_db()

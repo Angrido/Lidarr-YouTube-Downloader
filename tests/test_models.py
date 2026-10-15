@@ -1098,3 +1098,35 @@ def test_imported_youtube_album_titles():
     assert sorted(models.get_imported_youtube_album_titles("Zo killeuh")) == [
         "KOUMAY FENN", "Notification",
     ]
+
+
+def test_set_lidarr_album_path_scopes_album_and_run(monkeypatch):
+    clock = iter([100.0, 200.0, 201.0, 202.0])
+    monkeypatch.setattr(models.time, "time", lambda: next(clock))
+
+    def add(album_id, title, lidarr_album_path=""):
+        models.add_track_download(
+            album_id=album_id, album_title="A", artist_name="Ar",
+            track_title=title, track_number=1, success=True,
+            error_message="", youtube_url="", youtube_title="",
+            match_score=0.0, duration_seconds=0, album_path="/dl",
+            lidarr_album_path=lidarr_album_path, cover_url="",
+        )
+
+    add(1, "old run")
+    add(1, "this run")
+    add(2, "other album")
+    add(-1, "import", "https://youtube.com/playlist?list=x")
+
+    models.set_lidarr_album_path(1, 150.0, "/music/A")
+    models.set_lidarr_album_path(-1, 0, "/music/A")
+
+    paths = {
+        r["track_title"]: r["lidarr_album_path"]
+        for aid in (1, 2, -1)
+        for r in models.get_track_downloads_for_album(aid)
+    }
+    assert paths == {
+        "old run": "", "this run": "/music/A", "other album": "",
+        "import": "https://youtube.com/playlist?list=x",
+    }
