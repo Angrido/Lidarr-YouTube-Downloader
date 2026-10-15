@@ -294,6 +294,26 @@ class TestQueueRoutes:
         assert resp.status_code == 200
         assert resp.get_json() == []
 
+    def test_stream_sends_queue_only_when_it_changes(self, client):
+        import models
+
+        models.enqueue_album(7)
+        with patch("app.lidarr_request", return_value={"error": "x"}), \
+                patch("app.time.sleep"):
+            resp = client.get("/api/download/stream", buffered=False)
+            events = iter(resp.response)
+
+            def next_event():
+                return json.loads(next(events).decode()[len("data: "):])
+
+            first, second = next_event(), next_event()
+            models.enqueue_album(8)
+            third = next_event()
+            resp.close()
+        assert [q["id"] for q in first["queue"]] == [7]
+        assert "queue" not in second and "status" in second
+        assert [q["id"] for q in third["queue"]] == [7, 8]
+
     def test_queue_reads_cache_and_lists_unknown_albums(self, client):
         """Issue #95: a big queue renders from the local cache, and an
         album Lidarr can't resolve is shown, not hidden."""
