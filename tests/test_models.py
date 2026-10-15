@@ -1098,3 +1098,34 @@ def test_imported_youtube_album_titles():
     assert sorted(models.get_imported_youtube_album_titles("Zo killeuh")) == [
         "KOUMAY FENN", "Notification",
     ]
+
+
+# --- Missing-albums summary ---
+
+
+def test_cached_missing_albums_summary_has_library_fields():
+    models.upsert_missing_album({
+        "id": 9, "foreignAlbumId": "mb-9", "title": "Album",
+        "releaseDate": "2001-02-03T00:00:00Z",
+        "artist": {"id": 3, "artistName": "Artist", "overview": "long"},
+        "statistics": {"trackCount": 10, "trackFileCount": 4},
+        "images": [{"coverType": "cover", "remoteUrl": "http://cover"}],
+        "releases": [{"id": 1}],
+    }, run_id=1)
+    models.upsert_missing_album({"id": 10, "title": "Bare"}, run_id=1)
+    assert models.get_cached_missing_albums_summary() == [
+        {
+            "id": 9, "foreignAlbumId": "mb-9", "title": "Album",
+            "releaseDate": "2001-02-03T00:00:00Z", "missingTrackCount": 6,
+            "statistics": {"trackCount": 10},
+            "artist": {"id": 3, "artistName": "Artist"},
+            "images": [{"coverType": "cover", "remoteUrl": "http://cover"}],
+        },
+        {
+            "id": 10, "foreignAlbumId": "", "title": "Bare",
+            "releaseDate": "", "missingTrackCount": 0,
+            "statistics": {"trackCount": 0},
+            "artist": {"id": 0, "artistName": ""},
+            "images": [],
+        },
+    ]
