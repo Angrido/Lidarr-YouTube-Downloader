@@ -1,4 +1,6 @@
-FROM python:3-slim
+# Pinned to the version CI tests on. A floating python:3 jumps to each new
+# release before its wheels exist (3.15: brotli has none, and slim has no gcc).
+FROM python:3.12-slim
 
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
