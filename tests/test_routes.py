@@ -779,6 +779,23 @@ class TestMiscRoutes:
             assert resp.status_code == 200
             assert resp.get_json() == []
 
+    def test_missing_albums_sends_slim_rows(self, client):
+        import models
+
+        models.upsert_missing_album({
+            "id": 5, "title": "Slim", "releaseDate": "2020-01-01",
+            "artist": {"id": 2, "artistName": "Art", "overview": "x" * 500},
+            "statistics": {"trackCount": 4, "trackFileCount": 1},
+            "images": [{"coverType": "cover", "remoteUrl": "http://c"}],
+            "releases": [{"id": 1, "media": []}],
+        }, run_id=1)
+        data = client.get("/api/missing-albums").get_json()
+        assert len(data) == 1
+        assert data[0]["missingTrackCount"] == 3
+        assert data[0]["artist"]["artistName"] == "Art"
+        assert "releases" not in data[0]
+        assert "overview" not in data[0]["artist"]
+
     def test_ytdlp_version(self, client):
         with patch("app.get_ytdlp_version", return_value="2024.01.01"):
             resp = client.get("/api/ytdlp/version")

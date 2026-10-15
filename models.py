@@ -1048,6 +1048,40 @@ def get_cached_missing_albums():
     return out
 
 
+def get_cached_missing_albums_summary():
+    """Return the cached missing albums with only the fields the Library
+    and the scheduler read, built from the indexed columns (no raw_json).
+
+    Same order and nested shape as get_cached_missing_albums().
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT album_id, foreign_album_id, title, artist_id, artist_name,"
+        " release_date, track_count, missing_track_count, cover_url"
+        " FROM missing_albums_cache"
+        " ORDER BY release_date DESC, album_id DESC"
+    ).fetchall()
+    return [
+        {
+            "id": row["album_id"],
+            "foreignAlbumId": row["foreign_album_id"],
+            "title": row["title"],
+            "releaseDate": row["release_date"],
+            "missingTrackCount": row["missing_track_count"],
+            "statistics": {"trackCount": row["track_count"]},
+            "artist": {
+                "id": row["artist_id"],
+                "artistName": row["artist_name"],
+            },
+            "images": (
+                [{"coverType": "cover", "remoteUrl": row["cover_url"]}]
+                if row["cover_url"] else []
+            ),
+        }
+        for row in rows
+    ]
+
+
 def count_cached_missing_albums():
     """Return the number of albums currently in the cache."""
     conn = db.get_db()
