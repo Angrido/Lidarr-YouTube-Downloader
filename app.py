@@ -1523,29 +1523,7 @@ def api_download_stream():
                 # Queue + Lidarr lookups run WITHOUT queue_lock: they do
                 # blocking network I/O and must never stall the download
                 # worker, stop or skip-track (which hold queue_lock).
-                queue_data = []
-                for row in models.get_queue():
-                    album = _get_album_cached(row["album_id"])
-                    if "error" in album:
-                        continue
-                    cover_url = ""
-                    for img in album.get("images", []):
-                        if img.get("coverType") == "cover":
-                            cover_url = img.get("remoteUrl", "")
-                            break
-                    queue_data.append(
-                        {
-                            "id": row["album_id"],
-                            "title": album.get("title", ""),
-                            "artist": album.get("artist", {}).get(
-                                "artistName", ""
-                            ),
-                            "cover_url": cover_url,
-                            "track_count": album.get("statistics", {}).get(
-                                "trackCount", 0
-                            ),
-                        }
-                    )
+                queue_data = _queue_items()
                 # Deep-copied snapshot of the live download state.
                 status = get_download_status()
                 tracks = status.get("tracks", [])
@@ -1599,17 +1577,42 @@ def api_download_stream():
 
 @app.route("/api/download/queue", methods=["GET"])
 def api_get_queue():
-    queue_rows = models.get_queue()
-    queue_with_details = []
-    for row in queue_rows:
-        album = _get_album_cached(row["album_id"])
-        if "error" not in album:
-            queue_with_details.append(
-                {
-                    "id": row["album_id"],
-                    "title": album.get("title", ""),
-                    "artist": album.get("artist", {}).get("artistName", ""),
-                    "cover": next(
+    items = _queue_items()
+    for item in items:
+        item["cover"] = item.pop("cover_url")
+    return jsonify(items)
+
+
+# Lidarr lookups per queue render, only for albums missing_albums_cache
+# doesn't know yet (e.g. just added from Explore); the rest show a
+# placeholder until they move up (issue #95).
+QUEUE_LIDARR_LOOKUPS = 20
+
+
+def _queue_items():
+    """Every queued album as {id, title, artist, cover_url, track_count}.
+
+    Albums Lidarr can't resolve are listed as "Album #id" rather than hidden,
+    so the queue the page shows always matches the count in /api/stats.
+    """
+    items = []
+    lookups = 0
+    for row in models.get_queue_details():
+        item = {
+            "id": row["album_id"],
+            "title": row["title"],
+            "artist": row["artist_name"],
+            "cover_url": row["cover_url"],
+            "track_count": row["track_count"],
+        }
+        if not item["title"] and lookups < QUEUE_LIDARR_LOOKUPS:
+            lookups += 1
+            album = _get_album_cached(row["album_id"])
+            if "error" not in album:
+                item.update(
+                    title=album.get("title", ""),
+                    artist=(album.get("artist") or {}).get("artistName", ""),
+                    cover_url=next(
                         (
                             img.get("remoteUrl") or ""
                             for img in album.get("images", [])
@@ -1617,10 +1620,14 @@ def api_get_queue():
                         ),
                         "",
                     ),
-                    "track_count": album.get("statistics", {}).get("trackCount", 0),
-                }
-            )
-    return jsonify(queue_with_details)
+                    track_count=(album.get("statistics") or {}).get(
+                        "trackCount", 0
+                    ),
+                )
+        if not item["title"]:
+            item["title"] = f"Album #{row['album_id']}"
+        items.append(item)
+    return items
 
 
 @app.route("/api/download/queue/<int:album_id>/tracks")
@@ -2342,8 +2349,11 @@ def _get_album_cached(album_id):
         if now - ts < ALBUM_CACHE_TTL:
             return cached
     album = lidarr_request(f"album/{album_id}")
-    if "error" not in album:
-        album_cache[album_id] = (album, now)
+    # Errors are remembered for 30 s so a down Lidarr isn't re-asked on
+    # every one-second queue refresh.
+    album_cache[album_id] = (
+        album, now if "error" not in album else now - ALBUM_CACHE_TTL + 30,
+    )
     return album
 
 

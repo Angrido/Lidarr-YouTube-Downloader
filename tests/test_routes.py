@@ -264,6 +264,47 @@ class TestQueueRoutes:
         assert resp.status_code == 200
         assert resp.get_json() == []
 
+    def test_queue_reads_cache_and_lists_unknown_albums(self, client):
+        """Issue #95: a big queue renders from the local cache, and an
+        album Lidarr can't resolve is shown, not hidden."""
+        import app as app_module
+        import models
+
+        models.upsert_missing_albums_batch([{
+            "id": 7, "title": "Cached", "artist": {"artistName": "Art"},
+            "images": [{"coverType": "cover", "remoteUrl": "http://c"}],
+            "statistics": {"trackCount": 9},
+        }], run_id=1)
+        models.enqueue_album(7)
+        models.enqueue_album(8)
+        app_module.album_cache.pop(8, None)
+        with patch(
+            "app.lidarr_request", return_value={"error": "not found"},
+        ) as lidarr:
+            data = client.get("/api/download/queue").get_json()
+        assert data == [
+            {"id": 7, "title": "Cached", "artist": "Art",
+             "cover": "http://c", "track_count": 9},
+            {"id": 8, "title": "Album #8", "artist": "",
+             "cover": "", "track_count": 0},
+        ]
+        # Only the uncached album asked Lidarr.
+        assert [c.args[0] for c in lidarr.call_args_list] == ["album/8"]
+
+    def test_queue_caps_lidarr_lookups(self, client):
+        import app as app_module
+        import models
+
+        for aid in range(100, 100 + app_module.QUEUE_LIDARR_LOOKUPS + 5):
+            models.enqueue_album(aid)
+            app_module.album_cache.pop(aid, None)
+        with patch(
+            "app.lidarr_request", return_value={"error": "down"},
+        ) as lidarr:
+            data = client.get("/api/download/queue").get_json()
+        assert len(data) == app_module.QUEUE_LIDARR_LOOKUPS + 5
+        assert lidarr.call_count == app_module.QUEUE_LIDARR_LOOKUPS
+
     def test_add_to_queue(self, client):
         resp = client.post(
             "/api/download/queue",
@@ -630,9 +671,13 @@ class TestQueueTrackCount:
     """Queue endpoint includes track_count."""
 
     @patch("app.lidarr_request")
-    @patch("app.models.get_queue")
+    @patch("app.models.get_queue_details")
     def test_queue_includes_track_count(self, mock_queue, mock_lidarr, client):
-        mock_queue.return_value = [{"album_id": 123}]
+        # Not in missing_albums_cache, so the details come from Lidarr.
+        mock_queue.return_value = [{
+            "album_id": 123, "title": "", "artist_name": "",
+            "cover_url": "", "track_count": 0,
+        }]
         mock_lidarr.side_effect = lambda path, **kw: (
             {"title": "Album", "artist": {"artistName": "Art"},
              "images": [{"coverType": "cover", "remoteUrl": "http://img"}],

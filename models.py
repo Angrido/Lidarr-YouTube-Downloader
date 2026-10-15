@@ -716,6 +716,27 @@ def get_queue():
     return [dict(row) for row in rows]
 
 
+def get_queue_details():
+    """Queued albums in order, with display fields from missing_albums_cache.
+
+    One query for the whole queue: a queue of thousands must not cost one
+    Lidarr call per album (issue #95). Fields are empty for albums the
+    cache doesn't know.
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT q.album_id,"
+        " COALESCE(m.title, '') AS title,"
+        " COALESCE(m.artist_name, '') AS artist_name,"
+        " COALESCE(m.cover_url, '') AS cover_url,"
+        " COALESCE(m.track_count, 0) AS track_count"
+        " FROM download_queue q"
+        " LEFT JOIN missing_albums_cache m ON m.album_id = q.album_id"
+        " ORDER BY q.position"
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_queue_length():
     """Return the number of albums in the queue."""
     conn = db.get_db()
