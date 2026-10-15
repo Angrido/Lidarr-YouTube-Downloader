@@ -3173,6 +3173,23 @@ class TestSkipDuringConversion:
         assert ok is True
         assert sorted(os.listdir(lib_album)) == ["01 - Song.mp3", "cover.jpg"]
 
+    def test_copy_to_lidarr_same_path_keeps_files(self, tmp_path, monkeypatch):
+        """LIDARR_PATH == DOWNLOAD_PATH: no copy and copy_succeeded=False,
+        so the caller never deletes the only copy of the album."""
+        import processing
+        dl = tmp_path / "dl"
+        album = dl / "Art" / "A"
+        album.mkdir(parents=True)
+        (album / "01 - Song.mp3").write_text("x")
+        monkeypatch.setattr(processing, "DOWNLOAD_DIR", str(dl))
+        monkeypatch.chdir(tmp_path)
+        result = processing._copy_to_lidarr(
+            str(dl) + os.sep, str(album), "Art", "A",
+        )
+        assert result == (str(album), "", False)
+        assert not (tmp_path / "Art").exists()
+        assert (album / "01 - Song.mp3").exists()
+
 
 class TestBannedUrlMatchesByVideoId:
     def test_album_candidate_banned_under_other_url_form(

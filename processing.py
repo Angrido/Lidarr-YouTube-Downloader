@@ -2592,19 +2592,18 @@ def _copy_to_lidarr(
     """
     lidarr_album_path = ""
     if lidarr_path:
-        abs_lidarr = os.path.abspath(lidarr_path)
-        abs_download = os.path.abspath(DOWNLOAD_DIR)
-
-        if abs_lidarr == abs_download:
+        if os.path.realpath(lidarr_path) == os.path.realpath(DOWNLOAD_DIR):
+            # The files already sit in the library. Must return here with
+            # copy_succeeded=False: the caller deletes the download folder
+            # after a successful copy, which would delete the only copy.
             logger.warning(
                 "LIDARR_PATH matches DOWNLOAD_PATH."
                 " Skipping move to prevent data loss."
             )
-            lidarr_path = ""
-        else:
-            logger.info(
-                f"   Moving files to Lidarr music folder: {lidarr_path}"
-            )
+            return album_path, "", False
+        logger.info(
+            f"   Moving files to Lidarr music folder: {lidarr_path}"
+        )
         lidarr_artist_path = os.path.join(
             lidarr_path, sanitized_artist
         )
