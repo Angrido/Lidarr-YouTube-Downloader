@@ -3246,10 +3246,11 @@ class TestExploreRoutes:
 
     def test_import_route_starts_a_playlist_import(self, client, monkeypatch, tmp_path):
         import app as app_module
+        import explore_routes
         import explore
         library = tmp_path / "music"
         monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
-        monkeypatch.setattr(app_module, "load_config", lambda: {"lidarr_path": str(library)})
+        monkeypatch.setattr(explore_routes, "load_config", lambda: {"lidarr_path": str(library)})
         monkeypatch.setattr("youtube_import.load_config", lambda: {"lidarr_path": str(library)})
         monkeypatch.setattr(explore, "import_plan", lambda payload: {
             "artist_name": "Eminem", "album_title": "Revival",
@@ -3317,19 +3318,20 @@ class TestExploreArtistImport:
     @pytest.fixture(autouse=True)
     def _fresh(self, monkeypatch, tmp_path):
         import app as app_module
+        import explore_routes
         import explore
         explore.cache.invalidate()
         app_module.rate_limit_store.clear()
-        app_module._artist_imports.clear()
+        explore_routes._artist_imports.clear()
         yield
-        app_module._artist_imports.clear()
+        explore_routes._artist_imports.clear()
 
     def _wire(self, monkeypatch, tmp_path, plan=None):
-        import app as app_module
+        import explore_routes
         import copy
-        monkeypatch.setattr(app_module, "_artist_import_plan", lambda cid: copy.deepcopy(plan or self.PLAN))
+        monkeypatch.setattr(explore_routes, "_artist_import_plan", lambda cid: copy.deepcopy(plan or self.PLAN))
         library = tmp_path / "music"
-        monkeypatch.setattr(app_module, "load_config", lambda: {"lidarr_path": str(library)})
+        monkeypatch.setattr(explore_routes, "load_config", lambda: {"lidarr_path": str(library)})
         monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
         return library
 
@@ -3343,6 +3345,7 @@ class TestExploreArtistImport:
 
     def test_start_runs_in_background(self, client, monkeypatch, tmp_path):
         import app as app_module
+        import explore_routes
         self._wire(monkeypatch, tmp_path)
         started = {}
 
@@ -3357,14 +3360,14 @@ class TestExploreArtistImport:
         monkeypatch.setattr(app_module.threading, "Thread", FakeThread)
         resp = client.post("/api/explore/import-artist", json={"id": "UCZCjpHpj2MJ2Z_txErorumg"})
         assert resp.status_code == 200, resp.get_json()
-        assert started["started"] and started["target"] is app_module._run_artist_import
+        assert started["started"] and started["target"] is explore_routes._run_artist_import
         job = client.get("/api/explore/import-artist/status?id=UCZCjpHpj2MJ2Z_txErorumg").get_json()["job"]
         assert job["state"] == "running" and job["total"] == 2
         again = client.post("/api/explore/import-artist", json={"id": "UCZCjpHpj2MJ2Z_txErorumg"})
         assert again.status_code == 409
         stop = client.post("/api/explore/import-artist/stop", json={"id": "UCZCjpHpj2MJ2Z_txErorumg"})
         assert stop.status_code == 200
-        assert app_module._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]["stop"] is True
+        assert explore_routes._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]["stop"] is True
 
     def test_nothing_left_to_import(self, client, monkeypatch, tmp_path):
         plan = dict(self.PLAN, releases=[])
@@ -3383,7 +3386,7 @@ class TestExploreArtistImport:
         assert resp.status_code == 404
 
     def test_runner_creates_lidarr_style_folders(self, monkeypatch, tmp_path):
-        import app as app_module
+        import explore_routes
         import explore
         library = tmp_path / "music"
         config = {"lidarr_path": str(library)}
@@ -3406,21 +3409,21 @@ class TestExploreArtistImport:
                         "thumbnail_url": "", "source_url": "", "year": "2021"}
             return original(release, artist)
 
-        monkeypatch.setattr(app_module, "_execute_playlist_download", fake_execute)
-        monkeypatch.setattr(app_module.explore, "release_import", fake_release)
-        app_module._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"] = {"state": "running", "done": 0, "stop": False}
+        monkeypatch.setattr(explore_routes, "_execute_playlist_download", fake_execute)
+        monkeypatch.setattr(explore, "release_import", fake_release)
+        explore_routes._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"] = {"state": "running", "done": 0, "stop": False}
         artist_dir = str(library / "Zo killeuh")
-        app_module._run_artist_import(dict(self.PLAN), artist_dir, config)
+        explore_routes._run_artist_import(dict(self.PLAN), artist_dir, config)
         assert os.path.isdir(artist_dir)
         assert calls == [
             ("Zo killeuh", "KOUMAY FENN", os.path.join(artist_dir, "KOUMAY FENN"), "", 1),
             ("Zo killeuh", "Galsen", os.path.join(artist_dir, "Galsen (2021)"), "2021", 3),
         ]
-        state = app_module._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]
+        state = explore_routes._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]
         assert state["state"] == "done" and state["done"] == 2
 
     def test_runner_skips_unloadable_release_and_honours_stop(self, monkeypatch, tmp_path):
-        import app as app_module
+        import explore_routes
         import explore
         config = {"lidarr_path": str(tmp_path / "music")}
         monkeypatch.setattr("utils.DOWNLOAD_DIR", "")
@@ -3434,16 +3437,16 @@ class TestExploreArtistImport:
 
         def fake_execute(*args):
             ran.append(args[1])
-            app_module._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]["stop"] = True
+            explore_routes._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]["stop"] = True
             return True
 
-        monkeypatch.setattr(app_module.explore, "release_import", fake_release)
-        monkeypatch.setattr(app_module, "_execute_playlist_download", fake_execute)
+        monkeypatch.setattr(explore, "release_import", fake_release)
+        monkeypatch.setattr(explore_routes, "_execute_playlist_download", fake_execute)
         plan = dict(self.PLAN)
         plan["releases"] = plan["releases"] + [dict(plan["releases"][1], id="MPREb_second", title="Later")]
-        app_module._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"] = {"state": "running", "done": 0, "stop": False}
-        app_module._run_artist_import(plan, str(tmp_path / "music" / "Zo killeuh"), config)
-        state = app_module._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]
+        explore_routes._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"] = {"state": "running", "done": 0, "stop": False}
+        explore_routes._run_artist_import(plan, str(tmp_path / "music" / "Zo killeuh"), config)
+        state = explore_routes._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]
         assert ran == ["Galsen"]
         assert state["failed"] == 1 and state["state"] == "stopped"
 
