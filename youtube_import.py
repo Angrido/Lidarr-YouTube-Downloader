@@ -23,7 +23,7 @@ from downloader import cookiefile_for_ytdlp, download_youtube_candidate
 from lidarr import lidarr_request
 from metadata import ensure_artist_image, tag_audio_file
 from notifications import send_notifications
-from processing import download_process, queue_lock
+from processing import _dir_has_audio, download_process, queue_lock
 from utils import (
     BaseNotMountedError,
     _cleanup_temp_files,
@@ -494,6 +494,12 @@ def _watch_playlists_once(config):
                 _release_folder(album, year),
             )
             if not _validate_target_path(target, config):
+                continue
+            # Clear history / backup restore wipe track_downloads; audio in
+            # the target folder still says this video was imported.
+            if _dir_has_audio(target):
+                logger.debug("Playlist watch: %s already on disk", target)
+                seen.add(video_url)
                 continue
             logger.info("Playlist watch: new upload %s — %s", artist, album)
             # Wait for the download slot like the artist import does; the

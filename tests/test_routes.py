@@ -3511,6 +3511,26 @@ class TestPlaylistWatch:
         # Busy slot (False) → retried; the old, already-attempted video is skipped.
         assert calls == [expected, expected]
 
+    def test_skips_video_whose_folder_already_has_audio(self, monkeypatch, tmp_path):
+        import youtube_import
+
+        library = tmp_path / "downloads"
+        target = library / "Can" / "Tago Mago (1971)"
+        target.mkdir(parents=True)
+        (target / "01 - Tago Mago.mp3").write_bytes(b"AUDIO")
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(library))
+        monkeypatch.setattr(youtube_import, "_flat_youtube_info", lambda url, cfg: {"entries": [
+            {"id": "newnewnew01", "title": "Can - Tago Mago (1971) [Full Album]"},
+        ]})
+        monkeypatch.setattr(
+            youtube_import, "_execute_playlist_download",
+            lambda *a: pytest.fail("already imported"),
+        )
+        # History empty (e.g. after Clear history), but the folder holds it.
+        youtube_import._watch_playlists_once(
+            {"yt_watch_playlists": ["https://www.youtube.com/playlist?list=PLwatch"]},
+        )
+
     def test_unreadable_playlist_is_skipped(self, monkeypatch):
         import youtube_import
 

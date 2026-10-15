@@ -1999,7 +1999,7 @@
         async function clearAllHistory(btn) {
             const ok = await UI.confirm({
                 title: 'Clear all download history?',
-                message: 'Every album and track record in the history is removed. Downloaded files stay on disk. This cannot be undone.',
+                message: 'Every album and track record in the history is removed. Downloaded files stay on disk. Failed-track retry counters reset too. This cannot be undone.',
                 confirmLabel: 'Clear history',
                 danger: true,
             });
