@@ -435,7 +435,14 @@ variables, theme toggles, navigation or Font Awesome**.
   surfaces `--bg-base/-elevated/-elevated-2/-sunken/-overlay`, text
   `--text-1/2/3`, one accent `--accent*`, semantic `--success/warning/
   danger/info` with `-mark` and `-soft` variants, shadows `--shadow-1..3`,
-  motion `--ease` = `cubic-bezier(0.32, 0.72, 0, 1)` and `--dur-*`). Dark
+  motion `--ease` = `cubic-bezier(0.32, 0.72, 0, 1)`, `--ease-spring` and
+  `--dur-*`; the "Aurora" look adds `--accent-gradient` (violet `#7c5cff` →
+  blue → magenta, used only on the primary button, progress bars and the
+  nav indicator), `--aura-1..3` (registered with `@property` so they
+  cross-fade), `--aura-opacity`, and glass `--glass-bg/-border/-blur`,
+  `--glow-accent`). Glass (backdrop blur) is for containers only — sidebar,
+  tab bar, cards, stat tiles, now-downloading card, player, bulk bar —
+  never `.ui-album` grid items (a 5,000-album Library). Dark
   values are declared twice: under `@media (prefers-color-scheme: dark)`
   guarded by `:root:not([data-theme="light"])`, and under
   `:root[data-theme="dark"]` (manual override) — change both. Components
@@ -454,13 +461,29 @@ variables, theme toggles, navigation or Font Awesome**.
   controls on the shared classes so they inherit this. Frosted surfaces use
   `--bg-overlay` (high opacity on purpose, so text behind never competes).
 - `static/app.js` — `window.UI`: theme (`auto`/`light`/`dark`, stored in
-  `localStorage.theme`, `themechange` event, `theme-color` meta kept in
-  sync), `UI.icon(name)`, `UI.escape`, `UI.toast(msg, {type, action})`,
+  `localStorage.theme`; **dark when nothing is stored**, and `auto` is
+  stored explicitly — the pre-paint script in `_head.html` mirrors this;
+  `themechange` event, `theme-color` meta kept in sync), `UI.icon(name)`, `UI.escape`, `UI.toast(msg, {type, action})`,
   `UI.openModal/closeModal` (Esc, backdrop, focus trap/restore),
   `UI.confirm({...})` → Promise, `UI.guard(btn, fn)` (in-flight guard +
   spinner), `UI.fetchJSON`, `UI.poll(fn, ms)` (never overlaps, pauses in
   hidden tabs), nav badges from `/api/stats` (`queued`, `active`), and the
   `/` shortcut that focuses the page's `input[type="search"]`.
+- `static/aura.js` — the aurora background: prepends `.app-aura` (three
+  blurred blobs drifting 30–40 s, paused in hidden tabs, still under
+  reduced motion) to `<body>` and adds `UI.setAura(url|null)`, which
+  reduces the cover to 24×24 in a canvas, takes `UI.auraPalette()`'s
+  dominant vivid colours (grey/near-black/near-white ignored, clamped for
+  legibility) and sets `--aura-1..3`; an unreadable cover (no CORS, 404)
+  or `null` → `UI.AURA_DEFAULTS`. Callers: Library/Downloads
+  now-downloading card, Explore album/artist pages, the mini player;
+  other Explore views reset it.
+- `static/motion.js` — cover tilt (≤ 4°, fine pointers only, one delegated
+  frame-throttled listener, sheen at `--mx/--my`), `UI.stagger(el)` (first
+  12 children rise in once; `[data-stagger]` on load) and
+  `UI.countTo(el, value, ms, format)`. `auraPalette` and `tiltAngles` are
+  pure and tested under node by `tests/test_frontend_js.py`
+  (`tests/js/*.test.js`).
 - `static/icons.svg` — SVG symbol sprite (`#i-<name>`), used as
   `<svg class="ico"><use href="/static/icons.svg#i-name"></use></svg>`.
 - `templates/_head.html` (meta, manifest, CSS, pre-paint theme script,
@@ -561,4 +584,4 @@ Run tests with the venv:
 source .venv/bin/activate && python -m pytest tests/ -v
 ```
 
-Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`, `test_explore.py` (fixtures in `tests/fixtures/ytmusic/`).
+Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`, `test_explore.py` (fixtures in `tests/fixtures/ytmusic/`), `test_frontend_js.py` (runs `tests/js/*.test.js` under node; skipped without node).

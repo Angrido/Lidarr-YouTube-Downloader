@@ -7,7 +7,7 @@
 <h1>Lidarr YouTube Downloader</h1>
 
 <p><b>The missing albums in your Lidarr library, found on YouTube.</b><br>
-<sub>Matched, verified, tagged and imported — from one calm, self-hosted web app.</sub></p>
+<sub>Matched, verified, tagged and imported — from one self-hosted web app that takes its colours from your music.</sub></p>
 
 <p>
 <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2.0.0-4f46e5?style=for-the-badge&labelColor=1d1d1f" alt="Version 2.0.0"></a>
@@ -166,7 +166,7 @@ Per-track progress, speed and verification, a queue you can reorder or pause, an
 
 ### In your pocket
 
-Light and dark themes, touch-sized controls and a tab bar. Add it to your home screen and it opens like an app.
+Dark and light themes, glass surfaces and a background that glows in the colours of the album you're looking at — with touch-sized controls and a tab bar. Add it to your home screen and it opens like an app.
 
 <p align="center">
 <picture>
