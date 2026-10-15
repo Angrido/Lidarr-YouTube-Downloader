@@ -779,6 +779,23 @@ class TestMiscRoutes:
             assert resp.status_code == 200
             assert resp.get_json() == []
 
+    def test_missing_albums_sends_slim_rows(self, client):
+        import models
+
+        models.upsert_missing_album({
+            "id": 5, "title": "Slim", "releaseDate": "2020-01-01",
+            "artist": {"id": 2, "artistName": "Art", "overview": "x" * 500},
+            "statistics": {"trackCount": 4, "trackFileCount": 1},
+            "images": [{"coverType": "cover", "remoteUrl": "http://c"}],
+            "releases": [{"id": 1, "media": []}],
+        }, run_id=1)
+        data = client.get("/api/missing-albums").get_json()
+        assert len(data) == 1
+        assert data[0]["missingTrackCount"] == 3
+        assert data[0]["artist"]["artistName"] == "Art"
+        assert "releases" not in data[0]
+        assert "overview" not in data[0]["artist"]
+
     def test_ytdlp_version(self, client):
         with patch("app.get_ytdlp_version", return_value="2024.01.01"):
             resp = client.get("/api/ytdlp/version")
@@ -2733,6 +2750,62 @@ class TestNtfyNotificationRoute:
             assert resp.status_code == 429
             assert "Too many test requests" in resp.get_json()["message"]
 
+    def _saved_ntfy(self, monkeypatch):
+        monkeypatch.setattr("app.load_config", lambda: {
+            "ntfy_url": "https://ntfy.sh",
+            "ntfy_token": "secret",
+            "ntfy_topic": "t",
+        })
+
+    def test_test_ntfy_saved_token_not_sent_to_other_server(
+        self, client, monkeypatch,
+    ):
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post(
+                "/api/notifications/test/ntfy",
+                json={"server_url": "https://evil.example"},
+            )
+        assert mock_test.call_args.args[0] == "https://evil.example"
+        assert not mock_test.call_args.kwargs["token"]
+
+    def test_test_ntfy_saved_token_sent_to_saved_server(
+        self, client, monkeypatch,
+    ):
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post("/api/notifications/test/ntfy", json={})
+        assert mock_test.call_args.kwargs["token"] == "secret"
+
+    def test_test_ntfy_masked_token_not_sent_to_other_server(
+        self, client, monkeypatch,
+    ):
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post("/api/notifications/test/ntfy", json={
+                "server_url": "https://evil.example", "topic": "x",
+                "token": "********",
+            })
+        assert mock_test.call_args.args[0] == "https://evil.example"
+        assert not mock_test.call_args.kwargs["token"]
+
+    def test_test_ntfy_masked_token_sent_to_saved_server(
+        self, client, monkeypatch,
+    ):
+        # What Settings sends once a token is saved: the form's URL, topic
+        # and the mask in place of the token.
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post("/api/notifications/test/ntfy", json={
+                "server_url": "https://ntfy.sh/", "topic": "t",
+                "token": "********",
+            })
+        assert mock_test.call_args.kwargs["token"] == "secret"
+
 
 
 
@@ -2851,6 +2924,41 @@ class TestConfigHardening:
     def test_export_hides_lidarr_api_key(self, client):
         resp = client.get("/api/config/export")
         assert "lidarr_api_key" not in json.loads(resp.data)
+
+    def test_secrets_masked_in_get_and_dropped_from_export(self, client):
+        from config import SECRET_MASK, load_config
+        client.post("/api/config", json={"telegram_bot_token": "123:secret"})
+        assert load_config()["telegram_bot_token"] == "123:secret"
+        data = client.get("/api/config").get_json()
+        assert data["telegram_bot_token"] == SECRET_MASK
+        raw = client.get("/api/config/export").data.decode()
+        assert "telegram_bot_token" not in json.loads(raw)
+        assert "123:secret" not in raw
+
+    def test_posting_mask_keeps_secret_and_empty_clears(self, client):
+        from config import SECRET_MASK, load_config
+        client.post("/api/config", json={"telegram_bot_token": "123:secret"})
+        client.post("/api/config", json={"telegram_bot_token": SECRET_MASK})
+        assert load_config()["telegram_bot_token"] == "123:secret"
+        client.post("/api/config", json={"telegram_bot_token": ""})
+        assert load_config()["telegram_bot_token"] == ""
+
+    def test_telegram_test_with_mask_uses_saved_token(
+        self, client, monkeypatch
+    ):
+        from config import SECRET_MASK
+        client.post("/api/config", json={"telegram_bot_token": "123:secret"})
+        calls = []
+        monkeypatch.setattr(
+            "notifications.send_telegram_test",
+            lambda token, chat: calls.append((token, chat)) or {"success": True},
+        )
+        resp = client.post(
+            "/api/notifications/test/telegram",
+            json={"bot_token": SECRET_MASK, "chat_id": "42"},
+        )
+        assert resp.status_code == 200
+        assert calls == [("123:secret", "42")]
 
     @pytest.mark.parametrize("value", ["abc", None, [], True])
     def test_invalid_int_returns_400(self, client, value):
@@ -3532,6 +3640,26 @@ class TestPlaylistWatch:
         )
         # Busy slot (False) → retried; the old, already-attempted video is skipped.
         assert calls == [expected, expected]
+
+    def test_skips_video_whose_folder_already_has_audio(self, monkeypatch, tmp_path):
+        import youtube_import
+
+        library = tmp_path / "downloads"
+        target = library / "Can" / "Tago Mago (1971)"
+        target.mkdir(parents=True)
+        (target / "01 - Tago Mago.mp3").write_bytes(b"AUDIO")
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(library))
+        monkeypatch.setattr(youtube_import, "_flat_youtube_info", lambda url, cfg: {"entries": [
+            {"id": "newnewnew01", "title": "Can - Tago Mago (1971) [Full Album]"},
+        ]})
+        monkeypatch.setattr(
+            youtube_import, "_execute_playlist_download",
+            lambda *a: pytest.fail("already imported"),
+        )
+        # History empty (e.g. after Clear history), but the folder holds it.
+        youtube_import._watch_playlists_once(
+            {"yt_watch_playlists": ["https://www.youtube.com/playlist?list=PLwatch"]},
+        )
 
     def test_unreadable_playlist_is_skipped(self, monkeypatch):
         import youtube_import

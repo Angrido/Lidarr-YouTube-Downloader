@@ -105,7 +105,7 @@ def test_lidarr_request_http_error(mock_get, mock_cfg):
 # --- get_missing_albums (cache-backed) ---
 
 
-@patch("models.get_cached_missing_albums")
+@patch("models.get_cached_missing_albums_summary")
 def test_get_missing_albums_reads_from_cache(mock_cached):
     mock_cached.return_value = [
         {"id": 1, "title": "Album One", "missingTrackCount": 7}
@@ -116,13 +116,13 @@ def test_get_missing_albums_reads_from_cache(mock_cached):
     mock_cached.assert_called_once()
 
 
-@patch("models.get_cached_missing_albums")
+@patch("models.get_cached_missing_albums_summary")
 def test_get_missing_albums_empty_cache(mock_cached):
     mock_cached.return_value = []
     assert lidarr.get_missing_albums() == []
 
 
-@patch("models.get_cached_missing_albums")
+@patch("models.get_cached_missing_albums_summary")
 def test_get_missing_albums_exception_returns_empty(mock_cached):
     mock_cached.side_effect = Exception("db error")
     assert lidarr.get_missing_albums() == []
