@@ -18,7 +18,7 @@ they are.
 | Scope | **Design system + key moments**: tokens/components/motion in `static/components.css` + `static/app.js` reach every page; targeted touch-ups on the most visible screens. No new layouts or navigation. |
 | Aurora implementation | **A — CSS aurora + palette extracted in the browser.** No WebGL, no server-side palette, no new dependency. |
 | Fonts | System stack kept (no downloaded fonts: the app runs offline in Docker). |
-| Default theme | Dark when the user never chose one. A stored `light`/`dark`/`auto` preference is honoured unchanged. |
+| Default theme | Dark when nothing is stored. A stored `light`/`dark` preference is honoured. "Automatic" used to be stored as *no key* (indistinguishable from never chosen), so it is now stored explicitly as `"auto"`; someone who had picked automatic before sees dark once and re-picks it. |
 
 The design-system rules in `CLAUDE.md` still hold: no per-page colour
 variables, no theme toggles, navigation or icon fonts outside the shared
