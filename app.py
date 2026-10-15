@@ -463,9 +463,8 @@ def _run_artist_import(plan, artist_dir, config):
                 failed += 1
                 _artist_import_state(channel_id, failed=failed)
                 continue
-            while True:
-                if _artist_import_state(channel_id).get("stop"):
-                    break
+            ran = False
+            while not _artist_import_state(channel_id).get("stop"):
                 ran = _execute_playlist_download(
                     artist_name, job["album_title"], job["entries"], target, config,
                     job.get("thumbnail_url") or "", job.get("source_url") or "",
@@ -473,6 +472,8 @@ def _run_artist_import(plan, artist_dir, config):
                 )
                 if ran is not False:
                     break
+            if ran is False:  # stopped while still waiting for the download slot
+                break
             done += 1
             _artist_import_state(channel_id, done=done)
         stopped = _artist_import_state(channel_id).get("stop")
