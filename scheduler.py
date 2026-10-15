@@ -41,7 +41,7 @@ def _scheduled_check():
     if not albums:
         return
 
-    interval_minutes = int(config.get("scheduler_interval", 60))
+    interval_minutes = _interval_minutes(config)
     lookback_seconds = interval_minutes * 60 * 2
     now = time.time()
     recent_history_ids = models.get_history_album_ids_since(
@@ -145,10 +145,15 @@ def next_run_timestamp():
     return schedule.next_run().timestamp()
 
 
+def _interval_minutes(config):
+    # schedule.every(0) never returns (its next-run loop can't advance), and
+    # a config import or SCHEDULER_INTERVAL=0 can carry any int here.
+    return max(1, int(config.get("scheduler_interval", 60)))
+
+
 def setup_scheduler():
     """Configure the scheduler based on current config settings."""
     config = load_config()
     schedule.clear()
     if config.get("scheduler_enabled"):
-        interval = int(config.get("scheduler_interval", 60))
-        schedule.every(interval).minutes.do(scheduled_check)
+        schedule.every(_interval_minutes(config)).minutes.do(scheduled_check)

@@ -88,3 +88,19 @@ def test_auto_download_off_notifies_only_new_albums(monkeypatch):
     assert sent[1:] == [
         "Scheduler: Found 1 missing albums (Auto-DL Disabled)"
     ]
+
+
+@pytest.mark.parametrize("interval", [0, -5])
+def test_interval_below_one_minute_runs_every_minute(monkeypatch, interval):
+    # schedule.every(0).minutes is due on every 10 s loop tick: a full
+    # Lidarr scan six times a minute.
+    import schedule
+    monkeypatch.setattr(
+        scheduler, "load_config",
+        lambda: {"scheduler_enabled": True, "scheduler_interval": interval},
+    )
+    try:
+        scheduler.setup_scheduler()
+        assert [job.interval for job in schedule.get_jobs()] == [1]
+    finally:
+        schedule.clear()
