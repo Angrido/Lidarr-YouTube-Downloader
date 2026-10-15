@@ -3031,3 +3031,31 @@ class TestAlbumFromYtmusicHint:
         )
         assert downloader.album_from_ytmusic_hint("../etc", "MPREb_x") is None
         assert downloader.album_from_ytmusic_hint("", "") is None
+
+
+class TestPickAlbumIsStrict:
+    """The picked album's tracks count as official (an AcoustID mismatch is
+    accepted), so a live or unrelated album must not pass for the studio one."""
+
+    @staticmethod
+    def _pick(lidarr_title, *yt_titles):
+        results = [
+            {"resultType": "album", "title": t, "artist": "Nirvana", "browseId": t}
+            for t in yt_titles
+        ]
+        chosen = downloader._ytmusicapi_pick_album(results, "Nirvana", lidarr_title)
+        return chosen and chosen["title"]
+
+    def test_live_album_is_not_the_studio_album(self):
+        assert self._pick("Nevermind", "Nevermind (Live)") is None
+
+    def test_a_word_inside_another_word_is_not_a_match(self):
+        assert self._pick("Live", "Alive 2007") is None
+
+    def test_edition_suffix_still_matches(self):
+        title = "Nevermind (30th Anniversary Super Deluxe Edition)"
+        assert self._pick("Nevermind", title) == title
+        assert self._pick(title, "Nevermind") == "Nevermind"
+
+    def test_exact_title_beats_an_edition(self):
+        assert self._pick("Nevermind", "Nevermind (Deluxe Edition)", "Nevermind") == "Nevermind"

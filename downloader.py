@@ -915,6 +915,31 @@ def _parse_ytmusicapi_duration(dur_str):
     return 0
 
 
+_EDITION_WORDS = frozenset({
+    "deluxe", "edition", "remaster", "remastered", "expanded", "anniversary",
+    "special", "super", "bonus", "track", "tracks", "version", "collector",
+    "collectors", "complete", "reissue",
+})
+_ORDINAL_RE = re.compile(r"^\d+(?:st|nd|rd|th)?$")
+
+
+def _differs_only_by_edition(a, b):
+    """True when one title is the other plus edition words only.
+
+    "Nevermind" vs "Nevermind (30th Anniversary Deluxe Edition)" is the
+    same album; "Nevermind (Live)" or "Alive 2007" for "Live" is not.
+    Whole words, so "live" never matches inside "alive".
+    """
+    wa, wb = re.findall(r"\w+", a), re.findall(r"\w+", b)
+    short, long_ = sorted((wa, wb), key=len)
+    if not short or not set(short) <= set(long_):
+        return False
+    extra = [w for w in long_ if w not in short]
+    return bool(extra) and any(w in _EDITION_WORDS for w in extra) and all(
+        w in _EDITION_WORDS or _ORDINAL_RE.match(w) for w in extra
+    )
+
+
 def _ytmusicapi_pick_album(results, artist, album):
     """Pick the album result that best matches (artist, album).
 
@@ -944,14 +969,17 @@ def _ytmusicapi_pick_album(results, artist, album):
         r_title = r.get("title", "") or ""
         r_norm = _normalize_yt_title(r_title)
         sim = SequenceMatcher(None, album_norm, r_norm).ratio()
-        if album_norm and (album_norm in r_norm or r_norm in album_norm):
+        if album_norm and _differs_only_by_edition(album_norm, r_norm):
             sim = max(sim, 0.95)
         if r_norm == album_norm:
             sim = 1.0
         if sim > best_score:
             best_score = sim
             best = r
-    if best and best_score >= 0.60:
+    # Its tracks are trusted as the official album (an AcoustID mismatch is
+    # accepted), so a loose look-alike must fail here and fall back to the
+    # per-track search: "Nevermind (Live)" scores 0.78 for "Nevermind".
+    if best and best_score >= 0.85:
         return best
     return None
 
