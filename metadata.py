@@ -23,6 +23,7 @@ from mutagen.id3 import (
     TIT2,
     TPE1,
     TPE2,
+    TPOS,
     TRCK,
     TXXX,
     UFID,
@@ -40,6 +41,27 @@ logger = logging.getLogger(__name__)
 # Identifying User-Agent for the MusicBrainz family of APIs (musicbrainz.org,
 # coverartarchive.org), which reject or throttle the default requests one.
 _API_HEADERS = {"User-Agent": USER_AGENT}
+
+
+def _disc_position(track_info, album_info):
+    """(disc, disc count) for a track of a multi-disc album, else None.
+
+    Lidarr's trackNumber restarts on every disc, so without a disc tag
+    track 1 of disc 2 reads as track 1 of the album.
+    """
+    discs = set()
+    for t in album_info.get("tracks") or ():
+        try:
+            discs.add(int(t.get("mediumNumber")))
+        except (TypeError, ValueError):
+            pass
+    try:
+        disc = int(track_info.get("mediumNumber"))
+    except (TypeError, ValueError):
+        return None
+    if len(discs) < 2 or disc < 1:
+        return None
+    return disc, max(discs)
 
 
 def tag_mp3(file_path, track_info, album_info, cover_data):
@@ -91,6 +113,9 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
             )
         except (ValueError, KeyError):
             pass
+        disc = _disc_position(track_info, album_info)
+        if disc:
+            audio.tags.add(TPOS(encoding=3, text=f"{disc[0]}/{disc[1]}"))
 
         release = get_monitored_release(album_info)
         if release:
@@ -137,6 +162,10 @@ def tag_opus(file_path, track_info, album_info, cover_data):
             audio["tracknumber"] = [f"{t_num}/{total}"]
         except (ValueError, KeyError):
             pass
+        disc = _disc_position(track_info, album_info)
+        if disc:
+            audio["discnumber"] = [str(disc[0])]
+            audio["disctotal"] = [str(disc[1])]
 
         release = get_monitored_release(album_info)
         if release:
@@ -194,6 +223,9 @@ def tag_m4a(file_path, track_info, album_info, cover_data):
             audio["trkn"] = [(t_num, total)]
         except (ValueError, KeyError):
             pass
+        disc = _disc_position(track_info, album_info)
+        if disc:
+            audio["disk"] = [disc]
 
         release = get_monitored_release(album_info)
         if release:

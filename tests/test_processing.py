@@ -3629,3 +3629,33 @@ class TestCleanupAfterLibraryCopy:
         (finished / "cover.jpg").write_text("x")
         self._run(monkeypatch, tmp_path)
         assert not (tmp_path / "Art").exists()
+
+
+class TestMultiDiscTrackNumbers:
+    """Lidarr's trackNumber restarts on every disc. On a multi-disc album the
+    file names (and the history row) use the album-wide number, so disc 1
+    track 1 and disc 2 track 1 never share a file."""
+
+    ALBUM = [
+        {"title": "Intro", "trackNumber": "1", "absoluteTrackNumber": 1, "mediumNumber": 1},
+        {"title": "Song", "trackNumber": "2", "absoluteTrackNumber": 2, "mediumNumber": 1},
+        {"title": "Intro", "trackNumber": "1", "absoluteTrackNumber": 3, "mediumNumber": 2},
+    ]
+
+    def test_multi_disc_uses_the_album_wide_number(self):
+        import processing
+        assert [processing._track_number(t, self.ALBUM) for t in self.ALBUM] == [1, 2, 3]
+
+    def test_single_disc_keeps_the_track_number(self):
+        import processing
+        album = [dict(t, mediumNumber=1, absoluteTrackNumber=9) for t in self.ALBUM[:2]]
+        assert [processing._track_number(t, album) for t in album] == [1, 2]
+
+    def test_second_disc_intro_is_not_taken_for_the_first(self, tmp_path, monkeypatch):
+        import processing
+        monkeypatch.setattr(processing, "load_config", lambda: {"audio_format": "mp3"})
+        (tmp_path / "01 - Intro.mp3").write_text("x")  # disc 1 already done
+        out = processing._filter_tracks(self.ALBUM, False, str(tmp_path))
+        assert [(t["title"], t["mediumNumber"]) for t in out] == [
+            ("Song", 1), ("Intro", 2),
+        ]

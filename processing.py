@@ -424,8 +424,23 @@ def _log_album_error(album_id, album_title, artist_name, details):
         )
 
 
+def _is_multi_disc(album_tracks):
+    discs = {_int_or(t.get("mediumNumber"), 1) for t in album_tracks or ()}
+    return len(discs) > 1
+
+
 def _track_number(track, album_tracks=(), fallback=0):
-    for key in ("trackNumber", "absoluteTrackNumber"):
+    """The number used for a track's file name and history row.
+
+    trackNumber restarts on every disc, so on a multi-disc album the
+    album-wide absoluteTrackNumber comes first: disc 1 #1 and disc 2 #1
+    would otherwise both be ``01 - Title``. Tags keep the per-disc number
+    plus a disc tag (metadata._disc_position).
+    """
+    keys = ("trackNumber", "absoluteTrackNumber")
+    if _is_multi_disc(album_tracks):
+        keys = keys[::-1]
+    for key in keys:
         try:
             number = int(track.get(key))
         except (TypeError, ValueError):

@@ -1045,3 +1045,59 @@ class TestEnsureArtistImage:
         monkeypatch.setattr(metadata.requests, "get", fake_get)
         assert real("Oasis").startswith(b"\xff\xd8")
         assert calls[-1] == "https://e/oasis.jpg"
+
+
+class TestDiscNumberTag:
+    """A multi-disc album gets a disc tag; on its own, track 1 of disc 2
+    would read as track 1 of the album."""
+
+    TRACK = {"title": "Intro", "trackNumber": "1", "mediumNumber": 2}
+
+    @staticmethod
+    def _album(media):
+        return {
+            "title": "A", "artist": {"artistName": "Art"},
+            "releaseDate": "2020-01-01", "trackCount": 4,
+            "tracks": [{"mediumNumber": m} for m in media],
+        }
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    def test_mp3_multi_disc_writes_tpos(self, _rel, tmp_path):
+        from mutagen.mp3 import MP3
+        path = _create_minimal_mp3(tmp_path / "t.mp3")
+        assert metadata.tag_mp3(str(path), self.TRACK, self._album([1, 1, 2, 2]), None)
+        tags = MP3(str(path)).tags
+        assert str(tags["TPOS"]) == "2/2"
+        assert str(tags["TRCK"]) == "1/4"
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    def test_mp3_single_disc_has_no_tpos(self, _rel, tmp_path):
+        from mutagen.mp3 import MP3
+        path = _create_minimal_mp3(tmp_path / "t.mp3")
+        track = dict(self.TRACK, mediumNumber=1)
+        assert metadata.tag_mp3(str(path), track, self._album([1, 1]), None)
+        assert "TPOS" not in MP3(str(path)).tags
+
+    @staticmethod
+    def _store(mock_cls):
+        store = {}
+        mock_audio = MagicMock()
+        mock_audio.__setitem__ = lambda self, k, v: store.update({k: v})
+        mock_audio.__getitem__ = lambda self, k: store[k]
+        mock_cls.return_value = mock_audio
+        return store
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    @patch("metadata.MP4")
+    def test_m4a_multi_disc_writes_disk(self, mock_mp4, _rel):
+        store = self._store(mock_mp4)
+        metadata.tag_m4a("/f.m4a", self.TRACK, self._album([1, 2]), None)
+        assert store["disk"] == [(2, 2)]
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    @patch("metadata.OggOpus")
+    def test_opus_multi_disc_writes_discnumber(self, mock_opus, _rel):
+        store = self._store(mock_opus)
+        metadata.tag_opus("/f.opus", self.TRACK, self._album([1, 2]), None)
+        assert store["discnumber"] == ["2"]
+        assert store["disctotal"] == ["2"]

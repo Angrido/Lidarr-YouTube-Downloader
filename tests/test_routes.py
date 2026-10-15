@@ -714,6 +714,18 @@ class TestQueueTracksRoute:
         assert data[1]["has_file"] is True
 
     @patch("app.lidarr_request")
+    def test_multi_disc_numbers_match_the_downloaded_files(self, mock_lidarr, client):
+        # A manual download names its file from this number; disc 2 track 1
+        # must not become "01 - …" next to disc 1 track 1.
+        mock_lidarr.return_value = [
+            {"title": "Intro", "trackNumber": "1", "absoluteTrackNumber": 1, "mediumNumber": 1},
+            {"title": "Song", "trackNumber": "2", "absoluteTrackNumber": 2, "mediumNumber": 1},
+            {"title": "Intro", "trackNumber": "1", "absoluteTrackNumber": 3, "mediumNumber": 2},
+        ]
+        data = client.get("/api/download/queue/123/tracks").get_json()
+        assert [t["track_number"] for t in data] == [1, 2, 3]
+
+    @patch("app.lidarr_request")
     @patch("app.get_itunes_tracks")
     def test_falls_back_to_itunes(self, mock_itunes, mock_lidarr, client):
         mock_lidarr.return_value = []

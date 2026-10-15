@@ -259,6 +259,18 @@ Intro, Outro, Interlude, Skit, [untitled]…) require the artist's channel,
 YT Music artist credit or name in the title, and phase 2 reuses phase 1's
 fetched results.
 
+### Multi-disc albums
+
+Lidarr's `trackNumber` restarts on every disc. On an album whose tracks span
+more than one `mediumNumber`, `processing._track_number()` returns the
+album-wide `absoluteTrackNumber` instead, and everything keyed on that number
+follows: file names (`13 - Intro.mp3`), `temp_NN_` prefixes, the XML sidecar,
+the `track_downloads.track_number` the history delete route rebuilds the file
+name from, and the number `/api/download/queue/<id>/tracks` hands the manual
+download. Tags keep the per-disc number and add the disc
+(`metadata._disc_position()`: TPOS / `discnumber`+`disctotal` / `disk`).
+Single-disc albums are unchanged.
+
 ### MusicBrainz id frames
 
 Lidarr's track resource carries **two different** MusicBrainz ids, and they are

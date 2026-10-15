@@ -58,6 +58,7 @@ from metadata import (
 )
 from notifications import send_notifications
 from processing import (
+    _track_number,
     any_download_active,
     download_process,
     get_download_status,
@@ -1380,11 +1381,12 @@ def api_queue_tracks(album_id):
     result = [
         {
             "title": t.get("title", ""),
-            "track_number": t.get("trackNumber", 0),
+            # The number the album run names this track's file with.
+            "track_number": _track_number(t, tracks, i + 1),
             "has_file": t.get("hasFile", False),
             "foreign_recording_id": t.get("foreignRecordingId", ""),
         }
-        for t in tracks
+        for i, t in enumerate(tracks)
     ]
     return jsonify(result)
 
