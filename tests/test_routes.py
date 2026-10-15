@@ -2431,6 +2431,18 @@ def test_stats_reports_queue_and_any_active_download(client, monkeypatch):
     assert data["queued"] == 3
 
 
+def test_queue_pause_toggle_round_trip_and_stats(client):
+    assert client.get("/api/stats").get_json()["queue_paused"] is False
+    resp = client.post("/api/download/queue/pause")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"paused": True}
+    assert client.get("/api/stats").get_json()["queue_paused"] is True
+    assert client.post("/api/download/queue/pause").get_json() == {
+        "paused": False,
+    }
+    assert client.get("/api/stats").get_json()["queue_paused"] is False
+
+
 def test_service_worker(client):
     resp = client.get("/sw.js")
     assert resp.status_code == 200

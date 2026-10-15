@@ -2158,6 +2158,23 @@ class TestQueueDispatch:
         assert started[0].target is processing._run_queued_album
         assert started[0].kwargs.get("state") is processing.download_process
 
+    def test_paused_queue_starts_nothing_until_resumed(self, monkeypatch):
+        import processing
+        import download_client
+        ids = [42]
+        self._patch_queue(monkeypatch, ids)
+        monkeypatch.setattr(download_client, "is_client_album", lambda a: False)
+        started = self._capture_threads(monkeypatch)
+        cfg = {"queue_paused": True}
+        monkeypatch.setattr(processing, "load_config", lambda: cfg)
+        processing._dispatch_next_from_queue()
+        assert started == []
+        assert ids == [42]
+        cfg["queue_paused"] = False
+        processing._dispatch_next_from_queue()
+        assert len(started) == 1
+        assert ids == []
+
     def test_client_grab_waits_while_album_downloads_in_foreground(
         self, monkeypatch,
     ):

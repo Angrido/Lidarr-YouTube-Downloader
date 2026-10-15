@@ -2750,10 +2750,12 @@ def _dispatch_next_from_queue():
     download-client albums always run in their own state container, up to
     ``download_client_concurrent_albums`` at once. Blocked albums keep
     their queue position; an album that is already downloading is dropped
-    as a duplicate.
+    as a duplicate. While the queue is paused nothing new starts.
     """
     import download_client
 
+    if load_config().get("queue_paused"):
+        return
     try:
         queued = [
             (row["album_id"], bool(row.get("force", 0)))
