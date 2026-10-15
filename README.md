@@ -35,6 +35,7 @@
 
 <br>
 
+<div align="center">
 <table>
 <tr>
 <td align="center" width="25%"><h3>15</h3><sub>YouTube candidates<br>scored per track</sub></td>
@@ -43,6 +44,7 @@
 <td align="center" width="25%"><h3>1 container</h3><sub>NAS, Unraid, Pi<br>or a VPS</sub></td>
 </tr>
 </table>
+</div align="center">
 
 <br>
 
