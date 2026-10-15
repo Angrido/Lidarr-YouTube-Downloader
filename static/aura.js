@@ -71,13 +71,23 @@
 
     var requestId = 0;
 
+    // A slot left at AURA_DEFAULTS means "no cover colour": drop the inline
+    // value so the stylesheet's default, derived from the chosen accent
+    // (Settings > Appearance), shows instead of the fixed violet.
     function apply(colours) {
         var style = document.documentElement.style;
-        colours.forEach(function (c, i) { style.setProperty("--aura-" + (i + 1), c); });
+        colours.forEach(function (c, i) {
+            var prop = "--aura-" + (i + 1);
+            if (c === AURA_DEFAULTS[i]) style.removeProperty(prop);
+            else style.setProperty(prop, c);
+        });
     }
 
     function setAura(url) {
         var id = ++requestId;
+        // ui_aura_mode: only "cover" follows covers; "accent" keeps the
+        // accent-derived colours and "off" hides the layer in CSS.
+        if (document.documentElement.getAttribute("data-aura") !== "cover") url = null;
         if (!url) {
             apply(AURA_DEFAULTS);
             return Promise.resolve();

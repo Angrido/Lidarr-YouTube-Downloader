@@ -205,7 +205,13 @@ def _toggle_config(key, default):
 
 @app.context_processor
 def inject_version():
-    return {"APP_VERSION": VERSION}
+    cfg = load_config()
+    # Validated as #rrggbb / an enum in config.py: safe to write into <head>.
+    return {
+        "APP_VERSION": VERSION,
+        "UI_ACCENT": cfg.get("ui_accent", "#7c5cff"),
+        "UI_AURA_MODE": cfg.get("ui_aura_mode", "cover"),
+    }
 
 
 @app.teardown_appcontext

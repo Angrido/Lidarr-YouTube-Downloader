@@ -2942,6 +2942,31 @@ class TestManualDownloadTrackNumber:
         assert "SENTINEL_DL" in (resp.get_json().get("message") or "")
 
 
+class TestAppearanceSettings:
+    @pytest.fixture(autouse=True)
+    def _bypass_rate_limit(self):
+        with patch("app.check_rate_limit", return_value=True):
+            yield
+
+    def test_saved_colours_reach_every_page_head(self, client):
+        resp = client.post("/api/config", json={"ui_accent": "#10B981", "ui_aura_mode": "off"})
+        assert resp.status_code == 200
+        for path in ("/", "/settings", "/explore"):
+            html = client.get(path).get_data(as_text=True)
+            assert "--accent-base:#10b981" in html, path
+            assert "setAttribute('data-aura','off')" in html, path
+
+    def test_defaults_before_any_choice(self, client):
+        html = client.get("/").get_data(as_text=True)
+        assert "--accent-base:#7c5cff" in html
+        assert "setAttribute('data-aura','cover')" in html
+
+    def test_unsafe_accent_is_rejected(self, client):
+        resp = client.post("/api/config", json={"ui_accent": "#000000;}</style><script>"})
+        assert resp.status_code == 400
+        assert "</style><script>" not in client.get("/").get_data(as_text=True)
+
+
 class TestConfigHardening:
     @pytest.fixture(autouse=True)
     def _bypass_rate_limit(self):

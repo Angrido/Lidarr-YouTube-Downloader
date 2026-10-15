@@ -294,6 +294,60 @@
             letter-spacing: 0.02em;
         }
 
+        /* Appearance: accent swatches. --swatch is the preset itself (data,
+           not a theme colour). The rainbow one wraps a native colour picker. */
+        .accent-swatches {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--sp-2);
+        }
+
+        .accent-swatch {
+            position: relative;
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            background: var(--swatch);
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+            cursor: pointer;
+            transition: transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur) var(--ease);
+        }
+
+        .accent-swatch:hover {
+            transform: scale(1.08);
+        }
+
+        .accent-swatch input {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .accent-swatch:has(input:checked),
+        .accent-swatch-custom.is-active {
+            box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 4px var(--swatch, var(--accent));
+        }
+
+        .accent-swatch:has(input:focus-visible) {
+            outline: 2px solid var(--focus-ring);
+            outline-offset: 4px;
+        }
+
+        .accent-swatch-custom {
+            background: conic-gradient(#ef4444, #f59e0b, #eab308, #22c55e, #06b6d4, #3b82f6, #8b5cf6, #ec4899, #ef4444);
+        }
+
+        @media (max-width: 720px), (pointer: coarse) {
+            .accent-swatch {
+                width: 40px;
+                height: 40px;
+            }
+        }
+
         .instant-status {
             display: inline-flex;
             align-items: center;
@@ -702,6 +756,7 @@
             <div class="settings-layout">
                 <nav class="settings-nav" id="settingsNav" aria-label="Settings sections">
                     <ul class="settings-nav-list">
+                        <li><a class="settings-nav-link" href="#sec-appearance">{{ ico('palette') }}<span>Appearance</span></a></li>
                         <li><a class="settings-nav-link" href="#sec-automation">{{ ico('bot') }}<span>Automation</span></a></li>
                         <li><a class="settings-nav-link" href="#sec-audio">{{ ico('waveform') }}<span>Audio</span></a></li>
                         <li><a class="settings-nav-link" href="#sec-library">{{ ico('library') }}<span>Library &amp; metadata</span></a></li>
@@ -730,6 +785,39 @@
                         <p class="ui-empty-text" id="settingsNoResultsText">Try a different word.</p>
                         <div class="ui-empty-actions"><button type="button" class="ui-btn ui-btn-secondary" onclick="clearSettingsSearch()">Clear search</button></div>
                     </div>
+
+                    <section class="settings-section" id="sec-appearance" aria-labelledby="sec-appearance-title" data-section>
+                        <div class="settings-section-head">
+                            <h2 class="settings-section-title" id="sec-appearance-title" tabindex="-1">Appearance</h2>
+                            <p class="section-desc">The accent colour and the aurora glowing behind every page. Saved on the server, so every device and browser uses them.</p>
+                        </div>
+                        <div class="settings-group">
+                            <p class="ui-group-title">Colours</p>
+                            <div class="ui-group">
+                                {% call inline_row('accentSwatches', 'Accent colour', 'Buttons, progress bars, the active menu item and the default aurora. Text in this colour is kept readable whatever you pick.', 'palette', '', label_for=false, wrap=true, instant=true) %}
+                                <span class="seg-field">
+                                    <span class="instant-status" id="accentSwatches-status" role="status"></span>
+                                    <span class="accent-swatches" id="accentSwatches" role="radiogroup" aria-labelledby="accentSwatches-label" aria-describedby="accentSwatches-desc">
+                                        {% for name, hex in [('Violet', '#7c5cff'), ('Blue', '#3b82f6'), ('Pink', '#ec4899'), ('Green', '#10b981'), ('Orange', '#f97316'), ('Red', '#ef4444')] %}
+                                        <label class="accent-swatch" title="{{ name }}" style="--swatch: {{ hex }}"><input type="radio" name="uiAccent" value="{{ hex }}" aria-label="{{ name }}" disabled></label>
+                                        {% endfor %}
+                                        <label class="accent-swatch accent-swatch-custom" id="accentCustomSwatch" title="Custom colour"><input type="color" id="accentCustom" value="#7c5cff" aria-label="Custom colour" disabled></label>
+                                    </span>
+                                </span>
+                                {% endcall %}
+                                {% call inline_row('auraModeSelect', 'Aurora', 'The glow behind every page: the colours of the album cover you are looking at, always your accent colour, or off.', 'sparkles', 'info', label_for=false, wrap=true, instant=true) %}
+                                <span class="seg-field">
+                                    <span class="instant-status" id="auraModeSelect-status" role="status"></span>
+                                    <span class="ui-segmented" id="auraModeSelect" role="radiogroup" aria-labelledby="auraModeSelect-label" aria-describedby="auraModeSelect-desc">
+                                        <label title="Colours of the album cover in focus"><input type="radio" name="uiAuraMode" value="cover" disabled>Covers</label>
+                                        <label title="Always your accent colour"><input type="radio" name="uiAuraMode" value="accent" disabled>My colour</label>
+                                        <label title="No aurora"><input type="radio" name="uiAuraMode" value="off" disabled>Off</label>
+                                    </span>
+                                </span>
+                                {% endcall %}
+                            </div>
+                        </div>
+                    </section>
 
                     <section class="settings-section" id="sec-automation" aria-labelledby="sec-automation-title" data-section>
                         <div class="settings-section-head">
@@ -1256,7 +1344,8 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 applyConfig(conf);
                 _configLoaded = true;
                 $('configLoadError').hidden = true;
-                document.querySelectorAll('input[role="switch"], .ui-segmented input').forEach((el) => { el.disabled = false; });
+                document.querySelectorAll('input[role="switch"], .ui-segmented input, .accent-swatches input').forEach((el) => { el.disabled = false; });
+                showAppearance(conf.ui_accent || '#7c5cff', conf.ui_aura_mode || 'cover');
                 _savedAudioFormat = getSeg('audioFormatSelect') || 'mp3';
                 refreshCookiesStatus();
                 checkFfmpeg(false);
@@ -1565,6 +1654,80 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             $('audioFormatSelect').addEventListener('change', (e) => {
                 if (e.target.name === 'audioFormat') saveAudioFormat(e.target.value);
             });
+            $('accentSwatches').addEventListener('change', (e) => {
+                if (e.target.name === 'uiAccent') saveAppearance({ ui_accent: e.target.value });
+            });
+            // Dragging in the picker previews live; the save happens on release.
+            $('accentCustom').addEventListener('input', (e) => previewAppearance(e.target.value, _appearance.mode));
+            $('accentCustom').addEventListener('change', (e) => saveAppearance({ ui_accent: e.target.value }));
+            $('auraModeSelect').addEventListener('change', (e) => {
+                if (e.target.name === 'uiAuraMode') saveAppearance({ ui_aura_mode: e.target.value });
+            });
+        }
+
+        // ---- Appearance (instant, saved on the server) ----
+        // _head.html applies the saved values before paint on every page;
+        // here they are previewed at once and rolled back if the save fails.
+        let _appearance = { accent: '#7c5cff', mode: 'cover' };
+        let _appearanceInFlight = false;
+
+        function previewAppearance(accent, mode) {
+            const root = document.documentElement;
+            root.style.setProperty('--accent-base', accent);
+            if (root.getAttribute('data-aura') !== mode) {
+                root.setAttribute('data-aura', mode);
+                UI.setAura(null);
+            }
+        }
+
+        function showAppearance(accent, mode) {
+            _appearance = { accent, mode };
+            const radios = $('accentSwatches').querySelectorAll('input[name="uiAccent"]');
+            let preset = false;
+            radios.forEach((r) => {
+                r.checked = r.value === accent;
+                preset = preset || r.checked;
+            });
+            $('accentCustom').value = accent;
+            $('accentCustomSwatch').classList.toggle('is-active', !preset);
+            setSeg('auraModeSelect', mode);
+            previewAppearance(accent, mode);
+        }
+
+        async function saveAppearance(change) {
+            const statusId = 'ui_accent' in change ? 'accentSwatches' : 'auraModeSelect';
+            const previous = Object.assign({}, _appearance);
+            if (_appearanceInFlight) {
+                showAppearance(previous.accent, previous.mode);
+                return;
+            }
+            const next = {
+                accent: change.ui_accent || previous.accent,
+                mode: change.ui_aura_mode || previous.mode,
+            };
+            showAppearance(next.accent, next.mode);
+            _appearanceInFlight = true;
+            setInstantStatus(statusId, 'saving');
+            try {
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(change)
+                });
+                let data = {};
+                try { data = await res.json(); } catch (_) {}
+                if (!res.ok || data.success === false) {
+                    throw new Error(data.message || data.error || ('The server returned HTTP ' + res.status + '.'));
+                }
+                if (_lastConf) Object.assign(_lastConf, change);
+                setInstantStatus(statusId, 'saved');
+            } catch (e) {
+                showAppearance(previous.accent, previous.mode);
+                setInstantStatus(statusId, '');
+                toast('Appearance not changed: ' + errorText(e), 'error');
+            } finally {
+                _appearanceInFlight = false;
+            }
         }
 
         function updateSaveBar() {

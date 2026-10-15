@@ -69,7 +69,14 @@ ALLOWED_CONFIG_KEYS = {
     "save_lyrics", "apply_replaygain",
     "explore_country", "explore_language",
     "yt_watch_playlists",
+    "ui_accent", "ui_aura_mode",
 }
+
+# Appearance (Settings > Appearance). The accent is written into every
+# page's <head>, so only a plain #rrggbb ever gets through.
+UI_ACCENT_DEFAULT = "#7c5cff"
+UI_AURA_MODES = ("cover", "accent", "off")
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-f]{6}$")
 
 EXPLORE_LANGUAGES = frozenset({
     "ar", "cs", "de", "en", "es", "fr", "hi", "it", "ja", "ko", "nl", "pt",
@@ -218,8 +225,25 @@ def _parse_explore_language(value):
     return value.strip()
 
 
+def _parse_ui_accent(value):
+    color = value.strip().lower() if isinstance(value, str) else ""
+    if not _HEX_COLOR_RE.match(color):
+        raise ValueError("expected a #rrggbb colour")
+    return color
+
+
+def _parse_ui_aura_mode(value):
+    if value not in UI_AURA_MODES:
+        raise ValueError(f"expected one of {', '.join(UI_AURA_MODES)}")
+    return value
+
+
 def coerce_config_value(key, value):
     try:
+        if key == "ui_accent":
+            return _parse_ui_accent(value)
+        if key == "ui_aura_mode":
+            return _parse_ui_aura_mode(value)
         if key == "explore_country":
             return _parse_explore_country(value)
         if key == "explore_language":
@@ -364,6 +388,8 @@ def _env_config():
             os.getenv("MIN_MATCH_SCORE", "0.8"),
         ),
         "search_artist_source": os.getenv("SEARCH_ARTIST_SOURCE", "album"),
+        "ui_accent": UI_ACCENT_DEFAULT,
+        "ui_aura_mode": "cover",
         "explore_country": os.getenv("EXPLORE_COUNTRY", EXPLORE_COUNTRY_DEFAULT),
         "explore_language": os.getenv(
             "EXPLORE_LANGUAGE", EXPLORE_LANGUAGE_DEFAULT,
@@ -487,6 +513,12 @@ def load_config():
         config["explore_country"] = EXPLORE_COUNTRY_DEFAULT
     if config.get("explore_language") not in EXPLORE_LANGUAGES:
         config["explore_language"] = EXPLORE_LANGUAGE_DEFAULT
+    try:
+        config["ui_accent"] = _parse_ui_accent(config.get("ui_accent"))
+    except ValueError:
+        config["ui_accent"] = UI_ACCENT_DEFAULT
+    if config.get("ui_aura_mode") not in UI_AURA_MODES:
+        config["ui_aura_mode"] = "cover"
 
     def norm(p):
         return (

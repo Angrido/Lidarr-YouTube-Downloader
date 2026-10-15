@@ -529,3 +529,31 @@ def test_explore_keys_are_allowed_and_coerced():
     for bad in ("xx", "", None, "EN"):
         with pytest.raises(ValueError):
             coerce_config_value("explore_language", bad)
+
+
+def test_appearance_keys_are_allowed_and_coerced():
+    from config import ALLOWED_CONFIG_KEYS, coerce_config_value
+    assert {"ui_accent", "ui_aura_mode"} <= ALLOWED_CONFIG_KEYS
+    assert coerce_config_value("ui_accent", " #3B82F6 ") == "#3b82f6"
+    for mode in ("cover", "accent", "off"):
+        assert coerce_config_value("ui_aura_mode", mode) == mode
+    # The accent is written into a <style>/attribute on every page, so
+    # anything but a plain hex colour is rejected.
+    for bad in ("red", "#fff", "#12345g", "#123456;}", "", None, 5):
+        with pytest.raises(ValueError):
+            coerce_config_value("ui_accent", bad)
+    for bad in ("covers", "", None, "OFF"):
+        with pytest.raises(ValueError):
+            coerce_config_value("ui_aura_mode", bad)
+
+
+def test_appearance_defaults_and_bad_file_values(temp_config):
+    cfg = config.load_config()
+    assert cfg["ui_accent"] == "#7c5cff"
+    assert cfg["ui_aura_mode"] == "cover"
+    with open(temp_config, "w") as f:
+        json.dump({"ui_accent": "</style><script>", "ui_aura_mode": "disco"}, f)
+    config.invalidate_config_cache()
+    cfg = config.load_config()
+    assert cfg["ui_accent"] == "#7c5cff"
+    assert cfg["ui_aura_mode"] == "cover"

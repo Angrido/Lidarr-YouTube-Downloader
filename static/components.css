@@ -43,15 +43,21 @@
 
     /* Aurora: the signature gradient, the default cover palette (static/aura.js
        replaces --aura-* with a cover's colours) and the glass materials. */
-    --accent-gradient: linear-gradient(120deg, #7c5cff, #4f8bff 55%, #e04fd8);
-    --aura-1: #7c5cff;
-    --aura-2: #4f8bff;
-    --aura-3: #e04fd8;
+    /* Every accent colour derives from --accent-base, which _head.html sets
+       from Settings > Appearance (ui_accent). Neighbouring hues give the
+       gradient and the default aurora: violet -> blue / magenta. */
+    --accent-base: #7c5cff;
+    --accent-2: oklch(from var(--accent-base) l c calc(h - 45));
+    --accent-3: oklch(from var(--accent-base) l c calc(h + 55));
+    --accent-gradient: linear-gradient(120deg, var(--accent-base), var(--accent-2) 55%, var(--accent-3));
+    --aura-1: var(--accent-base);
+    --aura-2: var(--accent-2);
+    --aura-3: var(--accent-3);
     --aura-opacity: 0.32;
     --glass-blur: blur(24px) saturate(160%);
     --glass-bg: rgba(255, 255, 255, 0.66);
     --glass-border: rgba(255, 255, 255, 0.85);
-    --glow-accent: 0 10px 30px -8px rgba(124, 92, 255, 0.45);
+    --glow-accent: 0 10px 30px -8px color-mix(in srgb, var(--accent-base) 45%, transparent);
 
     --bg-base: #f5f3fb;
     --bg-elevated: #ffffff;
@@ -68,14 +74,16 @@
     --text-1: #17151f;
     --text-2: #46435a;
     --text-3: #5f5b73;
-    --text-on-accent: #ffffff;
+    /* White on dark accents, near-black on light ones (yellow, lime…). */
+    --text-on-accent: oklch(from var(--accent-base) clamp(0.15, (0.72 - l) * 1000, 1) 0 h);
 
-    --accent: #7c5cff;
-    --accent-hover: #6a47f5;
-    --accent-text: #5a3ee6;
-    --accent-soft: rgba(124, 92, 255, 0.1);
-    --accent-soft-2: rgba(124, 92, 255, 0.18);
-    --focus-ring: rgba(124, 92, 255, 0.5);
+    --accent: var(--accent-base);
+    --accent-hover: color-mix(in oklab, var(--accent-base) 86%, black);
+    /* Accent as text: lightness capped so any chosen colour stays AA on white. */
+    --accent-text: oklch(from var(--accent-base) min(l, 0.5) c h);
+    --accent-soft: color-mix(in srgb, var(--accent-base) 10%, transparent);
+    --accent-soft-2: color-mix(in srgb, var(--accent-base) 18%, transparent);
+    --focus-ring: color-mix(in srgb, var(--accent-base) 50%, transparent);
 
     --success: #157a3a;
     --success-mark: #16a34a;
@@ -105,7 +113,7 @@
     --aura-opacity: 0.55;
     --glass-bg: rgba(20, 18, 32, 0.58);
     --glass-border: rgba(255, 255, 255, 0.09);
-    --glow-accent: 0 10px 34px -6px rgba(124, 92, 255, 0.55);
+    --glow-accent: 0 10px 34px -6px color-mix(in srgb, var(--accent-base) 55%, transparent);
     --bg-base: #07070c;
     --bg-elevated: #12111a;
     --bg-elevated-2: #1a1824;
@@ -120,12 +128,12 @@
     --text-1: #f4f3fb;
     --text-2: #b8b5cc;
     --text-3: #8e8aa6;
-    --accent: #7c5cff;
-    --accent-hover: #8f74ff;
-    --accent-text: #b3a1ff;
-    --accent-soft: rgba(124, 92, 255, 0.16);
-    --accent-soft-2: rgba(124, 92, 255, 0.28);
-    --focus-ring: rgba(160, 140, 255, 0.6);
+    --accent: var(--accent-base);
+    --accent-hover: color-mix(in oklab, var(--accent-base) 84%, white);
+    --accent-text: oklch(from var(--accent-base) max(l, 0.8) c h);
+    --accent-soft: color-mix(in srgb, var(--accent-base) 16%, transparent);
+    --accent-soft-2: color-mix(in srgb, var(--accent-base) 28%, transparent);
+    --focus-ring: color-mix(in srgb, oklch(from var(--accent-base) max(l, 0.75) c h) 60%, transparent);
     --success: #4ade80;
     --success-mark: #22c55e;
     --success-soft: rgba(34, 197, 94, 0.16);
@@ -149,7 +157,7 @@
         --aura-opacity: 0.55;
         --glass-bg: rgba(20, 18, 32, 0.58);
         --glass-border: rgba(255, 255, 255, 0.09);
-        --glow-accent: 0 10px 34px -6px rgba(124, 92, 255, 0.55);
+        --glow-accent: 0 10px 34px -6px color-mix(in srgb, var(--accent-base) 55%, transparent);
         --bg-base: #07070c;
         --bg-elevated: #12111a;
         --bg-elevated-2: #1a1824;
@@ -164,12 +172,12 @@
         --text-1: #f4f3fb;
         --text-2: #b8b5cc;
         --text-3: #8e8aa6;
-        --accent: #7c5cff;
-        --accent-hover: #8f74ff;
-        --accent-text: #b3a1ff;
-        --accent-soft: rgba(124, 92, 255, 0.16);
-        --accent-soft-2: rgba(124, 92, 255, 0.28);
-        --focus-ring: rgba(160, 140, 255, 0.6);
+        --accent: var(--accent-base);
+        --accent-hover: color-mix(in oklab, var(--accent-base) 84%, white);
+        --accent-text: oklch(from var(--accent-base) max(l, 0.8) c h);
+        --accent-soft: color-mix(in srgb, var(--accent-base) 16%, transparent);
+        --accent-soft-2: color-mix(in srgb, var(--accent-base) 28%, transparent);
+        --focus-ring: color-mix(in srgb, oklch(from var(--accent-base) max(l, 0.75) c h) 60%, transparent);
         --success: #4ade80;
         --success-mark: #22c55e;
         --success-soft: rgba(34, 197, 94, 0.16);
@@ -428,8 +436,8 @@ code, kbd, pre, samp {
     border-radius: var(--r-sm);
     background:
         linear-gradient(var(--accent-soft-2), var(--accent-soft-2)),
-        linear-gradient(90deg, rgba(124, 92, 255, 0.28), rgba(224, 79, 216, 0.12));
-    box-shadow: inset 2px 0 0 var(--accent), 0 0 18px -6px rgba(124, 92, 255, 0.6);
+        linear-gradient(90deg, color-mix(in srgb, var(--accent-base) 28%, transparent), color-mix(in srgb, var(--accent-3) 12%, transparent));
+    box-shadow: inset 2px 0 0 var(--accent), 0 0 18px -6px color-mix(in srgb, var(--accent-base) 60%, transparent);
     transition: transform var(--dur-slow) var(--ease-spring), opacity var(--dur) var(--ease);
     pointer-events: none;
     opacity: 0;
@@ -1826,7 +1834,7 @@ tr[data-status="accent"] { --row-status: var(--accent); }
     border-radius: inherit;
     background: var(--accent-gradient);
     background-size: 200% 100%;
-    box-shadow: 0 0 12px -2px rgba(124, 92, 255, 0.6);
+    box-shadow: 0 0 12px -2px color-mix(in srgb, var(--accent-base) 60%, transparent);
     transition: width var(--dur-slow) var(--ease);
     overflow: hidden;
 }
@@ -3161,6 +3169,11 @@ body.has-player .app-main {
 
 .app-aura.is-paused span {
     animation-play-state: paused;
+}
+
+/* Settings > Appearance > Aurora: Off. */
+[data-aura="off"] .app-aura {
+    display: none;
 }
 
 @keyframes aura-drift-1 {

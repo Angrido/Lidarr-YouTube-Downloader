@@ -26,7 +26,7 @@ const failures = [];
 const fail = (where, msg) => failures.push(`${where}: ${msg}`);
 
 async function check(browser, path, state) {
-  const label = `${path} [${state.theme || "unset"}${state.reducedMotion ? ", reduced motion" : ""}]`;
+  const label = `${path} [${state.theme || "unset"}${state.reducedMotion ? ", reduced motion" : ""}${state.label ? ", " + state.label : ""}]`;
   const ctx = await browser.newContext({
     viewport: { width: 1280, height: 800 },
     reducedMotion: state.reducedMotion || "no-preference",
@@ -54,29 +54,35 @@ async function check(browser, path, state) {
       });
       return 0.2126 * r + 0.7152 * g + 0.0722 * b;
     };
-    // Resolve any CSS colour (hex, rgb, color-mix…) to rgb via a probe.
+    // Resolve any CSS colour (hex, color-mix, oklch(from …)) to sRGB: a
+    // probe's computed colour can come back as oklch(), so paint it on a
+    // canvas and read the pixel.
     const probe = document.createElement("i");
     probe.style.transition = "none"; // an inherited colour transition would report the old value
     document.body.appendChild(probe);
-    const toRgb = value => {
-      probe.style.color = "";
-      probe.style.color = value;
-      const m = getComputedStyle(probe).color.match(/[\d.]+/g) || [];
-      return m.slice(0, 3).map(Number);
+    const ctx = document.createElement("canvas").getContext("2d", { willReadFrequently: true });
+    const toRgb = name => {
+      probe.style.color = `var(${name})`;
+      ctx.clearRect(0, 0, 1, 1);
+      ctx.fillStyle = getComputedStyle(probe).color;
+      ctx.fillRect(0, 0, 1, 1);
+      return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)];
     };
-    const bg = toRgb(rootStyle.getPropertyValue("--bg-elevated").trim());
+    const ratio = (fgName, bgName) => {
+      const [a, b] = [lum(toRgb(fgName)), lum(toRgb(bgName))].sort((x, y) => y - x);
+      return (a + 0.05) / (b + 0.05);
+    };
     const contrast = {};
-    for (const t of tokens) {
-      const fg = toRgb(rootStyle.getPropertyValue(t).trim());
-      const [a, b] = [lum(fg), lum(bg)].sort((x, y) => y - x);
-      contrast[t] = (a + 0.05) / (b + 0.05);
-    }
+    for (const t of tokens) contrast[t] = ratio(t, "--bg-elevated");
+    const buttonText = ratio("--text-on-accent", "--accent");
     probe.remove();
     const aura = document.querySelector(".app-aura");
     const blobs = aura ? [...aura.children] : [];
     return {
       body: getComputedStyle(document.body).backgroundColor,
       aura: !!aura,
+      auraShown: !!aura && getComputedStyle(aura).display !== "none",
+      buttonText,
       blobsMoving: blobs.some(b => {
         const s = getComputedStyle(b);
         return s.animationName !== "none" && s.animationPlayState !== "paused";
@@ -96,8 +102,23 @@ async function check(browser, path, state) {
   for (const [t, ratio] of Object.entries(r.contrast)) {
     if (!(ratio >= 4.5)) fail(label, `${t} contrast ${ratio.toFixed(2)} < 4.5 on --bg-elevated`);
   }
+  // Bold button labels: WCAG large-text threshold.
+  if (!(r.buttonText >= 3)) fail(label, `--text-on-accent contrast ${r.buttonText.toFixed(2)} < 3 on --accent`);
+  if (state.auraOff && r.auraShown) fail(label, "aurora visible although ui_aura_mode is off");
   if (r.albumBlur) fail(label, `${r.albumBlur} album cards have a backdrop filter`);
   if (state.reducedMotion && r.blobsMoving) fail(label, "aurora still animates under reduced motion");
+  await ctx.close();
+}
+
+// Settings > Appearance: a light custom accent must keep every text token
+// and the button label readable, and "off" must hide the aurora.
+async function setAppearance(browser, accent, mode) {
+  const ctx = await browser.newContext();
+  const res = await ctx.request.post(BASE + "/api/config", {
+    data: { ui_accent: accent, ui_aura_mode: mode },
+    headers: { Origin: BASE },
+  });
+  if (!res.ok()) fail("/api/config", `saving appearance failed: HTTP ${res.status()}`);
   await ctx.close();
 }
 
@@ -106,13 +127,21 @@ async function check(browser, path, state) {
   for (const state of STATES) {
     for (const path of PAGES) await check(browser, path, state);
   }
+  await setAppearance(browser, "#f5d000", "off");
+  try {
+    for (const theme of ["light", "dark"]) {
+      for (const path of PAGES) await check(browser, path, { theme, auraOff: true, label: "yellow accent" });
+    }
+  } finally {
+    await setAppearance(browser, "#7c5cff", "cover");
+  }
   await browser.close();
   if (failures.length) {
     console.log([...new Set(failures)].join("\n"));
     console.log(`\n${failures.length} check(s) failed`);
     process.exit(1);
   }
-  console.log(`UI smoke: ${PAGES.length * STATES.length} page loads, all checks passed`);
+  console.log(`UI smoke: ${PAGES.length * (STATES.length + 2)} page loads, all checks passed`);
 })().catch(e => {
   console.error(e);
   process.exit(1);
