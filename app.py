@@ -1130,20 +1130,18 @@ def api_notifications_test_ntfy():
     payload = _json_object()
     topic = _str_field(payload, "topic", nullable=True)
     server_url = _str_field(payload, "server_url", nullable=True)
-    token = payload.get("token")
-    if token == SECRET_MASK:
-        token = load_config().get("ntfy_token", "")
+    token = _unmasked(payload.get("token"))
     priority = payload.get("priority")
+    cfg = load_config()
+    saved_url = cfg.get("ntfy_url", "https://ntfy.sh")
     if not topic or not server_url:
-        cfg = load_config()
         topic = topic or cfg.get("ntfy_topic", "")
-        saved_url = cfg.get("ntfy_url", "https://ntfy.sh")
         server_url = server_url or saved_url
-        # The saved token only ever goes to the saved server.
-        if token is None and server_url.rstrip("/") == saved_url.rstrip("/"):
-            token = cfg.get("ntfy_token", "")
         if priority is None:
             priority = cfg.get("ntfy_priority", "default")
+    # The saved token only ever goes to the saved server, masked or not.
+    if token is None and server_url.rstrip("/") == saved_url.rstrip("/"):
+        token = cfg.get("ntfy_token", "")
     if not topic:
         return jsonify({
             "success": False,

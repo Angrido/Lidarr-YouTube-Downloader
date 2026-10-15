@@ -2757,6 +2757,33 @@ class TestNtfyNotificationRoute:
             client.post("/api/notifications/test/ntfy", json={})
         assert mock_test.call_args.kwargs["token"] == "secret"
 
+    def test_test_ntfy_masked_token_not_sent_to_other_server(
+        self, client, monkeypatch,
+    ):
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post("/api/notifications/test/ntfy", json={
+                "server_url": "https://evil.example", "topic": "x",
+                "token": "********",
+            })
+        assert mock_test.call_args.args[0] == "https://evil.example"
+        assert not mock_test.call_args.kwargs["token"]
+
+    def test_test_ntfy_masked_token_sent_to_saved_server(
+        self, client, monkeypatch,
+    ):
+        # What Settings sends once a token is saved: the form's URL, topic
+        # and the mask in place of the token.
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post("/api/notifications/test/ntfy", json={
+                "server_url": "https://ntfy.sh/", "topic": "t",
+                "token": "********",
+            })
+        assert mock_test.call_args.kwargs["token"] == "secret"
+
 
 
 
