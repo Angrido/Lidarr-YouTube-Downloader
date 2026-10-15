@@ -1854,20 +1854,30 @@ def api_youtube_search():
 _audio_stream_cache = {}
 
 
+def _text_error(message, status):
+    """Plain-text error so nothing a proxy route returns can render as HTML."""
+    return Response(
+        message,
+        status=status,
+        mimetype="text/plain",
+        headers={"X-Content-Type-Options": "nosniff"},
+    )
+
+
 @app.route("/api/youtube/stream", methods=["GET"])
 def api_youtube_stream():
     client_ip = request.remote_addr or "unknown"
     if not check_rate_limit(
         f"yt_stream:{client_ip}", rate_limit_store, window=5, max_requests=6
     ):
-        return "Too many requests", 429
+        return _text_error("Too many requests", 429)
     url = request.args.get("url", "").strip()
     if not url:
-        return "Missing url", 400
+        return _text_error("Missing url", 400)
 
     url = _validate_youtube_url(url)
     if url is None:
-        return "Invalid YouTube URL", 400
+        return _text_error("Invalid YouTube URL", 400)
 
     import yt_dlp
 
@@ -1879,7 +1889,7 @@ def api_youtube_stream():
         if not _is_safe_stream_url(audio_url):
             logger.error("Cached stream URL failed safety check: %s", audio_url[:100])
             _audio_stream_cache.pop(url, None)
-            return "Unsafe audio stream URL", 403
+            return _text_error("Unsafe audio stream URL", 403)
     else:
         config = load_config()
         ydl_opts = {
@@ -1903,7 +1913,7 @@ def api_youtube_stream():
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
             if not info:
-                return "Could not extract info", 404
+                return _text_error("Could not extract info", 404)
             audio_url = ""
             http_headers = info.get("http_headers", {})
             requested = info.get("requested_formats") or []
@@ -1917,10 +1927,10 @@ def api_youtube_stream():
             if not audio_url:
                 audio_url = info.get("url", "")
             if not audio_url:
-                return "No audio stream found", 404
+                return _text_error("No audio stream found", 404)
             if not _is_safe_stream_url(audio_url):
                 logger.warning("Blocked unsafe audio URL: %s", audio_url[:100])
-                return "Unsafe audio stream URL", 403
+                return _text_error("Unsafe audio stream URL", 403)
             audio_url = _sanitize_stream_url(audio_url)
             _audio_stream_cache[url] = {
                 "audio_url": audio_url,
@@ -1935,7 +1945,7 @@ def api_youtube_stream():
                 _audio_stream_cache.pop(oldest, None)
         except Exception as e:
             logger.warning("Stream extraction failed: %s", e)
-            return str(e)[:200], 500
+            return _text_error("Could not load this video for preview", 500)
 
     range_header = request.headers.get("Range")
     return _proxy_audio_stream(audio_url, http_headers, range_header)
@@ -1975,7 +1985,7 @@ def _proxy_audio_stream(sanitized_url, http_headers, range_header):
         )
     except Exception as e:
         logger.warning("Stream proxy failed: %s", e)
-        return "Stream unavailable", 502
+        return _text_error("Stream unavailable", 502)
 
 
 @app.route("/api/download/manual", methods=["POST"])
@@ -2796,9 +2806,9 @@ def api_thumbnail_proxy():
 
     url = request.args.get("url", "").strip()
     if not url:
-        return "Missing url", 400
+        return _text_error("Missing url", 400)
     if not _is_safe_stream_url(url):
-        return "Invalid thumbnail URL", 400
+        return _text_error("Invalid thumbnail URL", 400)
     try:
         resp = http_requests.get(
             url,
@@ -2819,7 +2829,7 @@ def api_thumbnail_proxy():
                 "Thumbnail proxy upstream %d for %s",
                 resp.status_code, url[:120],
             )
-            return "Failed to fetch thumbnail", 502
+            return _text_error("Failed to fetch thumbnail", 502)
         content_type = resp.headers.get("Content-Type", "image/jpeg")
         return Response(
             resp.content,
@@ -2831,7 +2841,7 @@ def api_thumbnail_proxy():
         )
     except Exception as e:
         logger.debug("Thumbnail proxy failed: %s", e)
-        return "Thumbnail unavailable", 502
+        return _text_error("Thumbnail unavailable", 502)
 
 
 def _get_ytdlp_pypi_version():
