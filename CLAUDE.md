@@ -39,7 +39,7 @@ PGID=1000
 UMASK=002
 LIDARR_URL=http://192.168.1.X:8686
 LIDARR_API_KEY=your_key
-LIDARR_PATH=/DATA/Downloads
+# LIDARR_PATH defaults to /music (the HOST_MUSIC_PATH mount)
 WEBUI_PORT=5005
 ```
 
@@ -60,7 +60,7 @@ docker run -p 5005:5000 \
   -e LIDARR_URL=http://192.168.1.X:8686 \
   -e LIDARR_API_KEY=your_key \
   -e DOWNLOAD_PATH=/DATA/Downloads \
-  -e LIDARR_PATH=/DATA/Downloads \
+  -e LIDARR_PATH=/music \
   -v /DATA/Downloads:/DATA/Downloads \
   -v /DATA/Music:/music \
   -v ./config:/config \

@@ -60,8 +60,46 @@
   downloaded yet is imported as one album — "Artist - Album (1974) [Full
   Album]" becomes `Artist/Album (1974)/`. Made for full-album uploads such
   as vinyl rips.
+- **Appearance** (Settings, first section): pick the accent colour (six
+  presets or any colour) and the aurora behind every page — from the album
+  covers, always your colour, or off. Saved on the server, so every device
+  uses it; any colour stays readable (accent text keeps AA contrast and
+  button text turns dark on light accents).
+- **Pause / resume the download queue** from the Downloads page: while
+  paused nothing new starts (manual, scheduler, Lidarr grabs and the
+  playlist watch all wait) and the album already downloading finishes.
+- The queue **pauses itself when the download disk is full** and sends one
+  notification, instead of failing album after album.
+- **Run check now** next to the scheduler switch, with the time of the next
+  automatic check.
+- **Retry schedule per track** in the Library tracks dialog ("Retry in 6
+  days", "Gave up after 5 tries"), and a **Stuck tracks** table in Insights
+  listing tracks that keep failing and when they are tried again.
+- The download history can be searched and filtered on the server, so the
+  filters cover all of it rather than the page shown.
 
 ### Changed
+- **New look ("Aurora").** Dark by default (a theme you already picked is
+  kept; "automatic" may need picking once more), a vivid accent with a
+  gradient, glass surfaces, and a slow aurora behind every page that takes
+  the colours of the album you are looking at, downloading or playing.
+  Covers tilt toward the pointer, lists rise in, progress bars shimmer and
+  numbers count up — all of it off when the system asks for reduced
+  motion. Browsers without the newest CSS colour features get fixed
+  fallback colours.
+- **History is kept for 90 days** (or the retry wait, if longer): older
+  log entries and candidate details, and failures a later success already
+  replaced, are deleted after each Lidarr sync. Successful downloads are
+  kept, since the playlist watch and artist import rely on them.
+- **Multi-disc albums** name their files with the album-wide track number
+  (`13 - Intro.mp3`) so disc 1 and disc 2 no longer overwrite each other,
+  and their tags carry the disc number. Single-disc albums are unchanged.
+- The official YouTube Music album must now really match the Lidarr title:
+  a live album or a look-alike ("Nevermind (Live)" for "Nevermind", "Alive
+  2007" for "Live") is no longer taken for the studio one; edition
+  suffixes (deluxe, anniversary, remaster…) still match. Albums that miss
+  fall back to the per-track search.
+- A changed scheduler interval applies at once, without a restart.
 - **Always the latest versions.** Every image build takes the newest Python
   (`python:3-slim`, now 3.15), Debian packages, Deno and Python libraries;
   `docker compose up -d --build` does it too, and the bgutil sidecar is pulled
@@ -182,6 +220,32 @@
 - Very long (e.g. Japanese) titles no longer fail with "File name too long".
 - Renamed albums no longer appear twice in the history.
 - A failed sync page no longer removes albums from the missing list.
+- **Downloads were deleted** when `LIDARR_PATH` equals `DOWNLOAD_PATH`, and
+  the cleanup after a library copy removed the **whole artist folder** —
+  including another album still waiting for Lidarr or one whose copy had
+  failed. Now only the finished album's folder is removed, and only when
+  the files really went to a different library.
+- A manually queued album was lost when the container restarted in the
+  middle of its download; it is now put back in the queue. "Clear queue"
+  keeps the album that is downloading, and an album that finds the slot
+  busy keeps its place instead of going to the back.
+- The startup yt-dlp update no longer restarts the app in the middle of a
+  download; it waits for the download to finish.
+- A full download disk no longer counts as a failure of every track (which
+  backed them off or made them give up for good).
+- Clearing or dismissing logs no longer makes recently failed albums look
+  untried, which made the next check queue them all again.
+- A scheduler interval of 0 froze the settings save and the app's start-up;
+  the interval is now at least one minute.
+- After "Clear history" the playlist watch no longer downloads every
+  watched video again, and it no longer starts imports while the queue is
+  paused or a restart is pending.
+- Deleting a track from the history also deletes the library copy and its
+  `.lrc` lyrics file.
+- With auto-download off, the scheduler sent the same "Found N missing
+  albums" notification every cycle; now only new albums are announced.
+- Stopping an artist import while a release waited for the download slot
+  counted that release as done.
 
 ### Fixed — settings, API and integrations
 - Settings could be wiped by two toggles at the same time or a crash while
@@ -200,6 +264,22 @@
   same album again immediately; removing a downloading job stops it.
 - Error pages are no longer embedded as cover art.
 - "Recent imports" on the YouTube page was always empty.
+- **Security:**
+  - Other websites you visit can no longer send commands to the app
+    (cross-site requests to the API are refused).
+  - `GET /api/config` and the config export no longer reveal the
+    notification tokens, the Discord webhook, the AcoustID key or the PO
+    token; they show as `********` and saving the mask keeps the stored
+    value.
+  - The Ntfy test sends the saved token only to the saved server.
+  - The Telegram token and Discord webhook no longer appear in the error
+    message of a failed notification test.
+  - Preview and thumbnail errors are served as plain text, never as a
+    page.
+- Restoring a backup that lacks the app's tables is refused instead of
+  breaking the app until the file is removed by hand.
+- Removing a queued Lidarr grab, or clearing the queue, also removes its
+  job from Lidarr's download-client view.
 
 ### Fixed — interface
 - A queue of thousands of albums showed up empty on the Downloads page
@@ -223,6 +303,21 @@
   edge; empty states are less tall on phones; links such as
   `/settings#audio` open the right section; the retry dialog keeps each
   field and its button on one row on phones.
+- The queue counter counted up from 1 on every refresh with 1,000+ albums
+  queued in locales that write "1.234".
+- Faster with big libraries: the Library loads a slim album list (about a
+  tenth of the data), the History page is indexed, the Logs page loads
+  candidate details in one query, and the live download stream resends the
+  queue only when it changes.
+
+### Fixed — Docker
+- `docker stop` killed the app after the timeout instead of stopping it
+  (exit code 137, possibly mid-write): the image now runs under an init
+  process that forwards the stop signal.
+- The repository's `docker-compose.yml` now matches the README: the web UI
+  is published on the whole LAN (so Lidarr on another machine can use the
+  download-client bridge and phones can open the app), and `LIDARR_PATH`
+  defaults to `/music`, the library mount.
 
 ## 1.9.2
 

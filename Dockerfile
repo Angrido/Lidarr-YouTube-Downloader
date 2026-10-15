@@ -25,7 +25,7 @@ FROM ${PYTHON_IMAGE}
 
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-        ffmpeg gosu ca-certificates libchromaprint-tools curl unzip && \
+        ffmpeg gosu tini ca-certificates libchromaprint-tools curl unzip && \
     curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh && \
     apt-get purge -y curl unzip && apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
@@ -45,7 +45,8 @@ COPY . .
 # Smoke test: every module imports on this Python with these libraries.
 RUN mkdir -p /config && sed -i 's/\r//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh && \
     python -c "import app" && \
-    deno --version >/dev/null && ffmpeg -version >/dev/null && fpcalc -version >/dev/null
+    deno --version >/dev/null && ffmpeg -version >/dev/null && fpcalc -version >/dev/null && \
+    tini --version >/dev/null
 
 EXPOSE 5000
 ENV FLASK_APP=app.py
@@ -65,4 +66,7 @@ ENV ACOUSTID_ENABLED="true"
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5000/api/health', timeout=4).status==200 else 1)"]
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+# tini as PID 1: Python there ignores SIGTERM, so `docker stop` used to wait
+# out the timeout and SIGKILL the app, possibly mid-write. tini forwards the
+# signal (and reaps ffmpeg/yt-dlp children) whatever runs the container.
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]

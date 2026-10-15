@@ -19,13 +19,18 @@ services:
       - LIDARR_URL=${LIDARR_URL:?err}
       - LIDARR_API_KEY=${LIDARR_API_KEY:?err}
       - DOWNLOAD_PATH=${DOWNLOAD_PATH:?err}
-      - LIDARR_PATH=${LIDARR_PATH:?err}
+      # The library as this container sees it: the /music mount above. Only
+      # override it with another path that is mounted here too.
+      - LIDARR_PATH=${LIDARR_PATH:-/music}
       - ACOUSTID_API_KEY=${ACOUSTID_API_KEY:-}
       # Automatic YouTube PO tokens via the bgutil provider sidecar below.
       # Set YT_POT_PROVIDER_URL="" to disable (and drop the sidecar).
       - YT_POT_PROVIDER_URL=${YT_POT_PROVIDER_URL:-http://bgutil-provider:4416}
+    # Published on the whole LAN: Lidarr on another host reaches the
+    # download-client bridge and phones open the app. There is no login, so
+    # keep the port off the internet (no router port-forward).
     ports:
-      - "127.0.0.1:${WEBUI_PORT:?err}:5000"
+      - "${WEBUI_PORT:?err}:5000"
     depends_on:
       - bgutil-provider
 
