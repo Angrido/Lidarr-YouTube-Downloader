@@ -828,16 +828,23 @@ def get_queue_details():
         " COALESCE(m.track_count, 0) AS track_count"
         " FROM download_queue q"
         " LEFT JOIN missing_albums_cache m ON m.album_id = q.album_id"
-        " ORDER BY q.position"
+        " WHERE q.status = ?"
+        " ORDER BY q.position",
+        (QUEUE_STATUS_QUEUED,),
     ).fetchall()
     return [dict(row) for row in rows]
 
 
 def get_queue_length():
-    """Return the number of albums in the queue."""
+    """Return the number of albums waiting in the queue.
+
+    The album downloading in the foreground keeps its row (as 'downloading')
+    until it ends; it is counted as active, not queued.
+    """
     conn = db.get_db()
     return conn.execute(
-        "SELECT COUNT(*) FROM download_queue"
+        "SELECT COUNT(*) FROM download_queue WHERE status = ?",
+        (QUEUE_STATUS_QUEUED,),
     ).fetchone()[0]
 
 

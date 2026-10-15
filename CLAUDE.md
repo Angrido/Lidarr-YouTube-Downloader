@@ -144,6 +144,8 @@ Optional feature letting Lidarr use this app as a native download path. A Flask 
 
 Downloads run in background threads. `queue_lock` (threading.Lock) in `processing.py` protects shared state.
 
+A foreground album's `download_queue` row is not deleted when it starts: `_dispatch_next_from_queue()` marks it `downloading` and `_run_queued_album()` removes it when the run ends (or sets it back to `queued` on "Busy", or when a Lidarr grab for the same album landed mid-run). So a restart mid-download re-queues it via `models.reset_downloading_to_queued()`. The queue list and count (`get_queue_details`, `get_queue_length`) show only `queued` rows; `get_queue()` returns every row, which the scheduler uses to skip albums already in flight. Download-client grabs are still dequeued at dispatch — `download_client_jobs` is their record.
+
 ### Scheduler
 
 Optional `schedule` library job polls for missing albums and auto-downloads at configured intervals. Albums attempted within `scheduler_retry_after_hours` are skipped (`models.get_attempted_album_ids_since`, which keys off **any** `download_logs` row for the album — so every early exit in `process_album_download` must still write a log, or the album is re-queued every cycle; use `processing._log_album_error()`). Failures recorded as host problems (`error_message` starting with `models.HOST_FAILURE_PREFIX`, "Audio postprocessing failed") are not counted toward a track's consecutive failures. `scheduled_check()` and the scheduler loop catch and log exceptions so one bad cycle can't kill the thread. `processing.any_download_active()` (foreground **or** any download-client job) gates `/api/restart` and `/api/backup/import`.

@@ -2123,7 +2123,14 @@ class TestQueueDispatch:
         )
         monkeypatch.setattr(
             "models.dequeue_album",
-            lambda album_id: ids.remove(album_id),
+            lambda album_id: ids.remove(album_id) if album_id in ids else None,
+        )
+        # A foreground start marks the row 'downloading': it leaves the
+        # queued list the same way a dequeue does.
+        monkeypatch.setattr(
+            "models.set_queue_status",
+            lambda album_id, status: ids.remove(album_id)
+            if status == "downloading" else None,
         )
 
     @staticmethod
@@ -2315,24 +2322,26 @@ class TestQueueDispatch:
             "models.get_queue",
             lambda: [{"album_id": 42, "status": "queued", "force": forced}],
         )
-        monkeypatch.setattr("models.dequeue_album", lambda album_id: None)
-        enqueued = []
+        dequeued, statuses = [], []
+        monkeypatch.setattr("models.dequeue_album", dequeued.append)
         monkeypatch.setattr(
-            "models.enqueue_album",
-            lambda album_id, force=False, front=False: enqueued.append(
-                (album_id, force, front)),
+            "models.set_queue_status",
+            lambda album_id, status: statuses.append((album_id, status)),
         )
         monkeypatch.setattr(download_client, "is_client_album", lambda a: False)
         started = self._capture_threads(monkeypatch)
         processing._dispatch_next_from_queue()
         assert len(started) == 1
+        assert started[0].kwargs["ignore_backoff"] is bool(forced)
         monkeypatch.setattr(
             processing, "process_album_download",
             lambda *a, **k: {"error": "Busy"},
         )
         started[0].target(*started[0].args, **started[0].kwargs)
-        # Back at the head of the queue, not behind every other album.
-        assert enqueued == [(42, forced, True)]
+        # The row (with its force flag) goes back to 'queued' where it was,
+        # not behind every other album.
+        assert statuses == [(42, "downloading"), (42, "queued")]
+        assert dequeued == []
 
     def test_non_busy_result_is_not_requeued(self, monkeypatch):
         import processing
@@ -2352,6 +2361,77 @@ class TestQueueDispatch:
         )
         started[0].target(*started[0].args, **started[0].kwargs)
         assert enqueued == []
+
+
+class TestQueueRowLivesUntilTheAlbumEnds:
+    """The queue row of a foreground album stays (as 'downloading') until the
+    run ends, so a restart mid-download puts it back in the queue."""
+
+    @pytest.fixture(autouse=True)
+    def reset_state(self, monkeypatch):
+        import processing
+        import download_client
+        processing.download_process["active"] = False
+        processing._active_states.clear()
+        monkeypatch.setattr(processing, "load_config", lambda: {})
+        self.client = set()
+        monkeypatch.setattr(
+            download_client, "is_client_album", lambda a: a in self.client,
+        )
+        yield
+        processing.download_process["active"] = False
+        processing._active_states.clear()
+
+    def _dispatch(self, monkeypatch):
+        import processing
+        started = TestQueueDispatch._capture_threads(monkeypatch)
+        processing._dispatch_next_from_queue()
+        assert len(started) == 1
+        return started[0]
+
+    def _finish(self, monkeypatch, thread, result):
+        import processing
+        monkeypatch.setattr(
+            processing, "process_album_download", lambda *a, **k: result,
+        )
+        thread.target(*thread.args, **thread.kwargs)
+
+    def _rows(self):
+        import models
+        return [(r["album_id"], r["status"]) for r in models.get_queue()]
+
+    def test_started_album_comes_back_after_a_restart(self, monkeypatch):
+        import models
+        models.enqueue_album(42, force=True)
+        self._dispatch(monkeypatch)
+        assert self._rows() == [(42, "downloading")]
+        assert models.get_queue_length() == 0
+        assert models.get_queue_details() == []
+        models.reset_downloading_to_queued()  # what startup does
+        assert self._rows() == [(42, "queued")]
+        assert models.get_queue()[0]["force"] == 1
+
+    def test_finished_album_leaves_the_queue(self, monkeypatch):
+        import models
+        models.enqueue_album(42)
+        self._finish(monkeypatch, self._dispatch(monkeypatch), {"success": True})
+        assert models.get_queue() == []
+
+    def test_busy_album_keeps_its_place(self, monkeypatch):
+        import models
+        models.enqueue_album(42)
+        models.enqueue_album(7)
+        thread = self._dispatch(monkeypatch)
+        self._finish(monkeypatch, thread, {"error": "Busy"})
+        assert self._rows() == [(42, "queued"), (7, "queued")]
+
+    def test_lidarr_grab_landing_mid_run_still_runs(self, monkeypatch):
+        import models
+        models.enqueue_album(42)
+        thread = self._dispatch(monkeypatch)
+        self.client.add(42)  # Lidarr grabbed it while it was downloading
+        self._finish(monkeypatch, thread, {"success": True})
+        assert self._rows() == [(42, "queued")]
 
 
 class TestConcurrencyHelpers:

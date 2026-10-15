@@ -2744,14 +2744,26 @@ def _client_concurrency_limit():
 
 
 def _run_queued_album(album_id, state=None, ignore_backoff=False):
-    result = process_album_download(
-        album_id, state=state, ignore_backoff=ignore_backoff,
-    )
-    if isinstance(result, dict) and result.get("error") == "Busy":
-        logger.info(
-            "Album %s found the download slot busy; re-queued", album_id,
+    import download_client
+
+    result = None
+    try:
+        result = process_album_download(
+            album_id, state=state, ignore_backoff=ignore_backoff,
         )
-        models.enqueue_album(album_id, force=ignore_backoff, front=True)
+    finally:
+        busy = isinstance(result, dict) and result.get("error") == "Busy"
+        if busy:
+            logger.info(
+                "Album %s found the download slot busy; re-queued", album_id,
+            )
+        if busy or download_client.is_client_album(album_id):
+            # Back to 'queued' in place: a busy slot keeps its turn, and a
+            # Lidarr grab that landed mid-run (its enqueue was a no-op on
+            # this row) still has to run.
+            models.set_queue_status(album_id, models.QUEUE_STATUS_QUEUED)
+        else:
+            models.dequeue_album(album_id)
     return result
 
 
@@ -2800,7 +2812,13 @@ def _dispatch_next_from_queue():
                 continue  # foreground busy; the album keeps its position
             target = _run_queued_album
             job_state = download_process
-        models.dequeue_album(album_id)
+        if target is _run_queued_album:
+            # Keep the row until the run ends, so a restart re-queues it
+            # (reset_downloading_to_queued). Client grabs live in
+            # download_client_jobs instead.
+            models.set_queue_status(album_id, models.QUEUE_STATUS_DOWNLOADING)
+        else:
+            models.dequeue_album(album_id)
         kwargs = {"state": job_state}
         if target is _run_queued_album:
             kwargs["ignore_backoff"] = forced
