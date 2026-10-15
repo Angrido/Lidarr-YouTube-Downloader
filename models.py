@@ -35,6 +35,8 @@ QUEUE_STATUSES = {QUEUE_STATUS_QUEUED, QUEUE_STATUS_DOWNLOADING}
 MAX_PER_PAGE = 500
 
 HOST_FAILURE_PREFIX = "Audio postprocessing failed"
+# Also a host problem, not the track's: not counted toward its backoff.
+DISK_FULL_PREFIX = "Download disk is full"
 
 
 def _paginate(query_with_limit, count_query, params, page, per_page):
@@ -277,6 +279,7 @@ def get_track_failure_counts(album_id):
         WHERE f.album_id = ?
           AND f.success = 0
           AND COALESCE(f.error_message, '') NOT LIKE ?
+          AND COALESCE(f.error_message, '') NOT LIKE ?
           AND f.timestamp > COALESCE((
                 SELECT MAX(s.timestamp) FROM track_downloads AS s
                 WHERE s.album_id = f.album_id
@@ -285,7 +288,7 @@ def get_track_failure_counts(album_id):
               ), 0)
         GROUP BY f.track_title
         """,
-        (album_id, HOST_FAILURE_PREFIX + "%"),
+        (album_id, HOST_FAILURE_PREFIX + "%", DISK_FULL_PREFIX + "%"),
     ).fetchall()
     return {
         row["track_title"]: {

@@ -2999,6 +2999,39 @@ class TestPostprocessFailureReason:
         assert failed[0]["reason"].startswith(models.HOST_FAILURE_PREFIX)
         assert models.get_track_failure_counts(42) == {}
 
+    def test_full_disk_is_not_charged_to_the_track(self, tmp_path, monkeypatch):
+        # With the disk full every track fails; counting that would back them
+        # off (or drop them with max_track_retries) once space is freed.
+        import processing
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+        track = {"title": "Boom", "trackNumber": 3, "duration": 1000}
+        monkeypatch.setattr(processing, "load_config", lambda: _PLAIN_CFG)
+        monkeypatch.setattr(
+            processing, "search_youtube_candidates",
+            lambda *a, **k: [{
+                "url": "https://www.youtube.com/watch?v=abcdefghijk",
+                "title": "Boom", "duration": 1, "score": 0.99,
+            }],
+        )
+        monkeypatch.setattr(
+            processing, "download_youtube_candidate",
+            lambda *a, **k: {
+                "success": False,
+                "error_message": "ERROR: unable to write data: [Errno 28]"
+                                 " No space left on device",
+            },
+        )
+        state = processing._make_download_state()
+        state["tracks"] = [_state_track("Boom", 3)]
+        failed, _ok, _size, _stats = processing._download_tracks(
+            [track], album_path, {"tracks": [track]}, _make_album_ctx(),
+            state,
+        )
+        assert failed[0]["reason"].startswith(models.DISK_FULL_PREFIX)
+        assert "No space left" in failed[0]["reason"]
+        assert models.get_track_failure_counts(42) == {}
+
 
 class TestEarlyExitsWriteLog:
     @pytest.fixture(autouse=True)

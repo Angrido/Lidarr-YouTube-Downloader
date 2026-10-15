@@ -2168,6 +2168,9 @@ def _download_tracks(
                     f" {expected_recording_id}"
                     f" (tried {len(candidates)} candidates)"
                 )
+            last_error = track_state.get("last_download_error") or ""
+            if "no space left" in last_error.lower():
+                fail_reason = f"{models.DISK_FULL_PREFIX}: {fail_reason}"
             _record_track_failure(
                 fail_reason,
                 track_state, track_title, track_num,
