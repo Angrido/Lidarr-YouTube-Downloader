@@ -1952,6 +1952,8 @@ tr[data-status="accent"] { --row-status: var(--accent); }
     border-radius: var(--r-md);
 }
 
+.ui-skeleton-cover.ui-skeleton-round { border-radius: 50%; }
+
 .ui-empty {
     display: flex;
     flex-direction: column;
