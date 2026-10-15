@@ -1948,20 +1948,24 @@ _TRACK_LOG_TYPES = {"track_failure", "track_download"}
 
 def _enrich_track_logs(items):
     banned_cache = {}
+    td_ids = {
+        item["track_download_id"] for item in items
+        if item.get("type") in _TRACK_LOG_TYPES
+        and item.get("track_download_id")
+    }
+    try:
+        by_td = models.get_candidate_attempts_for(td_ids)
+    except Exception:
+        logger.warning(
+            "Failed to fetch candidates for track_downloads %s",
+            sorted(td_ids), exc_info=True,
+        )
+        by_td = {}
     for item in items:
         if item.get("type") not in _TRACK_LOG_TYPES:
             continue
-        td_id = item.get("track_download_id")
-        if not td_id:
-            item["candidates"] = []
-            continue
-        try:
-            candidates = models.get_candidate_attempts(td_id)
-        except Exception:
-            logger.warning(
-                "Failed to fetch candidates for track_download %s",
-                td_id, exc_info=True,
-            )
+        candidates = by_td.get(item.get("track_download_id"), [])
+        if not candidates:
             item["candidates"] = []
             continue
         album_id = item.get("album_id")

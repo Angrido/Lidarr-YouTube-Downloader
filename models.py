@@ -699,6 +699,25 @@ def get_candidate_attempts(track_download_id):
     return [dict(row) for row in rows]
 
 
+def get_candidate_attempts_for(track_download_ids):
+    """Return {track_download_id: [attempts, oldest first]} in one query."""
+    ids = list(track_download_ids)
+    if not ids:
+        return {}
+    conn = db.get_db()
+    placeholders = ",".join("?" * len(ids))
+    rows = conn.execute(
+        "SELECT * FROM candidate_attempts"
+        f" WHERE track_download_id IN ({placeholders})"
+        " ORDER BY track_download_id, timestamp ASC",
+        ids,
+    ).fetchall()
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row["track_download_id"], []).append(dict(row))
+    return grouped
+
+
 def get_banned_urls_for_album(album_id):
     """Return list of {id, youtube_url} dicts for all banned URLs in an album."""
     conn = db.get_db()
