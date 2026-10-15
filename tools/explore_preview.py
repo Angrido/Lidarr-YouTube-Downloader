@@ -450,6 +450,7 @@ def seed_demo(base_url):
         return {}
 
     app_module.lidarr_request = fake_lidarr
+    __import__("manual_download").lidarr_request = fake_lidarr
     # The demo shows a healthy host, whatever ffmpeg this machine has.
     __import__("downloader")._ffmpeg_postprocess_works = lambda *a, **k: True
     for album_id in (104, 106, 112):

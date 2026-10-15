@@ -1,9 +1,9 @@
-"""Tests for album path resolution helpers in app.py."""
+"""Tests for album path resolution helpers in manual_download.py."""
 import os
 
 import pytest
 
-import app
+import manual_download
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def test_build_album_paths_writes_under_download_dir_uses_lidarr_artist_folder(
             "path": str(lidarr_dir / "K+DA"),
         },
     }
-    target_path, makedirs_bases, lidarr_import_path = app._build_album_paths(
+    target_path, makedirs_bases, lidarr_import_path = manual_download._build_album_paths(
         album_data, config,
     )
     assert target_path == os.path.join(
@@ -47,13 +47,13 @@ def test_build_album_paths_writes_under_download_dir_uses_lidarr_artist_folder(
 def test_makedirs_bases_includes_lidarr_when_target_under_lidarr(dual_paths):
     _, lidarr_dir, config = dual_paths
     target = os.path.join(str(lidarr_dir), "Artist", "Album (2024)")
-    bases = app._makedirs_bases_for(target, config)
+    bases = manual_download._makedirs_bases_for(target, config)
     assert str(lidarr_dir) in bases
 
 
 def test_makedirs_bases_matches_target_not_only_download_dir(dual_paths):
     download_dir, lidarr_dir, config = dual_paths
     target = os.path.join(str(lidarr_dir), "Artist", "Album")
-    bases = app._makedirs_bases_for(target, config)
+    bases = manual_download._makedirs_bases_for(target, config)
     assert str(download_dir) not in bases
     assert str(lidarr_dir) in bases

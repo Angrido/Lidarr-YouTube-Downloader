@@ -89,6 +89,7 @@ docker run -p 5005:5000 \
 | `scheduler.py` | Scheduled polling/auto-download |
 | `fingerprint.py` | AcoustID fingerprinting via fpcalc/chromaprint |
 | `youtube_import.py` | YouTube import blueprint: `/youtube` page, `/api/youtube/playlist/info`, `/api/youtube/playlist/download`, `/api/youtube/recent`, the playlist download runner (`_execute_playlist_download`, shared with Explore imports) and the watched-playlist loop |
+| `manual_download.py` | Manual-download blueprint: `POST /api/download/manual` (retry a failed track, incl. negative-id playlist imports) and `POST /api/album/<id>/track/manual-download` (with live progress), the shared `_manual_dl_core` (download, tag, AcoustID, record, notify, `RefreshArtist`), album path builders and the Lidarr album cache (`_get_album_cached`, also used by the queue routes) |
 | `download_client.py` | Lidarr download-client bridge: Newznab indexer + SABnzbd client emulation (Flask blueprint) |
 | `logutil.py` | Console log formatting: timestamp + level icon, consecutive-duplicate collapsing |
 | `utils.py` | Shared utilities |
