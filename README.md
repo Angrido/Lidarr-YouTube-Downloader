@@ -1,70 +1,91 @@
 <div align="center">
 
-<img src="static/favicon.svg" width="96" height="96" alt="Lidarr YouTube Downloader logo">
+<br>
 
-# Lidarr YouTube Downloader
+<img src="static/favicon.svg" width="88" height="88" alt="Lidarr YouTube Downloader logo">
 
-**Fill the gaps in your Lidarr library from YouTube.**<br>
-Missing albums found, matched, verified, tagged and imported — from one quiet, beautiful web app.
+<h1>Lidarr YouTube Downloader</h1>
 
-[![Version](https://img.shields.io/badge/version-2.0.0-4f46e5?style=flat-square)](CHANGELOG.md)
-[![Docker](https://img.shields.io/badge/docker-ready-0b63c7?style=flat-square&logo=docker&logoColor=white)](#quick-start)
-[![Python](https://img.shields.io/badge/python-3-1d1d1f?style=flat-square&logo=python&logoColor=white)](requirements.txt)
-[![License](https://img.shields.io/badge/license-MIT-1a7f37?style=flat-square)](LICENSE)
+<p><b>The missing albums in your Lidarr library, found on YouTube.</b><br>
+<sub>Matched, verified, tagged and imported — from one calm, self-hosted web app.</sub></p>
 
-[Quick start](#quick-start) · [Features](#features) · [Explore](#explore) · [Configuration](#configuration) · [FAQ](#faq)
+<p>
+<a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2.0.0-4f46e5?style=for-the-badge&labelColor=1d1d1f" alt="Version 2.0.0"></a>
+<a href="#-quick-start"><img src="https://img.shields.io/badge/docker-ready-0b63c7?style=for-the-badge&logo=docker&logoColor=white&labelColor=1d1d1f" alt="Docker ready"></a>
+<a href="requirements.txt"><img src="https://img.shields.io/badge/python-3-3776ab?style=for-the-badge&logo=python&logoColor=white&labelColor=1d1d1f" alt="Python 3"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1a7f37?style=for-the-badge&labelColor=1d1d1f" alt="MIT license"></a>
+</p>
+
+<p>
+<a href="#-quick-start"><b>Quick start</b></a> &nbsp;·&nbsp;
+<a href="#-features"><b>Features</b></a> &nbsp;·&nbsp;
+<a href="#-a-tour"><b>Tour</b></a> &nbsp;·&nbsp;
+<a href="#-configuration"><b>Configuration</b></a> &nbsp;·&nbsp;
+<a href="#-faq"><b>FAQ</b></a>
+</p>
 
 <br>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/explore-dark.webp">
-  <img src="docs/screenshots/explore-light.webp" alt="Explore: new releases, top songs per country and trending tracks" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/library-dark.webp">
+  <img src="docs/screenshots/library-light.webp" alt="Library: every missing album with live status and the album downloading right now" width="100%">
 </picture>
 
 </div>
 
 <br>
 
-## Features
+<table>
+<tr>
+<td align="center" width="25%"><h3>15</h3><sub>YouTube candidates<br>scored per track</sub></td>
+<td align="center" width="25%"><h3>AcoustID</h3><sub>fingerprint check<br>before import</sub></td>
+<td align="center" width="25%"><h3>MP3 · M4A · Opus</h3><sub>with MusicBrainz ids<br>and cover art</sub></td>
+<td align="center" width="25%"><h3>1 container</h3><sub>NAS, Unraid, Pi<br>or a VPS</sub></td>
+</tr>
+</table>
+
+<br>
+
+## ✦ Features
 
 <table>
 <tr>
 <td width="33%" valign="top">
 
-**Smart matching**<br>
-<sub>Up to 15 YouTube candidates per track, scored by title, duration, official channel and the official YouTube Music album.</sub>
+#### Smart matching
+<sub>The official YouTube Music album first, then up to 15 candidates per track — scored by title, duration, official channel and forbidden words.</sub>
 
 </td>
 <td width="33%" valign="top">
 
-**Verified audio**<br>
+#### Verified audio
 <sub>Optional AcoustID fingerprinting rejects the wrong song before it ever reaches your library.</sub>
 
 </td>
 <td width="33%" valign="top">
 
-**Complete tags**<br>
-<sub>MP3, M4A or Opus with MusicBrainz ids and embedded cover art; optional synced lyrics and ReplayGain.</sub>
+#### Complete tags
+<sub>MusicBrainz ids the way Picard writes them, embedded covers, optional synced lyrics and ReplayGain.</sub>
 
 </td>
 </tr>
 <tr>
 <td valign="top">
 
-**Native to Lidarr**<br>
-<sub>Files land in your library and Lidarr refreshes — or register the app as a Newznab indexer + SABnzbd client.</sub>
+#### Native to Lidarr
+<sub>Files land in your library and Lidarr refreshes — or register the app as a Newznab indexer and SABnzbd client.</sub>
 
 </td>
 <td valign="top">
 
-**Explore**<br>
-<sub>Browse releases, charts and moods, preview any track and add it to Lidarr in two clicks.</sub>
+#### Explore
+<sub>Browse new releases, charts and moods, preview any track and add it to Lidarr in two clicks.</sub>
 
 </td>
 <td valign="top">
 
-**Runs anywhere**<br>
-<sub>One Docker container for NAS, Unraid, Synology, Raspberry Pi or a VPS. Installable as an app.</sub>
+#### Hands-off
+<sub>A scheduler fetches new releases on its own, backs off tracks that keep failing and notifies Telegram, Discord or ntfy.</sub>
 
 </td>
 </tr>
@@ -72,35 +93,44 @@ Missing albums found, matched, verified, tagged and imported — from one quiet,
 
 <br>
 
-### Your library, at a glance
+## ✦ A tour
 
-Every album Lidarr is missing, with cover art and live status. Download one, select many, or let the scheduler fetch new releases on its own.
+### Explore a whole catalog
+
+New releases, top songs per country, trending tracks, charts and moods — with a mini player that previews anything before you download it.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/library-dark.webp">
-  <img src="docs/screenshots/library-light.webp" alt="Library: missing albums with status tiles and a now-downloading card" width="100%">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/explore-dark.webp">
+  <img src="docs/screenshots/explore-light.webp" alt="Explore: new releases, top songs per country and trending tracks" width="100%">
 </picture>
 
 <br>
 
-### Explore
+### One button for every album
 
-A music catalog inside the app. Open an album and it is already matched to MusicBrainz through Lidarr: **Add & download** puts it in Lidarr and downloads it straight from the YouTube Music album you were looking at.
+Open an album and it is already matched to MusicBrainz through Lidarr. **Add & download** puts it in Lidarr and downloads it straight from the YouTube Music album you were looking at — whether it is complete, missing tracks, unmonitored or not in Lidarr yet.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/album-dark.webp">
-  <img src="docs/screenshots/album-light.webp" alt="Explore album page with Lidarr status, Add &amp; download and the preview player" width="100%">
+  <img src="docs/screenshots/album-light.webp" alt="Explore album page with its Lidarr status and the Download missing button" width="100%">
 </picture>
-
-- **Preview before you download** — a mini player streams any track.
-- **Every state, one button** — complete, missing tracks, not monitored, not in Lidarr, several matches to pick from.
-- **Not on MusicBrainz?** Albums, playlists and whole artists are added from YouTube in a Lidarr-style `Artist/Album (Year)` layout, with covers and an `artist.jpg`.
 
 <br>
 
-### Live downloads
+### Artists, even the ones MusicBrainz doesn't know
 
-Per-track progress, speed and verification, a reorderable queue, and a history you can filter by outcome and audio quality.
+Add an artist to Lidarr with one click. If it isn't on MusicBrainz, **Add from YouTube** builds a Lidarr-style `Artist/Album (Year)` folder for every release, with covers and an `artist.jpg`.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/artist-dark.webp">
+  <img src="docs/screenshots/artist-light.webp" alt="Explore artist page with albums, singles and the Add artist button" width="100%">
+</picture>
+
+<br>
+
+### Watch it happen
+
+Per-track progress, speed and verification, a queue you can reorder or pause, and a history you can filter by outcome and audio quality.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/downloads-dark.webp">
@@ -111,35 +141,43 @@ Per-track progress, speed and verification, a reorderable queue, and a history y
 
 ### Insights and settings
 
-Success rate, audio quality and activity over time — and every option in one calm, sectioned page.
-
-<p align="center">
+<table>
+<tr>
+<td width="50%" valign="top">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/insights-dark.webp">
-  <img src="docs/screenshots/insights-light.webp" alt="Insights: downloads over time, success rate and audio quality" width="49%">
+  <img src="docs/screenshots/insights-light.webp" alt="Insights: downloads over time, success rate and audio quality" width="100%">
 </picture>
+<p align="center"><sub><b>Insights</b> — success rate, audio quality and activity over time.</sub></p>
+</td>
+<td width="50%" valign="top">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/settings-dark.webp">
-  <img src="docs/screenshots/settings-light.webp" alt="Settings organised in sections" width="49%">
+  <img src="docs/screenshots/settings-light.webp" alt="Settings organised in sections" width="100%">
 </picture>
-</p>
+<p align="center"><sub><b>Settings</b> — every option in one sectioned, searchable page.</sub></p>
+</td>
+</tr>
+</table>
 
 <br>
 
-### Made for your phone too
+### In your pocket
 
 Light and dark themes, touch-sized controls and a tab bar. Add it to your home screen and it opens like an app.
 
 <p align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/mobile-dark.webp">
-  <img src="docs/screenshots/mobile-light.webp" alt="The app on a phone: Explore, an album page and live downloads" width="88%">
+  <img src="docs/screenshots/mobile-light.webp" alt="The app on a phone: Explore, an album page and live downloads" width="90%">
 </picture>
 </p>
 
 <br>
 
-## Quick start
+## ✦ Quick start
+
+**1 · Describe the container** in a `docker-compose.yml`:
 
 ```yaml
 services:
@@ -163,31 +201,33 @@ services:
     restart: unless-stopped
 ```
 
+**2 · Start it:**
+
 ```bash
 docker compose up -d
 ```
 
-Open **`http://localhost:5005`** — a short setup wizard checks the Lidarr connection, and everything else lives in **Settings**.
+**3 · Open `http://localhost:5005`** — a short setup wizard checks the Lidarr connection; everything else lives in **Settings**.
 
 > [!TIP]
 > The repository's [`docker-compose.yml`](docker-compose.yml) also starts a [bgutil PO-token provider](https://github.com/Brainicism/bgutil-ytdlp-pot-provider) sidecar, which avoids most *"Sign in to confirm you're not a bot"* errors.
 
 <br>
 
-## How it works
+## ✦ How it works
 
-| Step | What happens |
-|---|---|
-| **1 · Sync** | Lidarr's missing albums are paged into a local SQLite cache, so the UI is instant. |
-| **2 · Search** | The official YouTube Music album is tried first, then up to 15 candidates per track. |
-| **3 · Score** | Title, duration window, official channel and forbidden words (remix, live, karaoke…). |
-| **4 · Verify** | Optional AcoustID fingerprint against the expected MusicBrainz recording. |
-| **5 · Tag** | Tags, MusicBrainz ids and cover art; optional `.lrc` lyrics, ReplayGain and XML sidecar. |
-| **6 · Import** | Files are copied into your library and Lidarr refreshes the artist. |
+| | Step | What happens |
+|:-:|---|---|
+| 1 | **Sync** | Lidarr's missing albums are paged into a local SQLite cache, so the UI is instant. |
+| 2 | **Search** | The official YouTube Music album is tried first, then up to 15 candidates per track. |
+| 3 | **Score** | Title, duration window, official channel and forbidden words (remix, live, karaoke…). |
+| 4 | **Verify** | Optional AcoustID fingerprint against the expected MusicBrainz recording. |
+| 5 | **Tag** | Tags, MusicBrainz ids and cover art; optional `.lrc` lyrics, ReplayGain and XML sidecar. |
+| 6 | **Import** | Files are copied into your library and Lidarr refreshes the artist. |
 
 <br>
 
-## Configuration
+## ✦ Configuration
 
 | Variable | Example | Description |
 |---|---|---|
@@ -265,7 +305,7 @@ The originals are renamed to `*.json.migrated`.
 
 <br>
 
-## FAQ
+## ✦ FAQ
 
 <details>
 <summary><b>Does it replace a real indexer?</b></summary>
@@ -305,23 +345,23 @@ It is checked at startup, and Settings upgrades it with one click.
 
 <br>
 
-## Development
+## ✦ Development
 
 ```bash
 git clone https://github.com/Angrido/Lidarr-YouTube-Downloader.git
 cd Lidarr-YouTube-Downloader
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python app.py                     # http://localhost:5000
-python -m pytest tests/           # test suite
+python app.py                            # http://localhost:5000
+python -m pytest tests/                  # test suite
 python tools/explore_preview.py --demo   # UI with demo data, no Lidarr or downloads
 ```
 
-The screenshots above come from `tools/explore_preview.py --demo`: artists, albums and covers are generated, not real.
+The screenshots come from that demo — artists, albums and covers are generated, not real. With the demo running, `npx -y -p playwright node tools/readme_screenshots.js` captures them again in both themes.
 
 <br>
 
-## Disclaimer
+## ✦ Disclaimer
 
 For **personal use** with your own music library. You are responsible for complying with copyright law and YouTube's Terms of Service. Explore reads public YouTube Music pages through the unofficial [ytmusicapi](https://github.com/sigma67/ytmusicapi) library and is not affiliated with or endorsed by YouTube or Google; what it shows depends on what YouTube serves to your server and can change without notice.
 
@@ -336,6 +376,10 @@ For **personal use** with your own music library. You are responsible for comply
    <img alt="Star history of Lidarr YouTube Downloader" src="https://api.star-history.com/image?repos=Angrido/Lidarr-YouTube-Downloader&type=date&legend=top-left" width="600" />
  </picture>
 </a>
+
+<br><br>
+
+<img src="static/favicon.svg" width="28" height="28" alt="">
 
 <sub>Made with care for the self-hosted music community · MIT licensed</sub>
 

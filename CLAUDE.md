@@ -499,6 +499,7 @@ Standalone scripts not part of the main app:
 - `migrate_json_to_db.py` — migrate JSON state files to SQLite (one-time upgrade)
 - `verify_fingerprints.py` — AcoustID fingerprint verification tool
 - `explore_preview.py` — run the UI against mocked YT Music + Lidarr (see Explore); `--demo` also seeds the Library, queue, an active download, history, insights and logs with fictional artists and generated cover art (the README screenshots in `docs/screenshots/` come from it)
+- `readme_screenshots.js` — with the `--demo` preview running, `npx -y -p playwright node tools/readme_screenshots.js` recaptures every README screenshot in both themes, framed (browser window / three phones) with rounded corners on a transparent background
 
 ## Key Dependencies
 
