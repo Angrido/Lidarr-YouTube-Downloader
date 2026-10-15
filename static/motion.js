@@ -17,8 +17,16 @@
         };
     }
 
+    // Where a count starts: the last value countTo wrote, when there is one.
+    // Parsing the shown text back fails for formatted numbers ("1.234" is
+    // 1234 in it-IT/de-DE), so it is only the first-count fallback.
+    function countFrom(lastValue, shownText) {
+        if (typeof lastValue === "number" && isFinite(lastValue)) return lastValue;
+        return parseFloat(String(shownText).replace(/[^\d.-]/g, ""));
+    }
+
     if (typeof module !== "undefined" && module.exports) {
-        module.exports = { tiltAngles: tiltAngles };
+        module.exports = { tiltAngles: tiltAngles, countFrom: countFrom };
     }
     if (typeof document === "undefined") return;
 
@@ -77,7 +85,8 @@
         if (!el) return;
         format = format || String;
         var to = Number(value);
-        var from = parseFloat(String(el.textContent).replace(/[^\d.-]/g, ""));
+        var from = countFrom(el._countValue, el.textContent);
+        el._countValue = isFinite(to) ? to : undefined;
         if (el._countFrame) cancelAnimationFrame(el._countFrame);
         if (isReduced() || !isFinite(to) || !isFinite(from) || from === to) {
             el.textContent = format(value);
