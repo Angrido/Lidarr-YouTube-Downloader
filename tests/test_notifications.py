@@ -3,6 +3,7 @@
 from unittest.mock import patch, MagicMock
 
 import pytest
+import requests
 
 import notifications
 
@@ -468,6 +469,31 @@ def test_send_telegram_test_exception_returns_error(mock_post):
     result = notifications.send_telegram_test("tok", "123")
     assert result["success"] is False
     assert "boom" in result["error"]
+
+
+@patch("notifications.requests.post")
+def test_send_telegram_test_error_does_not_echo_the_token(mock_post):
+    # requests puts the full URL, token included, in a connection error.
+    mock_post.side_effect = requests.exceptions.ConnectionError(
+        "HTTPSConnectionPool(host='api.telegram.org', port=443): Max retries"
+        " exceeded with url: /bot123:SECRET/sendMessage",
+    )
+    result = notifications.send_telegram_test("123:SECRET", "1")
+    assert result["success"] is False
+    assert "SECRET" not in result["error"]
+    assert "Max retries" in result["error"]
+
+
+@patch("notifications.requests.post")
+def test_send_discord_test_error_does_not_echo_the_webhook(mock_post):
+    url = "https://discord.com/api/webhooks/1/SECRET"
+    # Like the Telegram case, requests quotes only the path.
+    mock_post.side_effect = requests.exceptions.ConnectionError(
+        "Max retries exceeded with url: /api/webhooks/1/SECRET",
+    )
+    result = notifications.send_discord_test(url)
+    assert result["success"] is False
+    assert "SECRET" not in result["error"]
 
 
 @patch("notifications.requests.post")

@@ -372,7 +372,8 @@ def send_telegram_test(bot_token, chat_id, message=None):
     except requests.exceptions.Timeout:
         return {"success": False, "error": "Request timed out after 10s"}
     except Exception as exc:
-        return {"success": False, "error": str(exc)}
+        # A connection error quotes the request URL, which carries the token.
+        return {"success": False, "error": _redact(exc, bot_token)}
 
 
 def send_discord_test(webhook_url, message=None):
@@ -403,7 +404,9 @@ def send_discord_test(webhook_url, message=None):
     except requests.exceptions.Timeout:
         return {"success": False, "error": "Request timed out after 10s"}
     except Exception as exc:
-        return {"success": False, "error": str(exc)}
+        # The error quotes the URL path; its last segment is the webhook token.
+        token = webhook_url.rstrip("/").rsplit("/", 1)[-1]
+        return {"success": False, "error": _redact(exc, webhook_url, token)}
 
 
 def send_ntfy_test(
