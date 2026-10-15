@@ -293,6 +293,17 @@ def test_clear_logs():
     assert models.get_logs()["total"] == 0
 
 
+def test_clearing_logs_keeps_the_retry_cooldown():
+    # An album that just failed must not be retried by the next scheduler
+    # cycle only because the user cleared (or dismissed) its log rows.
+    import time
+    models.add_log("album_error", 5, "A", "X")
+    _add_dl(album_id=5, success=False, error_message="no match")
+    models.clear_logs()
+    assert 5 in models.get_attempted_album_ids_since(time.time() - 60)
+    assert models.get_attempted_album_ids_since(time.time() + 60) == set()
+
+
 def test_get_logs_db_size():
     models.add_log("download_success", 1, "A", "A", details="some text")
     size = models.get_logs_db_size()

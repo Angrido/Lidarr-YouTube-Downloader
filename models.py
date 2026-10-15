@@ -491,17 +491,20 @@ def get_insights(days=30):
 
 
 def get_attempted_album_ids_since(since_timestamp):
-    """Return album IDs that have *any* download log entry since timestamp.
+    """Return album IDs attempted since timestamp: any download log entry
+    or any per-track download record.
 
     Used by the scheduler to avoid hammering a failing album on every
     cycle: an album that has already been attempted (success or failure)
     within the retry window is skipped until other albums get a turn.
+    The track records keep that window when the user clears or dismisses
+    log rows.
     """
     conn = db.get_db()
     rows = conn.execute(
-        "SELECT DISTINCT album_id FROM download_logs"
-        " WHERE timestamp >= ?",
-        (since_timestamp,),
+        "SELECT album_id FROM download_logs WHERE timestamp >= ?"
+        " UNION SELECT album_id FROM track_downloads WHERE timestamp >= ?",
+        (since_timestamp, since_timestamp),
     ).fetchall()
     return {row[0] for row in rows}
 
