@@ -1120,8 +1120,10 @@ def api_notifications_test_ntfy():
     if not topic or not server_url:
         cfg = load_config()
         topic = topic or cfg.get("ntfy_topic", "")
-        server_url = server_url or cfg.get("ntfy_url", "https://ntfy.sh")
-        if token is None:
+        saved_url = cfg.get("ntfy_url", "https://ntfy.sh")
+        server_url = server_url or saved_url
+        # The saved token only ever goes to the saved server.
+        if token is None and server_url.rstrip("/") == saved_url.rstrip("/"):
             token = cfg.get("ntfy_token", "")
         if priority is None:
             priority = cfg.get("ntfy_priority", "default")

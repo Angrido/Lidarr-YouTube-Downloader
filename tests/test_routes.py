@@ -2728,6 +2728,35 @@ class TestNtfyNotificationRoute:
             assert resp.status_code == 429
             assert "Too many test requests" in resp.get_json()["message"]
 
+    def _saved_ntfy(self, monkeypatch):
+        monkeypatch.setattr("app.load_config", lambda: {
+            "ntfy_url": "https://ntfy.sh",
+            "ntfy_token": "secret",
+            "ntfy_topic": "t",
+        })
+
+    def test_test_ntfy_saved_token_not_sent_to_other_server(
+        self, client, monkeypatch,
+    ):
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post(
+                "/api/notifications/test/ntfy",
+                json={"server_url": "https://evil.example"},
+            )
+        assert mock_test.call_args.args[0] == "https://evil.example"
+        assert not mock_test.call_args.kwargs["token"]
+
+    def test_test_ntfy_saved_token_sent_to_saved_server(
+        self, client, monkeypatch,
+    ):
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post("/api/notifications/test/ntfy", json={})
+        assert mock_test.call_args.kwargs["token"] == "secret"
+
 
 
 
