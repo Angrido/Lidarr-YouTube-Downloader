@@ -463,6 +463,35 @@ class TestConfigRoutes:
         assert data["skipped"] == 1
 
 
+class TestConfigReschedules:
+    @pytest.fixture(autouse=True)
+    def _clean_schedule(self, monkeypatch):
+        import schedule
+        monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+        schedule.clear()
+        yield
+        schedule.clear()
+
+    @staticmethod
+    def _job():
+        import schedule
+        jobs = schedule.get_jobs()
+        assert len(jobs) == 1
+        assert jobs[0].unit == "minutes"
+        return jobs[0]
+
+    @pytest.mark.parametrize("url", ["/api/config", "/api/config/import"])
+    def test_interval_change_applies_without_restart(self, client, url):
+        resp = client.post(
+            url, json={"scheduler_enabled": True, "scheduler_interval": 15}
+        )
+        assert resp.status_code == 200
+        assert self._job().interval == 15
+        resp = client.post(url, json={"scheduler_interval": 30})
+        assert resp.status_code == 200
+        assert self._job().interval == 30
+
+
 class TestTemplateRoutes:
     def test_index(self, client):
         resp = client.get("/")

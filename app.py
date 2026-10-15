@@ -717,6 +717,12 @@ def api_ffmpeg_status():
         return jsonify({"ok": None, "summary": "Could not check ffmpeg."}), 500
 
 
+def _reschedule_if_changed(updates):
+    """Re-register the scheduler job so a new interval applies without a restart."""
+    if "scheduler_interval" in updates or "scheduler_enabled" in updates:
+        setup_scheduler()
+
+
 @app.route("/api/config", methods=["GET", "POST"])
 def api_config():
     if request.method == "GET":
@@ -728,6 +734,7 @@ def api_config():
         return jsonify({"success": False, "message": "Too many requests"}), 429
     updates, _ = _coerce_config_updates(_json_object())
     update_config(lambda cfg: cfg.update(updates))
+    _reschedule_if_changed(updates)
     if updates.get("yt_watch_playlists"):
         _watch_wakeup.set()
     return jsonify({"success": True})
@@ -768,6 +775,7 @@ def api_config_import():
     updates, skipped_keys = _coerce_config_updates(incoming)
     applied_keys = list(updates)
     update_config(lambda cfg: cfg.update(updates))
+    _reschedule_if_changed(updates)
     return jsonify(
         {
             "success": True,
