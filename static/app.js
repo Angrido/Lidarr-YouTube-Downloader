@@ -5,12 +5,15 @@
     var root = document.documentElement;
     var mql = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 
+    // Dark-first: nothing stored means dark. "auto" is stored explicitly so it
+    // stays distinguishable from a first visit (the pre-paint script in
+    // _head.html mirrors this).
     function readTheme() {
         try {
             var v = localStorage.getItem(THEME_KEY);
-            return v === "light" || v === "dark" ? v : "auto";
+            return v === "light" || v === "dark" || v === "auto" ? v : "dark";
         } catch (e) {
-            return "auto";
+            return "dark";
         }
     }
 
@@ -22,7 +25,7 @@
     function syncThemeColor() {
         var meta = document.querySelector('meta[name="theme-color"]:not([media])');
         var dark = effectiveTheme(readTheme()) === "dark";
-        if (meta) meta.setAttribute("content", dark ? "#0a0a0c" : "#f5f5f7");
+        if (meta) meta.setAttribute("content", dark ? "#07070c" : "#f5f3fb");
     }
 
     function applyTheme(pref) {
@@ -46,8 +49,7 @@
 
     function setTheme(pref) {
         try {
-            if (pref === "auto") localStorage.removeItem(THEME_KEY);
-            else localStorage.setItem(THEME_KEY, pref);
+            localStorage.setItem(THEME_KEY, pref);
         } catch (e) {}
         applyTheme(pref);
     }

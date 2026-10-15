@@ -279,8 +279,8 @@ _PWA_MANIFEST = {
     "start_url": "/",
     "scope": "/",
     "display": "standalone",
-    "background_color": "#0a0a0c",
-    "theme_color": "#0a0a0c",
+    "background_color": "#07070c",
+    "theme_color": "#07070c",
     "icons": [
         {
             "src": "/static/favicon.svg",
