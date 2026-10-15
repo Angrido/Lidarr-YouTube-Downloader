@@ -968,6 +968,7 @@
                 if (currentView !== null || container.getAttribute('data-state') !== 'idle') {
                     currentView = null;
                     showCurrentIdle(container);
+                    UI.setAura(null);
                 }
                 return;
             }
@@ -984,6 +985,7 @@
             var key = JSON.stringify([data.album_id, tracks.length, data.cover_url || '']);
             if (!currentView || currentView.key !== key) {
                 currentView = buildCurrentView(data, tracks);
+                UI.setAura(sanitizeUrl(data.cover_url)); // the page takes the album's colours
                 container.setAttribute('data-state', 'active');
                 container.removeAttribute('aria-busy');
                 container.replaceChildren(currentView.wrapper);

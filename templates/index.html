@@ -1068,6 +1068,8 @@
             renderView();
         }
 
+        let gridEntered = false;
+
         function renderView() {
             const container = $("albumContainer");
             container.removeAttribute("aria-busy");
@@ -1084,6 +1086,10 @@
                 } else {
                     container.className = "ui-album-grid lib-grid";
                     container.innerHTML = page.map(cardHtml).join("");
+                    if (!gridEntered) {
+                        gridEntered = true; // only the first load rises in; filters re-render instantly
+                        UI.stagger(container);
+                    }
                 }
             }
             syncSelectionUI();
@@ -1428,7 +1434,7 @@
         }
 
         function renderQueueTile(queued, active, today) {
-            if (typeof queued === "number") $("statQueue").textContent = fmt(queued);
+            if (typeof queued === "number") UI.countTo($("statQueue"), queued, 600, fmt);
             if (typeof today === "number") {
                 lastToday = today;
                 $("statToday").textContent = fmt(today);
@@ -2024,6 +2030,7 @@
             npCoverUrl = url;
             const holder = $("npCover");
             const bg = $("npBg");
+            UI.setAura(url); // the page takes the colours of the album downloading
             if (url) {
                 holder.innerHTML = `<img src="${esc(url)}" alt="">`;
                 bg.style.backgroundImage = cssUrl(url);
@@ -2039,6 +2046,7 @@
             lastQueueLength = queue.length;
             renderQueueTile(queue.length, !!data.active || lastStatsActive);
             if (!data.active) {
+                setNowPlayingCover(null);
                 const hadActive = activeAlbumId !== null;
                 activeAlbumId = null;
                 if (hadActive) clearCardProgress();

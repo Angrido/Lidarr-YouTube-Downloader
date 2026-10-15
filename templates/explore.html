@@ -410,20 +410,32 @@
             border-radius: var(--r-xl);
             overflow: hidden;
             isolation: isolate;
-            background: var(--bg-elevated);
-            box-shadow: var(--shadow-2), var(--hairline);
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            box-shadow: inset 0 1px 0 var(--glass-border), var(--shadow-3), 0 30px 80px -36px var(--aura-1), var(--hairline);
         }
 
         .ex-head-cover {
+            position: relative;
             width: 232px;
             aspect-ratio: 1;
             border-radius: var(--r-lg);
             overflow: hidden;
             background: var(--fill-2);
-            box-shadow: var(--shadow-3);
+            box-shadow: var(--shadow-3), 0 24px 60px -14px var(--aura-1);
             display: grid;
             place-items: center;
             color: var(--text-3);
+        }
+
+        /* Glossy reflection across the top of the big cover. */
+        .ex-head-cover::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: linear-gradient(155deg, rgba(255, 255, 255, 0.26), transparent 42%);
         }
 
         .ex-head-cover img {
@@ -1090,6 +1102,8 @@
             const view = $("view");
             if (route.view !== "search") $("searchInput").value = "";
             if (scroll) window.scrollTo({ top: 0, behavior: "auto" });
+            // Album and artist pages set their own colours once loaded.
+            if (route.view !== "album" && route.view !== "artist") UI.setAura(null);
             try {
                 if (route.view === "home") await renderHome(seq);
                 else if (route.view === "album") await renderAlbum(seq);
@@ -1186,6 +1200,7 @@
             if (seq !== viewSeq) return;
             const album = data.album;
             current = { kind: "album", album, match: null };
+            UI.setAura(album.thumbnail);
             setTitle(album.title);
             const list = register(album.tracks);
             const playable = album.tracks.filter((t) => t.available).length;
@@ -1337,6 +1352,7 @@
             if (seq !== viewSeq) return;
             const a = data.artist;
             current = { kind: "artist", artist: a, match: null };
+            UI.setAura(a.thumbnail || a.banner);
             setTitle(a.name);
             const songsList = register(a.songs.length ? a.songs : a.videos);
             const meta = [a.subscribers ? `${esc(a.subscribers)} subscribers` : "", esc(a.monthlyListeners)].filter(Boolean).join(" · ");
@@ -1779,6 +1795,7 @@
                 return;
             }
             const art = t.thumbnail || (current && current.album && current.album.thumbnail) || "";
+            UI.setAura(art || null);
             $("playerArt").innerHTML = art ? `<img src="${esc(art)}" alt="" width="88" height="88">` : "";
             $("playerTitle").innerHTML = `<bdi>${esc(t.title)}</bdi>`;
             $("playerArtist").innerHTML = `<bdi>${esc((t.artists || []).map((a) => a.name).join(", ") || t.subtitle || "")}</bdi>`;

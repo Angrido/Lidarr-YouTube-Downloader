@@ -71,15 +71,16 @@
         setTimeout(function () { container.classList.remove("is-entering"); }, 900);
     }
 
-    // Count from the number shown to `value`. Non-numbers and reduced motion
-    // just set the text.
-    function countTo(el, value, ms) {
+    // Count from the number shown to `value`, written through `format`
+    // (default String). Non-numbers and reduced motion just set the text.
+    function countTo(el, value, ms, format) {
         if (!el) return;
+        format = format || String;
         var to = Number(value);
         var from = parseFloat(String(el.textContent).replace(/[^\d.-]/g, ""));
         if (el._countFrame) cancelAnimationFrame(el._countFrame);
         if (isReduced() || !isFinite(to) || !isFinite(from) || from === to) {
-            el.textContent = String(value);
+            el.textContent = format(value);
             return;
         }
         var start = null, dur = ms || 600;
@@ -87,9 +88,9 @@
             if (start === null) start = now;
             var p = Math.min(1, (now - start) / dur);
             var eased = 1 - Math.pow(1 - p, 3);
-            el.textContent = String(Math.round(from + (to - from) * eased));
+            el.textContent = format(Math.round(from + (to - from) * eased));
             el._countFrame = p < 1 ? requestAnimationFrame(step) : 0;
-            if (p === 1) el.textContent = String(value);
+            if (p === 1) el.textContent = format(value);
         };
         el._countFrame = requestAnimationFrame(step);
     }

@@ -2780,8 +2780,14 @@ body:has(.ui-bulkbar:not([hidden])) .app-main {
     padding: var(--sp-6);
     border-radius: var(--r-xl);
     overflow: hidden;
-    background: var(--bg-elevated);
-    box-shadow: var(--shadow-2), var(--hairline);
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    box-shadow:
+        inset 0 1px 0 var(--glass-border),
+        var(--shadow-3),
+        0 24px 70px -30px var(--aura-1),
+        var(--hairline);
     isolation: isolate;
 }
 
@@ -2791,8 +2797,8 @@ body:has(.ui-bulkbar:not([hidden])) .app-main {
     z-index: -1;
     background-size: cover;
     background-position: center;
-    filter: blur(60px) saturate(160%);
-    opacity: 0.28;
+    filter: blur(60px) saturate(170%);
+    opacity: 0.38;
     transform: scale(1.2);
 }
 
@@ -2801,7 +2807,7 @@ body:has(.ui-bulkbar:not([hidden])) .app-main {
     height: 168px;
     border-radius: var(--r-lg);
     overflow: hidden;
-    box-shadow: var(--shadow-3);
+    box-shadow: var(--shadow-3), 0 18px 48px -12px var(--aura-1);
     background: var(--fill-2);
 }
 
@@ -2982,7 +2988,7 @@ body:has(.ui-bulkbar:not([hidden])) .app-main {
     background: var(--glass-bg);
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
-    box-shadow: var(--shadow-3), var(--hairline);
+    box-shadow: inset 0 1px 0 var(--glass-border), var(--shadow-3), 0 18px 50px -20px var(--aura-1), var(--hairline);
 }
 
 .ui-player-art {
