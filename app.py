@@ -112,6 +112,37 @@ def _invalid_request_body(exc):
     return jsonify({"success": False, "message": message, "error": message}), 400
 
 
+@app.before_request
+def _reject_cross_site_writes():
+    """Refuse state-changing requests sent by another website (CSRF).
+
+    There is no login, so any page the user visits could otherwise POST
+    to the app on the LAN — form uploads and empty bodies skip the CORS
+    preflight (backup restore, config import, restart, clear queue...).
+    Browsers always label those requests with Sec-Fetch-Site and/or
+    Origin; Lidarr's server-side SABnzbd/Newznab calls send neither, so
+    they pass. X-Forwarded-Host covers proxies that rewrite Host (a page
+    can't set that header on a cross-site request without a preflight).
+    """
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return None
+    cross_site = request.headers.get("Sec-Fetch-Site") == "cross-site"
+    origin = request.headers.get("Origin")
+    if origin is not None and not cross_site:
+        forwarded = request.headers.get("X-Forwarded-Host", "")
+        allowed = {request.host, forwarded.split(",")[0].strip()} - {""}
+        cross_site = urllib.parse.urlparse(origin).netloc not in allowed
+    if cross_site:
+        logger.warning(
+            "Blocked cross-site %s %s (Origin: %s)",
+            request.method, request.path, origin or "-",
+        )
+        return jsonify({
+            "success": False, "message": "Cross-site request refused",
+        }), 403
+    return None
+
+
 def _json_object():
     data = request.get_json(silent=True)
     if data is None:

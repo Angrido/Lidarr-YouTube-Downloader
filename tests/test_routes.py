@@ -3465,3 +3465,38 @@ class TestPlaylistWatch:
         assert client.get("/api/config").get_json()["yt_watch_playlists"] == [
             "https://www.youtube.com/playlist?list=PLabc_-1",
         ]
+
+
+class TestCrossSiteWrites:
+    """A page on another site must not be able to drive the API (CSRF)."""
+
+    @pytest.mark.parametrize("headers", [
+        {"Origin": "https://evil.example"},
+        {"Origin": "null"},
+        {"Origin": "http://localhost:6666"},
+        {"Sec-Fetch-Site": "cross-site"},
+        {"Sec-Fetch-Site": "cross-site", "Origin": "http://localhost"},
+    ])
+    def test_cross_site_post_is_refused(self, client, headers):
+        import models
+        models.enqueue_album(1)
+        resp = client.post("/api/download/queue/clear", headers=headers)
+        assert resp.status_code == 403
+        assert models.get_queue_length() == 1
+
+    @pytest.mark.parametrize("headers", [
+        {},  # Lidarr / curl: no browser headers
+        {"Origin": "http://localhost", "Sec-Fetch-Site": "same-origin"},
+        # Reverse proxy that rewrites Host but forwards the public one.
+        {"Origin": "https://music.example", "X-Forwarded-Host": "music.example"},
+    ])
+    def test_same_origin_and_server_calls_pass(self, client, headers):
+        import models
+        models.enqueue_album(1)
+        resp = client.post("/api/download/queue/clear", headers=headers)
+        assert resp.status_code == 200
+        assert models.get_queue_length() == 0
+
+    def test_reads_are_not_checked(self, client):
+        resp = client.get("/api/stats", headers={"Origin": "https://evil.example"})
+        assert resp.status_code == 200
