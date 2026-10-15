@@ -2696,6 +2696,109 @@ def _do_manual_dl(
 ):
     track_state = download_process["tracks"][0]
 
+    def on_status(status, **fields):
+        track_state.update(fields)
+        track_state["status"] = status
+
+    def progress_hook(d):
+        if d["status"] == "downloading":
+            track_state["progress_percent"] = d.get("_percent_str", "0%").strip()
+            track_state["progress_speed"] = d.get("_speed_str", "N/A").strip()
+
+    ok, message, _http_status, _fp_data = _manual_dl_core(
+        youtube_url=youtube_url,
+        track_title=track_title,
+        track_num=track_num,
+        target_path=target_path,
+        album_data=album_data,
+        album_id=album_id,
+        album_title=album_title,
+        artist_name=artist_name,
+        config=config,
+        album_path=album_path,
+        lidarr_album_path=lidarr_album_path,
+        cover_url=cover_url,
+        run_acoustid=bool(
+            config.get("acoustid_enabled") and config.get("acoustid_api_key")
+        ),
+        on_status=on_status,
+        progress_hook=progress_hook,
+    )
+    if not ok:
+        track_state["status"] = "failed"
+        track_state["error_message"] = message
+
+
+def _execute_manual_dl(
+    *,
+    youtube_url,
+    track_title,
+    track_num,
+    target_path,
+    album_data,
+    album_id,
+    album_title,
+    artist_name,
+    config,
+    album_path,
+    lidarr_album_path,
+    cover_url,
+    run_acoustid=False,
+):
+    ok, message, http_status, fp_data = _manual_dl_core(
+        youtube_url=youtube_url,
+        track_title=track_title,
+        track_num=track_num,
+        target_path=target_path,
+        album_data=album_data,
+        album_id=album_id,
+        album_title=album_title,
+        artist_name=artist_name,
+        config=config,
+        album_path=album_path,
+        lidarr_album_path=lidarr_album_path,
+        cover_url=cover_url,
+        run_acoustid=run_acoustid,
+    )
+    if not ok:
+        return jsonify({"success": False, "message": message}), http_status
+    response = {"success": True, "message": message}
+    if fp_data:
+        response["acoustid_score"] = fp_data.get("acoustid_score", 0.0)
+        response["acoustid_recording_id"] = fp_data.get(
+            "acoustid_recording_id",
+            "",
+        )
+    return jsonify(response)
+
+
+def _manual_dl_core(
+    *,
+    youtube_url,
+    track_title,
+    track_num,
+    target_path,
+    album_data,
+    album_id,
+    album_title,
+    artist_name,
+    config,
+    album_path,
+    lidarr_album_path,
+    cover_url,
+    run_acoustid,
+    on_status=None,
+    progress_hook=None,
+):
+    """Download, tag, verify and record one manually picked track.
+
+    Returns ``(ok, message, http_status, fp_data)``. ``on_status(status,
+    **fields)`` reports 'tagging', 'verifying' and 'done' to the progress UI.
+    """
+    def _report(status, **fields):
+        if on_status:
+            on_status(status, **fields)
+
     sanitized_track = sanitize_filename(track_title)
     if not sanitized_track:
         sanitized_track = "untitled"
@@ -2712,14 +2815,7 @@ def _do_manual_dl(
             "Path containment violation: '%s' escapes target '%s'",
             real_final, real_target,
         )
-        track_state["status"] = "failed"
-        track_state["error_message"] = "Invalid track filename"
-        return
-
-    def progress_hook(d):
-        if d["status"] == "downloading":
-            track_state["progress_percent"] = d.get("_percent_str", "0%").strip()
-            track_state["progress_speed"] = d.get("_speed_str", "N/A").strip()
+        return False, "Invalid track filename", 400, {}
 
     # Route through the shared multi-client / multi-selector fallback
     # (cookies, PO tokens and the format override included) so a manual
@@ -2739,142 +2835,15 @@ def _do_manual_dl(
         msg = (dl_result.get("error_message") or "Download failed")[:200]
         logger.error("yt-dlp download failed for '%s': %s", track_title, msg)
         _cleanup_temp_files(temp_file)
-        track_state["status"] = "failed"
-        track_state["error_message"] = msg
-        return
+        return False, msg, 500, {}
     youtube_title = dl_result.get("youtube_title", "") or track_title
-    track_state["youtube_title"] = youtube_title
 
     actual_file = temp_file + f".{audio_ext}"
     if not os.path.exists(actual_file):
         _cleanup_temp_files(temp_file)
-        track_state["status"] = "failed"
-        track_state["error_message"] = "Download failed -- file not created"
-        return
+        return False, "Download failed -- file not created", 500, {}
 
-    track_state["status"] = "tagging"
-    try:
-        track_info = _resolve_track_info(
-            track_title,
-            track_num,
-            album_data,
-            album_id,
-        )
-        tag_audio_file(actual_file, track_info, album_data, None)
-
-        if config.get("xml_metadata_enabled", True):
-            create_xml_metadata(
-                target_path,
-                artist_name,
-                album_title,
-                int(track_num),
-                track_title,
-                album_data.get("foreignAlbumId", ""),
-                album_data.get("artist", {}).get("foreignArtistId", ""),
-            )
-
-        fp_data = {}
-        if config.get("acoustid_enabled") and config.get("acoustid_api_key"):
-            track_state["status"] = "verifying"
-            fp_data = _run_manual_acoustid(config, actual_file)
-
-        file_size = os.path.getsize(actual_file)
-        shutil.move(actual_file, final_file)
-        set_permissions(final_file)
-    except Exception as e:
-        logger.error(
-            "Post-download processing failed for '%s': %s",
-            track_title,
-            e,
-            exc_info=True,
-        )
-        _cleanup_temp_files(temp_file)
-        track_state["status"] = "failed"
-        track_state["error_message"] = str(e)[:200]
-        return
-
-    track_state["status"] = "done"
-
-    _record_manual_download(
-        album_id=album_id,
-        album_title=album_title,
-        artist_name=artist_name,
-        track_title=track_title,
-        track_num=track_num,
-        youtube_url=youtube_url,
-        youtube_title=youtube_title,
-        album_path=album_path,
-        lidarr_album_path=lidarr_album_path,
-        cover_url=cover_url,
-        fp_data=fp_data,
-        file_size=file_size,
-    )
-
-    _refresh_lidarr_artist(album_data, track_title)
-
-
-def _execute_manual_dl(
-    *,
-    youtube_url,
-    track_title,
-    track_num,
-    target_path,
-    album_data,
-    album_id,
-    album_title,
-    artist_name,
-    config,
-    album_path,
-    lidarr_album_path,
-    cover_url,
-    run_acoustid=False,
-):
-    sanitized_track = sanitize_filename(track_title)
-    if not sanitized_track:
-        sanitized_track = "untitled"
-    audio_ext = config.get("audio_format", "mp3")
-    temp_file = os.path.join(target_path, f"temp_manual_{uuid.uuid4().hex[:8]}")
-    final_file = os.path.join(
-        target_path, f"{int(track_num):02d} - {sanitized_track}.{audio_ext}"
-    )
-
-    real_final = os.path.realpath(final_file)
-    real_target = os.path.realpath(target_path)
-    if not (real_final.startswith(real_target + os.sep) or real_final == real_target):
-        logger.error(
-            "Path containment violation: '%s' escapes target '%s'",
-            real_final, real_target,
-        )
-        return jsonify(
-            {
-                "success": False,
-                "message": "Invalid track filename",
-            }
-        ), 400
-
-    # Shared multi-client / multi-selector fallback (issue #80) so a manual
-    # download doesn't fail on a single "Requested format is not available".
-    candidate = {
-        "url": youtube_url, "title": track_title,
-        "duration": 0, "score": 1.0, "source": "manual",
-    }
-    dl_result = download_youtube_candidate(candidate, temp_file)
-    if not dl_result.get("success"):
-        msg = (dl_result.get("error_message") or "Download failed")[:200]
-        logger.error("yt-dlp download failed for '%s': %s", track_title, msg)
-        _cleanup_temp_files(temp_file)
-        return jsonify({"success": False, "message": msg}), 500
-
-    actual_file = temp_file + f".{audio_ext}"
-    if not os.path.exists(actual_file):
-        _cleanup_temp_files(temp_file)
-        return jsonify(
-            {
-                "success": False,
-                "message": "Download failed -- file not created",
-            }
-        ), 500
-
+    _report("tagging", youtube_title=youtube_title)
     try:
         track_info = _resolve_track_info(
             track_title,
@@ -2897,6 +2866,7 @@ def _execute_manual_dl(
 
         fp_data = {}
         if run_acoustid:
+            _report("verifying")
             fp_data = _run_manual_acoustid(config, actual_file)
 
         file_size = os.path.getsize(actual_file)
@@ -2910,7 +2880,9 @@ def _execute_manual_dl(
             exc_info=True,
         )
         _cleanup_temp_files(temp_file)
-        return jsonify({"success": False, "message": str(e)[:200]}), 500
+        return False, str(e)[:200], 500, {}
+
+    _report("done")
 
     _record_manual_download(
         album_id=album_id,
@@ -2919,6 +2891,7 @@ def _execute_manual_dl(
         track_title=track_title,
         track_num=track_num,
         youtube_url=youtube_url,
+        youtube_title=youtube_title,
         album_path=album_path,
         lidarr_album_path=lidarr_album_path,
         cover_url=cover_url,
@@ -2928,17 +2901,7 @@ def _execute_manual_dl(
 
     _refresh_lidarr_artist(album_data, track_title)
 
-    response = {
-        "success": True,
-        "message": f"Track '{track_title}' downloaded successfully",
-    }
-    if fp_data:
-        response["acoustid_score"] = fp_data.get("acoustid_score", 0.0)
-        response["acoustid_recording_id"] = fp_data.get(
-            "acoustid_recording_id",
-            "",
-        )
-    return jsonify(response)
+    return True, f"Track '{track_title}' downloaded successfully", 200, fp_data
 
 
 def _record_manual_download(
