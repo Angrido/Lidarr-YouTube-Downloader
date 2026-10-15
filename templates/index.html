@@ -904,6 +904,7 @@
         let activeProgress = null;
         let wasDownloadActive = false;
         let lastQueueLength = 0;
+        let lastSSEQueue = [];
         let failedTracksData = [];
         let failedTracksAlbumId = null;
         let failedBtnResetTimer = null;
@@ -2151,7 +2152,9 @@
             eventSource.onmessage = (event) => {
                 try {
                     const payload = JSON.parse(event.data);
-                    handleProgressUpdate(payload.status, payload.queue);
+                    // The stream sends the queue only when it changed.
+                    if (payload.queue !== undefined) lastSSEQueue = payload.queue;
+                    handleProgressUpdate(payload.status, lastSSEQueue);
                 } catch (e) {}
             };
             eventSource.onerror = () => {

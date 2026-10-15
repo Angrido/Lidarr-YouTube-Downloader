@@ -294,6 +294,26 @@ class TestQueueRoutes:
         assert resp.status_code == 200
         assert resp.get_json() == []
 
+    def test_stream_sends_queue_only_when_it_changes(self, client):
+        import models
+
+        models.enqueue_album(7)
+        with patch("app.lidarr_request", return_value={"error": "x"}), \
+                patch("app.time.sleep"):
+            resp = client.get("/api/download/stream", buffered=False)
+            events = iter(resp.response)
+
+            def next_event():
+                return json.loads(next(events).decode()[len("data: "):])
+
+            first, second = next_event(), next_event()
+            models.enqueue_album(8)
+            third = next_event()
+            resp.close()
+        assert [q["id"] for q in first["queue"]] == [7]
+        assert "queue" not in second and "status" in second
+        assert [q["id"] for q in third["queue"]] == [7, 8]
+
     def test_queue_reads_cache_and_lists_unknown_albums(self, client):
         """Issue #95: a big queue renders from the local cache, and an
         album Lidarr can't resolve is shown, not hidden."""
@@ -2757,6 +2777,33 @@ class TestNtfyNotificationRoute:
             client.post("/api/notifications/test/ntfy", json={})
         assert mock_test.call_args.kwargs["token"] == "secret"
 
+    def test_test_ntfy_masked_token_not_sent_to_other_server(
+        self, client, monkeypatch,
+    ):
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post("/api/notifications/test/ntfy", json={
+                "server_url": "https://evil.example", "topic": "x",
+                "token": "********",
+            })
+        assert mock_test.call_args.args[0] == "https://evil.example"
+        assert not mock_test.call_args.kwargs["token"]
+
+    def test_test_ntfy_masked_token_sent_to_saved_server(
+        self, client, monkeypatch,
+    ):
+        # What Settings sends once a token is saved: the form's URL, topic
+        # and the mask in place of the token.
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post("/api/notifications/test/ntfy", json={
+                "server_url": "https://ntfy.sh/", "topic": "t",
+                "token": "********",
+            })
+        assert mock_test.call_args.kwargs["token"] == "secret"
+
 
 
 
@@ -2875,6 +2922,41 @@ class TestConfigHardening:
     def test_export_hides_lidarr_api_key(self, client):
         resp = client.get("/api/config/export")
         assert "lidarr_api_key" not in json.loads(resp.data)
+
+    def test_secrets_masked_in_get_and_dropped_from_export(self, client):
+        from config import SECRET_MASK, load_config
+        client.post("/api/config", json={"telegram_bot_token": "123:secret"})
+        assert load_config()["telegram_bot_token"] == "123:secret"
+        data = client.get("/api/config").get_json()
+        assert data["telegram_bot_token"] == SECRET_MASK
+        raw = client.get("/api/config/export").data.decode()
+        assert "telegram_bot_token" not in json.loads(raw)
+        assert "123:secret" not in raw
+
+    def test_posting_mask_keeps_secret_and_empty_clears(self, client):
+        from config import SECRET_MASK, load_config
+        client.post("/api/config", json={"telegram_bot_token": "123:secret"})
+        client.post("/api/config", json={"telegram_bot_token": SECRET_MASK})
+        assert load_config()["telegram_bot_token"] == "123:secret"
+        client.post("/api/config", json={"telegram_bot_token": ""})
+        assert load_config()["telegram_bot_token"] == ""
+
+    def test_telegram_test_with_mask_uses_saved_token(
+        self, client, monkeypatch
+    ):
+        from config import SECRET_MASK
+        client.post("/api/config", json={"telegram_bot_token": "123:secret"})
+        calls = []
+        monkeypatch.setattr(
+            "notifications.send_telegram_test",
+            lambda token, chat: calls.append((token, chat)) or {"success": True},
+        )
+        resp = client.post(
+            "/api/notifications/test/telegram",
+            json={"bot_token": SECRET_MASK, "chat_id": "42"},
+        )
+        assert resp.status_code == 200
+        assert calls == [("123:secret", "42")]
 
     @pytest.mark.parametrize("value", ["abc", None, [], True])
     def test_invalid_int_returns_400(self, client, value):
@@ -3449,6 +3531,89 @@ class TestExploreArtistImport:
         state = explore_routes._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]
         assert ran == ["Galsen"]
         assert state["failed"] == 1 and state["state"] == "stopped"
+
+    CID = "UCZCjpHpj2MJ2Z_txErorumg"
+
+    def _stub_runner(self, monkeypatch, execute, release_import=None, makedirs=None):
+        import explore_routes as app_module
+        calls = {"execute": [], "release": []}
+
+        def fake_release(release, artist):
+            calls["release"].append(release["title"])
+            if release_import:
+                return release_import(release, artist)
+            return {"album_title": release["title"], "entries": [{"url": "u", "title": "t"}], "year": ""}
+
+        def fake_execute(*args):
+            calls["execute"].append(args[1])
+            return execute()
+
+        monkeypatch.setattr(app_module, "makedirs_safe", makedirs or (lambda *a, **k: None))
+        monkeypatch.setattr(app_module, "set_permissions", lambda *a, **k: None)
+        monkeypatch.setattr(app_module, "_ensure_artist_dir_image", lambda *a, **k: None)
+        monkeypatch.setattr(app_module, "_validate_target_path", lambda *a, **k: True)
+        monkeypatch.setattr(app_module.explore, "release_import", fake_release)
+        monkeypatch.setattr(app_module, "_execute_playlist_download", fake_execute)
+        app_module._artist_import_state(self.CID, state="running", done=0, stop=False)
+        return calls
+
+    def _run(self, tmp_path):
+        import explore_routes as app_module
+        app_module._run_artist_import(dict(self.PLAN), str(tmp_path / "Zo killeuh"), {})
+        return app_module._artist_imports[self.CID]
+
+    def test_runner_processes_every_release(self, monkeypatch, tmp_path):
+        calls = self._stub_runner(monkeypatch, lambda: None)
+        state = self._run(tmp_path)
+        assert calls["execute"] == ["KOUMAY FENN", "Galsen"]
+        assert state["state"] == "done" and state["done"] == 2
+        assert state["message"] == "2 of 2 releases processed"
+
+    def test_runner_retries_until_download_slot_is_free(self, monkeypatch, tmp_path):
+        results = iter([False, False, None, None])
+        calls = self._stub_runner(monkeypatch, lambda: next(results))
+        state = self._run(tmp_path)
+        assert calls["execute"] == ["KOUMAY FENN"] * 3 + ["Galsen"]
+        assert state["state"] == "done" and state["done"] == 2
+
+    def test_runner_counts_failed_release_and_continues(self, monkeypatch, tmp_path):
+        import explore
+
+        def release_import(release, artist):
+            if release["kind"] == "track":
+                raise explore.ExploreError("unavailable", 502)
+            return {"album_title": release["title"], "entries": [], "year": "2021"}
+
+        calls = self._stub_runner(monkeypatch, lambda: None, release_import=release_import)
+        state = self._run(tmp_path)
+        assert calls["execute"] == ["Galsen"]
+        assert state["failed"] == 1 and state["done"] == 1 and state["state"] == "done"
+
+    def test_runner_fails_when_artist_folder_is_unusable(self, monkeypatch, tmp_path):
+        def makedirs(*a, **k):
+            raise PermissionError("denied")
+
+        calls = self._stub_runner(monkeypatch, lambda: None, makedirs=makedirs)
+        state = self._run(tmp_path)
+        assert state["state"] == "failed" and "denied" in state["message"]
+        assert calls["execute"] == [] and calls["release"] == []
+
+    def test_runner_stop_while_waiting_for_slot_counts_nothing(self, monkeypatch, tmp_path):
+        import explore_routes as app_module
+        attempts = {"n": 0}
+
+        def busy():
+            attempts["n"] += 1
+            if attempts["n"] == 3:
+                app_module._artist_import_state(self.CID, stop=True)
+            return False
+
+        calls = self._stub_runner(monkeypatch, busy)
+        state = self._run(tmp_path)
+        assert calls["execute"] == ["KOUMAY FENN"] * 3
+        assert calls["release"] == ["KOUMAY FENN"]
+        assert state["state"] == "stopped" and state["done"] == 0
+        assert state["message"] == "0 of 2 releases processed"
 
     def test_playlist_download_tags_year_and_embeds_cover(self, monkeypatch, tmp_path):
         import youtube_import

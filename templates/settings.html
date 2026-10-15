@@ -1296,10 +1296,17 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             return out;
         }
 
+        // Saved secrets arrive masked; saving the mask back keeps the stored value.
+        function setSecret(id, value) {
+            const el = $(id);
+            el.value = value || '';
+            el.title = value === '********' ? 'Saved, leave as is to keep' : '';
+        }
+
         function applyConfig(conf) {
             $('interval').value = conf.scheduler_interval || 60;
             $('schedulerMaxAlbums').value = conf.scheduler_max_albums != null ? conf.scheduler_max_albums : 0;
-            $('botToken').value = conf.telegram_bot_token || '';
+            setSecret('botToken', conf.telegram_bot_token);
             $('chatId').value = conf.telegram_chat_id || '';
             setChecks('log_', conf.telegram_log_types || []);
 
@@ -1337,16 +1344,16 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             $('watchPlaylists').value = (conf.yt_watch_playlists || []).join('\n');
             setSwitch('replayGainBtn', conf.apply_replaygain === true);
             setSwitch('saveLyricsBtn', conf.save_lyrics === true);
-            $('ytPoToken').value = conf.yt_po_token || '';
+            setSecret('ytPoToken', conf.yt_po_token);
             $('ytPotProviderUrl').value = conf.yt_pot_provider_url || '';
             $('ytCookiesFile').value = conf.yt_cookies_file || '';
 
-            $('discordWebhook').value = conf.discord_webhook_url || '';
+            setSecret('discordWebhook', conf.discord_webhook_url);
             setChecks('discord_log_', conf.discord_log_types || []);
 
             $('ntfyTopic').value = conf.ntfy_topic || '';
             $('ntfyUrl').value = conf.ntfy_url || 'https://ntfy.sh';
-            $('ntfyToken').value = conf.ntfy_token || '';
+            setSecret('ntfyToken', conf.ntfy_token);
             $('ntfyPriority').value = conf.ntfy_priority || 'default';
             setChecks('ntfy_log_', conf.ntfy_log_types || []);
 
@@ -1354,7 +1361,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             setSwitch('autoDlBtn', !!conf.scheduler_auto_download);
             setSwitch('xmlMetadataBtn', conf.xml_metadata_enabled !== false);
             setSwitch('acoustidBtn', conf.acoustid_enabled !== false);
-            $('acoustidApiKey').value = conf.acoustid_api_key || '';
+            setSecret('acoustidApiKey', conf.acoustid_api_key);
             setSwitch('lidarrRenameBtn', conf.lidarr_rename_after_import === true);
             setSwitch('coverArtBtn', conf.save_cover_art_file !== false);
             setSwitch('downloadClientBtn', conf.download_client_enabled === true);
