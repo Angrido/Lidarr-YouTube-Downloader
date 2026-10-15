@@ -298,7 +298,7 @@ class TestQueueRoutes:
         import models
 
         models.enqueue_album(7)
-        with patch("app.lidarr_request", return_value={"error": "x"}), \
+        with patch("manual_download.lidarr_request", return_value={"error": "x"}), \
                 patch("app.time.sleep"):
             resp = client.get("/api/download/stream", buffered=False)
             events = iter(resp.response)
@@ -317,7 +317,7 @@ class TestQueueRoutes:
     def test_queue_reads_cache_and_lists_unknown_albums(self, client):
         """Issue #95: a big queue renders from the local cache, and an
         album Lidarr can't resolve is shown, not hidden."""
-        import app as app_module
+        import manual_download
         import models
 
         models.upsert_missing_albums_batch([{
@@ -327,9 +327,9 @@ class TestQueueRoutes:
         }], run_id=1)
         models.enqueue_album(7)
         models.enqueue_album(8)
-        app_module.album_cache.pop(8, None)
+        manual_download.album_cache.pop(8, None)
         with patch(
-            "app.lidarr_request", return_value={"error": "not found"},
+            "manual_download.lidarr_request", return_value={"error": "not found"},
         ) as lidarr:
             data = client.get("/api/download/queue").get_json()
         assert data == [
@@ -343,13 +343,14 @@ class TestQueueRoutes:
 
     def test_queue_caps_lidarr_lookups(self, client):
         import app as app_module
+        import manual_download
         import models
 
         for aid in range(100, 100 + app_module.QUEUE_LIDARR_LOOKUPS + 5):
             models.enqueue_album(aid)
-            app_module.album_cache.pop(aid, None)
+            manual_download.album_cache.pop(aid, None)
         with patch(
-            "app.lidarr_request", return_value={"error": "down"},
+            "manual_download.lidarr_request", return_value={"error": "down"},
         ) as lidarr:
             data = client.get("/api/download/queue").get_json()
         assert len(data) == app_module.QUEUE_LIDARR_LOOKUPS + 5
@@ -791,7 +792,7 @@ class TestQueueTracksRoute:
         mock_itunes.return_value = [
             {"title": "iTunes Track", "trackNumber": 1},
         ]
-        from app import album_cache
+        from manual_download import album_cache
         import time as time_mod
         album_cache[123] = (
             {"title": "Album", "artist": {"artistName": "Artist"}},
@@ -806,9 +807,10 @@ class TestQueueTracksRoute:
         finally:
             album_cache.pop(123, None)
 
+    @patch("manual_download.lidarr_request")
     @patch("app.lidarr_request")
-    def test_empty_when_no_tracks(self, mock_lidarr, client):
-        mock_lidarr.side_effect = lambda path, **kw: (
+    def test_empty_when_no_tracks(self, mock_lidarr, mock_album_lidarr, client):
+        mock_lidarr.side_effect = mock_album_lidarr.side_effect = lambda path, **kw: (
             {"error": "not found"} if "album/" in path else []
         )
         resp = client.get("/api/download/queue/999/tracks")
@@ -820,7 +822,7 @@ class TestQueueTracksRoute:
 class TestQueueTrackCount:
     """Queue endpoint includes track_count."""
 
-    @patch("app.lidarr_request")
+    @patch("manual_download.lidarr_request")
     @patch("app.models.get_queue_details")
     def test_queue_includes_track_count(self, mock_queue, mock_lidarr, client):
         # Not in missing_albums_cache, so the details come from Lidarr.
@@ -1137,7 +1139,7 @@ class TestManualTrackDownload:
 
     @pytest.fixture(autouse=True)
     def _bypass_rate_limit(self):
-        with patch("app.check_rate_limit", return_value=True):
+        with patch("manual_download.check_rate_limit", return_value=True):
             yield
 
     def test_missing_fields_returns_400(self, client):
@@ -1167,7 +1169,7 @@ class TestManualTrackDownload:
         assert resp.status_code == 400
         assert "Invalid YouTube URL" in resp.get_json()["message"]
 
-    @patch("app._get_album_cached")
+    @patch("manual_download._get_album_cached")
     def test_album_not_found_returns_500(self, mock_album, client):
         mock_album.return_value = {"error": "not found"}
         resp = client.post(
@@ -1181,11 +1183,11 @@ class TestManualTrackDownload:
         assert resp.status_code == 500
         assert "Failed to fetch album" in resp.get_json()["message"]
 
-    @patch("app.fingerprint_track")
-    @patch("app.lidarr_request")
-    @patch("app._get_album_cached")
-    @patch("app.set_permissions")
-    @patch("app.tag_audio_file")
+    @patch("manual_download.fingerprint_track")
+    @patch("manual_download.lidarr_request")
+    @patch("manual_download._get_album_cached")
+    @patch("manual_download.set_permissions")
+    @patch("manual_download.tag_audio_file")
     def test_successful_download(
         self, mock_tag, mock_perms, mock_album, mock_lidarr,
         mock_fp, client, tmp_path, monkeypatch,
@@ -1193,7 +1195,7 @@ class TestManualTrackDownload:
         dl_path = str(tmp_path / "downloads")
         monkeypatch.setattr("utils.DOWNLOAD_DIR", dl_path)
         monkeypatch.setattr("downloader._ffmpeg_postprocess_works", lambda *a, **kw: True)
-        monkeypatch.setattr("app.load_config", lambda: {
+        monkeypatch.setattr("manual_download.load_config", lambda: {
             "acoustid_enabled": True,
             "acoustid_api_key": "test-key",
             "xml_metadata_enabled": False,
@@ -1264,7 +1266,7 @@ class TestManualTrackDownload:
 
         mock_tag.assert_called_once()
 
-    @patch("app._get_album_cached")
+    @patch("manual_download._get_album_cached")
     def test_no_download_path_returns_400(self, mock_album, client, monkeypatch):
         monkeypatch.setattr("utils.DOWNLOAD_DIR", "")
         mock_album.return_value = {
@@ -1287,7 +1289,7 @@ class TestManualTrackDownload:
 
     def test_rate_limiting(self, client):
         """Verify rate limiting works (bypass fixture does NOT apply here)."""
-        with patch("app.check_rate_limit", return_value=False):
+        with patch("manual_download.check_rate_limit", return_value=False):
             resp = client.post(
                 "/api/album/1/track/manual-download",
                 json={
@@ -1298,9 +1300,9 @@ class TestManualTrackDownload:
             )
         assert resp.status_code == 429
 
-    @patch("app._get_album_cached")
-    @patch("app.set_permissions")
-    @patch("app.tag_audio_file")
+    @patch("manual_download._get_album_cached")
+    @patch("manual_download.set_permissions")
+    @patch("manual_download.tag_audio_file")
     def test_ytdlp_exception_sets_failed_status(
         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
     ):
@@ -1340,9 +1342,9 @@ class TestManualTrackDownload:
                     break
                 time.sleep(0.1)
 
-    @patch("app._get_album_cached")
-    @patch("app.set_permissions")
-    @patch("app.tag_audio_file")
+    @patch("manual_download._get_album_cached")
+    @patch("manual_download.set_permissions")
+    @patch("manual_download.tag_audio_file")
     def test_file_not_created_sets_failed_status(
         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
     ):
@@ -1560,13 +1562,13 @@ class TestPathContainment:
         assert ".." not in result
 
     def test_validate_target_path_blocks_escape(self, tmp_path):
-        from app import _validate_target_path
+        from utils import _validate_target_path
 
         config = {"lidarr_path": str(tmp_path / "music")}
         assert not _validate_target_path("/etc/evil", config)
 
     def test_validate_target_path_allows_valid_child(self, tmp_path):
-        from app import _validate_target_path
+        from utils import _validate_target_path
 
         music = tmp_path / "music"
         config = {"lidarr_path": str(music)}
@@ -1575,7 +1577,7 @@ class TestPathContainment:
         )
 
     def test_validate_target_path_allows_exact_base(self, tmp_path):
-        from app import _validate_target_path
+        from utils import _validate_target_path
 
         music = tmp_path / "music"
         config = {"lidarr_path": str(music)}
@@ -1741,10 +1743,10 @@ class TestNotifyManualDownload:
     embed fields."""
 
     def test_sends_with_manual_download_log_type(self):
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1764,10 +1766,10 @@ class TestNotifyManualDownload:
         assert kwargs["embed_data"]["fields"] == []
 
     def test_includes_acoustid_score_when_present(self):
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1787,10 +1789,10 @@ class TestNotifyManualDownload:
         }]
 
     def test_handles_missing_album_and_artist(self):
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title=None,
                 artist_name=None,
@@ -1802,10 +1804,10 @@ class TestNotifyManualDownload:
         assert "Unknown Artist" in message
 
     def test_zero_score_is_omitted(self):
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1817,10 +1819,10 @@ class TestNotifyManualDownload:
 
     def test_invalid_score_is_tolerated(self):
         """A malformed fp_data value must not raise."""
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1833,14 +1835,14 @@ class TestNotifyManualDownload:
 
     def test_notification_exception_is_swallowed(self, caplog):
         """Notification failure must not break the download flow."""
-        import app as app_module
+        import manual_download
 
         with patch(
-            "app.send_notifications",
+            "manual_download.send_notifications",
             side_effect=Exception("boom"),
         ):
             # Should not raise.
-            app_module._notify_manual_download(
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1851,10 +1853,10 @@ class TestNotifyManualDownload:
     def test_uses_unique_icon_in_title(self):
         """Manual download must use the 👤 icon to be visually distinct
         from automated download notifications (⬇️ ✅ ⚠️ ❌ 📥)."""
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1868,11 +1870,11 @@ class TestNotifyManualDownload:
     def test_cover_url_passed_to_telegram_and_discord(self):
         """When cover_url is supplied it must reach both channels:
         Telegram via photo_url, Discord via embed thumbnail."""
-        import app as app_module
+        import manual_download
 
         cover = "https://example.com/cover.jpg"
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1885,10 +1887,10 @@ class TestNotifyManualDownload:
 
     def test_no_cover_url_omits_photo_and_thumbnail(self):
         """Empty cover_url must not set photo_url or thumbnail keys."""
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1903,10 +1905,10 @@ class TestNotifyManualDownload:
         """youtube_url must appear as a clickable link in Telegram (MD2)
         with the video title as the label, and in the Discord embed
         url + a YouTube field."""
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1931,10 +1933,10 @@ class TestNotifyManualDownload:
     def test_youtube_link_falls_back_to_track_title(self):
         """When youtube_title is empty, the track title is used as the
         link label."""
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Fallback",
                 album_title="Album",
                 artist_name="Artist",
@@ -1950,10 +1952,10 @@ class TestNotifyManualDownload:
     def test_no_youtube_url_omits_link(self):
         """Without youtube_url, neither the MD2 body nor the embed get
         a YouTube link/field."""
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -2277,10 +2279,10 @@ class TestPlaylistRetryContext:
     def test_manual_download_negative_id_no_context(self, client, monkeypatch):
         # A playlist album_id with no stored row returns the context error
         # without ever querying Lidarr for a (non-existent) album.
-        import app as app_module
+        import manual_download
         calls = []
         monkeypatch.setattr(
-            app_module, "lidarr_request",
+            manual_download, "lidarr_request",
             lambda p, *a, **k: calls.append(p) or {"error": "x"},
         )
         resp = client.post("/api/download/manual", json={
@@ -2298,7 +2300,7 @@ class TestPlaylistRetryContext:
         # With stored playlist context, the retry resolves it from the DB
         # row and reaches the download step without a Lidarr album fetch.
         import models
-        import app as app_module
+        import manual_download
         album_dir = tmp_path / "downloads" / "Various" / "My Playlist"
         _add_track(
             models, album_id=-1, album_title="My Playlist",
@@ -2307,15 +2309,15 @@ class TestPlaylistRetryContext:
         )
         calls = []
         monkeypatch.setattr(
-            app_module, "lidarr_request",
+            manual_download, "lidarr_request",
             lambda p, *a, **k: calls.append(p) or {"error": "x"},
         )
         monkeypatch.setattr(
-            app_module, "_validate_target_path", lambda *a, **k: True,
+            manual_download, "_validate_target_path", lambda *a, **k: True,
         )
-        monkeypatch.setattr(app_module, "makedirs_safe", lambda *a, **k: None)
+        monkeypatch.setattr(manual_download, "makedirs_safe", lambda *a, **k: None)
         monkeypatch.setattr(
-            app_module, "download_youtube_candidate",
+            manual_download, "download_youtube_candidate",
             lambda *a, **k: {"success": False, "error_message": "SENTINEL_DL"},
         )
         resp = client.post("/api/download/manual", json={
@@ -2329,7 +2331,7 @@ class TestPlaylistRetryContext:
 
 def test_manual_download_invalid_album_id_400(client, monkeypatch):
     # A non-numeric album_id yields a clean 400, not a 500 (issue #83 review).
-    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    monkeypatch.setattr("manual_download.check_rate_limit", lambda *a, **k: True)
     resp = client.post("/api/download/manual", json={
         "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
         "track_title": "Song", "track_num": 1, "album_id": "abc",
@@ -2345,8 +2347,8 @@ def test_manual_download_negative_id_records_success(
     # the track UNDER THE NEGATIVE ID with success, so it drops out of the
     # failed-retry list.
     import models
-    import app as app_module
-    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    import manual_download
+    monkeypatch.setattr("manual_download.check_rate_limit", lambda *a, **k: True)
     album_dir = tmp_path / "downloads" / "Various" / "My Playlist"
     album_dir.mkdir(parents=True)
     _add_track(
@@ -2355,21 +2357,21 @@ def test_manual_download_negative_id_records_success(
         album_path=str(album_dir),
     )
 
-    ext = app_module.load_config().get("audio_format", "mp3")
+    ext = manual_download.load_config().get("audio_format", "mp3")
 
     def fake_dl(candidate, output_path, **kw):
         with open(output_path + "." + ext, "wb") as f:
             f.write(b"AUDIO")
         return {"success": True, "youtube_title": candidate["title"]}
 
-    monkeypatch.setattr(app_module, "download_youtube_candidate", fake_dl)
-    monkeypatch.setattr(app_module, "_validate_target_path", lambda *a, **k: True)
-    monkeypatch.setattr(app_module, "makedirs_safe", lambda *a, **k: None)
-    monkeypatch.setattr(app_module, "tag_audio_file", lambda *a, **k: None)
-    monkeypatch.setattr(app_module, "create_xml_metadata", lambda *a, **k: None)
-    monkeypatch.setattr(app_module, "set_permissions", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "download_youtube_candidate", fake_dl)
+    monkeypatch.setattr(manual_download, "_validate_target_path", lambda *a, **k: True)
+    monkeypatch.setattr(manual_download, "makedirs_safe", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "tag_audio_file", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "create_xml_metadata", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "set_permissions", lambda *a, **k: None)
     monkeypatch.setattr(
-        app_module, "lidarr_request",
+        manual_download, "lidarr_request",
         lambda *a, **k: pytest.fail("Lidarr must not be called for a playlist"),
     )
 
@@ -2392,8 +2394,8 @@ def test_manual_download_multi_playlist_isolation(
     # Retrying a track of playlist B (-2) must rebuild B's folder/context,
     # not A's (-1).
     import models
-    import app as app_module
-    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    import manual_download
+    monkeypatch.setattr("manual_download.check_rate_limit", lambda *a, **k: True)
     dir_a = tmp_path / "A"
     dir_b = tmp_path / "B"
     dir_a.mkdir()
@@ -2408,7 +2410,7 @@ def test_manual_download_multi_playlist_isolation(
         album_path=str(dir_b),
     )
     seen = {}
-    ext = app_module.load_config().get("audio_format", "mp3")
+    ext = manual_download.load_config().get("audio_format", "mp3")
 
     def fake_dl(candidate, output_path, **kw):
         seen["output_path"] = output_path
@@ -2416,12 +2418,12 @@ def test_manual_download_multi_playlist_isolation(
             f.write(b"AUDIO")
         return {"success": True, "youtube_title": candidate["title"]}
 
-    monkeypatch.setattr(app_module, "download_youtube_candidate", fake_dl)
-    monkeypatch.setattr(app_module, "_validate_target_path", lambda *a, **k: True)
-    monkeypatch.setattr(app_module, "makedirs_safe", lambda *a, **k: None)
-    monkeypatch.setattr(app_module, "tag_audio_file", lambda *a, **k: None)
-    monkeypatch.setattr(app_module, "create_xml_metadata", lambda *a, **k: None)
-    monkeypatch.setattr(app_module, "set_permissions", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "download_youtube_candidate", fake_dl)
+    monkeypatch.setattr(manual_download, "_validate_target_path", lambda *a, **k: True)
+    monkeypatch.setattr(manual_download, "makedirs_safe", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "tag_audio_file", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "create_xml_metadata", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "set_permissions", lambda *a, **k: None)
 
     resp = client.post("/api/download/manual", json={
         "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
@@ -2920,22 +2922,22 @@ class TestNtfyNotificationRoute:
 class TestManualDownloadTrackNumber:
     @pytest.fixture(autouse=True)
     def _bypass_rate_limit(self):
-        with patch("app.check_rate_limit", return_value=True):
+        with patch("manual_download.check_rate_limit", return_value=True):
             yield
 
     def test_vinyl_track_number_does_not_leave_download_active(
         self, client, monkeypatch, tmp_path,
     ):
-        import app as app_module
+        import manual_download
         from processing import download_process
         seen = {}
-        monkeypatch.setattr(app_module, "makedirs_safe", lambda *a, **k: None)
+        monkeypatch.setattr(manual_download, "makedirs_safe", lambda *a, **k: None)
         monkeypatch.setattr(
-            app_module, "_do_manual_dl",
+            manual_download, "_do_manual_dl",
             lambda **kw: seen.update(kw),
         )
         monkeypatch.setitem(download_process, "active", False)
-        app_module._execute_manual_dl_with_progress(
+        manual_download._execute_manual_dl_with_progress(
             youtube_url="https://www.youtube.com/watch?v=abcdefghijk",
             track_title="Song", track_num="A1",
             target_path=str(tmp_path), album_data={}, album_id=1,
@@ -2949,15 +2951,15 @@ class TestManualDownloadTrackNumber:
     def test_state_setup_failure_still_releases_active(
         self, client, monkeypatch, tmp_path,
     ):
-        import app as app_module
+        import manual_download
         from processing import download_process
         monkeypatch.setitem(download_process, "active", False)
         monkeypatch.setattr(
-            app_module, "_parse_track_number",
+            manual_download, "_parse_track_number",
             lambda raw: (_ for _ in ()).throw(RuntimeError("boom")),
         )
         with pytest.raises(RuntimeError):
-            app_module._execute_manual_dl_with_progress(
+            manual_download._execute_manual_dl_with_progress(
                 youtube_url="https://www.youtube.com/watch?v=abcdefghijk",
                 track_title="Song", track_num=1,
                 target_path=str(tmp_path), album_data={}, album_id=1,
@@ -2970,19 +2972,19 @@ class TestManualDownloadTrackNumber:
     def test_album_route_parses_vinyl_track_number(
         self, client, monkeypatch, tmp_path,
     ):
-        import app as app_module
+        import manual_download
         seen = {}
         monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
-        monkeypatch.setattr(app_module, "_get_album_cached", lambda aid: {
+        monkeypatch.setattr(manual_download, "_get_album_cached", lambda aid: {
             "title": "Album", "artist": {"artistName": "Artist"},
             "images": [],
         })
         monkeypatch.setattr(
-            app_module, "_execute_manual_dl_with_progress",
+            manual_download, "_execute_manual_dl_with_progress",
             lambda **kw: seen.update(kw),
         )
         monkeypatch.setattr(
-            app_module.threading, "Thread",
+            manual_download.threading, "Thread",
             lambda target, daemon=None: MagicMock(start=target),
         )
         resp = client.post("/api/album/1/track/manual-download", json={
@@ -2996,7 +2998,7 @@ class TestManualDownloadTrackNumber:
         self, client, monkeypatch, tmp_path,
     ):
         import models
-        import app as app_module
+        import manual_download
         album_dir = tmp_path / "downloads" / "Various" / "My Playlist"
         _add_track(
             models, album_id=-1, album_title="My Playlist",
@@ -3004,11 +3006,11 @@ class TestManualDownloadTrackNumber:
             success=False, album_path=str(album_dir),
         )
         monkeypatch.setattr(
-            app_module, "_validate_target_path", lambda *a, **k: True,
+            manual_download, "_validate_target_path", lambda *a, **k: True,
         )
-        monkeypatch.setattr(app_module, "makedirs_safe", lambda *a, **k: None)
+        monkeypatch.setattr(manual_download, "makedirs_safe", lambda *a, **k: None)
         monkeypatch.setattr(
-            app_module, "download_youtube_candidate",
+            manual_download, "download_youtube_candidate",
             lambda *a, **k: {"success": False, "error_message": "SENTINEL_DL"},
         )
         resp = client.post("/api/download/manual", json={
@@ -3237,7 +3239,7 @@ class TestQueueIdValidation:
     def test_queue_tolerates_images_missing_keys(self, client, monkeypatch):
         import models
         models.enqueue_album(5)
-        monkeypatch.setattr("app._get_album_cached", lambda aid: {
+        monkeypatch.setattr("manual_download._get_album_cached", lambda aid: {
             "title": "A", "artist": {"artistName": "B"},
             "images": [{"url": "x"}, {"coverType": "cover"},
                        {"coverType": "cover", "remoteUrl": "http://c"}],
@@ -3251,7 +3253,8 @@ class TestJsonBodyValidation:
     @pytest.fixture(autouse=True)
     def _bypass_rate_limit(self):
         with patch("app.check_rate_limit", return_value=True), \
-                patch("youtube_import.check_rate_limit", return_value=True):
+                patch("youtube_import.check_rate_limit", return_value=True), \
+                patch("manual_download.check_rate_limit", return_value=True):
             yield
 
     def test_youtube_search_null_query(self, client):
