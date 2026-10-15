@@ -88,6 +88,10 @@ download_process = _make_download_state()
 
 queue_lock = threading.Lock()
 
+# Set while a self-restart (yt-dlp update) waits for the running download to
+# finish, so the queue starts nothing that os.execv would kill.
+restart_pending = threading.Event()
+
 # Every in-flight album download (the foreground one plus any background
 # download-client jobs), keyed by album_id and guarded by queue_lock. Lets
 # the SABnzbd queue report per-album progress and stop_download() reach
@@ -2758,7 +2762,7 @@ def _dispatch_next_from_queue():
     """
     import download_client
 
-    if load_config().get("queue_paused"):
+    if restart_pending.is_set() or load_config().get("queue_paused"):
         return
     try:
         queued = [
