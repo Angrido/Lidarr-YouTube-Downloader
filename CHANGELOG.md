@@ -62,6 +62,14 @@
   as vinyl rips.
 
 ### Changed
+- **Always the latest versions.** Every image build takes the newest Python
+  (`python:3-slim`, now 3.15), Debian packages, Deno and Python libraries;
+  `docker compose up -d --build` does it too, and the bgutil sidecar is pulled
+  fresh. Wheels a brand-new Python lacks are compiled in a separate build
+  stage, and a build that would ship broken (dependency conflict, the app no
+  longer importing, ffmpeg/Deno/fpcalc missing) now fails instead. CI tests on
+  the newest Python as well and re-checks every Monday. The unused
+  `bing-image-downloader` and `gunicorn` dependencies are gone.
 - **A completely redesigned interface.** Every page now shares one design
   system (`static/components.css` + `static/app.js`): a sidebar on desktop
   and a tab bar on phones with a live queue badge and a "downloading" dot,

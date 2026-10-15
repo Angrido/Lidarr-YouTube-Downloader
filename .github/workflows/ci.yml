@@ -4,27 +4,48 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  # Dependencies float to their latest release, so an upstream release can break
+  # the app with no commit here: re-check every Monday and say so before users do.
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # "3.x" is the newest Python, the one the Docker image runs on;
+        # 3.12 keeps the oldest supported version honest.
+        python-version: ["3.12", "3.x"]
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-          cache: pip
+          python-version: ${{ matrix.python-version }}
+          allow-prereleases: false
 
-      - name: Install dependencies
+      - name: Install dependencies (latest releases)
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pyflakes
+          pip install --upgrade -r requirements.txt pytest pyflakes
+          pip check
 
       - name: Lint (pyflakes)
         run: python -m pyflakes $(git ls-files '*.py')
 
       - name: Run tests
         run: python -m pytest tests/ -q
+
+  docker:
+    # Builds the image exactly as it ships (fresh base, packages and libraries),
+    # including its import and binary smoke checks; nothing is pushed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        run: docker buildx build --pull --no-cache --platform linux/amd64 -t lidarr-downloader:ci .

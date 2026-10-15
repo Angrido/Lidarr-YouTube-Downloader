@@ -5,5 +5,3 @@ bgutil-ytdlp-pot-provider
 ytmusicapi
 mutagen
 schedule
-bing-image-downloader
-gunicorn

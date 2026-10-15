@@ -1,6 +1,27 @@
-# Pinned to the version CI tests on. A floating python:3 jumps to each new
-# release before its wheels exist (3.15: brotli has none, and slim has no gcc).
-FROM python:3.12-slim
+# Everything floats to its latest release on each build: the Python base image,
+# the Debian packages, Deno and every Python dependency. Build with
+# `--pull --no-cache`, or Docker reuses cached layers and nothing updates.
+#
+# Two guards keep "latest" from shipping a broken image:
+# - wheels are built in a throwaway stage that has a compiler, because a
+#   brand-new Python often has no prebuilt wheel yet for some packages
+#   (Python 3.15 and brotli), and the slim runtime image has no gcc;
+# - the build fails on a dependency conflict (`pip check`) or when the app no
+#   longer imports on this Python, instead of producing an image that crashes.
+ARG PYTHON_IMAGE=python:3-slim
+
+FROM ${PYTHON_IMAGE} AS wheels
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+FROM ${PYTHON_IMAGE}
 
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
@@ -12,14 +33,19 @@ RUN apt-get update && apt-get upgrade -y && \
 WORKDIR /app
 
 COPY requirements.txt .
+COPY --from=wheels /wheels /wheels
 
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir --upgrade -r requirements.txt && \
-    pip install --no-cache-dir --upgrade yt-dlp
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir --no-index --find-links /wheels -r requirements.txt && \
+    rm -rf /wheels && \
+    pip check
 
 COPY . .
 
-RUN mkdir -p /config && sed -i 's/\r//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+# Smoke test: every module imports on this Python with these libraries.
+RUN mkdir -p /config && sed -i 's/\r//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh && \
+    python -c "import app" && \
+    deno --version >/dev/null && ffmpeg -version >/dev/null && fpcalc -version >/dev/null
 
 EXPOSE 5000
 ENV FLASK_APP=app.py

@@ -1,6 +1,11 @@
 services:
   lidarr-downloader:
-    build: .
+    # Every build takes the newest base image, packages and libraries
+    # (`docker compose up -d --build`); cached layers would freeze them.
+    build:
+      context: .
+      pull: true
+      no_cache: true
     container_name: lidarr-downloader
     restart: unless-stopped
     volumes:
@@ -29,6 +34,9 @@ services:
   # https://github.com/Brainicism/bgutil-ytdlp-pot-provider
   bgutil-provider:
     image: brainicism/bgutil-ytdlp-pot-provider:latest
+    # Always the newest sidecar, matching the bgutil plugin the image installs
+    # at its latest version: the two speak one protocol and must move together.
+    pull_policy: always
     container_name: bgutil-provider
     restart: unless-stopped
     init: true

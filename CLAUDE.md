@@ -46,13 +46,13 @@ WEBUI_PORT=5005
 Then run:
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 ### Docker Build & Run (manual)
 
 ```bash
-docker build -t lidarr-downloader .
+docker build --pull --no-cache -t lidarr-downloader .
 docker run -p 5005:5000 \
   -e PUID=1000 \
   -e PGID=1000 \
@@ -504,7 +504,23 @@ Standalone scripts not part of the main app:
 
 - `yt-dlp` — YouTube search and download
 - `mutagen` — MP3 ID3 tag reading/writing
-- `Flask` + `gunicorn` — web server
+- `Flask` — web server (its built-in server; `entrypoint.sh` runs `python app.py`)
+
+**Everything floats to its latest release, on purpose.** `requirements.txt`
+has no versions, the base image is `python:3-slim` (the newest Python), the
+Dockerfile runs `apt-get upgrade` and installs the latest Deno, and the
+bgutil sidecar is `:latest` with `pull_policy: always` (it must match the
+bgutil plugin pip installs). Build with `--pull --no-cache` (compose sets
+both), or cached layers keep the old versions. What keeps "latest" safe:
+- a `wheels` build stage with a compiler builds wheels a brand-new Python
+  does not have yet (Python 3.15: brotli), so the slim runtime needs no gcc;
+- the image build fails on `pip check` conflicts, on `python -c "import app"`
+  or on a missing `deno`/`ffmpeg`/`fpcalc`, instead of shipping a broken image;
+- CI tests on Python 3.12 and the newest 3.x with freshly resolved
+  dependencies, builds the image, and re-runs every Monday so an upstream
+  release that breaks the app is caught with no commit here.
+To hold a library back after a breaking release, add `pkg<X` to
+`requirements.txt` with a comment saying why and when to lift it.
 - `schedule` — optional cron-style scheduler
 - `ffmpeg` (system package, not pip) — audio conversion
 - `fpcalc`/chromaprint (optional system package) — AcoustID fingerprinting
