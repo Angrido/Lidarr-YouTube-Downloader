@@ -890,6 +890,28 @@ class TestDeleteTrackRoute:
         assert not mp3_path.exists()
         assert not xml_path.exists()
 
+    def test_delete_track_removes_library_copy_and_lrc(self, client, tmp_path):
+        import models
+        library = tmp_path / "library"
+        library.mkdir()
+        mp3_path = library / "01 - Song.mp3"
+        lrc_path = library / "01 - Song.lrc"
+        mp3_path.write_text("fake mp3")
+        lrc_path.write_text("[00:01.00] la")
+        _add_track(
+            models, album_id=1, track_title="Song", track_number=1,
+            album_path=str(tmp_path / "gone"),
+            lidarr_album_path=str(library),
+        )
+        tracks = models.get_track_downloads_for_album(1)
+        resp = client.delete(
+            f"/api/download/track/{tracks[0]['id']}",
+            json={"ban_url": False},
+        )
+        assert resp.get_json()["file_deleted"] is True
+        assert not mp3_path.exists()
+        assert not lrc_path.exists()
+
     def test_delete_track_file_missing(self, client):
         import models
         _add_track(

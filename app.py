@@ -1497,28 +1497,38 @@ def api_delete_track(track_id):
     sanitized_track = sanitize_filename(track_data["track_title"])
     track_num = track_data["track_number"] or 0
     album_path = track_data["album_path"]
-    xml_name = f"{track_num:02d} - {sanitized_track}.xml"
-    xml_path = os.path.join(album_path, xml_name)
+    base_name = f"{track_num:02d} - {sanitized_track}"
+    folders = [album_path]
+    # Negative ids are YouTube imports: their lidarr_album_path holds the source URL.
+    if track_data["album_id"] > 0 and track_data.get("lidarr_album_path"):
+        folders.insert(0, track_data["lidarr_album_path"])
 
     cfg_ext = load_config().get("audio_format", "mp3")
     audio_exts = [cfg_ext] + [e for e in ["mp3", "opus", "flac", "aac", "ogg", "m4a"] if e != cfg_ext]
-    for ext in audio_exts:
-        candidate = os.path.join(album_path, f"{track_num:02d} - {sanitized_track}.{ext}")
-        try:
-            os.remove(candidate)
-            file_deleted = True
-            break
-        except FileNotFoundError:
-            continue
-        except OSError:
-            logger.error("Failed to delete track file: %s", candidate, exc_info=True)
+    delete_failed = False
+    for folder in folders:
+        for ext in audio_exts:
+            candidate = os.path.join(folder, f"{base_name}.{ext}")
+            try:
+                os.remove(candidate)
+                file_deleted = True
+                break
+            except FileNotFoundError:
+                continue
+            except OSError:
+                logger.error("Failed to delete track file: %s", candidate, exc_info=True)
+                delete_failed = True
+                break
+        if file_deleted or delete_failed:
             break
     if not file_deleted:
-        logger.warning("Track file not found for deletion: %s/%02d - %s.*", album_path, track_num, sanitized_track)
-    try:
-        os.remove(xml_path)
-    except OSError:
-        pass
+        logger.warning("Track file not found for deletion: %s/%s.*", " | ".join(folders), base_name)
+    for folder in folders:
+        for sidecar in (".xml", ".lrc"):
+            try:
+                os.remove(os.path.join(folder, base_name + sidecar))
+            except OSError:
+                pass
 
     url_banned = False
     body = request.get_json(silent=True)
