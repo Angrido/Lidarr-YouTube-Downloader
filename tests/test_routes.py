@@ -105,6 +105,36 @@ class TestHistoryRoutes:
         assert len(data["items"]) == 2
         assert data["pages"] == 3
 
+    def test_get_history_outcome_and_search(self, client):
+        import models
+
+        _add_track(models, album_id=1, album_title="Good One")
+        _add_track(models, album_id=2, album_title="Bad One",
+                   success=False)
+        _add_track(models, album_id=3, album_title="Bad Two",
+                   success=False)
+        data = client.get(
+            "/api/download/history?outcome=error&q=%20one%20"
+        ).get_json()
+        assert [i["album_id"] for i in data["items"]] == [2]
+        assert data["counts"] == {
+            "all": 2, "success": 1, "partial": 0, "error": 1,
+        }
+
+    def test_get_history_passes_filters(self, client):
+        with patch("app.models.get_album_history",
+                   return_value={"items": []}) as mock:
+            client.get("/api/download/history?page=2&per_page=5"
+                       "&outcome=partial&q=abc")
+            mock.assert_called_once_with(2, 5, "partial", "abc")
+            mock.reset_mock()
+            client.get("/api/download/history?outcome=&q=")
+            mock.assert_called_once_with(1, 50, None, None)
+
+    def test_get_history_invalid_outcome(self, client):
+        resp = client.get("/api/download/history?outcome=bogus")
+        assert resp.status_code == 400
+
     def test_clear_history(self, client):
         import models
 

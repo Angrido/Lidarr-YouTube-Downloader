@@ -84,6 +84,7 @@
         .q-skeleton { max-width: 320px; }
 
         .h-filters { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center; justify-content: space-between; margin-bottom: var(--sp-3); }
+        .h-search { flex: 1 1 100%; }
         .h-quality { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
         .h-quality .ui-select { width: auto; min-width: 200px; max-width: 100%; }
         .h-list .h-item { flex-wrap: wrap; row-gap: 0; }
@@ -217,6 +218,12 @@
                     <button type="button" class="ui-btn ui-btn-danger ui-btn-sm" id="clearHistoryBtn" hidden><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-trash"></use></svg>Clear history</button>
                 </div>
                 <div class="h-filters" id="historyFilters" hidden>
+                    <div class="ui-input-group h-search">
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-search"></use></svg>
+                        <label class="sr-only" for="historySearch">Search history</label>
+                        <input type="search" class="ui-input" id="historySearch" placeholder="Search history" aria-keyshortcuts="/" autocomplete="off" spellcheck="false" aria-controls="downloadHistory">
+                        <kbd class="ui-kbd ui-input-kbd" aria-hidden="true">/</kbd>
+                    </div>
                     <div class="ui-chips" role="group" aria-label="Filter by outcome">
                         <button type="button" class="ui-chip" data-filter="all" aria-pressed="true">All <span class="ui-chip-count" data-count="all"></span></button>
                         <button type="button" class="ui-chip" data-filter="success" aria-pressed="false">Complete <span class="ui-chip-count" data-count="success"></span></button>
@@ -1293,6 +1300,8 @@
         let historyTotal = 0;
         let historyItems = [];
         let historyOutcome = 'all';
+        let historyQuery = '';
+        let historyCounts = {};
         let historyQuality = '';
         const albumFormats = {};
         let formatsLoading = false;
@@ -1823,7 +1832,6 @@
         }
 
         function itemMatches(item) {
-            if (historyOutcome !== 'all' && getAlbumStatus(item) !== historyOutcome) return false;
             if (historyQuality) {
                 const c = albumFormats[item.album_id];
                 if (!c || c.formats.indexOf(historyQuality) === -1) return false;
@@ -1834,10 +1842,8 @@
         function applyHistoryFilters() {
             const container = document.getElementById('downloadHistory');
             const list = container.querySelector('.h-list');
-            const counts = { all: historyItems.length, success: 0, partial: 0, error: 0 };
-            historyItems.forEach(function (it) { counts[getAlbumStatus(it)] += 1; });
             document.querySelectorAll('#historyFilters [data-count]').forEach(function (span) {
-                span.textContent = String(counts[span.getAttribute('data-count')] || 0);
+                span.textContent = String(historyCounts[span.getAttribute('data-count')] || 0);
             });
             document.querySelectorAll('#historyFilters [data-filter]').forEach(function (chip) {
                 chip.setAttribute('aria-pressed', chip.getAttribute('data-filter') === historyOutcome ? 'true' : 'false');
@@ -1858,14 +1864,14 @@
                 if (!empty) {
                     empty = el('div', 'ui-card h-filter-empty-card');
                     const box = el('div', 'ui-empty h-filter-empty');
-                    box.append(el('p', 'ui-empty-title', 'No albums match these filters'), el('p', 'ui-empty-text', 'Only this page of history is filtered. Try another outcome or quality, or clear the filters.'));
+                    box.append(el('p', 'ui-empty-title', 'No albums match these filters'), el('p', 'ui-empty-text', 'Try another search, outcome or quality, or clear the filters.'));
                     const actions = el('div', 'ui-empty-actions');
                     const reset = textButton('x', 'Clear filters', 'ui-btn ui-btn-secondary');
                     reset.addEventListener('click', function () {
-                        historyOutcome = 'all';
                         historyQuality = '';
                         document.getElementById('qualityFilter').value = '';
-                        applyHistoryFilters();
+                        document.getElementById('historySearch').value = '';
+                        setHistoryFilter('all', '');
                         const chip = document.querySelector('#historyFilters [data-filter="all"]');
                         if (chip) chip.focus();
                     });
@@ -1878,14 +1884,29 @@
                 empty.remove();
             }
             const summary = document.getElementById('historySummary');
-            const base = historyTotal + ' album' + (historyTotal === 1 ? '' : 's') + ' downloaded';
-            summary.textContent = (historyOutcome !== 'all' || historyQuality)
-                ? base + ' · showing ' + visible + ' of ' + historyItems.length + ' on this page'
-                : base + ', newest first. Expand an album to see its tracks.';
+            if (historyOutcome !== 'all' || historyQuery) {
+                summary.textContent = historyTotal + ' matching album' + (historyTotal === 1 ? '' : 's')
+                    + (historyQuality ? ' · ' + visible + ' on this page in this quality' : '');
+            } else {
+                const base = historyTotal + ' album' + (historyTotal === 1 ? '' : 's') + ' downloaded';
+                summary.textContent = historyQuality
+                    ? base + ' · showing ' + visible + ' of ' + historyItems.length + ' on this page'
+                    : base + ', newest first. Expand an album to see its tracks.';
+            }
+        }
+
+        function setHistoryFilter(outcome, query) {
+            historyOutcome = outcome;
+            historyQuery = query;
+            historyCurrentPage = 1;
+            lastHistorySig = null;
+            return updateHistory();
         }
 
         async function updateHistory() {
-            const url = '/api/download/history?page=' + historyCurrentPage + '&per_page=' + HISTORY_PER_PAGE;
+            let url = '/api/download/history?page=' + historyCurrentPage + '&per_page=' + HISTORY_PER_PAGE;
+            if (historyOutcome !== 'all') url += '&outcome=' + encodeURIComponent(historyOutcome);
+            if (historyQuery) url += '&q=' + encodeURIComponent(historyQuery);
             const container = document.getElementById('downloadHistory');
             const clearBtn = document.getElementById('clearHistoryBtn');
             const seq = ++historyLoadSeq;
@@ -1908,6 +1929,7 @@
             historyTotal = data.total;
             historyTotalPages = data.pages;
             historyCurrentPage = data.page;
+            historyCounts = data.counts || {};
 
             const sig = JSON.stringify(data);
             if (sig === lastHistorySig) {
@@ -1917,7 +1939,7 @@
             lastHistorySig = sig;
             container.removeAttribute('aria-busy');
 
-            if (data.total === 0) {
+            if (data.total === 0 && historyOutcome === 'all' && !historyQuery) {
                 expandedAlbumIds.clear();
                 historyItems = [];
                 container.replaceChildren(document.getElementById('tplHistoryEmpty').content.cloneNode(true));
@@ -2143,9 +2165,16 @@
             document.getElementById('retryFailedModal').addEventListener('modal:closed', function () { retryFailedAlbumId = null; });
             document.querySelectorAll('#historyFilters [data-filter]').forEach(function (chip) {
                 chip.addEventListener('click', function () {
-                    historyOutcome = chip.getAttribute('data-filter');
-                    applyHistoryFilters();
+                    setHistoryFilter(chip.getAttribute('data-filter'), historyQuery);
                 });
+            });
+            let searchTimer = null;
+            document.getElementById('historySearch').addEventListener('input', function (e) {
+                clearTimeout(searchTimer);
+                searchTimer = setTimeout(function () {
+                    const q = e.target.value.trim();
+                    if (q !== historyQuery) setHistoryFilter(historyOutcome, q);
+                }, 250);
             });
             document.getElementById('qualityFilter').addEventListener('change', function (e) {
                 historyQuality = e.target.value;

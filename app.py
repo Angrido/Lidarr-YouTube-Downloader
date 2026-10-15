@@ -1787,7 +1787,11 @@ def api_reorder_queue():
 def api_download_history():
     page = request.args.get("page", 1, type=int)
     per_page = request.args.get("per_page", 50, type=int)
-    return jsonify(models.get_album_history(page, per_page))
+    outcome = request.args.get("outcome") or None
+    if outcome is not None and outcome not in models.HISTORY_OUTCOMES:
+        return jsonify({"error": "Invalid outcome"}), 400
+    q = request.args.get("q", "").strip()[:200] or None
+    return jsonify(models.get_album_history(page, per_page, outcome, q))
 
 
 @app.route("/api/download/history/clear", methods=["POST"])

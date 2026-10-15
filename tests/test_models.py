@@ -951,6 +951,77 @@ def test_get_album_history_fields_and_order(monkeypatch):
     assert page2["pages"] == 2
 
 
+def _history_fixture(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    # 1: complete, 2: partial, 3: failed, 4: failed then fixed -> complete
+    _add_dl(album_id=1, album_title="Blue Sky", artist_name="Ann")
+    _add_dl(album_id=2, album_title="100% Pure", artist_name="Bob")
+    _add_dl(album_id=2, album_title="100% Pure", artist_name="Bob",
+            track_title="T2", success=False)
+    _add_dl(album_id=3, album_title="Night_Drive", artist_name="Cat",
+            success=False)
+    _add_dl(album_id=4, album_title="Retry", artist_name="Dan",
+            success=False)
+    _add_dl(album_id=4, album_title="Retry", artist_name="Dan")
+
+
+@pytest.mark.parametrize("outcome,ids", [
+    (None, [4, 3, 2, 1]),
+    ("success", [4, 1]),
+    ("partial", [2]),
+    ("error", [3]),
+])
+def test_get_album_history_outcome_filter(monkeypatch, outcome, ids):
+    _history_fixture(monkeypatch)
+    result = models.get_album_history(1, 50, outcome=outcome)
+    assert [i["album_id"] for i in result["items"]] == ids
+    assert result["total"] == len(ids)
+    assert result["counts"] == {
+        "all": 4, "success": 2, "partial": 1, "error": 1,
+    }
+
+
+def test_get_album_history_outcome_paginates_filtered(monkeypatch):
+    _history_fixture(monkeypatch)
+    result = models.get_album_history(2, 1, outcome="success")
+    assert result["pages"] == 2
+    assert [i["album_id"] for i in result["items"]] == [1]
+
+
+@pytest.mark.parametrize("q,ids", [
+    ("blue", [1]),          # album title, case-insensitive
+    ("CAT", [3]),           # artist name
+    ("%", [2]),             # literal %, not a wildcard
+    ("0% p", [2]),
+    ("t_d", [3]),           # _ matches only a literal _
+    ("u_", []),             # not a wildcard: "Blue" must not match
+    ("zzz", []),
+])
+def test_get_album_history_search(monkeypatch, q, ids):
+    _history_fixture(monkeypatch)
+    result = models.get_album_history(1, 50, q=q)
+    assert [i["album_id"] for i in result["items"]] == ids
+    assert result["total"] == len(ids)
+    assert result["counts"]["all"] == len(ids)
+
+
+def test_get_album_history_search_uses_latest_title(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    _add_dl(album_id=5, album_title="Old Name", track_title="T1")
+    _add_dl(album_id=5, album_title="New Name", track_title="T2")
+    assert models.get_album_history(1, 50, q="old")["total"] == 0
+    assert models.get_album_history(1, 50, q="new")["total"] == 1
+
+
+def test_get_album_history_search_and_outcome(monkeypatch):
+    _history_fixture(monkeypatch)
+    result = models.get_album_history(1, 50, outcome="error", q="u")
+    assert [i["album_id"] for i in result["items"]] == []
+    assert result["counts"] == {
+        "all": 2, "success": 1, "partial": 1, "error": 0,
+    }
+
+
 def test_track_failure_counts_ignore_host_postprocess_failures(monkeypatch):
     monkeypatch.setattr(models.time, "time", _Clock())
     _add_dl(track_title="Song", success=False, error_message="No match")
