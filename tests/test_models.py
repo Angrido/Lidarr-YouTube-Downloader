@@ -460,6 +460,20 @@ def test_clear_queue():
     assert len(models.get_queue()) == 0
 
 
+def test_clear_queue_keeps_active_album():
+    for album_id in (10, 11, 12):
+        models.enqueue_album(album_id)
+    models.set_queue_status(11, models.QUEUE_STATUS_DOWNLOADING)
+    models.clear_queue(include_active=False)
+    queue = models.get_queue()
+    assert [(r["album_id"], r["status"]) for r in queue] == [
+        (11, models.QUEUE_STATUS_DOWNLOADING)
+    ]
+    assert queue[0]["position"] == 1
+    models.clear_queue()
+    assert models.get_queue() == []
+
+
 def test_get_latest_download_album_id_empty():
     assert models.get_latest_download_album_id() is None
 
@@ -1145,6 +1159,49 @@ def test_track_failure_counts_host_failure_does_not_reset(monkeypatch):
     )
     _add_dl(track_title="Song", success=False, error_message=None)
     assert models.get_track_failure_counts(1)["Song"]["failures"] == 3
+
+
+def test_get_stuck_tracks_groups_and_filters(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    for _ in range(4):
+        _add_dl(album_id=1, track_title="Gone", success=False,
+                error_message="No match")
+    # Same title on another album is a different track.
+    for _ in range(3):
+        _add_dl(album_id=2, album_title="B", track_title="Gone",
+                success=False, error_message="No match")
+    # Below the threshold.
+    for _ in range(2):
+        _add_dl(album_id=1, track_title="Rare", success=False,
+                error_message="No match")
+    # Host and disk-full failures do not count.
+    _add_dl(album_id=1, track_title="Host", success=False,
+            error_message="No match")
+    _add_dl(album_id=1, track_title="Host", success=False,
+            error_message=models.HOST_FAILURE_PREFIX + " (ffmpeg)")
+    _add_dl(album_id=1, track_title="Host", success=False,
+            error_message=models.DISK_FULL_PREFIX + ": no space")
+    # A later success resets the count.
+    for _ in range(3):
+        _add_dl(album_id=1, track_title="Fixed", success=False,
+                error_message="No match")
+    _add_dl(album_id=1, track_title="Fixed", success=True)
+    _add_dl(album_id=1, track_title="Fixed", success=False,
+            error_message="No match")
+    # Playlist imports are never listed.
+    for _ in range(3):
+        _add_dl(album_id=-5, track_title="Pl", success=False,
+                error_message="No match")
+
+    rows = models.get_stuck_tracks()
+    assert [(r["album_id"], r["track_title"], r["failures"]) for r in rows] == [
+        (1, "Gone", 4), (2, "Gone", 3),
+    ]
+    assert rows[1]["album_title"] == "B"
+    assert rows[0]["artist_name"] == "X"
+    assert rows[0]["last_failure"] == 1_000_004.0
+    assert len(models.get_stuck_tracks(min_failures=2)) == 3
+    assert len(models.get_stuck_tracks(limit=1)) == 1
 
 
 def test_album_source_hint_roundtrip_and_upsert():

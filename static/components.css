@@ -196,6 +196,51 @@
     }
 }
 
+/* Without relative colour syntax (Safari < 16.4, Firefox < 128) every
+   oklch(from …) token above is invalid at use time. Custom properties keep
+   the last declaration even when the engine can't use it, so the fixed
+   default-violet values and the color-mix() ones need separate @supports
+   blocks rather than two lines in one rule. The gradient darkens instead of
+   rotating hue; accent text is mixed toward black/white until it is AA.
+   shortcut: --text-on-accent stays white, so a very light custom accent
+   (yellow, lime) loses contrast on these engines only. */
+@supports not (color: oklch(from red l c h)) {
+    :root {
+        --accent-2: #0688ca;
+        --accent-3: #d22da7;
+        --text-on-accent: #fff;
+        --accent-text: #6239dc;
+    }
+    :root[data-theme="dark"] {
+        --accent-text: #b8b4fe;
+        --focus-ring: rgba(167, 160, 254, 0.6);
+    }
+    @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+            --accent-text: #b8b4fe;
+            --focus-ring: rgba(167, 160, 254, 0.6);
+        }
+    }
+}
+
+@supports (color: color-mix(in srgb, red 50%, white)) and (not (color: oklch(from red l c h))) {
+    :root {
+        --accent-2: color-mix(in srgb, var(--accent-base) 80%, black);
+        --accent-3: color-mix(in srgb, var(--accent-base) 65%, black);
+        --accent-text: color-mix(in srgb, var(--accent-base) 55%, black);
+    }
+    :root[data-theme="dark"] {
+        --accent-text: color-mix(in srgb, var(--accent-base) 45%, white);
+        --focus-ring: color-mix(in srgb, color-mix(in srgb, var(--accent-base) 45%, white) 60%, transparent);
+    }
+    @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+            --accent-text: color-mix(in srgb, var(--accent-base) 45%, white);
+            --focus-ring: color-mix(in srgb, color-mix(in srgb, var(--accent-base) 45%, white) 60%, transparent);
+        }
+    }
+}
+
 *,
 *::before,
 *::after {

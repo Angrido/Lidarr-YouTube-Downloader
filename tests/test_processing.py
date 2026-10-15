@@ -2966,6 +2966,67 @@ class TestTrackWorkerException:
 
 
 class TestPostprocessFailureReason:
+    @pytest.fixture(autouse=True)
+    def isolate_config(self, tmp_path, monkeypatch):
+        import processing
+        monkeypatch.setattr("config.CONFIG_FILE", str(tmp_path / "config.json"))
+        self.notified = []
+        monkeypatch.setattr(
+            processing, "send_notifications",
+            lambda *a, **k: self.notified.append(k),
+        )
+
+    @staticmethod
+    def _fail_with(tmp_path, monkeypatch, error, n_tracks=1):
+        import processing
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+        tracks = [
+            {"title": f"T{i}", "trackNumber": i, "duration": 1000}
+            for i in range(1, n_tracks + 1)
+        ]
+        monkeypatch.setattr(processing, "load_config", lambda: _PLAIN_CFG)
+        monkeypatch.setattr(
+            processing, "search_youtube_candidates",
+            lambda *a, **k: [{
+                "url": "https://www.youtube.com/watch?v=abcdefghijk",
+                "title": "T", "duration": 1, "score": 0.99,
+            }],
+        )
+        monkeypatch.setattr(
+            processing, "download_youtube_candidate",
+            lambda *a, **k: {"success": False, "error_message": error},
+        )
+        state = processing._make_download_state()
+        state["tracks"] = [_state_track(t["title"], t["trackNumber"])
+                           for t in tracks]
+        return processing._download_tracks(
+            tracks, album_path, {"tracks": tracks}, _make_album_ctx(), state,
+        )[0]
+
+    def test_full_disk_pauses_the_queue_and_notifies_once(
+        self, tmp_path, monkeypatch,
+    ):
+        import config
+        failed = self._fail_with(
+            tmp_path, monkeypatch,
+            "ERROR: [Errno 28] No space left on device", n_tracks=3,
+        )
+        assert len(failed) == 3
+        config.invalidate_config_cache()
+        assert config.load_config()["queue_paused"] is True
+        assert len(self.notified) == 1
+        assert self.notified[0]["log_type"] == "album_error"
+
+    def test_ordinary_failure_leaves_the_queue_running(
+        self, tmp_path, monkeypatch,
+    ):
+        import config
+        self._fail_with(tmp_path, monkeypatch, "No match")
+        config.invalidate_config_cache()
+        assert not config.load_config().get("queue_paused")
+        assert self.notified == []
+
     @pytest.mark.parametrize("message", ["", "ffmpeg exploded"])
     def test_reason_is_recognised_as_a_host_failure(
         self, tmp_path, monkeypatch, message,

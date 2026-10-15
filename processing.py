@@ -17,7 +17,9 @@ import uuid
 
 import logutil
 import models
-from config import load_config, retry_cooldown_seconds, MIN_MATCH_SCORE_DEFAULT
+from config import (
+    load_config, retry_cooldown_seconds, update_config, MIN_MATCH_SCORE_DEFAULT,
+)
 from models import CandidateOutcome
 from downloader import (
     _extract_video_id,
@@ -191,6 +193,39 @@ def _send_album_notification(
         telegram_parse_mode="MarkdownV2",
         photo_url=cover_url or None,
         disable_notification=disable_notification,
+    )
+
+
+def _pause_queue_for_full_disk(album_ctx):
+    """Pause the queue when the download disk is full, so the next albums
+    don't each fail the same way. Notifies only on the transition."""
+    paused_now = []
+
+    def _pause(cfg):
+        # Checked under update_config's lock: concurrent tracks notify once.
+        if not cfg.get("queue_paused"):
+            cfg["queue_paused"] = True
+            paused_now.append(True)
+
+    update_config(_pause)
+    if not paused_now:
+        return
+    logger.warning(
+        "   Download disk is full: queue paused."
+        " Free some space, then resume the queue."
+    )
+    send_notifications(
+        "Download disk is full: the queue was paused. Free some space,"
+        " then resume the queue.",
+        log_type="album_error",
+        embed_data={
+            "title": "Queue paused: download disk is full",
+            "description": (
+                f"{album_ctx.get('artist_name', '')} —"
+                f" {album_ctx.get('album_title', '')}"
+            ),
+            "color": 0xE74C3C,
+        },
     )
 
 
@@ -1133,7 +1168,6 @@ def _compute_deferred_tracks(album_id, tracks, cfg=None):
     if not counts:
         return {}
 
-    base = retry_cooldown_seconds(cfg) or 24 * 3600
     now = time.time()
     deferred = {}
     for track in tracks:
@@ -1142,17 +1176,31 @@ def _compute_deferred_tracks(album_id, tracks, cfg=None):
         if not info:
             continue
         failures = info["failures"]
-        if max_retries > 0 and failures >= max_retries:
-            deferred[title] = {"failures": failures, "retry_at": None}
-            continue
-        if not backoff_on:
-            continue
-        exponent = min(max(failures - 1, 0), _TRACK_BACKOFF_MAX_EXPONENT)
-        wait = min(base * (2 ** exponent), _TRACK_BACKOFF_MAX_SECONDS)
-        retry_at = info["last_failure"] + wait
-        if now < retry_at:
+        retry_at = _track_retry_at(failures, info["last_failure"], cfg)
+        if retry_at is None or now < retry_at:
             deferred[title] = {"failures": failures, "retry_at": retry_at}
     return deferred
+
+
+def _track_retry_at(failures, last_failure, cfg):
+    """When a failing track may be tried again (issue #90).
+
+    Returns None when it is given up on (``max_track_retries`` reached),
+    0.0 when backoff is off, else ``last_failure`` plus
+    ``scheduler_retry_after_hours * 2^(failures-1)``, capped at 30 days.
+    """
+    try:
+        max_retries = int(cfg.get("max_track_retries", 0) or 0)
+    except (TypeError, ValueError):
+        max_retries = 0
+    if max_retries > 0 and failures >= max_retries:
+        return None
+    if not cfg.get("track_retry_backoff", True):
+        return 0.0
+    base = retry_cooldown_seconds(cfg) or 24 * 3600
+    exponent = min(max(failures - 1, 0), _TRACK_BACKOFF_MAX_EXPONENT)
+    wait = min(base * (2 ** exponent), _TRACK_BACKOFF_MAX_SECONDS)
+    return last_failure + wait
 
 
 def _filter_tracks(tracks, force, album_path, deferred=None):
@@ -2176,6 +2224,7 @@ def _download_tracks(
             last_error = track_state.get("last_download_error") or ""
             if "no space left" in last_error.lower():
                 fail_reason = f"{models.DISK_FULL_PREFIX}: {fail_reason}"
+                _pause_queue_for_full_disk(album_ctx)
             _record_track_failure(
                 fail_reason,
                 track_state, track_title, track_num,
