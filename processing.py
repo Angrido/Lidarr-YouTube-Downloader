@@ -92,6 +92,11 @@ queue_lock = threading.Lock()
 # finish, so the queue starts nothing that os.execv would kill.
 restart_pending = threading.Event()
 
+
+def automatic_downloads_held():
+    """True while nothing automatic may start: queue paused or restart pending."""
+    return restart_pending.is_set() or bool(load_config().get("queue_paused"))
+
 # Every in-flight album download (the foreground one plus any background
 # download-client jobs), keyed by album_id and guarded by queue_lock. Lets
 # the SABnzbd queue report per-album progress and stop_download() reach
@@ -2798,7 +2803,7 @@ def _dispatch_next_from_queue():
     """
     import download_client
 
-    if restart_pending.is_set() or load_config().get("queue_paused"):
+    if automatic_downloads_held():
         return
     try:
         queued = [

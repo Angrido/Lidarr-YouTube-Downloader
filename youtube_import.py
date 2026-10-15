@@ -23,7 +23,12 @@ from downloader import cookiefile_for_ytdlp, download_youtube_candidate
 from lidarr import lidarr_request
 from metadata import ensure_artist_image, tag_audio_file
 from notifications import send_notifications
-from processing import _dir_has_audio, download_process, queue_lock
+from processing import (
+    _dir_has_audio,
+    automatic_downloads_held,
+    download_process,
+    queue_lock,
+)
 from utils import (
     BaseNotMountedError,
     _cleanup_temp_files,
@@ -502,14 +507,27 @@ def _watch_playlists_once(config):
                 seen.add(video_url)
                 continue
             logger.info("Playlist watch: new upload %s — %s", artist, album)
-            # Wait for the download slot like the artist import does; the
-            # Lidarr queue can keep it busy for a long time.
-            while _execute_playlist_download(
-                artist, album, [{"title": album, "url": video_url}], target,
-                config, f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
-                playlist_url, year,
-            ) is False:
-                pass
+            # Wait quietly for the download slot (the Lidarr queue can keep it
+            # busy for a long time) and start nothing while the queue is paused
+            # or a restart is pending. False = lost a race for the slot.
+            logged = False
+            while True:
+                held = automatic_downloads_held()
+                if held or download_process.get("active"):
+                    if held and not logged:
+                        logger.info(
+                            "Playlist watch: queue paused or restart pending, "
+                            "waiting to import %s — %s", artist, album,
+                        )
+                        logged = True
+                    time.sleep(10)
+                    continue
+                if _execute_playlist_download(
+                    artist, album, [{"title": album, "url": video_url}], target,
+                    config, f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+                    playlist_url, year,
+                ) is not False:
+                    break
             seen.add(video_url)
 
 
