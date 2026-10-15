@@ -65,6 +65,7 @@ from processing import (
     skip_track,
     stop_download,
 )
+import scheduler
 from scheduler import run_scheduler, setup_scheduler
 import explore
 import library
@@ -2016,6 +2017,27 @@ def api_scheduler_toggle():
     enabled = _toggle_config("scheduler_enabled", False)
     setup_scheduler()
     return jsonify({"enabled": enabled})
+
+
+@app.route("/api/scheduler/status")
+def api_scheduler_status():
+    return jsonify({
+        "enabled": bool(load_config().get("scheduler_enabled")),
+        "next_run": scheduler.next_run_timestamp(),
+    })
+
+
+@app.route("/api/scheduler/run", methods=["POST"])
+def api_scheduler_run():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"scheduler_run:{client_ip}", rate_limit_store,
+        window=30, max_requests=1,
+    ):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
+    # scheduled_check logs its own errors and skips while a download runs.
+    threading.Thread(target=scheduler.scheduled_check, daemon=True).start()
+    return jsonify({"success": True})
 
 
 @app.route("/api/scheduler/autodownload/toggle", methods=["POST"])

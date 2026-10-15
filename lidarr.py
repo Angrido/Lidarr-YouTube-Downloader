@@ -160,13 +160,13 @@ def get_missing_albums():
     so this call is instant and works on libraries of any size.
 
     Returns:
-        List of album dicts, each augmented with a missingTrackCount field.
+        Slim album dicts (see models.get_cached_missing_albums_summary).
         Returns an empty list on error or when the cache has not been
         populated yet.
     """
     try:
         import models
-        return models.get_cached_missing_albums()
+        return models.get_cached_missing_albums_summary()
     except Exception as e:
         logger.warning(f"Failed to read cached missing albums: {e}")
         return []

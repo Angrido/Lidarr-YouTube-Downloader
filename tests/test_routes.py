@@ -779,6 +779,23 @@ class TestMiscRoutes:
             assert resp.status_code == 200
             assert resp.get_json() == []
 
+    def test_missing_albums_sends_slim_rows(self, client):
+        import models
+
+        models.upsert_missing_album({
+            "id": 5, "title": "Slim", "releaseDate": "2020-01-01",
+            "artist": {"id": 2, "artistName": "Art", "overview": "x" * 500},
+            "statistics": {"trackCount": 4, "trackFileCount": 1},
+            "images": [{"coverType": "cover", "remoteUrl": "http://c"}],
+            "releases": [{"id": 1, "media": []}],
+        }, run_id=1)
+        data = client.get("/api/missing-albums").get_json()
+        assert len(data) == 1
+        assert data[0]["missingTrackCount"] == 3
+        assert data[0]["artist"]["artistName"] == "Art"
+        assert "releases" not in data[0]
+        assert "overview" not in data[0]["artist"]
+
     def test_ytdlp_version(self, client):
         with patch("app.get_ytdlp_version", return_value="2024.01.01"):
             resp = client.get("/api/ytdlp/version")
@@ -3615,3 +3632,29 @@ class TestStartupYtdlpUpdate:
         app_module._startup_ytdlp_update()
         assert "restart" not in calls
         assert not app_module.restart_pending.is_set()
+
+
+class TestSchedulerRunRoutes:
+    @pytest.fixture(autouse=True)
+    def reset_rate_limit(self):
+        import app
+        app.rate_limit_store.clear()
+        yield
+        app.rate_limit_store.clear()
+
+    def test_status_disabled_has_no_next_run(self, client):
+        import schedule
+        schedule.clear()
+        data = client.get("/api/scheduler/status").get_json()
+        assert data == {"enabled": False, "next_run": None}
+
+    def test_run_starts_check_thread_and_is_rate_limited(self, client):
+        import scheduler
+        with patch("app.threading.Thread") as thread:
+            resp = client.post("/api/scheduler/run")
+            assert resp.status_code == 200
+            assert resp.get_json() == {"success": True}
+            assert thread.call_args.kwargs["target"] is scheduler.scheduled_check
+            thread.return_value.start.assert_called_once()
+            assert client.post("/api/scheduler/run").status_code == 429
+            assert thread.call_count == 1

@@ -740,6 +740,9 @@
                             <p class="ui-group-title">Scheduler</p>
                             <div class="ui-group">
                                 {{ switch_row('toggleBtn', 'Scheduler', 'Enable automatic periodic checks for missing albums.', 'clock', '', '/api/scheduler/toggle', 'scheduler_enabled') }}
+                                {% call inline_row('schedulerRunBtn', 'Check now', 'Scheduler off', 'play', 'success') %}
+                                <button type="button" class="ui-btn ui-btn-tinted ui-btn-sm" id="schedulerRunBtn" aria-describedby="schedulerRunBtn-desc" onclick="runSchedulerCheck()">{{ ico('play') }}<span>Run check now</span></button>
+                                {% endcall %}
                                 {{ switch_row('autoDlBtn', 'Auto download', 'Automatically download missing albums when found.', 'cloud-download', 'success', '/api/scheduler/autodownload/toggle', 'scheduler_auto_download') }}
                                 {% call inline_row('interval', 'Check interval', 'How often to check for missing albums, in minutes (1–1440).', 'refresh', 'info', err=true) %}
                                 <span class="num-field"><input type="number" class="ui-input ui-input-num" id="interval" value="60" min="1" max="1440" step="1" inputmode="numeric" aria-describedby="interval-desc"><span class="num-unit" aria-hidden="true">min</span></span>
@@ -1257,6 +1260,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 _savedAudioFormat = getSeg('audioFormatSelect') || 'mp3';
                 refreshCookiesStatus();
                 checkFfmpeg(false);
+                refreshSchedulerStatus();
                 _savedState = comparableState();
                 updateSaveBar();
             } catch (e) {
@@ -1615,6 +1619,34 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             return label ? label.textContent.trim() : 'Setting';
         }
 
+        async function refreshSchedulerStatus() {
+            const desc = $('schedulerRunBtn-desc');
+            try {
+                const s = await UI.fetchJSON('/api/scheduler/status');
+                if (!s.enabled || !s.next_run) {
+                    desc.textContent = 'Scheduler off';
+                    return;
+                }
+                const min = Math.round((s.next_run * 1000 - Date.now()) / 60000);
+                desc.textContent = 'Next check: ' + (min < 1 ? 'in under a minute'
+                    : min < 60 ? 'in ' + min + ' min'
+                    : 'in ' + Math.round(min / 60) + ' h');
+            } catch (_) {
+                desc.textContent = 'Next check: unknown';
+            }
+        }
+
+        function runSchedulerCheck() {
+            return UI.guard($('schedulerRunBtn'), async () => {
+                try {
+                    await UI.fetchJSON('/api/scheduler/run', { method: 'POST' });
+                    UI.toast('Check started');
+                } catch (e) {
+                    toast(errorText(e, 'Network error — the check was not started.'), 'error');
+                }
+            }, 'Starting…');
+        }
+
         async function instantToggle(el) {
             const previous = !el.checked;
             if (el.getAttribute('aria-busy') === 'true') {
@@ -1637,6 +1669,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     rebaseSaved('download_client_api_key', data.api_key);
                 }
                 setInstantStatus(el.id, 'saved');
+                if (el.id === 'toggleBtn') refreshSchedulerStatus();
             } catch (e) {
                 setSwitch(el.id, previous);
                 setInstantStatus(el.id, '');
