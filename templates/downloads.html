@@ -1026,10 +1026,15 @@
             v.skipBtn.setAttribute('aria-label', canSkip ? 'Skip current track: ' + (tracks[activeIndex].track_title || '') : 'Skip track');
         }
 
+        // The stream sends the queue only when it changed; keep the last one
+        // so a change that arrives mid-drag is still applied afterwards.
+        var serverQueue = null;
+
         function updateQueueFromSSE(queue, statusData) {
-            if (!isDragging && reorderPending === 0 && Date.now() >= reorderHoldUntil) {
-                currentQueue = queue;
-                renderQueue(queue);
+            if (queue !== undefined) serverQueue = queue;
+            if (serverQueue && !isDragging && reorderPending === 0 && Date.now() >= reorderHoldUntil) {
+                currentQueue = serverQueue;
+                renderQueue(serverQueue);
             }
         }
 

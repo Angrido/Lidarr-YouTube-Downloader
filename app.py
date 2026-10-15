@@ -1578,6 +1578,7 @@ def api_download_stream():
 
     def generate():
         start_time = time.time()
+        last_queue_json = None
         try:
             while True:
                 if time.time() - start_time > sse_timeout:
@@ -1621,10 +1622,13 @@ def api_download_stream():
                         if active_track else ""
                     ),
                 }
-                data = {
-                    "status": status,
-                    "queue": queue_data,
-                }
+                data = {"status": status}
+                # The queue can hold thousands of albums (issue #95): send it
+                # only when it changed; clients keep the last one they got.
+                queue_json = json.dumps(queue_data, sort_keys=True)
+                if queue_json != last_queue_json:
+                    data["queue"] = queue_data
+                    last_queue_json = queue_json
                 yield f"data: {json.dumps(data)}\n\n"
                 time.sleep(1)
         except GeneratorExit:
