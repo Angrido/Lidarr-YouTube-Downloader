@@ -593,6 +593,19 @@ class TestInsightsRoute:
         assert data["totals"]["success_rate"] == 50.0
         assert data["top_artists"][0]["artist"] == "Artist X"
 
+    def test_insights_stuck_tracks(self, client):
+        import models
+
+        assert client.get("/api/insights").get_json()["stuck_tracks"] == []
+        for _ in range(3):
+            _add_track(models, album_id=4, track_title="Lost",
+                       success=False, error_message="No match")
+        rows = client.get("/api/insights").get_json()["stuck_tracks"]
+        assert len(rows) == 1
+        assert rows[0]["track_title"] == "Lost"
+        assert rows[0]["failures"] == 3
+        assert rows[0]["retry_at"] > rows[0]["last_failure"]
+
     def test_insights_days_clamped(self, client):
         assert len(client.get("/api/insights?days=0")
                    .get_json()["daily"]) == 1

@@ -957,6 +957,29 @@
             });
         }
 
+        function fmtRetry(retryAt) {
+            if (retryAt == null) return 'given up';
+            const secs = retryAt - Date.now() / 1000;
+            if (secs <= 0) return 'next run';
+            const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+            if (secs < 3600) return rtf.format(Math.ceil(secs / 60), 'minute');
+            if (secs < 86400) return rtf.format(Math.round(secs / 3600), 'hour');
+            return rtf.format(Math.round(secs / 86400), 'day');
+        }
+
+        function buildStuckCard(rows) {
+            if (!rows || !rows.length) return '';
+            const cell = (label, value, cls) => '<td data-label="' + label + '"' + (cls ? ' class="' + cls + '"' : '') + '><bdi>' + esc(value) + '</bdi></td>';
+            return '<section class="ui-card chart-card chart-card-wide" aria-labelledby="stuck-title">'
+                + '<div class="chart-head"><div><h2 class="ui-card-title" id="stuck-title">' + UI.icon('alert') + 'Stuck tracks</h2>'
+                + '<p class="ui-card-sub">Tracks that keep failing, with their consecutive failures and when they are tried again</p></div></div>'
+                + '<div class="ui-table-wrap"><table class="ui-table ui-table-responsive"><caption class="sr-only">Stuck tracks</caption>'
+                + '<thead><tr><th scope="col">Artist</th><th scope="col">Album</th><th scope="col">Track</th><th scope="col" class="num">Failures</th><th scope="col">Next retry</th></tr></thead><tbody>'
+                + rows.map((r) => '<tr>' + cell('Artist', r.artist_name || 'Unknown') + cell('Album', r.album_title || 'Unknown') + cell('Track', r.track_title)
+                    + cell('Failures', fmtInt(r.failures), 'num') + cell('Next retry', fmtRetry(r.retry_at)) + '</tr>').join('')
+                + '</tbody></table></div></section>';
+        }
+
         function render(data, animate) {
             lastData = data;
             const t = data.totals;
@@ -982,6 +1005,7 @@
                 + buildDonutCard(data)
                 + buildHBarCard('quality', 'headphones', 'Audio quality', 'Source stream container of downloaded tracks, ' + rangeLabel(data.window_days), data.quality, 'label', 'Container', true)
                 + buildHBarCard('artists', 'star', 'Top artists', 'Most downloaded artists, ' + rangeLabel(data.window_days), data.top_artists, 'artist', 'Artist', false)
+                + buildStuckCard(data.stuck_tracks)
                 + '</div>';
             dailyWidth = 0;
             drawDailyChart(anim);

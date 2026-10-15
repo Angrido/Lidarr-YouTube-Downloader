@@ -59,6 +59,7 @@ from metadata import (
 from notifications import send_notifications
 from processing import (
     _track_number,
+    _track_retry_at,
     any_download_active,
     download_process,
     get_download_status,
@@ -1616,7 +1617,14 @@ def api_insights():
         days = 1
     if days > 365:
         days = 365
-    return jsonify(models.get_insights(days=days))
+    data = models.get_insights(days=days)
+    cfg = load_config()
+    data["stuck_tracks"] = [
+        dict(row, retry_at=_track_retry_at(
+            row["failures"], row["last_failure"], cfg))
+        for row in models.get_stuck_tracks()
+    ]
+    return jsonify(data)
 
 
 @app.route("/api/logs", methods=["GET"])
