@@ -460,6 +460,20 @@ def test_clear_queue():
     assert len(models.get_queue()) == 0
 
 
+def test_clear_queue_keeps_active_album():
+    for album_id in (10, 11, 12):
+        models.enqueue_album(album_id)
+    models.set_queue_status(11, models.QUEUE_STATUS_DOWNLOADING)
+    models.clear_queue(include_active=False)
+    queue = models.get_queue()
+    assert [(r["album_id"], r["status"]) for r in queue] == [
+        (11, models.QUEUE_STATUS_DOWNLOADING)
+    ]
+    assert queue[0]["position"] == 1
+    models.clear_queue()
+    assert models.get_queue() == []
+
+
 def test_get_latest_download_album_id_empty():
     assert models.get_latest_download_album_id() is None
 

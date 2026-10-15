@@ -396,6 +396,20 @@ class TestQueueRoutes:
         assert resp.status_code == 200
         assert models.get_queue_length() == 0
 
+    def test_clear_queue_keeps_downloading_album(self, client):
+        import models
+
+        models.enqueue_album(1)
+        models.enqueue_album(2)
+        models.set_queue_status(1, models.QUEUE_STATUS_DOWNLOADING)
+        with patch("download_client.cancel_queued") as cancel:
+            resp = client.post("/api/download/queue/clear")
+        assert resp.status_code == 200
+        queue = models.get_queue()
+        assert [r["album_id"] for r in queue] == [1]
+        assert queue[0]["status"] == models.QUEUE_STATUS_DOWNLOADING
+        cancel.assert_called_once_with(2)
+
     def test_bulk_add_to_queue(self, client):
         resp = client.post(
             "/api/download/queue/bulk",
