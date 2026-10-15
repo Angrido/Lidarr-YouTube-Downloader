@@ -3055,6 +3055,72 @@ body.has-player .app-main {
     .ui-empty-art { width: 72px; height: 72px; }
 }
 
+/* ===== Aurora =====
+   static/aura.js prepends .app-aura to <body> and sets --aura-1..3 from the
+   cover in focus. Registered as colours so they cross-fade. */
+@property --aura-1 { syntax: "<color>"; inherits: true; initial-value: #7c5cff; }
+@property --aura-2 { syntax: "<color>"; inherits: true; initial-value: #4f8bff; }
+@property --aura-3 { syntax: "<color>"; inherits: true; initial-value: #e04fd8; }
+
+:root {
+    transition: --aura-1 1.2s var(--ease), --aura-2 1.2s var(--ease), --aura-3 1.2s var(--ease);
+}
+
+.app-aura {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+    opacity: var(--aura-opacity);
+}
+
+.app-aura span {
+    position: absolute;
+    width: 62vmax;
+    height: 62vmax;
+    border-radius: 50%;
+    filter: blur(80px);
+    will-change: transform;
+}
+
+.app-aura span:nth-child(1) {
+    top: -24vmax;
+    left: -12vmax;
+    background: radial-gradient(circle, var(--aura-1) 0%, transparent 65%);
+    animation: aura-drift-1 34s ease-in-out infinite alternate;
+}
+
+.app-aura span:nth-child(2) {
+    top: -18vmax;
+    right: -22vmax;
+    background: radial-gradient(circle, var(--aura-2) 0%, transparent 65%);
+    animation: aura-drift-2 38s ease-in-out infinite alternate;
+}
+
+.app-aura span:nth-child(3) {
+    bottom: -30vmax;
+    left: 18vmax;
+    background: radial-gradient(circle, var(--aura-3) 0%, transparent 65%);
+    animation: aura-drift-3 31s ease-in-out infinite alternate;
+}
+
+.app-aura.is-paused span {
+    animation-play-state: paused;
+}
+
+@keyframes aura-drift-1 {
+    to { transform: translate3d(14vmax, 10vmax, 0) scale(1.15); }
+}
+
+@keyframes aura-drift-2 {
+    to { transform: translate3d(-16vmax, 12vmax, 0) scale(0.9); }
+}
+
+@keyframes aura-drift-3 {
+    to { transform: translate3d(10vmax, -14vmax, 0) scale(1.1); }
+}
+
 @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -3068,6 +3134,12 @@ body.has-player .app-main {
     .ui-spinner {
         animation-duration: 1.6s !important;
         animation-iteration-count: infinite !important;
+    }
+    .app-aura span {
+        animation: none !important;
+    }
+    :root {
+        transition: none;
     }
 }
 
