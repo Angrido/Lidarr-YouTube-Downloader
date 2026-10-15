@@ -83,6 +83,7 @@ docker run -p 5005:5000 \
 | `lidarr_sync.py` | Background paginated sync of Lidarr's missing albums into `missing_albums_cache` |
 | `library.py` | Lidarr lookup / add API used by Explore: MusicBrainz search through Lidarr, add artists/albums, monitor, queue when the tracklist is ready |
 | `explore.py` | Explore catalog: shared YT Music client, TTL cache, normalizers + raw-shelf fallback parser, YT Music → MusicBrainz/Lidarr mapping, add / YouTube-import actions (`/explore`) |
+| `explore_routes.py` | Explore blueprint: the `/explore` page, every `/api/explore/*` route with its rate-limit bucket (`_explore_json`), and the in-memory artist-import runner (`_artist_imports`, `_run_artist_import`) |
 | `notifications.py` | Telegram/Discord webhooks, Ntfy push |
 | `config.py` | Config load/save, constants |
 | `scheduler.py` | Scheduled polling/auto-download |
@@ -361,7 +362,7 @@ captured live. So:
   `/api/youtube/playlist/download` (negative `album_id`, cover from the
   1200 px art).
 - **Artists not on MusicBrainz** (`artist_import_plan`, `release_import`,
-  `app._run_artist_import`): Lidarr cannot hold them, so *Add from YouTube*
+  `explore_routes._run_artist_import`): Lidarr cannot hold them, so *Add from YouTube*
   builds the library folder itself — `<lidarr_path or download base>/<Artist>/
   <Release (Year)>/` (`_release_folder`), `artist.jpg` + `folder.jpg` in the
   artist folder — and runs one `_execute_playlist_download` per release in
@@ -373,7 +374,7 @@ captured live. So:
   Video]"/"Directed by @…" brackets and bidi marks removed, "Artist x
   Guest - Title" → "Title (feat. Guest)"). Titles already imported with at
   least one successful track (`models.get_imported_youtube_album_titles`)
-  are skipped. Job state lives in `app._artist_imports` (in memory):
+  are skipped. Job state lives in `explore_routes._artist_imports` (in memory):
   `GET /api/explore/import-artist/plan?id=`, `POST /api/explore/import-artist`,
   `GET …/status?id=` (also the DB count of imported releases),
   `POST …/stop` (stops after the current release). Explore album imports
