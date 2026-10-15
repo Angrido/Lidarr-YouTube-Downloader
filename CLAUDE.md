@@ -517,6 +517,7 @@ Standalone scripts not part of the main app:
 - `migrate_json_to_db.py` — migrate JSON state files to SQLite (one-time upgrade)
 - `verify_fingerprints.py` — AcoustID fingerprint verification tool
 - `explore_preview.py` — run the UI against mocked YT Music + Lidarr (see Explore); `--demo` also seeds the Library, queue, an active download, history, insights and logs with fictional artists and generated cover art (the README screenshots in `docs/screenshots/` come from it)
+- `ui_smoke.js` — with the `--demo` preview running, `npx -y -p playwright node tools/ui_smoke.js` loads every page with no stored theme, light, dark and dark + reduced motion, and fails on a JS error, a missing `.app-aura`, a non-dark first visit, text tokens below WCAG AA on `--bg-elevated`, a backdrop filter on `.ui-album`, or an aurora that moves under reduced motion
 - `readme_screenshots.js` — with the `--demo` preview running, `npx -y -p playwright node tools/readme_screenshots.js` recaptures every README screenshot in both themes, framed (browser window / three phones) with rounded corners on a transparent background
 
 ## Key Dependencies
