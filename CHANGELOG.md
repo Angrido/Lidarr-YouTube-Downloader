@@ -1,5 +1,324 @@
 # Changelog
 
+## 2.0.0
+
+### Added
+- **Explore** (`/explore`): a music catalog inside the app.
+  - Home with new releases, top songs per country (picker), trending
+    tracks, new albums, top artists, chart playlists, new music videos and
+    moods & genres, as horizontal shelves.
+  - Artist pages (popular songs, albums, singles & EPs, videos, similar
+    artists, *Add artist*), album pages (big cover, tracklist with
+    durations) and playlist pages (track selection, bulk import). Deep
+    links work: `/explore?album=<browseId>`, `?artist=`, `?playlist=`,
+    `?q=`.
+  - Every album is matched to a MusicBrainz release group through Lidarr
+    (title, artist, year, track count; remasters, deluxe editions,
+    compilations and "Various Artists" handled) and shows its state:
+    complete, tracks missing, not monitored, not in Lidarr, not on
+    MusicBrainz, or several matches to pick from. The main button follows
+    it: *Add & download*, *Download missing*, *Monitor & download*,
+    *Complete*, *Import from YouTube*.
+  - *Add & download* adds the album to Lidarr, queues it, and remembers the
+    YouTube Music album it came from: the download uses that album's
+    tracks directly instead of searching for it again.
+  - Releases that are not on MusicBrainz, and playlists, are imported
+    through the existing YouTube import (tags and cover included).
+  - **Artists that are not on MusicBrainz** (Lidarr cannot track them) get
+    *Add from YouTube*: one click creates `<music library>/<Artist>/` with
+    one `<Release (Year)>` folder per album or single, the way Lidarr lays
+    out a library, and downloads them in turn with tags, embedded covers,
+    `cover.jpg` and `artist.jpg`. Artists that YouTube Music lists only
+    videos for get each song as a single, with "Artist - Title (Official
+    Video)" noise removed and guests kept as "(feat. …)". Releases already
+    imported are skipped, so clicking again later only fetches new ones.
+    Progress, *Stop after this release* and an "Imported from YouTube"
+    badge show on the artist page; an *Add to MusicBrainz* link is offered
+    too. Albums imported from Explore use the same `Artist/Album (Year)`
+    layout.
+  - YouTube imports now embed the cover in every file and write the
+    release year.
+  - Preview any track in a persistent mini player (play/pause, previous /
+    next, seek, volume).
+  - Search with suggestions (press `/`).
+  - When YouTube Music does not answer, Explore says so and offers
+    *Retry*; the rest of the app is unaffected. Results are cached (feeds
+    30 min, pages 24 h).
+- Settings keys `explore_country` (default `IT`) and `explore_language`
+  (default `en`); env `EXPLORE_COUNTRY` / `EXPLORE_LANGUAGE`.
+- Explore adds artists and albums to Lidarr through Lidarr's own API
+  (root folder, quality and metadata profile taken from the root folder
+  defaults or the sliders button); Lidarr is never asked to search its own
+  indexers for them.
+- Albums and tracks downloaded for an artist whose folder has no
+  `artist.jpg`/`folder.jpg` get one (Lidarr's artist poster, then Deezer,
+  then YouTube Music); an existing image is never replaced.
+- Lidarr validation errors (HTTP 400) are now reported in plain words.
+- The Library accepts `/?q=` to open with a search.
+- **Watched YouTube playlists** (Settings → Library & metadata, issue #96):
+  every hour each video of the listed playlists that hasn't been
+  downloaded yet is imported as one album — "Artist - Album (1974) [Full
+  Album]" becomes `Artist/Album (1974)/`. Made for full-album uploads such
+  as vinyl rips.
+- **Appearance** (Settings, first section): pick the accent colour (six
+  presets or any colour) and the aurora behind every page — from the album
+  covers, always your colour, or off. Saved on the server, so every device
+  uses it; any colour stays readable (accent text keeps AA contrast and
+  button text turns dark on light accents).
+- **Pause / resume the download queue** from the Downloads page: while
+  paused nothing new starts (manual, scheduler, Lidarr grabs and the
+  playlist watch all wait) and the album already downloading finishes.
+- The queue **pauses itself when the download disk is full** and sends one
+  notification, instead of failing album after album.
+- **Run check now** next to the scheduler switch, with the time of the next
+  automatic check.
+- **Retry schedule per track** in the Library tracks dialog ("Retry in 6
+  days", "Gave up after 5 tries"), and a **Stuck tracks** table in Insights
+  listing tracks that keep failing and when they are tried again.
+- The download history can be searched and filtered on the server, so the
+  filters cover all of it rather than the page shown.
+
+### Changed
+- **New look ("Aurora").** Dark by default (a theme you already picked is
+  kept; "automatic" may need picking once more), a vivid accent with a
+  gradient, glass surfaces, and a slow aurora behind every page that takes
+  the colours of the album you are looking at, downloading or playing.
+  Covers tilt toward the pointer, lists rise in, progress bars shimmer and
+  numbers count up — all of it off when the system asks for reduced
+  motion. Browsers without the newest CSS colour features get fixed
+  fallback colours.
+- **History is kept for 90 days** (or the retry wait, if longer): older
+  log entries and candidate details, and failures a later success already
+  replaced, are deleted after each Lidarr sync. Successful downloads are
+  kept, since the playlist watch and artist import rely on them.
+- **Multi-disc albums** name their files with the album-wide track number
+  (`13 - Intro.mp3`) so disc 1 and disc 2 no longer overwrite each other,
+  and their tags carry the disc number. Single-disc albums are unchanged.
+- The official YouTube Music album must now really match the Lidarr title:
+  a live album or a look-alike ("Nevermind (Live)" for "Nevermind", "Alive
+  2007" for "Live") is no longer taken for the studio one; edition
+  suffixes (deluxe, anniversary, remaster…) still match. Albums that miss
+  fall back to the per-track search.
+- A changed scheduler interval applies at once, without a restart.
+- **Always the latest versions.** Every image build takes the newest Python
+  (`python:3-slim`, now 3.15), Debian packages, Deno and Python libraries;
+  `docker compose up -d --build` does it too, and the bgutil sidecar is pulled
+  fresh. Wheels a brand-new Python lacks are compiled in a separate build
+  stage, and a build that would ship broken (dependency conflict, the app no
+  longer importing, ffmpeg/Deno/fpcalc missing) now fails instead. CI tests on
+  the newest Python as well and re-checks every Monday. The unused
+  `bing-image-downloader` and `gunicorn` dependencies are gone.
+- **A completely redesigned interface.** Every page now shares one design
+  system (`static/components.css` + `static/app.js`): a sidebar on desktop
+  and a tab bar on phones with a live queue badge and a "downloading" dot,
+  light and dark themes that follow the system (or a manual choice that is
+  remembered), system typography, one indigo accent, layered surfaces,
+  frosted navigation, bulk-action bar and dialogs, soft shadows and
+  motion that respects *Reduce motion*.
+  - **Library** opens with status tiles (Lidarr, ffmpeg, queue, scheduler)
+    and a cover-art grid with hover actions, elegant selection and a
+    floating bulk-action bar; list and table views remain.
+  - **Downloads** shows the active album as a "Now playing" card with
+    per-track progress (searching, downloading with speed, checking,
+    tagging, done, failed, skipped), a reorderable queue and a history you
+    can filter by outcome and audio quality.
+  - **Insights** charts were redrawn: readable labels at any width, hover
+    tooltips, legends and a table view.
+  - **Logs** colour-codes severity, filters by type and retries inline.
+  - **YouTube import** has a prominent URL field and a preview of the
+    playlist before importing.
+  - **Settings** is organised in sections with a jump list, iOS-style
+    switches and segmented controls, inline validation, a clear
+    saved/unsaved state, an always-visible ffmpeg verdict and a drop zone
+    for restoring backups.
+  - **Setup** is a step-by-step wizard with a live connection test.
+- Icons are a bundled SVG sprite; the Font Awesome CDN is no longer loaded,
+  so the UI works fully offline.
+- New app icon; the PWA manifest ships PNG and maskable icons and an iOS
+  touch icon, and the browser/status bar colour follows the theme.
+- `/api/stats` also returns `queued` and `active` (any download, including
+  Lidarr download-client jobs).
+- Press `/` to jump to the search field on Library and Settings.
+- Phone-friendly hit targets: buttons, fields, chips and segmented controls
+  grow to 36–42px on touch screens.
+- The phone tab bar shows **Explore** instead of YouTube; the YouTube
+  import stays in the sidebar and is linked from Explore (*Import a link*).
+- Database schema v12: new `album_source_hints` table.
+- Log lines of an album run carry the track number (`[02]`), so tracks
+  downloading in parallel no longer interleave anonymously, and the few
+  album-run lines that lacked the indent now have it.
+
+### Fixed — found in real download logs
+- **Age-restricted videos no longer stall an album for minutes.** yt-dlp's
+  "Sign in to confirm your age" was retried for every player client ×
+  format selector × postprocessor (≈40 attempts, 6+ minutes per track) and
+  every attempt was logged as a warning. Without cookies the download now
+  stops at the first age gate; with cookies each client is tried once.
+  Private, removed, members-only and region-locked videos stop at once.
+  The track gets one line explaining what to do (upload a signed-in
+  cookies.txt, or re-export it if it is not signed in).
+- **An unusable album-playlist track falls back to a normal search.** When
+  the official YT Music album entry cannot be downloaded (e.g. it is
+  age-restricted) other uploads of the same song are tried instead of
+  failing the track.
+- **cookies.txt no longer breaks under parallel downloads.** yt-dlp rewrites
+  its cookie file at the end of every run without locking, so two tracks
+  downloading at once could read a half-written file ("does not look like a
+  Netscape format cookies file") and the rewrite could replace a signed-in
+  export with a rotated, logged-out jar. Every yt-dlp run now gets a private
+  copy; your file is never modified. Files without the Netscape header line
+  are accepted (the header is added), JSON exports are rejected on upload
+  with a clear message, and an unusable file is ignored with a single
+  warning. Settings shows when the configured file is being ignored.
+- **Tracks are no longer downloaded twice.** When AcoustID had no data for
+  any candidate, the best one was deleted and downloaded again; the first
+  download is now kept.
+- **Official album tracks without AcoustID data are kept** right away
+  instead of going through the unverified fallback.
+- **AcoustID results without linked recordings count as "no data", not as a
+  mismatch**, so the candidate is no longer banned ("got=None").
+- **Generic titles (Intro, Outro, Interlude, Skit, [untitled]…) need the
+  artist's channel or name.** Any video containing "intro" used to qualify,
+  so an album intro could match a DJ jingle.
+- **Bracketed titles such as "[untitled]" match uploads without the
+  brackets**, both in the per-track search and in the album playlist.
+- **Album-playlist matching by position.** When titles differ but the YT
+  Music album has the same number of tracks and the track at the same
+  position has the same duration, it is used. Such a match is still checked
+  by AcoustID (a mismatch rejects it and falls back to search).
+  Among identically titled album tracks the closest duration wins.
+- The "any source" search phase reuses the results of the "artist channel"
+  phase instead of running the same ten queries again.
+
+### Fixed — downloads and library
+- A track whose worker crashed was reported as a success and its temp file
+  could be copied into the library; it is now recorded as a failure.
+- Albums that stopped early (Lidarr error, no release, path not mounted,
+  permission denied, empty tracklist) wrote no log, so the scheduler retried
+  them every cycle. An empty tracklist was reported as "already complete".
+- A queued album could vanish when a manual or playlist download took the
+  slot first; a Lidarr grab of an album already downloading stayed
+  "Queued" in Lidarr forever.
+- One error in the scheduled check stopped the scheduler until restart.
+- Vinyl-style track numbers ("A1") made tracks download again every run.
+- A non-numeric track number in a manual download blocked all downloads
+  until restart.
+- Skipping a track during conversion could leave a temp file in the album.
+- Bans now match the video, not the exact URL form.
+- Failures caused by a broken ffmpeg no longer push tracks into retry
+  backoff or "give up" them.
+- Loudness normalization broke opus downloads and did nothing for m4a; it is
+  now a separate pass that can never mark ffmpeg as broken.
+- opus is no longer advertised as working without ffmpeg (YouTube serves it
+  in WebM, which needs remuxing).
+- A single corrupt source no longer disables audio conversion until restart.
+- An AcoustID outage no longer makes every candidate "unverified" (all of
+  them were downloaded and thrown away); fixing an invalid AcoustID key works
+  without a restart.
+- Titles with typographic apostrophes or accents ("Don’t", "Déjà Vu",
+  "Beyoncé") no longer fail to match; tracks shorter than 15 s can match.
+- Very long (e.g. Japanese) titles no longer fail with "File name too long".
+- Renamed albums no longer appear twice in the history.
+- A failed sync page no longer removes albums from the missing list.
+- **Downloads were deleted** when `LIDARR_PATH` equals `DOWNLOAD_PATH`, and
+  the cleanup after a library copy removed the **whole artist folder** —
+  including another album still waiting for Lidarr or one whose copy had
+  failed. Now only the finished album's folder is removed, and only when
+  the files really went to a different library.
+- A manually queued album was lost when the container restarted in the
+  middle of its download; it is now put back in the queue. "Clear queue"
+  keeps the album that is downloading, and an album that finds the slot
+  busy keeps its place instead of going to the back.
+- The startup yt-dlp update no longer restarts the app in the middle of a
+  download; it waits for the download to finish.
+- A full download disk no longer counts as a failure of every track (which
+  backed them off or made them give up for good).
+- Clearing or dismissing logs no longer makes recently failed albums look
+  untried, which made the next check queue them all again.
+- A scheduler interval of 0 froze the settings save and the app's start-up;
+  the interval is now at least one minute.
+- After "Clear history" the playlist watch no longer downloads every
+  watched video again, and it no longer starts imports while the queue is
+  paused or a restart is pending.
+- Deleting a track from the history also deletes the library copy and its
+  `.lrc` lyrics file.
+- With auto-download off, the scheduler sent the same "Found N missing
+  albums" notification every cycle; now only new albums are announced.
+- Stopping an artist import while a release waited for the download slot
+  counted that release as done.
+
+### Fixed — settings, API and integrations
+- Settings could be wiped by two toggles at the same time or a crash while
+  saving; `config.json` is now written atomically.
+- `LIDARR_URL` / `LIDARR_API_KEY` / `DOWNLOAD_PATH` set in the environment
+  are no longer frozen into `config.json` by the first save.
+- Invalid settings return a clear error instead of a server error or being
+  stored as text (`"false"` was treated as on).
+- The Lidarr API key is no longer returned by `/api/config` or the export.
+- Restore and restart are refused while a Lidarr download-client job runs.
+- Lidarr commands no longer retry for 35 s on errors that can't succeed.
+- Ntfy notifications showed raw JSON and ignored title and priority.
+- Telegram/Discord/ntfy tokens no longer appear in the logs; Telegram no
+  longer rejects messages with a backslash or a long failure reason.
+- Removing a failed job from Lidarr's history no longer lets Lidarr grab the
+  same album again immediately; removing a downloading job stops it.
+- Error pages are no longer embedded as cover art.
+- "Recent imports" on the YouTube page was always empty.
+- **Security:**
+  - Other websites you visit can no longer send commands to the app
+    (cross-site requests to the API are refused).
+  - `GET /api/config` and the config export no longer reveal the
+    notification tokens, the Discord webhook, the AcoustID key or the PO
+    token; they show as `********` and saving the mask keeps the stored
+    value.
+  - The Ntfy test sends the saved token only to the saved server.
+  - The Telegram token and Discord webhook no longer appear in the error
+    message of a failed notification test.
+  - Preview and thumbnail errors are served as plain text, never as a
+    page.
+- Restoring a backup that lacks the app's tables is refused instead of
+  breaking the app until the file is removed by hand.
+- Removing a queued Lidarr grab, or clearing the queue, also removes its
+  job from Lidarr's download-client view.
+
+### Fixed — interface
+- A queue of thousands of albums showed up empty on the Downloads page
+  (one Lidarr call per album before anything appeared), so it could not
+  be cleared. The queue now loads from the local cache in one query and
+  albums Lidarr can't resolve are listed as "Album #id" (issue #95).
+- Many UI bugs found in an audit: Save reporting success on errors,
+  double-submits (manual downloads, add to queue, toggles), XSS through
+  server messages and cover URLs, Esc/focus handling in dialogs, keyboard
+  access, contrast in the light theme, layouts overflowing on phones,
+  polling that kept running in background tabs, the Logs "All" view hiding
+  entries, insights labels unreadable on phones, and more.
+- Design review of 2.0: the queue badge and "downloading" dot no longer
+  cover the Downloads icon in the compact sidebar and the phone tab bar;
+  frosted bars and toasts are opaque enough to read over busy content; the
+  four status tiles no longer leave one orphan tile on tablets; the
+  floating selection bar no longer hides the last row of albums; the
+  YouTube link field no longer clips its placeholder on phones; the list
+  view on phones shows the missing-track count instead of cutting it off;
+  table actions line up; unit labels in Settings no longer touch the card
+  edge; empty states are less tall on phones; links such as
+  `/settings#audio` open the right section; the retry dialog keeps each
+  field and its button on one row on phones.
+- The queue counter counted up from 1 on every refresh with 1,000+ albums
+  queued in locales that write "1.234".
+- Faster with big libraries: the Library loads a slim album list (about a
+  tenth of the data), the History page is indexed, the Logs page loads
+  candidate details in one query, and the live download stream resends the
+  queue only when it changes.
+
+### Fixed — Docker
+- `docker stop` killed the app after the timeout instead of stopping it
+  (exit code 137, possibly mid-write): the image now runs under an init
+  process that forwards the stop signal.
+- The repository's `docker-compose.yml` now matches the README: the web UI
+  is published on the whole LAN (so Lidarr on another machine can use the
+  download-client bridge and phones can open the app), and `LIDARR_PATH`
+  defaults to `/music`, the library mount.
+
 ## 1.9.2
 
 ### Fixed

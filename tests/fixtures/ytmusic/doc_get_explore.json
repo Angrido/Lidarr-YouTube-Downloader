@@ -1,0 +1,263 @@
+{
+ "new_releases": [
+  {
+   "title": "Hangang",
+   "type": "Album",
+   "artists": [
+    {
+     "id": "UCpo4SbqmPXpCVA5RFj-Gq5Q",
+     "name": "Dept"
+    }
+   ],
+   "browseId": "MPREb_rGl39ZNEl95",
+   "audioPlaylistId": "OLAK5uy_mTZAp8a-agh1at-cVUGrwPhTJoM5GnKTk",
+   "thumbnails": [
+    {
+     "url": "https://lh3.googleusercontent.com/hangang=w60-h60-l90-rj",
+     "width": 60,
+     "height": 60
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/hangang=w226-h226-l90-rj",
+     "width": 226,
+     "height": 226
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/hangang=w544-h544-l90-rj",
+     "width": 544,
+     "height": 544
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/hangang=w1200-h1200-l90-rj",
+     "width": 1200,
+     "height": 1200
+    }
+   ],
+   "isExplicit": false
+  },
+  {
+   "title": "Midnight Tapes",
+   "type": "EP",
+   "artists": [
+    {
+     "id": "UCaaaaaaaaaaaaaaaaaaaaaa",
+     "name": "Luna"
+    }
+   ],
+   "browseId": "MPREb_midnight01",
+   "audioPlaylistId": "OLAK5uy_midnighttapes0001",
+   "thumbnails": [
+    {
+     "url": "https://lh3.googleusercontent.com/mt=w60-h60-l90-rj",
+     "width": 60,
+     "height": 60
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/mt=w226-h226-l90-rj",
+     "width": 226,
+     "height": 226
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/mt=w544-h544-l90-rj",
+     "width": 544,
+     "height": 544
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/mt=w1200-h1200-l90-rj",
+     "width": 1200,
+     "height": 1200
+    }
+   ],
+   "isExplicit": true
+  }
+ ],
+ "top_songs": {
+  "playlist": "VLPL4fGSI1pDJn6O1LS0XSdF3RyO0Rq_LDeI",
+  "items": [
+   {
+    "title": "Outside (Better Days)",
+    "videoId": "oT79YlRtXDg",
+    "playlistId": "VLPL4fGSI1pDJn6O1LS0XSdF3RyO0Rq_LDeI",
+    "videoType": "MUSIC_VIDEO_TYPE_ATV",
+    "artists": [
+     {
+      "name": "MO3",
+      "id": "UCdFt4Cvhr7Okaxo6hZg5K8g"
+     },
+     {
+      "name": "OG Bobby Billions",
+      "id": "UCLusb4T2tW3gOpJS1fJ-A9g"
+     }
+    ],
+    "thumbnails": [
+     {
+      "url": "https://lh3.googleusercontent.com/outside=w60-h60-l90-rj",
+      "width": 60,
+      "height": 60
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/outside=w226-h226-l90-rj",
+      "width": 226,
+      "height": 226
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/outside=w544-h544-l90-rj",
+      "width": 544,
+      "height": 544
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/outside=w1200-h1200-l90-rj",
+      "width": 1200,
+      "height": 1200
+     }
+    ],
+    "isExplicit": true,
+    "album": {
+     "name": "Outside (Better Days)",
+     "id": "MPREb_fX4Yv8frUNv"
+    },
+    "rank": "1",
+    "trend": "up"
+   }
+  ]
+ },
+ "moods_and_genres": [
+  {
+   "title": "Chill",
+   "params": "ggMPOg1uXzVuc0dnZlhpV3Ba"
+  }
+ ],
+ "top_episodes": [
+  {
+   "title": "132. Lean Into Failure",
+   "description": "...",
+   "duration": "25 min",
+   "videoId": "xAEGaW2my7E",
+   "browseId": "MPEDxAEGaW2my7E",
+   "videoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE",
+   "date": "Mar 5, 2024",
+   "thumbnails": [
+    {
+     "url": "https://lh3.googleusercontent.com/ep=w60-h60-l90-rj",
+     "width": 60,
+     "height": 60
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/ep=w226-h226-l90-rj",
+     "width": 226,
+     "height": 226
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/ep=w544-h544-l90-rj",
+     "width": 544,
+     "height": 544
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/ep=w1200-h1200-l90-rj",
+     "width": 1200,
+     "height": 1200
+    }
+   ],
+   "podcast": {
+    "id": "PLxq_lXOUlvQDUNyoBYLkN8aVt5yAwEtG9",
+    "name": "Stanford GSB"
+   }
+  }
+ ],
+ "trending": {
+  "playlist": "VLOLAK5uy_kNWGJvgWVqlt5LsFDL9Sdluly4M8TvGkM",
+  "items": [
+   {
+    "title": "Permission to Dance",
+    "videoId": "CuklIb9d3fI",
+    "videoType": "MUSIC_VIDEO_TYPE_OMV",
+    "playlistId": "OLAK5uy_kNWGJvgWVqlt5LsFDL9Sdluly4M8TvGkM",
+    "artists": [
+     {
+      "name": "BTS",
+      "id": "UC9vrvNSL3xcWGSkV86REBSg"
+     }
+    ],
+    "thumbnails": [
+     {
+      "url": "https://lh3.googleusercontent.com/ptd=w60-h60-l90-rj",
+      "width": 60,
+      "height": 60
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/ptd=w226-h226-l90-rj",
+      "width": 226,
+      "height": 226
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/ptd=w544-h544-l90-rj",
+      "width": 544,
+      "height": 544
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/ptd=w1200-h1200-l90-rj",
+      "width": 1200,
+      "height": 1200
+     }
+    ],
+    "isExplicit": false,
+    "views": "108M"
+   },
+   {
+    "title": "Stanford GSB Podcasts",
+    "podcast": {
+     "name": "Stanford GSB Podcasts",
+     "id": "PLxq_lXOUlvQDUNyoBYLkN8aVt5yAwEtG9"
+    },
+    "browseId": "MPEDxAEGaW2my7E",
+    "videoId": "xAEGaW2my7E",
+    "videoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE",
+    "playlistId": "OLAK5uy_kNWGJvgWVqlt5LsFDL9Sdluly4M8TvGkM",
+    "date": "Mar 5, 2024",
+    "thumbnails": [
+     {
+      "url": "https://lh3.googleusercontent.com/gsb=w60-h60-l90-rj",
+      "width": 60,
+      "height": 60
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/gsb=w226-h226-l90-rj",
+      "width": 226,
+      "height": 226
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/gsb=w544-h544-l90-rj",
+      "width": 544,
+      "height": 544
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/gsb=w1200-h1200-l90-rj",
+      "width": 1200,
+      "height": 1200
+     }
+    ]
+   }
+  ]
+ },
+ "new_videos": [
+  {
+   "title": "EVERY CHANCE I GET (Official Music Video)",
+   "videoId": "BTivsHlVcGU",
+   "artists": [
+    {
+     "name": "DJ Khaled",
+     "id": "UC0Kgvj5t_c9EMWpEDWJuR1Q"
+    }
+   ],
+   "playlistId": null,
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/BTivsHlVcGU/hqdefault.jpg",
+     "width": 480,
+     "height": 360
+    }
+   ],
+   "views": "46M"
+  }
+ ]
+}

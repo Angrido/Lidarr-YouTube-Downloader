@@ -39,20 +39,20 @@ PGID=1000
 UMASK=002
 LIDARR_URL=http://192.168.1.X:8686
 LIDARR_API_KEY=your_key
-LIDARR_PATH=/DATA/Downloads
+# LIDARR_PATH defaults to /music (the HOST_MUSIC_PATH mount)
 WEBUI_PORT=5005
 ```
 
 Then run:
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
 ### Docker Build & Run (manual)
 
 ```bash
-docker build -t lidarr-downloader .
+docker build --pull --no-cache -t lidarr-downloader .
 docker run -p 5005:5000 \
   -e PUID=1000 \
   -e PGID=1000 \
@@ -60,7 +60,7 @@ docker run -p 5005:5000 \
   -e LIDARR_URL=http://192.168.1.X:8686 \
   -e LIDARR_API_KEY=your_key \
   -e DOWNLOAD_PATH=/DATA/Downloads \
-  -e LIDARR_PATH=/DATA/Downloads \
+  -e LIDARR_PATH=/music \
   -v /DATA/Downloads:/DATA/Downloads \
   -v /DATA/Music:/music \
   -v ./config:/config \
@@ -80,10 +80,16 @@ docker run -p 5005:5000 \
 | `processing.py` | Album processing, queue processor, per-track state, skip handling |
 | `metadata.py` | ID3 tagging, XML sidecar, iTunes API |
 | `lidarr.py` | Lidarr API wrapper |
-| `notifications.py` | Telegram/Discord webhooks |
+| `lidarr_sync.py` | Background paginated sync of Lidarr's missing albums into `missing_albums_cache` |
+| `library.py` | Lidarr lookup / add API used by Explore: MusicBrainz search through Lidarr, add artists/albums, monitor, queue when the tracklist is ready |
+| `explore.py` | Explore catalog: shared YT Music client, TTL cache, normalizers + raw-shelf fallback parser, YT Music → MusicBrainz/Lidarr mapping, add / YouTube-import actions (`/explore`) |
+| `explore_routes.py` | Explore blueprint: the `/explore` page, every `/api/explore/*` route with its rate-limit bucket (`_explore_json`), and the in-memory artist-import runner (`_artist_imports`, `_run_artist_import`) |
+| `notifications.py` | Telegram/Discord webhooks, Ntfy push |
 | `config.py` | Config load/save, constants |
 | `scheduler.py` | Scheduled polling/auto-download |
 | `fingerprint.py` | AcoustID fingerprinting via fpcalc/chromaprint |
+| `youtube_import.py` | YouTube import blueprint: `/youtube` page, `/api/youtube/playlist/info`, `/api/youtube/playlist/download`, `/api/youtube/recent`, the playlist download runner (`_execute_playlist_download`, shared with Explore imports) and the watched-playlist loop |
+| `manual_download.py` | Manual-download blueprint: `POST /api/download/manual` (retry a failed track, incl. negative-id playlist imports) and `POST /api/album/<id>/track/manual-download` (with live progress), the shared `_manual_dl_core` (download, tag, AcoustID, record, notify, `RefreshArtist`), album path builders and the Lidarr album cache (`_get_album_cached`, also used by the queue routes) |
 | `download_client.py` | Lidarr download-client bridge: Newznab indexer + SABnzbd client emulation (Flask blueprint) |
 | `logutil.py` | Console log formatting: timestamp + level icon, consecutive-duplicate collapsing |
 | `utils.py` | Shared utilities |
@@ -99,11 +105,11 @@ docker run -p 5005:5000 \
 
 ### Database
 
-State is stored in SQLite at `/config/lidarr-downloader.db`. Tables: `schema_version`, `track_downloads`, `download_logs`, `download_queue`, `banned_urls`, `candidate_attempts`, `missing_albums_cache`, `sync_state`, `download_client_jobs`.
+State is stored in SQLite at `/config/lidarr-downloader.db`. Tables: `schema_version`, `track_downloads`, `download_logs`, `download_queue`, `banned_urls`, `candidate_attempts`, `missing_albums_cache`, `sync_state`, `download_client_jobs`, `album_source_hints`.
 
 **`album_id` id space:** a positive `album_id` is a real Lidarr album id. YouTube playlist imports have no Lidarr album, so each import is assigned a **unique negative `album_id`** (`models.next_playlist_album_id()`), keeping its tracks distinct in the history / failed-track retry views. This negative space is disjoint from Lidarr's and must never be joined to Lidarr or sent to the Lidarr API (e.g. `download_client.py` assumes positive ids). Retry resolves a negative id's context from the stored `track_downloads` row instead of Lidarr.
 
-Current schema version: **11**. Migrations:
+Current schema version: **12**. Migrations:
 - V1→V2: Replaced `download_history` + `failed_tracks` with `track_downloads` (per-track download records with YouTube URL, match score, duration, album/track metadata).
 - V2→V3: Added AcoustID fingerprint columns to `track_downloads` (`acoustid_fingerprint_id`, `acoustid_score`, `acoustid_recording_id`, `acoustid_recording_title`).
 - V3→V4: Added `banned_urls` table for tracking banned YouTube URLs per album/track.
@@ -114,6 +120,9 @@ Current schema version: **11**. Migrations:
 - V8→V9: Added `track_artist` to `track_downloads`, storing the per-track artist resolved via `search_artist_source` (MusicBrainz/iTunes), distinct from the Lidarr album-level `artist_name`, so compilation ("Various Artists") tracks can be searched/retried with their real artist.
 - V9→V10: Added `source_format` to `track_downloads`, a human-readable summary of the YouTube source stream actually downloaded (format id · container · bitrate, e.g. `140 · m4a · 128 kbps`), for the per-track audio-quality report in the download history.
 - V10→V11: Added `force` to `download_queue`, marking an entry as an explicit user request (manual "Add to Queue"). A forced entry bypasses the per-track retry backoff; the scheduler enqueues without it.
+- V11→V12: Added `album_source_hints` (`album_id` → YT Music `playlist_id` + `browse_id`), written when Explore adds an album so `process_album_download` downloads from that album playlist instead of searching for it. Positive `album_id`s only.
+
+**Retention:** after each successful Lidarr sync, `lidarr_sync._prune_old_history()` calls `models.prune_old_records()` with a cutoff of `HISTORY_RETENTION_DAYS` (90), or the retry cooldown if longer. `download_logs` and `candidate_attempts` go by age; a `track_downloads` row goes only when it is a failure a later success of the same track superseded — the remaining rows drive the backoff, and successes are how playlist watch and artist import know what is already imported, so never prune those by age.
 
 Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
@@ -128,19 +137,21 @@ Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
 ### Config
 
-Loaded from env vars + `/config/config.json`. File config overrides env vars. Saved via `save_config()`. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API. Notable config keys beyond the basics: `concurrent_tracks`, `yt_cookies_file`, `yt_force_ipv4`, `yt_player_client`, `yt_retries`, `yt_fragment_retries`, `yt_sleep_requests`, `yt_sleep_interval`, `yt_max_sleep_interval`, `discord_enabled`, `discord_webhook_url`, `discord_log_types`, `acoustid_enabled`, `acoustid_api_key`, `download_client_enabled`, `download_client_api_key`, `download_client_category`, `yt_po_token` (manual yt-dlp PO token(s), comma-separated), `audio_normalize` (EBU R128 loudnorm, forces re-encode), `yt_pot_provider_url` (URL of a bgutil PO-token provider sidecar for automatic PO tokens; `bgutil-ytdlp-pot-provider` plugin is in requirements and a sidecar is wired in docker-compose), `search_artist_source` (per-track YouTube search artist: `album` default, or `mb_itunes`/`itunes_mb`/`mb`/`itunes` to resolve the real artist for compilations), `save_lyrics` (write a `.lrc` synced-lyrics sidecar per track, fetched from LRCLIB), `apply_replaygain` (measure loudness with ffmpeg and write ReplayGain track tags — non-destructive volume normalization), `track_retry_backoff` (default on; a track that keeps failing waits `scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days, instead of being retried every cycle forever — issue #90), `max_track_retries` (0 = never give up; otherwise drop a track after this many consecutive failures).
+Loaded from env vars + `/config/config.json`. File config overrides env vars, except `lidarr_url`, `lidarr_api_key` and `download_path` (`ENV_PREFERRED_KEYS`), where a non-empty env var wins. Saved via `save_config()`, which writes atomically (temp file + `os.replace`) and persists only `ALLOWED_CONFIG_KEYS` plus values that differ from the env; handlers that read-modify-write use `update_config(mutator)` so concurrent toggles don't lose updates. API input goes through `coerce_config_value()` (typed int/float/bool/list keys; invalid → HTTP 400). `GET /api/config` and the export never include `lidarr_api_key`; the `SECRET_CONFIG_KEYS` (notification tokens/webhook, AcoustID key, PO token — not `download_client_api_key`) are shown as `SECRET_MASK` by `GET /api/config`, dropped from the export, and a POSTed or test-route value equal to the mask keeps/uses the saved one (`""` still clears it) — except that the Ntfy test sends the saved `ntfy_token` only when the target is the saved `ntfy_url`, so a masked token can't carry it to a caller-chosen server. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API. Notable config keys beyond the basics: `concurrent_tracks`, `yt_cookies_file`, `yt_force_ipv4`, `yt_player_client`, `yt_retries`, `yt_fragment_retries`, `yt_sleep_requests`, `yt_sleep_interval`, `yt_max_sleep_interval`, `discord_enabled`, `discord_webhook_url`, `discord_log_types`, `acoustid_enabled`, `acoustid_api_key`, `download_client_enabled`, `download_client_api_key`, `download_client_category`, `yt_po_token` (manual yt-dlp PO token(s), comma-separated), `audio_normalize` (EBU R128 loudnorm, forces re-encode), `yt_pot_provider_url` (URL of a bgutil PO-token provider sidecar for automatic PO tokens; `bgutil-ytdlp-pot-provider` plugin is in requirements and a sidecar is wired in docker-compose), `search_artist_source` (per-track YouTube search artist: `album` default, or `mb_itunes`/`itunes_mb`/`mb`/`itunes` to resolve the real artist for compilations), `save_lyrics` (write a `.lrc` synced-lyrics sidecar per track, fetched from LRCLIB), `apply_replaygain` (measure loudness with ffmpeg and write ReplayGain track tags — non-destructive volume normalization), `track_retry_backoff` (default on; a track that keeps failing waits `scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days, instead of being retried every cycle forever — issue #90), `max_track_retries` (0 = never give up; otherwise drop a track after this many consecutive failures), `queue_paused` (default off; while on, `processing._dispatch_next_from_queue()` starts nothing — manual, scheduler and download-client entries all wait, as does the playlist watch (`processing.automatic_downloads_held()`, also true while a restart is pending) — and an album already downloading finishes; toggled by `POST /api/download/queue/pause`, exposed in `/api/stats`; also set automatically by `processing._pause_queue_for_full_disk()` when a track fails with "no space left on device", with one `album_error` notification, so the next albums don't each fail the same way — the user resumes it after freeing space), `ui_accent` (`#rrggbb`, default `#7c5cff`) and `ui_aura_mode` (`cover` | `accent` | `off`) — Settings › Appearance, saved instantly; validated in `coerce_config_value()` (anything but a plain hex is rejected, because `inject_version()` writes the accent into every page's `<head>` as `--accent-base` and the mode as `data-aura`) and normalised in `load_config()`, `explore_country` (two-letter code, default `IT`; charts and YT Music `location`) and `explore_language` (one of ytmusicapi's languages, default `en`); both are validated in `coerce_config_value()` and normalised in `load_config()`. `yt_watch_playlists` (list of YouTube playlist URLs, validated in `coerce_config_value()`; issue #96): `youtube_import._playlist_watch_loop` checks them hourly (and right after a save) and imports every video without a `track_downloads` row as one album via `_execute_playlist_download`, artist/album/year parsed by `explore.album_from_video_title()`, into `<playlist write base>/<Artist>/<Album (Year)>/`. Before each import it waits (quietly, 10 s steps) for the download slot and while the queue is paused or a restart is pending; the Explore artist import likewise starts no release while a restart is pending. A failed video is not retried automatically — the failed-tracks view retries it.
 
 ### Lidarr download-client bridge (`download_client.py`)
 
-Optional feature letting Lidarr use this app as a native download path. A Flask blueprint exposes a **Newznab indexer** (`/api/newznab/api`: `t=caps`, `t=music`/`t=search`, `t=get`) and a **SABnzbd download client** (`/api/sabnzbd/api`: `version`, `get_config`, `fullstatus`, `queue`, `history`, `addfile`, `addurl`). A search is matched against `missing_albums_cache` to resolve a Lidarr `album_id`; the served NZB embeds that id; on `addfile` the id is parsed back out and enqueued via `models.enqueue_album()`. A job registry (keyed by SABnzbd `nzo_id`, in-memory write-through cache backed by the `download_client_jobs` table) tracks queued→downloading→completed/failed so Lidarr polls `queue`/`history` and imports the finished files itself; `restore_jobs()` reloads it at startup so a restart doesn't orphan a download. Grabbed albums are detected in `processing.process_album_download()` via `download_client.is_client_album()`, which skips the copy-to-library / `RefreshArtist` / cleanup steps; the queue processor routes them through `download_client.run_album_job()`. Both surfaces require `download_client_enabled` plus a matching `apikey`. To avoid infinite re-grab loops, in-flight albums and albums attempted within the retry cooldown (`scheduler_retry_after_hours`) are excluded from the indexer feed/search and refused at grab time; release `guid`s are time-bucketed on that window so retries are still possible after the cooldown.
+Optional feature letting Lidarr use this app as a native download path. A Flask blueprint exposes a **Newznab indexer** (`/api/newznab/api`: `t=caps`, `t=music`/`t=search`, `t=get`) and a **SABnzbd download client** (`/api/sabnzbd/api`: `version`, `get_config`, `fullstatus`, `queue`, `history`, `addfile`, `addurl`). A search is matched against `missing_albums_cache` to resolve a Lidarr `album_id`; the served NZB embeds that id; on `addfile` the id is parsed back out and enqueued via `models.enqueue_album()`. A job registry (keyed by SABnzbd `nzo_id`, in-memory write-through cache backed by the `download_client_jobs` table) tracks queued→downloading→completed/failed so Lidarr polls `queue`/`history` and imports the finished files itself; `restore_jobs()` reloads it at startup so a restart doesn't orphan a download. Grabbed albums are detected in `processing.process_album_download()` via `download_client.is_client_album()`, which skips the copy-to-library / `RefreshArtist` / cleanup steps; the queue processor routes them through `download_client.run_album_job()`. Both surfaces require `download_client_enabled` plus a matching `apikey`. To avoid infinite re-grab loops, in-flight albums and albums attempted within the retry cooldown (`scheduler_retry_after_hours`) are excluded from the indexer feed/search and refused at grab time; release `guid`s **and `pubDate`s** are time-bucketed on that window so retries are still possible after the cooldown (Lidarr's blocklist matches title + publish date, not guid). A SABnzbd `history` delete of a finished job inside the cooldown keeps its row as `completed_removed`/`failed_removed` (hidden from queue/history/restore, still counted by the cooldown; purged by `restore_jobs()` once the cooldown passes). Deleting a *downloading* job sets `stop` on its state. A queued client grab whose album is already downloading in the foreground waits in the queue instead of being dropped.
 
 ### Threading
 
 Downloads run in background threads. `queue_lock` (threading.Lock) in `processing.py` protects shared state.
 
+A foreground album's `download_queue` row is not deleted when it starts: `_dispatch_next_from_queue()` marks it `downloading` and `_run_queued_album()` removes it when the run ends (or sets it back to `queued` on "Busy", or when a Lidarr grab for the same album landed mid-run). So a restart mid-download re-queues it via `models.reset_downloading_to_queued()`. The queue list and count (`get_queue_details`, `get_queue_length`) show only `queued` rows; `get_queue()` returns every row, which the scheduler uses to skip albums already in flight. Download-client grabs are still dequeued at dispatch — `download_client_jobs` is their record.
+
 ### Scheduler
 
-Optional `schedule` library job polls for missing albums and auto-downloads at configured intervals. Albums attempted within `scheduler_retry_after_hours` are skipped (`models.get_attempted_album_ids_since`, which keys off **any** `download_logs` row for the album — so every early exit in `process_album_download` must still write a log, or the album is re-queued every cycle).
+Optional `schedule` library job polls for missing albums and auto-downloads at configured intervals. Albums attempted within `scheduler_retry_after_hours` are skipped (`models.get_attempted_album_ids_since`, which keys off **any** `download_logs` row for the album, or any `track_downloads` row so clearing logs doesn't reset the window — so every early exit in `process_album_download` must still write a log, or the album is re-queued every cycle; use `processing._log_album_error()`). Failures recorded as host problems (`error_message` starting with `models.HOST_FAILURE_PREFIX`, "Audio postprocessing failed", or `models.DISK_FULL_PREFIX`, "Download disk is full", which `_process_track_body` prepends when the last download error says "no space left") are not counted toward a track's consecutive failures. `scheduled_check()` and the scheduler loop catch and log exceptions so one bad cycle can't kill the thread. `processing.any_download_active()` (foreground **or** any download-client job) gates `/api/restart` and `/api/backup/import`.
 
 **Retry backoff (issue #90):** `process_album_download` decides what to download *before* any network work — it computes `album_path`, calls `_compute_deferred_tracks()` + `_filter_tracks()`, and returns "Skipped" early if nothing is left. Tracks that keep failing back off exponentially (`scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days) from their consecutive-failure count in `track_downloads` (`models.get_track_failure_counts`), so a song that simply isn't on YouTube stops costing a cover-art fetch, per-track artist lookups and a YT Music resolution every cycle. Manual queue adds (`download_queue.force`) and Lidarr grabs (`client_grab`) bypass the backoff.
 
@@ -153,6 +164,7 @@ column everything else has to pay for. Milestone messages (ready, album start,
 album complete) carry an inline icon from `logutil.ICON_*`. A `DedupeFilter`
 collapses consecutive identical lines and reports the streak as its own INFO
 line — background loops used to repeat the same sentence hundreds of times.
+A streak that never ends is still reported every 100 repeats or 60 s.
 Prefer fixing repetition at the source (log at DEBUG when nothing changed,
 as `lidarr_sync` does) and treat the filter as a safety net.
 
@@ -163,6 +175,13 @@ without the break. Messages that belong *inside* an album run are prefixed
 with three spaces so they sit under its header — keep that convention when
 adding album-flow logging; a line carrying an icon has that indent stripped,
 so icons always sit one space from their text and protrude from the flow.
+
+Each track of an album run is processed inside `logutil.track_label("02")`
+(a `contextvars` label copied onto records by `TrackLabelFilter`), and the
+formatter prints it after the indent/icon: `   [02] Search phase: …`. Tracks
+download in parallel, so without it their lines interleave anonymously. A
+thread started inside a track must run in `contextvars.copy_context()` to
+keep the label (`_download_candidate_threaded` does).
 
 **Icons must be East_Asian_Width "W" (exactly two columns).** The alignment
 depends on it, and a test enforces it. This is why the warning icon is not
@@ -193,10 +212,67 @@ It resets on restart, which is what happens when the image is fixed.
 `/api/ffmpeg/status` (`?refresh=1` re-probes) and summarised as `ffmpeg_ok`
 in `/api/health`. Settings renders it as a panel that is always
 visible and always states a verdict — hiding it when healthy made the
-Re-check button look like it had broken something. Key distinction: with an `m4a`/`opus` target
-(`NATIVE_AUDIO_FORMATS`) downloads still work, because YouTube serves those
-containers directly and the native stream is kept as-is; with `mp3` nothing
-can be downloaded, so the panel offers switching format as the first fix.
+Re-check button look like it had broken something. Key distinction: with an `m4a` target
+(`NATIVE_AUDIO_FORMATS`) downloads still work, because YouTube serves that
+container directly and the native stream is kept as-is; `opus` is served inside
+WebM and needs ffmpeg to remux, so it is **not** native; with `mp3`/`opus` nothing
+can be downloaded, so the panel offers switching to m4a as the first fix.
+
+A failed conversion only marks ffmpeg broken when the error is host-wide:
+the message says "function not implemented", or a **fresh** probe run right
+after the failure also fails (`_conversion_failure_is_host_wide()`). A corrupt
+source stream fails only that candidate, and "no space left on device" never
+marks ffmpeg broken. `audio_normalize` is a separate ffmpeg loudnorm pass after
+the download (`_normalize_loudness()`: −14 LUFS, re-encoded to the target codec
+at `audio_quality`); if it fails the un-normalized file is kept and ffmpeg is
+never marked broken.
+
+### YouTube cookies and unavailable videos
+
+yt-dlp is **never** handed the user's `yt_cookies_file`:
+`downloader.cookiefile_for_ytdlp()` validates it (`inspect_cookies_text()`:
+Netscape rows of 7 tab-separated fields, `#HttpOnly_` allowed, JSON
+rejected), adds the `# Netscape HTTP Cookie File` header when missing, and
+returns a private per-thread copy. yt-dlp rewrites its cookie file on every
+close without locking, so a shared file broke parallel runs ("does not look
+like a Netscape format cookies file") and could overwrite a signed-in export
+with a rotated jar. An unusable file is skipped with one warning, and
+`/api/cookies/status` reports `valid`/`entries`/`reason`. Every place that
+builds yt-dlp options (including `app.py`) must go through it.
+
+`download_youtube_candidate()` classifies extraction errors with
+`_classify_unavailable()`: an age gate without cookies, or a private /
+removed / members-only / region-locked video, stops immediately; an age gate
+with cookies tries each player client once. The result carries
+`unavailable: True` and a one-line hint instead of ~40 retries.
+
+### Album-first matching
+
+`match_album_track()` matches by title (bracket-insensitive, closest duration
+wins ties) and otherwise **by position** when the YT Music album has as many
+tracks as Lidarr's and the entry at the same position (`processing.
+_album_position()`: medium, then track number) has the same duration
+(±max(5 s, 5 %)). A positional match is marked `matched_by: "position"` and is
+**not** flagged `from_official_album`, so an AcoustID mismatch rejects it.
+When the album candidate fails (download error, mismatch), `_download_tracks`
+lazily extends the candidate list with a per-track search, skipping the same
+video id. An unverified file is kept on disk as the fallback rather than
+deleted and downloaded again. In the search, generic titles (`_is_generic_title`:
+Intro, Outro, Interlude, Skit, [untitled]…) require the artist's channel,
+YT Music artist credit or name in the title, and phase 2 reuses phase 1's
+fetched results.
+
+### Multi-disc albums
+
+Lidarr's `trackNumber` restarts on every disc. On an album whose tracks span
+more than one `mediumNumber`, `processing._track_number()` returns the
+album-wide `absoluteTrackNumber` instead, and everything keyed on that number
+follows: file names (`13 - Intro.mp3`), `temp_NN_` prefixes, the XML sidecar,
+the `track_downloads.track_number` the history delete route rebuilds the file
+name from, and the number `/api/download/queue/<id>/tracks` hands the manual
+download. Tags keep the per-disc number and add the disc
+(`metadata._disc_position()`: TPOS / `discnumber`+`disctotal` / `disk`).
+Single-disc albums are unchanged.
 
 ### MusicBrainz id frames
 
@@ -206,34 +282,265 @@ not interchangeable: `foreignRecordingId` identifies the recording, while
 tracklist. Writing the recording id into the release-track tag makes taggers
 that validate it against the release tracklist reject the file outright
 (issue #93), so `metadata._musicbrainz_fields()` is the single source of truth
-for the mapping and both the MP3 and M4A paths go through it.
+for the mapping and both the MP3 and M4A paths go through it (`mp4=True`
+selects the MP4 key names).
 
 Frame names follow **Picard's** mapping, because that is what other taggers
 read — `MusicBrainz Release Group Id` (not "Album Release Group Id") and
 `MusicBrainz Album Release Country` (not "Release Country"). `_STALE_MB_DESCS`
 lists the descriptions earlier versions got wrong; they are deleted before
 writing so re-tagging an existing file cannot leave a mislabeled value behind.
+For MP4 Picard stores the **recording** id under
+`----:com.apple.iTunes:MusicBrainz Track Id` (the release-track id stays under
+`MusicBrainz Release Track Id`); `_STALE_MP4_MB_DESCS` adds the old
+`MusicBrainz Recording Id` key to the delete list.
 
 Vorbis Comments (Opus) invert the ID3 naming: on disk `musicbrainz_trackid`
 holds the **recording** id and `musicbrainz_releasetrackid` holds the
 release-track id, so `tag_opus()` deliberately does not mirror `tag_mp3()`.
 
+### Adding artists and albums (`library.py`)
+
+Everything goes through Lidarr's own API, so Lidarr stays the single source
+of truth and its metadata server does the MusicBrainz lookups:
+`GET artist/lookup` / `album/lookup?term=` (a `lidarr:<mbid>` term resolves
+one id), `POST artist`, `POST album` (Lidarr adds an unknown artist itself;
+we send it with `addOptions.monitor = "none"` so only that album is
+monitored), and `PUT album/monitor` for an album already in the library but
+unmonitored. An item counts as "in library" when the lookup returns an `id`
+> 0. The server re-looks up the MBID instead of trusting a client payload and
+validates root folder / profiles against Lidarr (the reserved "None"
+metadata profile is hidden). It never asks Lidarr to search its indexers
+(`searchForMissingAlbums` / `searchForNewAlbum` are false): downloads are
+this app's job. A download request starts `queue_when_ready()`, a thread that
+polls `GET track?albumId=` until Lidarr has loaded the tracklist (up to 4
+minutes) and then `models.enqueue_album(force=True)`. The only HTTP route left
+here is `/api/library/options` (root folders / profiles for Explore's sliders
+button); the old **Add music** page is gone and `/add` 301-redirects to
+`/explore` (keeping `?q=`). Each add also schedules `lidarr_sync.trigger_sync()`
+after 15 s and 90 s so the Library shows the new missing albums.
+`lidarr_request()` supports `PUT` and turns Lidarr's 400 validation list into
+a readable `"Lidarr rejected the request: …"` error.
+
+### Explore (`explore.py`, `templates/explore.html`)
+
+A music catalog backed by YouTube Music through **ytmusicapi** (unauthenticated).
+Live behaviour drives the design, not the docs: from a datacenter IP
+`get_explore` raises a `KeyError` (a podcast item lacks `musicVideoType`),
+`get_mood_categories` and `get_album` can fail, search filters for albums /
+songs return `[]`, charts have no song list without Premium. The real
+responses (and the errors) are in `tests/fixtures/ytmusic/`; the `doc_*`
+fixtures follow ytmusicapi's docstring shapes for what could not be
+captured live. So:
+
+- **One client per (language, country)** (`downloader._ytmusicapi_client`
+  with `language`/`location`), each guarded by a lock; every YT call goes
+  through `explore.call()`.
+- **`TTLCache`**, keyed with the locale: feeds 30 min, artist/album/playlist
+  24 h, matches 10 min, suggestions 1 h. A failed loader is cached as a
+  60 s negative entry so a dead YouTube isn't hammered. `invalidate(prefix)`.
+- **One item shape** from `normalize_item()`: `{kind, id, title, subtitle,
+  artists[], year, type, thumbnail, explicit, duration}` (+ `album`,
+  `available`, `rank` for songs; `playlistId` for albums). Podcasts and
+  episodes are dropped, ids are validated by regex, bogus years ("Two Steps
+  From Hell") ignored. `thumbnail` is always a `/api/thumbnail?url=` path;
+  `best_thumbnail_url()` picks the largest ≤ 544 px and resizes
+  googleusercontent `=wN-hN` / `=sN` URLs.
+- **Raw fallback**: when a ytmusicapi parser raises, `raw_browse()` fetches
+  the InnerTube page and `raw_sections()` reads carousel / shelf / grid
+  renderers itself (`musicTwoRowItemRenderer`,
+  `musicResponsiveListItemRenderer`, mood buttons). That keeps the live
+  trending shelf when `get_explore` breaks.
+- **Every section degrades**: loaders never raise to the UI, empty sections
+  are omitted, top songs fall back to the first chart playlist's tracks.
+  `/api/explore/home` answers 502 only when *everything* is empty;
+  unexpected exceptions become a generic 502 message.
+- **Mapping** (`match_album`): the YT album is searched through
+  `library.search("album", …)` (first "artist title", then the title alone,
+  "Various Artists" never used as a term) and every candidate scored —
+  0.6 × title (`norm_title()` drops edition brackets / " - 2004 Remaster"
+  suffixes, keeps real parenthesised titles) + 0.3 × artist (any credited
+  artist, Various Artists only matches Various Artists) + bonuses for year,
+  track count, release type, exact title, already in library. Accept at
+  ≥ 0.85 with a 0.08 lead; otherwise `ambiguous` with up to 5 candidates;
+  no candidate past the title/artist gates → `not_on_musicbrainz`. Status of
+  the match: `complete` / `missing` / `unmonitored` / `not_in_library`.
+  Artists: exact (folded) name, one hit or one already in the library.
+- **Add & download** (`add_album`): `library.add_album(download=False)`,
+  then `models.set_album_source_hint()`, **then**
+  `library.queue_when_ready()` — the hint exists before the album can be
+  processed. `processing._hinted_ytmusic_album()` turns it into the same
+  `ytmusic_album` dict `find_album_on_ytmusic()` returns
+  (`downloader.album_from_ytmusic_hint`), logging "Using the YT Music album
+  picked in Explore"; an unusable hint falls back to the search.
+- **YouTube import** (`import_plan`): album or playlist pages are re-read
+  server-side (the client only sends ids and an optional `videoIds`
+  selection) and handed to `youtube_import._start_playlist_import()`, the same path as
+  `/api/youtube/playlist/download` (negative `album_id`, cover from the
+  1200 px art).
+- **Artists not on MusicBrainz** (`artist_import_plan`, `release_import`,
+  `explore_routes._run_artist_import`): Lidarr cannot hold them, so *Add from YouTube*
+  builds the library folder itself — `<lidarr_path or download base>/<Artist>/
+  <Release (Year)>/` (`_release_folder`), `artist.jpg` + `folder.jpg` in the
+  artist folder — and runs one `_execute_playlist_download` per release in
+  a background thread, one at a time (it returns `False` when another
+  download held the slot, and the runner retries). Releases are the
+  artist's albums + singles; when YouTube Music lists none, the videos
+  (or songs) playlist becomes one single per song with titles cleaned by
+  `clean_video_title()` (artist prefix, "(Clip Officiel)"/"[Official
+  Video]"/"Directed by @…" brackets and bidi marks removed, "Artist x
+  Guest - Title" → "Title (feat. Guest)"). Titles already imported with at
+  least one successful track (`models.get_imported_youtube_album_titles`)
+  are skipped. Job state lives in `explore_routes._artist_imports` (in memory):
+  `GET /api/explore/import-artist/plan?id=`, `POST /api/explore/import-artist`,
+  `GET …/status?id=` (also the DB count of imported releases),
+  `POST …/stop` (stops after the current release). Explore album imports
+  use the same layout; `_execute_playlist_download` takes `release_year`
+  and embeds the saved cover in every file.
+- **Artist image** (`metadata.ensure_artist_image`): after any successful
+  download for an artist — a Lidarr album (`processing._ensure_artist_image`
+  on the final artist folder, i.e. the library copy when `lidarr_path` is
+  set; skipped for download-client grabs), a YouTube import into an
+  `Artist/Release` folder (`youtube_import._ensure_import_artist_image`) or an artist
+  import — the artist folder gets `artist.jpg` + `folder.jpg` **only if it
+  has no artist/folder image yet** (any of jpg/jpeg/png, case-insensitive);
+  an existing one is never touched. Sources in order: Lidarr's artist
+  `poster` remoteUrl (or the YT Music artist art for artist imports),
+  Deezer's artist search (exact name), then YT Music's artist search
+  (`explore.artist_image_for_name`). Tests stub the two network lookups in
+  `tests/conftest.py`; mark a test `real_artist_image` to keep them.
+- **Endpoints**: `GET /api/explore/home?country=`, `/charts?country=`,
+  `/moods`, `/mood/<params>`, `/artist/<id>`, `/album/<id>`,
+  `/playlist/<id>`, `/search?q=`, `/suggestions?q=`,
+  `/match?kind=album|artist&id=[&refresh=1]`; `POST /api/explore/add`
+  (`{kind, id, foreignAlbumId|foreignArtistId?, download?, rootFolderPath?,
+  qualityProfileId?, metadataProfileId?, monitor?}`) and
+  `POST /api/explore/import` (`{kind: album|playlist, id, videoIds?}`).
+  Each has its own rate-limit bucket (`_explore_json`).
+- `tools/explore_preview.py` runs the app on port 5099 with fixture-backed
+  YT Music and Lidarr fakes, a silent audio stream and generated
+  thumbnails (`--down` simulates YouTube being unreachable). Use it for UI
+  work and Playwright checks; it never downloads.
+
 ### Notifications
 
-Telegram, Discord webhooks, and Ntfy push notifications, filtered by `log_type` (e.g., `partial_success`, `album_error`).
+Telegram, Discord webhooks, and Ntfy push notifications, filtered by `log_type` (e.g., `partial_success`, `album_error`). Ntfy is called with a JSON body on the **server root** (`POST {ntfy_url}/`, topic inside the JSON — ntfy ignores JSON posted to `/<topic>`) and an integer priority (1–5). Exception messages are logged through `_redact()` so bot tokens / webhook tokens never reach the logs.
 
 ## Templates
 
-- `templates/index.html` — main dashboard, missing albums list. Per-album checkboxes drive a floating **bulk-action bar** (multi-select → enqueue via `/api/download/queue/bulk`); `selectedAlbums` Set survives view re-renders.
-- `templates/downloads.html` — download queue and history
-- `templates/insights.html` — analytics dashboard (`/insights`); fetches `/api/insights?days=N` and draws dependency-free inline-SVG charts (daily success/fail stacked bars, success-rate donut, audio-quality distribution, top artists). Aggregation is `models.get_insights()`.
-- `templates/logs.html` — download log entries with retry support
-- `templates/settings.html` — configuration UI, incl. **Backup & Restore** (`/api/backup/export` streams a `sqlite3`-consistent copy of the DB; `/api/backup/import` validates the upload, atomically replaces the DB, and restarts — refused while a download is active)
-- `templates/youtube.html` — manual YouTube URL / playlist import
-- `templates/setup.html` — first-run setup wizard (`/setup`); the dashboard redirects unconfigured instances here (client-side, skippable)
-- `static/components.css` — shared UI component system (`.ui-btn`, `.ui-badge`, `.ui-input`, `.ui-card`, `.ui-modal`, `.ui-toast`), included by every page. Prefer these classes for new UI instead of ad-hoc inline styles.
-- `static/favicon.svg` — app icon
-- PWA: `/manifest.webmanifest` and `/sw.js` are served from the app root; every template head links the manifest and registers the (no-op-fetch) service worker so the UI is installable.
+Every page is built on one design system; **don't add per-page colour
+variables, theme toggles, navigation or Font Awesome**.
+
+- `static/components.css` — the design system. Tokens on `:root` (4px
+  spacing scale `--sp-*`, radii `--r-*`, type scale `--text-*`, layered
+  surfaces `--bg-base/-elevated/-elevated-2/-sunken/-overlay`, text
+  `--text-1/2/3`, one accent `--accent*`, semantic `--success/warning/
+  danger/info` with `-mark` and `-soft` variants, shadows `--shadow-1..3`,
+  motion `--ease` = `cubic-bezier(0.32, 0.72, 0, 1)`, `--ease-spring` and
+  `--dur-*`; the "Aurora" look adds `--accent-gradient` (accent → hue −45°
+  → hue +55°, used only on the primary button, progress bars and the
+  nav indicator). **Every accent colour derives from `--accent-base`** (the
+  user's `ui_accent`) with `color-mix()` / `oklch(from …)`: hover, soft
+  fills, focus ring, glows, `--accent-text` (lightness capped so any colour
+  stays AA as text) and `--text-on-accent` (flips to near-black on light
+  accents) — never hard-code the violet again. Also `--aura-1..3` (registered with `@property` so they
+  cross-fade), `--aura-opacity`, and glass `--glass-bg/-border/-blur`,
+  `--glow-accent`). Glass (backdrop blur) is for containers only — sidebar,
+  tab bar, cards, stat tiles, now-downloading card, player, bulk bar —
+  never `.ui-album` grid items (a 5,000-album Library). Dark
+  values are declared twice: under `@media (prefers-color-scheme: dark)`
+  guarded by `:root:not([data-theme="light"])`, and under
+  `:root[data-theme="dark"]` (manual override) — change both. Components
+  are `ui-*` (buttons, badges, fields, `.ui-switch`, `.ui-segmented`,
+  `.ui-check`, chips, cards, iOS grouped lists `.ui-group`, stat tiles,
+  responsive tables that become cards on phones, lists with a coloured
+  status edge, album cards, per-track progress `.ui-track`, now-playing
+  card, empty states, skeletons, callouts, modals that become bottom
+  sheets on phones, stacked toasts, bulk bar, drop zone, steps, tabs,
+  tooltip, horizontal shelves `.ui-shelf` with `-wide`/`-rows`/`-round`
+  variants, and the fixed mini player `.ui-player` — `body.has-player`
+  pads `.app-main` so it never covers content). `prefers-reduced-motion`
+  collapses all durations. Contrast
+  targets WCAG AA in both themes. Under `(max-width: 720px), (pointer:
+  coarse)` controls grow to touch-sized hit targets (36–42px); keep new
+  controls on the shared classes so they inherit this. Frosted surfaces use
+  `--bg-overlay` (high opacity on purpose, so text behind never competes).
+- `static/app.js` — `window.UI`: theme (`auto`/`light`/`dark`, stored in
+  `localStorage.theme`; **dark when nothing is stored**, and `auto` is
+  stored explicitly — the pre-paint script in `_head.html` mirrors this;
+  `themechange` event, `theme-color` meta kept in sync), `UI.icon(name)`, `UI.escape`, `UI.toast(msg, {type, action})`,
+  `UI.openModal/closeModal` (Esc, backdrop, focus trap/restore),
+  `UI.confirm({...})` → Promise, `UI.guard(btn, fn)` (in-flight guard +
+  spinner), `UI.fetchJSON`, `UI.poll(fn, ms)` (never overlaps, pauses in
+  hidden tabs), nav badges from `/api/stats` (`queued`, `active`), and the
+  `/` shortcut that focuses the page's `input[type="search"]`.
+- `static/aura.js` — the aurora background: prepends `.app-aura` (three
+  blurred blobs drifting 30–40 s, paused in hidden tabs, still under
+  reduced motion) to `<body>` and adds `UI.setAura(url|null)`, which
+  reduces the cover to 24×24 in a canvas, takes `UI.auraPalette()`'s
+  dominant vivid colours (grey/near-black/near-white ignored, clamped for
+  legibility) and sets `--aura-1..3`; an unreadable cover (no CORS, 404)
+  or `null` → the defaults derived from the accent (inline `--aura-*`
+  removed). `<html data-aura>` (`ui_aura_mode`): only `cover` follows
+  covers, `accent` keeps the defaults, `off` hides the layer. Callers: Library/Downloads
+  now-downloading card, Explore album/artist pages, the mini player;
+  other Explore views reset it.
+- `static/motion.js` — cover tilt (≤ 4°, fine pointers only, one delegated
+  frame-throttled listener, sheen at `--mx/--my`), `UI.stagger(el)` (first
+  12 children rise in once; `[data-stagger]` on load) and
+  `UI.countTo(el, value, ms, format)`. `auraPalette` and `tiltAngles` are
+  pure and tested under node by `tests/test_frontend_js.py`
+  (`tests/js/*.test.js`).
+- `static/icons.svg` — SVG symbol sprite (`#i-<name>`), used as
+  `<svg class="ico"><use href="/static/icons.svg#i-name"></use></svg>`.
+- `templates/_head.html` (meta, manifest, CSS, pre-paint theme script,
+  app.js), `templates/_nav.html` (sidebar + phone tab bar; set
+  `active_page` before including), `templates/_topbar.html` (phone header).
+- `templates/index.html` — Library: status tiles, missing-albums grid /
+  list / table, search and sort. Per-album checkboxes drive the floating
+  **bulk-action bar** (`/api/download/queue/bulk`); `selectedAlbums` Set
+  survives view re-renders.
+- `templates/downloads.html` — now-downloading card with per-track states,
+  reorderable queue, history filtered by outcome and audio quality.
+- `templates/insights.html` — analytics (`/insights`); fetches
+  `/api/insights?days=N` and draws dependency-free inline-SVG charts
+  rendered at the measured container width (fixed-size labels, tooltips,
+  legend, table view). Aggregation is `models.get_insights()`.
+- `templates/logs.html` — download log entries with type filters and
+  inline retry/dismiss/unban.
+- `templates/settings.html` — configuration in anchored sections, incl.
+  **Appearance** first (accent swatches + native colour picker, aurora
+  Covers / My colour / Off; instant saves via `saveAppearance()`, live
+  preview by setting `--accent-base` / `data-aura` on `<html>`, rolled back
+  on error) and
+  **Backup & Restore** (`/api/backup/export` streams a `sqlite3`-consistent
+  copy of the DB; `/api/backup/import` validates the upload, atomically
+  replaces the DB, and restarts — refused while any download is active).
+- `templates/youtube.html` — manual YouTube URL / playlist import.
+- The Library accepts `/?q=` to pre-fill its search; its header and empty
+  state link to Explore.
+- `templates/explore.html` — **Explore** (`/explore`), a client-routed
+  page: `?album=`, `?artist=`, `?playlist=`, `?mood=&title=`, `?q=` are deep
+  links (history API, `a[data-route]` links). Home shelves (`.ui-shelf`):
+  new-releases hero, top songs with a country `<select>` (stored in
+  `localStorage.exploreCountry`), trending, new albums, top artists
+  (`.ui-shelf-round`), charts, videos, mood chips. Album pages render the
+  match as a badge plus the contextual CTA and the candidate picker; artist
+  pages the *Add artist* flow (a picker modal when ambiguous); playlists
+  selection + bulk import. Lidarr add options reuse
+  `localStorage.addMusicPrefs` (editable from the sliders button). The
+  `.ui-player` mini player streams previews from `/api/youtube/stream`
+  (volume in `localStorage.explorePlayerVolume`, Media Session handlers) and
+  lives as long as the page. Search suggests as you type (combobox, arrow
+  keys, `/` focuses it). On phones Explore takes YouTube's tab-bar slot;
+  `_nav.html` skips `youtube` there and highlights Explore on `/youtube`.
+- `templates/setup.html` — first-run setup wizard (`/setup`, no nav); the
+  dashboard redirects unconfigured instances here (client-side, skippable).
+- `static/favicon.svg` + PNG icons (`apple-touch-icon.png`, `icon-192.png`,
+  `icon-512.png`, `icon-maskable-512.png`).
+- PWA: `/manifest.webmanifest` and `/sw.js` are served from the app root;
+  `_head.html` links the manifest and `app.js` registers the (no-op-fetch)
+  service worker so the UI is installable.
 
 ## Utility Tools (`tools/`)
 
@@ -243,19 +550,38 @@ Standalone scripts not part of the main app:
 - `migrate_directories.py` — migrate album directory structure
 - `migrate_json_to_db.py` — migrate JSON state files to SQLite (one-time upgrade)
 - `verify_fingerprints.py` — AcoustID fingerprint verification tool
+- `explore_preview.py` — run the UI against mocked YT Music + Lidarr (see Explore); `--demo` also seeds the Library, queue, an active download, history, insights and logs with fictional artists and generated cover art (the README screenshots in `docs/screenshots/` come from it)
+- `ui_smoke.js` — with the `--demo` preview running, `npx -y -p playwright node tools/ui_smoke.js` loads every page with no stored theme, light, dark and dark + reduced motion, and fails on a JS error, a missing `.app-aura`, a non-dark first visit, text tokens below WCAG AA on `--bg-elevated`, a backdrop filter on `.ui-album`, or an aurora that moves under reduced motion
+- `readme_screenshots.js` — with the `--demo` preview running, `npx -y -p playwright node tools/readme_screenshots.js` recaptures every README screenshot in both themes, framed (browser window / three phones) with rounded corners on a transparent background
 
 ## Key Dependencies
 
 - `yt-dlp` — YouTube search and download
 - `mutagen` — MP3 ID3 tag reading/writing
-- `Flask` + `gunicorn` — web server
+- `Flask` — web server (its built-in server; `entrypoint.sh` runs `python app.py`)
+
+**Everything floats to its latest release, on purpose.** `requirements.txt`
+has no versions, the base image is `python:3-slim` (the newest Python), the
+Dockerfile runs `apt-get upgrade` and installs the latest Deno, and the
+bgutil sidecar is `:latest` with `pull_policy: always` (it must match the
+bgutil plugin pip installs). Build with `--pull --no-cache` (compose sets
+both), or cached layers keep the old versions. What keeps "latest" safe:
+- a `wheels` build stage with a compiler builds wheels a brand-new Python
+  does not have yet (Python 3.15: brotli), so the slim runtime needs no gcc;
+- the image build fails on `pip check` conflicts, on `python -c "import app"`
+  or on a missing `deno`/`ffmpeg`/`fpcalc`, instead of shipping a broken image;
+- CI tests on Python 3.12 and the newest 3.x with freshly resolved
+  dependencies, builds the image, and re-runs every Monday so an upstream
+  release that breaks the app is caught with no commit here.
+To hold a library back after a breaking release, add `pkg<X` to
+`requirements.txt` with a comment saying why and when to lift it.
 - `schedule` — optional cron-style scheduler
 - `ffmpeg` (system package, not pip) — audio conversion
 - `fpcalc`/chromaprint (optional system package) — AcoustID fingerprinting
 
 ## Version Updates
 
-The version string is defined in `version.py`: `VERSION = "1.9.2"`. The README badge also references it and must be updated manually.
+The version string is defined in `version.py`: `VERSION = "2.0.0"` (the whole 2.0 line is one beta release; bump only after it is published on main). The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 
@@ -269,4 +595,4 @@ Run tests with the venv:
 source .venv/bin/activate && python -m pytest tests/ -v
 ```
 
-Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`.
+Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`, `test_explore.py` (fixtures in `tests/fixtures/ytmusic/`), `test_frontend_js.py` (runs `tests/js/*.test.js` under node; skipped without node).

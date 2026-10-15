@@ -1,0 +1,160 @@
+{
+ "owned": false,
+ "id": "PL4fGSI1pDJn5BPviUFX4a3IMnAgyknC68",
+ "privacy": "PUBLIC",
+ "description": "La classifica di questa settimana dei video musicali più visti su YouTube.",
+ "views": null,
+ "duration": "5 ore e 27 minuti",
+ "trackCount": 100,
+ "title": "I 100 video musicali più visti in Italia",
+ "thumbnails": [
+  {
+   "url": "https://yt3.googleusercontent.com/By4ZyU7uSAkSiNa-0EaVxxrf5GAAEakQJNNH46aozpJECZ8Es0FGvcc9QNMi_ZajcoK2hqk9Gjc=s192",
+   "width": 192,
+   "height": 192
+  },
+  {
+   "url": "https://yt3.googleusercontent.com/By4ZyU7uSAkSiNa-0EaVxxrf5GAAEakQJNNH46aozpJECZ8Es0FGvcc9QNMi_ZajcoK2hqk9Gjc=s576",
+   "width": 576,
+   "height": 576
+  },
+  {
+   "url": "https://yt3.googleusercontent.com/By4ZyU7uSAkSiNa-0EaVxxrf5GAAEakQJNNH46aozpJECZ8Es0FGvcc9QNMi_ZajcoK2hqk9Gjc=s1200",
+   "width": 1200,
+   "height": 1200
+  }
+ ],
+ "author": {
+  "name": "Classifiche di YouTube",
+  "id": "FEmusic_charts"
+ },
+ "year": "2026",
+ "related": [],
+ "tracks": [
+  {
+   "videoId": "XgTSQwZcHH8",
+   "title": "PER NOI (con Achille Lauro)",
+   "artists": [
+    {
+     "name": "Geolier",
+     "id": "UCcVStX6y07F8-euPi0A7hLA"
+    }
+   ],
+   "album": null,
+   "likeStatus": "INDIFFERENT",
+   "inLibrary": false,
+   "pinnedToListenAgain": false,
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/XgTSQwZcHH8/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nchkKu0pyckYiuwz5MLzb-S1oFnQ",
+     "width": 400,
+     "height": 225
+    }
+   ],
+   "isAvailable": true,
+   "isExplicit": false,
+   "videoType": "MUSIC_VIDEO_TYPE_OMV",
+   "views": null,
+   "communityVoteStatus": null,
+   "duration": "3:51",
+   "duration_seconds": 231
+  },
+  {
+   "videoId": null,
+   "title": "Dai Dai (SPINALL Remix)",
+   "artists": [
+    {
+     "name": "Shakira",
+     "id": null
+    },
+    {
+     "name": "Burna Boy",
+     "id": null
+    }
+   ],
+   "album": null,
+   "likeStatus": null,
+   "inLibrary": null,
+   "pinnedToListenAgain": null,
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/fcnDmrtj6Sk/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3mFBjDX1AqBR7GAJFC4rNd4ZdCZGw",
+     "width": 400,
+     "height": 225
+    }
+   ],
+   "isAvailable": false,
+   "isExplicit": false,
+   "videoType": null,
+   "views": null,
+   "communityVoteStatus": null,
+   "duration": "4:01",
+   "duration_seconds": 241
+  },
+  {
+   "videoId": "PshqcQwshdU",
+   "title": "Sfera Ebbasta - Lontano (Official Video)",
+   "artists": [
+    {
+     "name": "Sfera Ebbasta",
+     "id": "UC7-K3cpctiu-1pUllHQqkvg"
+    }
+   ],
+   "album": null,
+   "likeStatus": "INDIFFERENT",
+   "inLibrary": false,
+   "pinnedToListenAgain": false,
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/PshqcQwshdU/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nsAYJHFMCw2YuQYvA3jq9lz-WC1w",
+     "width": 400,
+     "height": 225
+    }
+   ],
+   "isAvailable": true,
+   "isExplicit": false,
+   "videoType": "MUSIC_VIDEO_TYPE_OMV",
+   "views": null,
+   "communityVoteStatus": null,
+   "duration": "3:58",
+   "duration_seconds": 238
+  },
+  {
+   "videoId": "S3mM2QYOaFc",
+   "title": "La testa gira",
+   "artists": [
+    {
+     "name": "Fred De Palma",
+     "id": "UCp1stouVk4yrzRnWJHf9dow"
+    },
+    {
+     "name": "Anitta",
+     "id": "UCI99G32byWj1aH13pbxnTEw"
+    },
+    {
+     "name": "Emis Killa",
+     "id": "UCFXwopEzLxkAkq3ioeNAiUA"
+    }
+   ],
+   "album": null,
+   "likeStatus": "INDIFFERENT",
+   "inLibrary": false,
+   "pinnedToListenAgain": false,
+   "thumbnails": [
+    {
+     "url": "https://i.ytimg.com/vi/S3mM2QYOaFc/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3n5wfk45aWfBSxtlMx4ZgS1BDKI_A",
+     "width": 400,
+     "height": 225
+    }
+   ],
+   "isAvailable": true,
+   "isExplicit": false,
+   "videoType": "MUSIC_VIDEO_TYPE_OMV",
+   "views": null,
+   "communityVoteStatus": null,
+   "duration": "3:00",
+   "duration_seconds": 180
+  }
+ ],
+ "duration_seconds": 19636
+}

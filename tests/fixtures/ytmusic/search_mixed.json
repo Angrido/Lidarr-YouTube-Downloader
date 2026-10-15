@@ -1,0 +1,433 @@
+[
+ {
+  "category": "Top result",
+  "resultType": "artist",
+  "subscribers": "53,3 Mln",
+  "artists": [
+   {
+    "name": "Nirvana",
+    "id": "UCrPe3hLA51968GwxHSZ1llw"
+   }
+  ],
+  "thumbnails": [
+   {
+    "url": "https://yt3.googleusercontent.com/yoFwkvvbmM3u7q0VM_HpjCnsaViQx3gWuycm5OsdmRqWBHL4LyIpNQ5kemdcoW7zrGETTutR_5c_xk8=w60-h60-p-l90-rj",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://yt3.googleusercontent.com/yoFwkvvbmM3u7q0VM_HpjCnsaViQx3gWuycm5OsdmRqWBHL4LyIpNQ5kemdcoW7zrGETTutR_5c_xk8=w120-h120-p-l90-rj",
+    "width": 120,
+    "height": 120
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "artist",
+  "artist": "Kurt Cobain",
+  "shuffleId": "RDAOXIaDF0oo7L3XT8SGqUmTvw",
+  "radioId": "RDEMXIaDF0oo7L3XT8SGqUmTvw",
+  "browseId": "UC9wzL8oSw8lD6ucrTSS6C_Q",
+  "thumbnails": [
+   {
+    "url": "https://yt3.googleusercontent.com/O339XNbfMDKTA874KjOYYeOQfzyrYraG7pmpzAArEMX8_03y2NfpT9HRG-12G5rdKNTv97F7dXU1KEA=w60-h60-p-l90-rj",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://yt3.googleusercontent.com/O339XNbfMDKTA874KjOYYeOQfzyrYraG7pmpzAArEMX8_03y2NfpT9HRG-12G5rdKNTv97F7dXU1KEA=w120-h120-p-l90-rj",
+    "width": 120,
+    "height": 120
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "video",
+  "title": "Greatest Hits Nirvana Songs Collection - Top Hits Nirvana Music Playlist Ever",
+  "videoId": "UwbvrnXJ9ZQ",
+  "videoType": "MUSIC_VIDEO_TYPE_UGC",
+  "isAvailable": true,
+  "duration": null,
+  "year": null,
+  "artists": [
+   {
+    "name": "Rock Music Hits",
+    "id": "UC8XiYjoPYQ8Hh7zLJOe5pHw"
+   }
+  ],
+  "views": "291K",
+  "thumbnails": [
+   {
+    "url": "https://i.ytimg.com/vi/UwbvrnXJ9ZQ/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nSGHd7ZW8Ey1-sKAycRox7XZw0Ng",
+    "width": 400,
+    "height": 225
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "video",
+  "title": "Come as You Are - Nirvana",
+  "videoId": "0oi1fGhaJl8",
+  "videoType": "MUSIC_VIDEO_TYPE_UGC",
+  "isAvailable": true,
+  "duration": null,
+  "year": null,
+  "artists": [
+   {
+    "name": "RockSongs",
+    "id": "UCsWlgYSBABf6Nqmlrkub9bQ"
+   }
+  ],
+  "views": "6,2 Mln",
+  "thumbnails": [
+   {
+    "url": "https://i.ytimg.com/vi/0oi1fGhaJl8/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nbMEtUesl1eR7Aj1-3z7bY9UpikQ",
+    "width": 400,
+    "height": 225
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "artist",
+  "artist": "Sleeping In Nirvana",
+  "shuffleId": "RDAOfvurKUxT3ukiHBPGJWFb2A",
+  "radioId": "RDEMfvurKUxT3ukiHBPGJWFb2A",
+  "browseId": "UC7-xEjeYJhZA-rnphKCuD_Q",
+  "thumbnails": [
+   {
+    "url": "https://yt3.googleusercontent.com/oKjBGr1t1Ugm2S7NCxq9GOMdyODdUM3Z4Fytf_M5RjQOd2jgqiHwx917_RYCbyLZqn37EtXW=w60-h60-l90-rj-dciVGORyIJ",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://yt3.googleusercontent.com/oKjBGr1t1Ugm2S7NCxq9GOMdyODdUM3Z4Fytf_M5RjQOd2jgqiHwx917_RYCbyLZqn37EtXW=w120-h120-l90-rj-dciVGORyIJ",
+    "width": 120,
+    "height": 120
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "episode",
+  "title": "Nevermind: il caos dei Nirvana non era casuale",
+  "videoId": "ULZG0u_WD9E",
+  "videoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE",
+  "isAvailable": true,
+  "live": false,
+  "date": "2 gg fa",
+  "podcast": {
+   "id": "MPSPPLXfeRUUe7wtCpUdQedXrEEzYneXTE1_If",
+   "name": "Dischi e Canzoni dal Mondo | Parole e Suoni Podcast"
+  },
+  "thumbnails": [
+   {
+    "url": "https://i.ytimg.com/vi/ULZG0u_WD9E/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3nGJVRfOPqcZFxoRJG9e87YZKzSLA",
+    "width": 400,
+    "height": 225
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "video",
+  "title": "NIRVANA Best Songs Collection | Best Legendary Ballads - Best Love Songs Ever #nirvana",
+  "videoId": "hDi-TTcV9NI",
+  "videoType": "MUSIC_VIDEO_TYPE_UGC",
+  "isAvailable": true,
+  "duration": null,
+  "year": null,
+  "artists": [
+   {
+    "name": "Movie Library",
+    "id": "UCpOyD6-abEyjr0qKW8-KTCA"
+   }
+  ],
+  "views": "1,2 Mln",
+  "thumbnails": [
+   {
+    "url": "https://i.ytimg.com/vi/hDi-TTcV9NI/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3np0tDbLt-qSvxDM2TUfpUYO15pyQ",
+    "width": 400,
+    "height": 225
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "artist",
+  "artist": "Marigold",
+  "shuffleId": "RDAOTYV3oKByyc5xlTcjECnOXA",
+  "radioId": "RDEMTYV3oKByyc5xlTcjECnOXA",
+  "browseId": "UCNqJUg1BTsdmBvHTm4ISS5w",
+  "thumbnails": [
+   {
+    "url": "https://yt3.googleusercontent.com/MwY2f52-Q0P7NhbTEdKL4G1qJcvoTrhhAHbVhqsozRpwPU3Pgb4rvx2Gu5Do4YbCj7m_MAP1m8pDQhMV=w60-h60-l90-rj",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://yt3.googleusercontent.com/MwY2f52-Q0P7NhbTEdKL4G1qJcvoTrhhAHbVhqsozRpwPU3Pgb4rvx2Gu5Do4YbCj7m_MAP1m8pDQhMV=w120-h120-l90-rj",
+    "width": 120,
+    "height": 120
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "episode",
+  "title": "Il segreto dietro la morte di Kurt Cobain",
+  "videoId": "xOt3Wga80wM",
+  "videoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE",
+  "isAvailable": true,
+  "live": false,
+  "date": "7 apr 2025",
+  "podcast": {
+   "id": "MPSPPLXfeRUUe7wtCMM3lHuq3vw2sdFaegWc8n",
+   "name": "Artisti e Band Internazionali | Parole e Suoni Podcast"
+  },
+  "thumbnails": [
+   {
+    "url": "https://i.ytimg.com/vi/xOt3Wga80wM/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3k_38ydiF0-fuBC7jqG1rNNYFEWqQ",
+    "width": 400,
+    "height": 225
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "episode",
+  "title": "La fotocamera che ha immortalato i Nirvana prima che chiunque li guardasse",
+  "videoId": "PTA0BNpXQnc",
+  "videoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE",
+  "isAvailable": true,
+  "live": false,
+  "date": "11 ago",
+  "podcast": {
+   "id": "MPSPPL856A2yLhQVLxXs1AxWdIfcymGovvRmoI",
+   "name": "The Creative Asylum - Conversations with Creatives of EVERY Stripe"
+  },
+  "thumbnails": [
+   {
+    "url": "https://i.ytimg.com/vi/PTA0BNpXQnc/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3lcHmx7rmUxDE6tdrkCavxa_PWD_w",
+    "width": 400,
+    "height": 225
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "artist",
+  "artist": "Nirvana",
+  "browseId": "UCgPF47p0xgTGIutXtVf4YrQ",
+  "thumbnails": [
+   {
+    "url": "https://yt3.googleusercontent.com/hr0iJtCfsqOeCXhKDfset0BVHvF5l9zrMmxbqw2n5mlzXkxgCAgQmFsCAAvsUirW5OEy7L9nY8Q=w60-c-h60-k-c0x00ffffff-no-l90-rj",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://yt3.googleusercontent.com/hr0iJtCfsqOeCXhKDfset0BVHvF5l9zrMmxbqw2n5mlzXkxgCAgQmFsCAAvsUirW5OEy7L9nY8Q=w120-c-h120-k-c0x00ffffff-no-l90-rj",
+    "width": 120,
+    "height": 120
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "artist",
+  "artist": "Nirvana ",
+  "browseId": "UCY31-UuO9WNoqhG3rycRszg",
+  "thumbnails": [
+   {
+    "url": "https://yt3.googleusercontent.com/hbuGCaz2upkrdK1assVvj3c4YhV20S3b32vipZD03_SKsAJmaTkR71FIrnBymzCs4nnDN2eXnw=w60-c-h60-k-c0x00ffffff-no-l90-rj",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://yt3.googleusercontent.com/hbuGCaz2upkrdK1assVvj3c4YhV20S3b32vipZD03_SKsAJmaTkR71FIrnBymzCs4nnDN2eXnw=w120-c-h120-k-c0x00ffffff-no-l90-rj",
+    "width": 120,
+    "height": 120
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "artist",
+  "artist": "Nirvana",
+  "browseId": "UC4nh296kelE3qkiqn4tUw1g",
+  "thumbnails": [
+   {
+    "url": "https://yt3.googleusercontent.com/qLadiIywqwGx9oXq9_k-_PoaBqBbSO9Q1NloZd_kgUlJVTAan9bpYq1P59Ip6AOFG2C-sRafaA=w60-c-h60-k-c0x00ffffff-no-l90-rj",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://yt3.googleusercontent.com/qLadiIywqwGx9oXq9_k-_PoaBqBbSO9Q1NloZd_kgUlJVTAan9bpYq1P59Ip6AOFG2C-sRafaA=w120-c-h120-k-c0x00ffffff-no-l90-rj",
+    "width": 120,
+    "height": 120
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "playlist",
+  "title": "nirvana radio",
+  "itemCount": null,
+  "author": "Tim Marsh",
+  "browseId": "VLPL1ZdPLFb740uC--4NtnJ8PJry9hYfHQ0a",
+  "thumbnails": [
+   {
+    "url": "https://yt3.ggpht.com/5Lcr80SQ6lFjx68CxG2y1u9swMItdE-vbIwUXUtCDmzSjNep3EP8Kr98a6jFSrgIfcH6z4szqQ=s192",
+    "width": 192,
+    "height": 192
+   },
+   {
+    "url": "https://yt3.ggpht.com/5Lcr80SQ6lFjx68CxG2y1u9swMItdE-vbIwUXUtCDmzSjNep3EP8Kr98a6jFSrgIfcH6z4szqQ=s576",
+    "width": 576,
+    "height": 576
+   },
+   {
+    "url": "https://yt3.ggpht.com/5Lcr80SQ6lFjx68CxG2y1u9swMItdE-vbIwUXUtCDmzSjNep3EP8Kr98a6jFSrgIfcH6z4szqQ=s1200",
+    "width": 1200,
+    "height": 1200
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "playlist",
+  "title": "Nirvana rare Song",
+  "itemCount": null,
+  "author": "haribo",
+  "browseId": "VLPLEg58Ecy21qLn8lPIMqNhlx3w8bb0sNPn",
+  "thumbnails": [
+   {
+    "url": "https://yt3.ggpht.com/KntlVx8mlIB0lQo2HJUA1FauPBQcmo8g9hA3jTyDcpJZDoxjSc7X208waXAUyjNmRTmMjjAerx8=s192",
+    "width": 192,
+    "height": 192
+   },
+   {
+    "url": "https://yt3.ggpht.com/KntlVx8mlIB0lQo2HJUA1FauPBQcmo8g9hA3jTyDcpJZDoxjSc7X208waXAUyjNmRTmMjjAerx8=s576",
+    "width": 576,
+    "height": 576
+   },
+   {
+    "url": "https://yt3.ggpht.com/KntlVx8mlIB0lQo2HJUA1FauPBQcmo8g9hA3jTyDcpJZDoxjSc7X208waXAUyjNmRTmMjjAerx8=s1200",
+    "width": 1200,
+    "height": 1200
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "playlist",
+  "title": "Nirvana Lofi",
+  "itemCount": null,
+  "author": "Mike M",
+  "browseId": "VLPL5-wZNQ6vA_PQkQwRrt3LDGeARQeWtQj9",
+  "thumbnails": [
+   {
+    "url": "https://yt3.googleusercontent.com/g55uvJEDz1bEmKxFvf86EyWH4Q2_IMMsr8HmQfYFNGOmyZL1RlW4hffwPwMlyD-u9t4n_6M7Oko=s192",
+    "width": 192,
+    "height": 192
+   },
+   {
+    "url": "https://yt3.googleusercontent.com/g55uvJEDz1bEmKxFvf86EyWH4Q2_IMMsr8HmQfYFNGOmyZL1RlW4hffwPwMlyD-u9t4n_6M7Oko=s576",
+    "width": 576,
+    "height": 576
+   },
+   {
+    "url": "https://yt3.googleusercontent.com/g55uvJEDz1bEmKxFvf86EyWH4Q2_IMMsr8HmQfYFNGOmyZL1RlW4hffwPwMlyD-u9t4n_6M7Oko=s1200",
+    "width": 1200,
+    "height": 1200
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "podcast",
+  "title": "NirvanaSpeaks",
+  "browseId": "MPSPPLyLV_WYq9xCFAZP1CnJkhJUGsXDtSyGyZ",
+  "thumbnails": [
+   {
+    "url": "https://i.ytimg.com/pl_c/PLyLV_WYq9xCFAZP1CnJkhJUGsXDtSyGyZ/studio_square_thumbnail.jpg?sqp=CKyriNYG-oaymwEICDwQPCAASFqi85f_AwYI3p-10AY&rs=AMzJL3lYscQrXijvAKsjNYhJScYqAea_6g",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://i.ytimg.com/pl_c/PLyLV_WYq9xCFAZP1CnJkhJUGsXDtSyGyZ/studio_square_thumbnail.jpg?sqp=CKyriNYG-oaymwEICHgQeCAASFqi85f_AwYI3p-10AY&rs=AMzJL3mYY4AkVBnQHDp5cIRCIUI7MnFcgw",
+    "width": 120,
+    "height": 120
+   },
+   {
+    "url": "https://i.ytimg.com/pl_c/PLyLV_WYq9xCFAZP1CnJkhJUGsXDtSyGyZ/studio_square_thumbnail.jpg?sqp=CKyriNYG-oaymwEKCOIBEOIBIABIWqLzl_8DBgjen7XQBg&rs=AMzJL3k9k2-tMSCLF9s_wy0gaTPRHGkqXw",
+    "width": 226,
+    "height": 226
+   },
+   {
+    "url": "https://i.ytimg.com/pl_c/PLyLV_WYq9xCFAZP1CnJkhJUGsXDtSyGyZ/studio_square_thumbnail.jpg?sqp=CKyriNYG-oaymwEKCKAEEKAEIABIWqLzl_8DBgjen7XQBg&rs=AMzJL3ljXLazs2sR5urVOeGDYajmCqXjVQ",
+    "width": 544,
+    "height": 544
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "podcast",
+  "title": "Urban Nirvana",
+  "browseId": "MPSPPLvwKn2Di_8gr6gDIJI7fVXysJ9u7hXWTb",
+  "thumbnails": [
+   {
+    "url": "https://i.ytimg.com/pl_c/PLvwKn2Di_8gr6gDIJI7fVXysJ9u7hXWTb/studio_square_thumbnail.jpg?sqp=CKyriNYG-oaymwEICDwQPCAASFqi85f_AwYI7-bGowY&rs=AMzJL3nldMVCdtfSfQVfoflgEe2q8mdeBA",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://i.ytimg.com/pl_c/PLvwKn2Di_8gr6gDIJI7fVXysJ9u7hXWTb/studio_square_thumbnail.jpg?sqp=CKyriNYG-oaymwEICHgQeCAASFqi85f_AwYI7-bGowY&rs=AMzJL3kvKLk9nzdRVH0PB3hCzxVa_1dwFQ",
+    "width": 120,
+    "height": 120
+   },
+   {
+    "url": "https://i.ytimg.com/pl_c/PLvwKn2Di_8gr6gDIJI7fVXysJ9u7hXWTb/studio_square_thumbnail.jpg?sqp=CKyriNYG-oaymwEKCOIBEOIBIABIWqLzl_8DBgjv5sajBg&rs=AMzJL3k7rs6dCIE1882x_Oo_scpmM_k2yw",
+    "width": 226,
+    "height": 226
+   },
+   {
+    "url": "https://i.ytimg.com/pl_c/PLvwKn2Di_8gr6gDIJI7fVXysJ9u7hXWTb/studio_square_thumbnail.jpg?sqp=CKyriNYG-oaymwEKCKAEEKAEIABIWqLzl_8DBgjv5sajBg&rs=AMzJL3lBwSYhVV5JW4DonF0WHtcUfhuI5w",
+    "width": 544,
+    "height": 544
+   }
+  ]
+ },
+ {
+  "category": null,
+  "resultType": "podcast",
+  "title": "NxtWave",
+  "browseId": "MPSPPLFvDEWopCr6s",
+  "thumbnails": [
+   {
+    "url": "https://i.ytimg.com/pl_c/PLFvDEWopCr6s/studio_square_thumbnail.jpg?sqp=CKyriNYG-oaymwEICDwQPCAASFqi85f_AwYI2fXm0gY&rs=AMzJL3niEaL8LVrloqt8NqivqTEvfqutpA",
+    "width": 60,
+    "height": 60
+   },
+   {
+    "url": "https://i.ytimg.com/pl_c/PLFvDEWopCr6s/studio_square_thumbnail.jpg?sqp=CKyriNYG-oaymwEICHgQeCAASFqi85f_AwYI2fXm0gY&rs=AMzJL3mMrOM2mHWMxBIIvwSrBHp6eED5Sg",
+    "width": 120,
+    "height": 120
+   },
+   {
+    "url": "https://i.ytimg.com/pl_c/PLFvDEWopCr6s/studio_square_thumbnail.jpg?sqp=CKyriNYG-oaymwEKCOIBEOIBIABIWqLzl_8DBgjZ9ebSBg&rs=AMzJL3mfG_imCik0c23bctfYnPrHpnLBtw",
+    "width": 226,
+    "height": 226
+   },
+   {
+    "url": "https://i.ytimg.com/pl_c/PLFvDEWopCr6s/studio_square_thumbnail.jpg?sqp=CKyriNYG-oaymwEKCKAEEKAEIABIWqLzl_8DBgjZ9ebSBg&rs=AMzJL3n7RoN-OvwqSjeKafib-CxgrfolOQ",
+    "width": 544,
+    "height": 544
+   }
+  ]
+ }
+]

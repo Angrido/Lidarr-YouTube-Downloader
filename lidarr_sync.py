@@ -11,7 +11,7 @@ import time
 
 import db
 import models
-from config import load_config
+from config import load_config, retry_cooldown_seconds
 from lidarr import lidarr_request
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,9 @@ def _run_sync():
     synced = 0
     total_records = 0
     total_pages = 0
+    failed_pages = []
+    first_total = None
+    list_shifted = False
     while True:
         wanted, error = _fetch_page(page)
         if wanted is None:
@@ -78,6 +81,12 @@ def _run_sync():
             )
             return
         records = wanted.get("records", []) or []
+        reported_total = wanted.get("totalRecords")
+        if reported_total is not None:
+            if first_total is None:
+                first_total = reported_total
+            elif reported_total != first_total:
+                list_shifted = True
         total_records = wanted.get("totalRecords", total_records) or 0
         if total_records:
             total_pages = max(
@@ -86,6 +95,7 @@ def _run_sync():
         try:
             models.upsert_missing_albums_batch(records, run_id)
         except Exception as e:
+            failed_pages.append(page)
             logger.warning(
                 "Failed to upsert page %d (%d albums): %s",
                 page, len(records), e,
@@ -104,12 +114,30 @@ def _run_sync():
         if len(records) < PAGE_SIZE:
             break
         page += 1
-    pruned = models.prune_missing_albums(run_id)
+    if failed_pages:
+        error = (
+            f"Failed to save {len(failed_pages)} page(s) of missing albums"
+            f" (page {', '.join(str(p) for p in failed_pages)});"
+            " stale albums were not pruned"
+        )
+        models.update_sync_state(status="error", last_error=error[:500])
+        logger.warning("Lidarr sync incomplete: %s", error)
+        return
+    if list_shifted:
+        pruned = 0
+        logger.info(
+            "Lidarr's missing list changed during sync (%d -> %d albums);"
+            " skipping prune until the next sync",
+            first_total, total_records,
+        )
+    else:
+        pruned = models.prune_missing_albums(run_id)
     models.update_sync_state(
         status="idle",
         last_full_sync_at=time.time(),
         last_error="",
     )
+    _prune_old_history()
     # This runs on a loop; logging the same sentence every cycle buries the
     # rest of the log. Only speak up when the result actually changed.
     global _last_sync_summary
@@ -156,6 +184,22 @@ def trigger_sync():
 
     threading.Thread(target=runner, daemon=True).start()
     return True
+
+
+HISTORY_RETENTION_DAYS = 90
+
+
+def _prune_old_history():
+    """Drop old logs / attempts / superseded failures (they otherwise grow
+    forever), never inside the retry cooldown that reads them."""
+    keep = max(
+        HISTORY_RETENTION_DAYS * 86400,
+        retry_cooldown_seconds(load_config()),
+    )
+    try:
+        models.prune_old_records(time.time() - keep)
+    except Exception as e:
+        logger.warning("Pruning old history failed: %s", e)
 
 
 def sync_loop():

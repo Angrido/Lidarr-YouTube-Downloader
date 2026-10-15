@@ -293,6 +293,65 @@ def test_clear_logs():
     assert models.get_logs()["total"] == 0
 
 
+def test_clearing_logs_keeps_the_retry_cooldown():
+    # An album that just failed must not be retried by the next scheduler
+    # cycle only because the user cleared (or dismissed) its log rows.
+    import time
+    models.add_log("album_error", 5, "A", "X")
+    _add_dl(album_id=5, success=False, error_message="no match")
+    models.clear_logs()
+    assert 5 in models.get_attempted_album_ids_since(time.time() - 60)
+    assert models.get_attempted_album_ids_since(time.time() + 60) == set()
+
+
+def test_prune_old_records_keeps_what_still_matters():
+    import db
+    import time
+    now = time.time()
+    old, new = now - 100 * 86400, now - 86400
+    conn = db.get_db()
+
+    def at(table, row_id, ts):
+        conn.execute(f"UPDATE {table} SET timestamp = ? WHERE id = ?", (ts, row_id))
+
+    def attempt(dl_id, ts):
+        conn.execute(
+            "INSERT INTO candidate_attempts (track_download_id, outcome, timestamp)"
+            " VALUES (?, 'download_failed', ?)", (dl_id, ts),
+        )
+
+    models.add_log("album_error", 1, "A", "X")
+    models.add_log("album_error", 1, "A", "X")
+    old_log, new_log = [i["id"] for i in models.get_logs()["items"]][:2]
+    conn.execute("UPDATE download_logs SET timestamp = ? WHERE id = ?", (old, old_log))
+    conn.execute("UPDATE download_logs SET timestamp = ? WHERE id = ?", (new, new_log))
+    # Superseded: failed long ago, succeeded since. Prunable.
+    superseded = _add_dl(track_title="Fixed", success=False)
+    fixed_ok = _add_dl(track_title="Fixed", success=True)
+    # Still failing: its failures drive the backoff / max_track_retries.
+    still_failing = _add_dl(track_title="Broken", success=False)
+    # An old success: playlist watch and artist import skip what it imported.
+    old_success = _add_dl(track_title="Kept", success=True)
+    at("track_downloads", superseded, old)
+    at("track_downloads", fixed_ok, new)
+    at("track_downloads", still_failing, old)
+    at("track_downloads", old_success, old)
+    attempt(superseded, old)
+    attempt(still_failing, old)
+    attempt(fixed_ok, new)
+    conn.commit()
+
+    models.prune_old_records(now - 90 * 86400)
+
+    assert {i["id"] for i in models.get_logs()["items"]} == {new_log}
+    ids = {r[0] for r in conn.execute("SELECT id FROM track_downloads")}
+    assert ids == {fixed_ok, still_failing, old_success}
+    attempts = conn.execute(
+        "SELECT track_download_id FROM candidate_attempts"
+    ).fetchall()
+    assert [r[0] for r in attempts] == [fixed_ok]
+
+
 def test_get_logs_db_size():
     models.add_log("download_success", 1, "A", "A", details="some text")
     size = models.get_logs_db_size()
@@ -348,6 +407,17 @@ def test_enqueue_and_get_queue():
     assert queue[1]["album_id"] == 20
 
 
+def test_enqueue_front_goes_to_the_head():
+    models.enqueue_album(10)
+    models.enqueue_album(20)
+    models.enqueue_album(30, front=True)
+    assert [r["album_id"] for r in models.get_queue()] == [30, 10, 20]
+    # A dequeue renumbers, and the head placement survives it.
+    models.dequeue_album(20)
+    models.enqueue_album(40, front=True)
+    assert [r["album_id"] for r in models.get_queue()] == [40, 30, 10]
+
+
 def test_enqueue_duplicate_ignored():
     models.enqueue_album(10)
     models.enqueue_album(10)
@@ -388,6 +458,20 @@ def test_clear_queue():
     models.enqueue_album(10)
     models.clear_queue()
     assert len(models.get_queue()) == 0
+
+
+def test_clear_queue_keeps_active_album():
+    for album_id in (10, 11, 12):
+        models.enqueue_album(album_id)
+    models.set_queue_status(11, models.QUEUE_STATUS_DOWNLOADING)
+    models.clear_queue(include_active=False)
+    queue = models.get_queue()
+    assert [(r["album_id"], r["status"]) for r in queue] == [
+        (11, models.QUEUE_STATUS_DOWNLOADING)
+    ]
+    assert queue[0]["position"] == 1
+    models.clear_queue()
+    assert models.get_queue() == []
 
 
 def test_get_latest_download_album_id_empty():
@@ -695,6 +779,36 @@ class TestCandidateAttempts:
         assert rows[0]["youtube_title"] == "Earlier"
         assert rows[1]["youtube_title"] == "Later"
 
+    def test_get_candidate_attempts_for_groups_by_track_download(self):
+        def td(title):
+            return models.add_track_download(
+                album_id=1, album_title="A", artist_name="A",
+                track_title=title, track_number=1, success=True,
+                error_message="", youtube_url="", youtube_title="",
+                match_score=0.0, duration_seconds=0,
+                album_path="", lidarr_album_path="", cover_url="",
+            )
+
+        def attempt(title, ts):
+            return {
+                "youtube_url": f"https://yt/{title}", "youtube_title": title,
+                "match_score": 0.5, "duration_seconds": 100,
+                "outcome": CandidateOutcome.MISMATCH,
+                "acoustid_matched_id": "", "acoustid_matched_title": "",
+                "acoustid_score": 0.0, "expected_recording_id": "",
+                "error_message": "", "timestamp": ts,
+            }
+
+        td1, td2 = td("T1"), td("T2")
+        models.flush_candidate_attempts(
+            td1, [attempt("b", 2000.0), attempt("a", 1000.0)])
+        models.flush_candidate_attempts(td2, [attempt("c", 500.0)])
+        got = models.get_candidate_attempts_for([td1, td2, 9999])
+        assert set(got) == {td1, td2}
+        assert [r["youtube_title"] for r in got[td1]] == ["a", "b"]
+        assert [r["youtube_title"] for r in got[td2]] == ["c"]
+        assert models.get_candidate_attempts_for([]) == {}
+
 
 def test_add_track_download_stores_source_format():
     models.add_track_download(
@@ -837,3 +951,359 @@ def test_force_upgrades_an_already_queued_album():
     assert models.enqueue_album(13, force=True) is False
     row = [r for r in models.get_queue() if r["album_id"] == 13][0]
     assert row["force"] == 1
+
+
+class _Clock:
+    def __init__(self, start=1_000_000.0):
+        self.now = start
+
+    def __call__(self):
+        self.now += 1.0
+        return self.now
+
+
+def test_add_log_same_millisecond_same_track_does_not_collide(monkeypatch):
+    monkeypatch.setattr(models.time, "time", lambda: 1_700_000_000.123)
+    first = models.add_log(
+        "track_success", 7, "Album", "Artist", track_number=3,
+        track_title="Disc 1 Track 3",
+    )
+    second = models.add_log(
+        "track_success", 7, "Album", "Artist", track_number=3,
+        track_title="Disc 2 Track 3",
+    )
+    third = models.add_log("download_success", 7, "Album", "Artist")
+    fourth = models.add_log("download_success", 7, "Album", "Artist")
+    assert len({first, second, third, fourth}) == 4
+    assert models.get_logs(per_page=50)["total"] == 4
+
+
+@pytest.mark.parametrize("getter", [
+    models.get_logs, models.get_banned_urls, models.get_album_history,
+])
+def test_paginate_zero_per_page_is_clamped(getter):
+    models.add_log("download_success", 1, "A", "A")
+    _add_dl()
+    models.add_banned_url("u", "t", 1, "A", "X", "T", 1)
+    result = getter(page=1, per_page=0)
+    assert result["per_page"] == 1
+    assert len(result["items"]) == 1
+
+
+def test_paginate_negative_per_page_does_not_return_everything():
+    for i in range(3):
+        models.add_log("download_success", i, "A", "A")
+    result = models.get_logs(page=1, per_page=-1)
+    assert result["per_page"] == 1
+    assert len(result["items"]) == 1
+    assert result["pages"] == 3
+
+
+def test_paginate_huge_per_page_is_capped():
+    for i in range(3):
+        models.add_log("download_success", i, "A", "A")
+    result = models.get_logs(page=1, per_page=10_000_000)
+    assert result["per_page"] == 500
+    assert len(result["items"]) == 3
+
+
+def test_paginate_page_below_one_is_clamped():
+    models.add_log("download_success", 1, "A", "A")
+    result = models.get_logs(page=-5, per_page=10)
+    assert result["page"] == 1
+    assert len(result["items"]) == 1
+
+
+def test_get_album_history_renamed_album_is_one_entry(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    _add_dl(album_id=5, album_title="Old Title", artist_name="Old Artist",
+            track_title="T1", success=True, cover_url="old.jpg")
+    _add_dl(album_id=5, album_title="New Title", artist_name="New Artist",
+            track_title="T2", success=False, cover_url="new.jpg")
+    _add_dl(album_id=6, album_title="Other", artist_name="Z",
+            track_title="T1", success=True)
+    result = models.get_album_history(page=1, per_page=50)
+    assert result["total"] == 2
+    assert len(result["items"]) == 2
+    item = [i for i in result["items"] if i["album_id"] == 5][0]
+    assert item["album_title"] == "New Title"
+    assert item["artist_name"] == "New Artist"
+    assert item["cover_url"] == "new.jpg"
+    assert item["success_count"] == 1
+    assert item["fail_count"] == 1
+    assert item["total_count"] == 2
+
+
+def test_get_album_history_fields_and_order(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    _add_dl(album_id=1, album_title="First", track_title="T1")
+    _add_dl(album_id=2, album_title="Second", track_title="T1")
+    _add_dl(album_id=1, album_title="First", track_title="T1",
+            success=False)
+    items = models.get_album_history(page=1, per_page=50)["items"]
+    assert [i["album_id"] for i in items] == [1, 2]
+    assert set(items[0]) == {
+        "album_id", "album_title", "artist_name", "cover_url",
+        "latest_timestamp", "success_count", "fail_count", "total_count",
+    }
+    assert items[0]["success_count"] == 0
+    assert items[0]["fail_count"] == 1
+    assert items[0]["total_count"] == 1
+    page2 = models.get_album_history(page=2, per_page=1)
+    assert [i["album_id"] for i in page2["items"]] == [2]
+    assert page2["pages"] == 2
+
+
+def _history_fixture(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    # 1: complete, 2: partial, 3: failed, 4: failed then fixed -> complete
+    _add_dl(album_id=1, album_title="Blue Sky", artist_name="Ann")
+    _add_dl(album_id=2, album_title="100% Pure", artist_name="Bob")
+    _add_dl(album_id=2, album_title="100% Pure", artist_name="Bob",
+            track_title="T2", success=False)
+    _add_dl(album_id=3, album_title="Night_Drive", artist_name="Cat",
+            success=False)
+    _add_dl(album_id=4, album_title="Retry", artist_name="Dan",
+            success=False)
+    _add_dl(album_id=4, album_title="Retry", artist_name="Dan")
+
+
+@pytest.mark.parametrize("outcome,ids", [
+    (None, [4, 3, 2, 1]),
+    ("success", [4, 1]),
+    ("partial", [2]),
+    ("error", [3]),
+])
+def test_get_album_history_outcome_filter(monkeypatch, outcome, ids):
+    _history_fixture(monkeypatch)
+    result = models.get_album_history(1, 50, outcome=outcome)
+    assert [i["album_id"] for i in result["items"]] == ids
+    assert result["total"] == len(ids)
+    assert result["counts"] == {
+        "all": 4, "success": 2, "partial": 1, "error": 1,
+    }
+
+
+def test_get_album_history_outcome_paginates_filtered(monkeypatch):
+    _history_fixture(monkeypatch)
+    result = models.get_album_history(2, 1, outcome="success")
+    assert result["pages"] == 2
+    assert [i["album_id"] for i in result["items"]] == [1]
+
+
+@pytest.mark.parametrize("q,ids", [
+    ("blue", [1]),          # album title, case-insensitive
+    ("CAT", [3]),           # artist name
+    ("%", [2]),             # literal %, not a wildcard
+    ("0% p", [2]),
+    ("t_d", [3]),           # _ matches only a literal _
+    ("u_", []),             # not a wildcard: "Blue" must not match
+    ("zzz", []),
+])
+def test_get_album_history_search(monkeypatch, q, ids):
+    _history_fixture(monkeypatch)
+    result = models.get_album_history(1, 50, q=q)
+    assert [i["album_id"] for i in result["items"]] == ids
+    assert result["total"] == len(ids)
+    assert result["counts"]["all"] == len(ids)
+
+
+def test_get_album_history_search_uses_latest_title(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    _add_dl(album_id=5, album_title="Old Name", track_title="T1")
+    _add_dl(album_id=5, album_title="New Name", track_title="T2")
+    assert models.get_album_history(1, 50, q="old")["total"] == 0
+    assert models.get_album_history(1, 50, q="new")["total"] == 1
+
+
+def test_get_album_history_search_and_outcome(monkeypatch):
+    _history_fixture(monkeypatch)
+    result = models.get_album_history(1, 50, outcome="error", q="u")
+    assert [i["album_id"] for i in result["items"]] == []
+    assert result["counts"] == {
+        "all": 2, "success": 1, "partial": 1, "error": 0,
+    }
+
+
+def test_track_failure_counts_ignore_host_postprocess_failures(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    _add_dl(track_title="Song", success=False, error_message="No match")
+    _add_dl(
+        track_title="Song", success=False,
+        error_message=(
+            "Audio postprocessing failed — ffmpeg could not write the"
+            " converted file (Function not implemented)."
+        ),
+    )
+    _add_dl(
+        track_title="Song", success=False,
+        error_message="Audio postprocessing failed (local ffmpeg error)",
+    )
+    _add_dl(
+        track_title="Only Host", success=False,
+        error_message="Audio postprocessing failed (local ffmpeg error)",
+    )
+    counts = models.get_track_failure_counts(1)
+    assert counts["Song"]["failures"] == 1
+    assert counts["Song"]["last_failure"] == 1_000_001.0
+    assert "Only Host" not in counts
+
+
+def test_track_failure_counts_host_failure_does_not_reset(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    _add_dl(track_title="Song", success=False, error_message="No match")
+    _add_dl(track_title="Song", success=False, error_message="No match")
+    _add_dl(
+        track_title="Song", success=False,
+        error_message="Audio postprocessing failed (local ffmpeg error)",
+    )
+    _add_dl(track_title="Song", success=False, error_message=None)
+    assert models.get_track_failure_counts(1)["Song"]["failures"] == 3
+
+
+def test_get_stuck_tracks_groups_and_filters(monkeypatch):
+    monkeypatch.setattr(models.time, "time", _Clock())
+    for _ in range(4):
+        _add_dl(album_id=1, track_title="Gone", success=False,
+                error_message="No match")
+    # Same title on another album is a different track.
+    for _ in range(3):
+        _add_dl(album_id=2, album_title="B", track_title="Gone",
+                success=False, error_message="No match")
+    # Below the threshold.
+    for _ in range(2):
+        _add_dl(album_id=1, track_title="Rare", success=False,
+                error_message="No match")
+    # Host and disk-full failures do not count.
+    _add_dl(album_id=1, track_title="Host", success=False,
+            error_message="No match")
+    _add_dl(album_id=1, track_title="Host", success=False,
+            error_message=models.HOST_FAILURE_PREFIX + " (ffmpeg)")
+    _add_dl(album_id=1, track_title="Host", success=False,
+            error_message=models.DISK_FULL_PREFIX + ": no space")
+    # A later success resets the count.
+    for _ in range(3):
+        _add_dl(album_id=1, track_title="Fixed", success=False,
+                error_message="No match")
+    _add_dl(album_id=1, track_title="Fixed", success=True)
+    _add_dl(album_id=1, track_title="Fixed", success=False,
+            error_message="No match")
+    # Playlist imports are never listed.
+    for _ in range(3):
+        _add_dl(album_id=-5, track_title="Pl", success=False,
+                error_message="No match")
+
+    rows = models.get_stuck_tracks()
+    assert [(r["album_id"], r["track_title"], r["failures"]) for r in rows] == [
+        (1, "Gone", 4), (2, "Gone", 3),
+    ]
+    assert rows[1]["album_title"] == "B"
+    assert rows[0]["artist_name"] == "X"
+    assert rows[0]["last_failure"] == 1_000_004.0
+    assert len(models.get_stuck_tracks(min_failures=2)) == 3
+    assert len(models.get_stuck_tracks(limit=1)) == 1
+
+
+def test_album_source_hint_roundtrip_and_upsert():
+    assert models.get_album_source_hint(7) is None
+    assert models.set_album_source_hint(7, "OLAK5uy_first", "MPREb_one")
+    hint = models.get_album_source_hint(7)
+    assert hint["playlist_id"] == "OLAK5uy_first"
+    assert hint["browse_id"] == "MPREb_one"
+    assert hint["source"] == "explore"
+    models.set_album_source_hint(7, "OLAK5uy_second")
+    hint = models.get_album_source_hint(7)
+    assert hint["playlist_id"] == "OLAK5uy_second"
+    assert hint["browse_id"] == ""
+    models.delete_album_source_hint(7)
+    assert models.get_album_source_hint(7) is None
+
+
+def test_album_source_hint_rejects_playlist_import_ids():
+    assert models.set_album_source_hint(-3, "OLAK5uy_x") is False
+    assert models.set_album_source_hint(0, "OLAK5uy_x") is False
+    assert models.set_album_source_hint(5, "") is False
+    assert models.get_album_source_hint(-3) is None
+
+
+def test_imported_youtube_album_titles():
+    def add(album_id, artist, album, success):
+        models.add_track_download(
+            album_id=album_id, album_title=album, artist_name=artist,
+            track_title="t", track_number=1, success=success,
+            error_message="", youtube_url="", youtube_title="", match_score=0.0,
+            duration_seconds=0, album_path="", lidarr_album_path="", cover_url="",
+        )
+
+    add(-1, "Zo killeuh", "KOUMAY FENN", True)
+    add(-1, "Zo killeuh", "KOUMAY FENN", False)
+    add(-2, "ZO KILLEUH", "Notification", True)
+    add(-3, "Zo killeuh", "Failed One", False)
+    add(5, "Zo killeuh", "Lidarr Album", True)
+    add(-4, "Someone Else", "Other", True)
+    assert sorted(models.get_imported_youtube_album_titles("Zo killeuh")) == [
+        "KOUMAY FENN", "Notification",
+    ]
+
+
+def test_set_lidarr_album_path_scopes_album_and_run(monkeypatch):
+    clock = iter([100.0, 200.0, 201.0, 202.0])
+    monkeypatch.setattr(models.time, "time", lambda: next(clock))
+
+    def add(album_id, title, lidarr_album_path=""):
+        models.add_track_download(
+            album_id=album_id, album_title="A", artist_name="Ar",
+            track_title=title, track_number=1, success=True,
+            error_message="", youtube_url="", youtube_title="",
+            match_score=0.0, duration_seconds=0, album_path="/dl",
+            lidarr_album_path=lidarr_album_path, cover_url="",
+        )
+
+    add(1, "old run")
+    add(1, "this run")
+    add(2, "other album")
+    add(-1, "import", "https://youtube.com/playlist?list=x")
+
+    models.set_lidarr_album_path(1, 150.0, "/music/A")
+    models.set_lidarr_album_path(-1, 0, "/music/A")
+
+    paths = {
+        r["track_title"]: r["lidarr_album_path"]
+        for aid in (1, 2, -1)
+        for r in models.get_track_downloads_for_album(aid)
+    }
+    assert paths == {
+        "old run": "", "this run": "/music/A", "other album": "",
+        "import": "https://youtube.com/playlist?list=x",
+    }
+
+
+# --- Missing-albums summary ---
+
+
+def test_cached_missing_albums_summary_has_library_fields():
+    models.upsert_missing_album({
+        "id": 9, "foreignAlbumId": "mb-9", "title": "Album",
+        "releaseDate": "2001-02-03T00:00:00Z",
+        "artist": {"id": 3, "artistName": "Artist", "overview": "long"},
+        "statistics": {"trackCount": 10, "trackFileCount": 4},
+        "images": [{"coverType": "cover", "remoteUrl": "http://cover"}],
+        "releases": [{"id": 1}],
+    }, run_id=1)
+    models.upsert_missing_album({"id": 10, "title": "Bare"}, run_id=1)
+    assert models.get_cached_missing_albums_summary() == [
+        {
+            "id": 9, "foreignAlbumId": "mb-9", "title": "Album",
+            "releaseDate": "2001-02-03T00:00:00Z", "missingTrackCount": 6,
+            "statistics": {"trackCount": 10},
+            "artist": {"id": 3, "artistName": "Artist"},
+            "images": [{"coverType": "cover", "remoteUrl": "http://cover"}],
+        },
+        {
+            "id": 10, "foreignAlbumId": "", "title": "Bare",
+            "releaseDate": "", "missingTrackCount": 0,
+            "statistics": {"trackCount": 0},
+            "artist": {"id": 0, "artistName": ""},
+            "images": [],
+        },
+    ]

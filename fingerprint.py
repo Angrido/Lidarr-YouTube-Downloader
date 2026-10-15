@@ -24,7 +24,7 @@ RATE_LIMIT_INTERVAL = 0.34  # ~3 requests per second
 
 _last_request_time = 0.0
 _fpcalc_warned = False
-_api_key_invalid = False
+_api_key_invalid = None
 _throttle_lock = threading.Lock()
 
 
@@ -72,7 +72,7 @@ def _throttle():
 
 def _lookup_acoustid(api_key, duration, fingerprint):
     global _api_key_invalid
-    if _api_key_invalid:
+    if _api_key_invalid is not None and _api_key_invalid == api_key:
         return None
     params = {
         "client": api_key,
@@ -95,12 +95,12 @@ def _lookup_acoustid(api_key, duration, fingerprint):
         if data.get("status") != "ok":
             error = data.get("error", {})
             if error.get("code") == 4:
-                _api_key_invalid = True
+                _api_key_invalid = api_key
                 logger.error(
                     "AcoustID API key is invalid. "
                     "Register a key at https://acoustid.org/new-application "
                     "and set it in Settings > AcoustID API Key. "
-                    "Fingerprinting disabled for this session."
+                    "Fingerprinting disabled until the key is changed."
                 )
             else:
                 logger.warning("AcoustID API error: %s", error.get("message", "unknown"))
@@ -192,6 +192,8 @@ def verify_fingerprint(
 
     duration, fingerprint = fp_result
     results = _lookup_acoustid(acoustid_api_key, duration, fingerprint)
+    if results is None:
+        return None
 
     if not results:
         return {
@@ -253,9 +255,15 @@ def verify_fingerprint(
     # release, so accept it above a strict threshold rather than discarding
     # good audio over an MBID mismatch (issue #58).
     best = _extract_best_match(results)
-    if best and best.get("acoustid_score", 0.0) >= accept_score_threshold:
+    if best is None:
+        return {
+            "status": "unverified",
+            "fp_data": {},
+            "matched_id": None,
+        }
+    if best.get("acoustid_score", 0.0) >= accept_score_threshold:
         logger.info(
-            "AcoustID accepted on score %.2f despite MBID mismatch (%s)",
+            "   AcoustID accepted on score %.2f despite MBID mismatch (%s)",
             best.get("acoustid_score", 0.0),
             best.get("acoustid_recording_id", ""),
         )
@@ -265,11 +273,10 @@ def verify_fingerprint(
             "matched_id": best.get("acoustid_recording_id"),
         }
 
-    matched_id = best["acoustid_recording_id"] if best else None
     return {
         "status": "mismatch",
-        "fp_data": best or {},
-        "matched_id": matched_id,
+        "fp_data": best,
+        "matched_id": best["acoustid_recording_id"],
     }
 
 
@@ -311,11 +318,11 @@ def fingerprint_track(filepath, acoustid_api_key):
     match = _extract_best_match(results)
     if match:
         logger.info(
-            "AcoustID match for %s: recording=%s score=%.2f title='%s'",
+            "   AcoustID match for %s: recording=%s score=%.2f title='%s'",
             filepath, match["acoustid_recording_id"],
             match["acoustid_score"], match["acoustid_recording_title"],
         )
     else:
-        logger.info("AcoustID: no recordings matched for %s", filepath)
+        logger.info("   AcoustID: no recordings matched for %s", filepath)
 
     return match

@@ -9,7 +9,15 @@ import time
 logger = logging.getLogger(__name__)
 
 DB_PATH = "/config/lidarr-downloader.db"
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
+
+# Tables a database must already hold at a given schema version (table →
+# version that introduced it). Migrations ALTER them and startup reads them,
+# so a restored backup missing one would crash-loop the app.
+CORE_TABLES_SINCE = {
+    "download_logs": 1, "download_queue": 1, "track_downloads": 2,
+    "banned_urls": 4, "candidate_attempts": 5,
+}
 
 _local = threading.local()
 
@@ -27,6 +35,16 @@ _DOWNLOAD_CLIENT_JOBS_DDL = """
             error TEXT DEFAULT '',
             added_ts REAL DEFAULT 0,
             completed_ts REAL
+        )
+"""
+
+_ALBUM_SOURCE_HINTS_DDL = """
+        CREATE TABLE IF NOT EXISTS album_source_hints (
+            album_id INTEGER PRIMARY KEY,
+            playlist_id TEXT NOT NULL,
+            browse_id TEXT DEFAULT '',
+            source TEXT NOT NULL DEFAULT 'explore',
+            created_at REAL NOT NULL DEFAULT 0
         )
 """
 
@@ -216,8 +234,14 @@ def _ensure_current_tables(conn):
             current_run_id INTEGER DEFAULT 0
         );
         INSERT OR IGNORE INTO sync_state (id, status) VALUES (1, 'idle');
+        -- History groups by (album_id, track_title) and the backoff counts
+        -- failures per title; here rather than in a migration so existing
+        -- databases get it without a schema bump.
+        CREATE INDEX IF NOT EXISTS idx_track_dl_album_title_ts
+            ON track_downloads(album_id, track_title, timestamp);
     """)
     conn.execute(_DOWNLOAD_CLIENT_JOBS_DDL)
+    conn.execute(_ALBUM_SOURCE_HINTS_DDL)
     conn.commit()
 
 
@@ -505,6 +529,10 @@ def _migrate_v10_to_v11(conn):
     )
 
 
+def _migrate_v11_to_v12(conn):
+    conn.execute(_ALBUM_SOURCE_HINTS_DDL)
+
+
 def _run_migrations(conn, current_version):
     """Run any pending schema migrations sequentially."""
     migrations = {
@@ -518,6 +546,7 @@ def _run_migrations(conn, current_version):
         9: _migrate_v8_to_v9,
         10: _migrate_v9_to_v10,
         11: _migrate_v10_to_v11,
+        12: _migrate_v11_to_v12,
     }
     pending = [v for v in sorted(migrations) if current_version < v]
     if pending:

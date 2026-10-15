@@ -1,0 +1,70 @@
+[
+ {
+  "title": "Podcast per iniziare",
+  "contents": [
+   {
+    "title": "Gusgri Podcast",
+    "channel": {
+     "id": "UCe4yxFAIPvftQ9aYGzJ6iTA",
+     "name": "Doble G"
+    },
+    "browseId": "MPSPPL0rT9kkqIgDewaqNB7hwUJ1_TxGr4jiCt",
+    "podcastId": "PL0rT9kkqIgDewaqNB7hwUJ1_TxGr4jiCt",
+    "thumbnails": [
+     {
+      "url": "https://i.ytimg.com/pl_c/PL0rT9kkqIgDewaqNB7hwUJ1_TxGr4jiCt/studio_square_thumbnail.jpg?sqp=CKqriNYG-oaymwEKCOIBEOIBIABIWqLzl_8DBgjGmomkBg&rs=AMzJL3lOKb0C3Zt0DXIkmBIZlwvqcaU_3A",
+      "width": 226,
+      "height": 226
+     },
+     {
+      "url": "https://i.ytimg.com/pl_c/PL0rT9kkqIgDewaqNB7hwUJ1_TxGr4jiCt/studio_square_thumbnail.jpg?sqp=CKqriNYG-oaymwEKCKAEEKAEIABIWqLzl_8DBgjGmomkBg&rs=AMzJL3nMio8HjzVprbbeLKB2rsCg_yPmoQ",
+      "width": 544,
+      "height": 544
+     }
+    ]
+   },
+   {
+    "title": "Rotten Mango",
+    "channel": {
+     "id": "UC0JJtK3m8pwy6rVgnBz47Rw",
+     "name": "Rotten Mango"
+    },
+    "browseId": "MPSPPLsDkDDndB1qsQToK8Ec0E0F8x6iLHWv5O",
+    "podcastId": "PLsDkDDndB1qsQToK8Ec0E0F8x6iLHWv5O",
+    "thumbnails": [
+     {
+      "url": "https://i.ytimg.com/pl_c/PLsDkDDndB1qsQToK8Ec0E0F8x6iLHWv5O/studio_square_thumbnail.jpg?sqp=CKqriNYG-oaymwEKCOIBEOIBIABIWqLzl_8DBgjtoLihBg&rs=AMzJL3k9tz4hXFd36NdcA3vkG2MjYnv_7g",
+      "width": 226,
+      "height": 226
+     },
+     {
+      "url": "https://i.ytimg.com/pl_c/PLsDkDDndB1qsQToK8Ec0E0F8x6iLHWv5O/studio_square_thumbnail.jpg?sqp=CKqriNYG-oaymwEKCKAEEKAEIABIWqLzl_8DBgjtoLihBg&rs=AMzJL3n4Ap6EVrSNCPbcICjv4ZQptsDw9A",
+      "width": 544,
+      "height": 544
+     }
+    ]
+   },
+   {
+    "title": "Smosh Reads Reddit Stories",
+    "channel": {
+     "id": "UCYJPby9DRCteedh5tfxVbrw",
+     "name": "Smosh Pit"
+    },
+    "browseId": "MPSPPLcL9r1K3TSwpOVyQKP1MruSuY-NS99iQY",
+    "podcastId": "PLcL9r1K3TSwpOVyQKP1MruSuY-NS99iQY",
+    "thumbnails": [
+     {
+      "url": "https://i.ytimg.com/pl_c/PLcL9r1K3TSwpOVyQKP1MruSuY-NS99iQY/studio_square_thumbnail.jpg?sqp=CKqriNYG-oaymwEKCOIBEOIBIABIWqLzl_8DBgjuqcKlBg&rs=AMzJL3mbUcxFPc3XMrRpbDovWRNu6EEIPg",
+      "width": 226,
+      "height": 226
+     },
+     {
+      "url": "https://i.ytimg.com/pl_c/PLcL9r1K3TSwpOVyQKP1MruSuY-NS99iQY/studio_square_thumbnail.jpg?sqp=CKqriNYG-oaymwEKCKAEEKAEIABIWqLzl_8DBgjuqcKlBg&rs=AMzJL3kLJLSm1qTZzzvtS0HiaY3SPyWwNA",
+      "width": 544,
+      "height": 544
+     }
+    ]
+   }
+  ]
+ }
+]

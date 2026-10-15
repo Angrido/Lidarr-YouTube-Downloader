@@ -18,6 +18,7 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.eggs/
 .pytest_cache/
 pytest-of-*/
 .mypy_cache/
@@ -29,6 +30,7 @@ coverage.xml
 venv/
 .venv/
 env/
+ENV/
 .env
 .env.*
 docker-compose*.yml
@@ -47,8 +49,16 @@ LICENSE
 *.log
 *.part
 *.tmp
+tmp/
 cookies.txt
 .lean-ctx/
+.omc/
+.gstack/
+.agents/
+.codex/
+.gemini/
+.playwright-mcp/
+strix_runs/
 agent-tools/
 agent-transcripts/
 terminals/
@@ -56,6 +66,7 @@ babysitter-state.json
 *.bak
 .serena/
 .superpowers/
+docs/superpowers/
 *.mp3
 *.m4a
 *.opus

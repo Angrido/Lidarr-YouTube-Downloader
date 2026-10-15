@@ -5,9 +5,11 @@ downloads (search, download, tag, import to Lidarr), and processes
 the download queue.
 """
 
+import contextvars
 import copy
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -15,10 +17,14 @@ import uuid
 
 import logutil
 import models
-from config import load_config, retry_cooldown_seconds, MIN_MATCH_SCORE_DEFAULT
+from config import (
+    load_config, retry_cooldown_seconds, update_config, MIN_MATCH_SCORE_DEFAULT,
+)
 from models import CandidateOutcome
 from downloader import (
+    _extract_video_id,
     download_youtube_candidate,
+    album_from_ytmusic_hint,
     find_album_on_ytmusic,
     match_album_track,
     search_youtube_candidates,
@@ -28,6 +34,7 @@ from lidarr import get_valid_release_id, lidarr_request, lidarr_request_with_ret
 from metadata import (
     apply_replaygain_tags,
     create_xml_metadata,
+    ensure_artist_image,
     tag_audio_file,
     get_artwork_from_url,
     get_cover_art_archive_artwork,
@@ -82,6 +89,15 @@ def _make_download_state():
 download_process = _make_download_state()
 
 queue_lock = threading.Lock()
+
+# Set while a self-restart (yt-dlp update) waits for the running download to
+# finish, so the queue starts nothing that os.execv would kill.
+restart_pending = threading.Event()
+
+
+def automatic_downloads_held():
+    """True while nothing automatic may start: queue paused or restart pending."""
+    return restart_pending.is_set() or bool(load_config().get("queue_paused"))
 
 # Every in-flight album download (the foreground one plus any background
 # download-client jobs), keyed by album_id and guarded by queue_lock. Lets
@@ -177,6 +193,39 @@ def _send_album_notification(
         telegram_parse_mode="MarkdownV2",
         photo_url=cover_url or None,
         disable_notification=disable_notification,
+    )
+
+
+def _pause_queue_for_full_disk(album_ctx):
+    """Pause the queue when the download disk is full, so the next albums
+    don't each fail the same way. Notifies only on the transition."""
+    paused_now = []
+
+    def _pause(cfg):
+        # Checked under update_config's lock: concurrent tracks notify once.
+        if not cfg.get("queue_paused"):
+            cfg["queue_paused"] = True
+            paused_now.append(True)
+
+    update_config(_pause)
+    if not paused_now:
+        return
+    logger.warning(
+        "   Download disk is full: queue paused."
+        " Free some space, then resume the queue."
+    )
+    send_notifications(
+        "Download disk is full: the queue was paused. Free some space,"
+        " then resume the queue.",
+        log_type="album_error",
+        embed_data={
+            "title": "Queue paused: download disk is full",
+            "description": (
+                f"{album_ctx.get('artist_name', '')} —"
+                f" {album_ctx.get('album_title', '')}"
+            ),
+            "color": 0xE74C3C,
+        },
     )
 
 
@@ -294,6 +343,19 @@ def is_album_active(album_id):
         return album_id in _active_states
 
 
+def _active_state_is_client(album_id):
+    with queue_lock:
+        state = _active_states.get(album_id)
+        return bool(state and state.get("is_client"))
+
+
+def any_download_active():
+    with queue_lock:
+        return bool(download_process["active"]) or any(
+            s.get("active") for s in _active_states.values()
+        )
+
+
 def active_client_album_count():
     """Number of in-flight download-client album jobs."""
     with queue_lock:
@@ -387,6 +449,105 @@ def _resolve_track_artists(tracks, artist_name, album_title, source):
             )
 
 
+def _log_album_error(album_id, album_title, artist_name, details):
+    try:
+        models.add_log(
+            log_type="album_error",
+            album_id=album_id,
+            album_title=album_title,
+            artist_name=artist_name,
+            details=details,
+        )
+    except Exception:
+        logger.debug(
+            "Could not log album error for %s", album_id, exc_info=True,
+        )
+
+
+def _is_multi_disc(album_tracks):
+    discs = {_int_or(t.get("mediumNumber"), 1) for t in album_tracks or ()}
+    return len(discs) > 1
+
+
+def _track_number(track, album_tracks=(), fallback=0):
+    """The number used for a track's file name and history row.
+
+    trackNumber restarts on every disc, so on a multi-disc album the
+    album-wide absoluteTrackNumber comes first: disc 1 #1 and disc 2 #1
+    would otherwise both be ``01 - Title``. Tags keep the per-disc number
+    plus a disc tag (metadata._disc_position).
+    """
+    keys = ("trackNumber", "absoluteTrackNumber")
+    if _is_multi_disc(album_tracks):
+        keys = keys[::-1]
+    for key in keys:
+        try:
+            number = int(track.get(key))
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            return number
+    for position, other in enumerate(album_tracks or ()):
+        if other is track:
+            return position + 1
+    return fallback
+
+
+def _int_or(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _album_position(track, album_tracks):
+    ordered = sorted(
+        album_tracks or (),
+        key=lambda t: (
+            _int_or(t.get("mediumNumber"), 1),
+            _int_or(
+                t.get("absoluteTrackNumber"),
+                _int_or(t.get("trackNumber"), 0),
+            ),
+        ),
+    )
+    track_id = track.get("id")
+    for index, other in enumerate(ordered):
+        if other is track or (
+            track_id is not None and other.get("id") == track_id
+        ):
+            return index + 1, len(ordered)
+    return None, len(ordered)
+
+
+def _hinted_ytmusic_album(album_id, artist_name):
+    try:
+        hint = models.get_album_source_hint(album_id)
+    except Exception as exc:
+        logger.debug("Album source hint lookup failed: %s", exc)
+        return None
+    if not hint:
+        return None
+    try:
+        album = album_from_ytmusic_hint(
+            hint["playlist_id"], hint.get("browse_id") or "", artist_name,
+        )
+    except Exception as exc:
+        logger.debug("Hinted YT Music album failed: %s", exc)
+        album = None
+    if album:
+        logger.info(
+            "   Using the YT Music album picked in Explore: %s (%d tracks)",
+            album["playlist_url"], len(album["entries"]),
+        )
+    else:
+        logger.info(
+            "   The YT Music album picked in Explore is unavailable;"
+            " searching instead",
+        )
+    return album
+
+
 def process_album_download(
     album_id, force=False, client_grab=False, state=None,
     ignore_backoff=False,
@@ -434,12 +595,17 @@ def process_album_download(
     lidarr_album_path = ""
     total_downloaded_size = 0
     album_mbid = ""
+    run_start = time.time()
 
     try:
         album = lidarr_request(f"album/{album_id}")
         if "error" in album:
             logger.error(
                 f"Error fetching album {album_id}: {album['error']}"
+            )
+            _log_album_error(
+                album_id, "", "",
+                f"Error fetching album from Lidarr: {album['error']}",
             )
             return album
 
@@ -455,6 +621,11 @@ def process_album_download(
             logger.error(
                 "DOWNLOAD_PATH is not set; cannot download. Set the"
                 " DOWNLOAD_PATH env var / Download Path in settings."
+            )
+            _log_album_error(
+                album_id, album.get("title", ""),
+                album.get("artist", {}).get("artistName", ""),
+                "DOWNLOAD_PATH is not set",
             )
             return {
                 "error": (
@@ -483,6 +654,18 @@ def process_album_download(
                 album["artist"]["artistName"], album["title"]
             )
 
+        if not tracks:
+            logger.error(
+                "No tracklist available for album %s from Lidarr or iTunes",
+                album_id,
+            )
+            _log_album_error(
+                album_id, album.get("title", ""),
+                album["artist"].get("artistName", ""),
+                "No tracklist available (Lidarr and iTunes returned no tracks)",
+            )
+            return {"error": "No tracklist available for this album."}
+
         album["tracks"] = tracks
 
         artist_name = album["artist"]["artistName"]
@@ -509,6 +692,10 @@ def process_album_download(
                 "Lidarr returned no usable release id for this album.",
                 album_id, artist_name, album_title,
             )
+            _log_album_error(
+                album_id, album_title, artist_name,
+                "No valid releases found for this album",
+            )
             return {"error": "No valid releases found for this album."}
 
         album_mbid = album.get("foreignAlbumId", "")
@@ -518,11 +705,11 @@ def process_album_download(
         # being stripped — e.g. K/DA stays "K+DA" matching Lidarr and
         # avoids duplicate "KDA" folders.
         lidarr_artist_path_field = album["artist"].get("path", "") or ""
-        lidarr_artist_folder = os.path.basename(
-            lidarr_artist_path_field.rstrip("/\\")
-        )
-        sanitized_artist = (
-            lidarr_artist_folder or sanitize_filename(artist_name)
+        lidarr_artist_folder = re.split(
+            r"[/\\]", lidarr_artist_path_field.rstrip("/\\")
+        )[-1]
+        sanitized_artist = sanitize_filename(
+            lidarr_artist_folder or artist_name
         )
         sanitized_album = sanitize_filename(album_title)
 
@@ -571,6 +758,10 @@ def process_album_download(
                 "DOWNLOAD_PATH (%s) is not mounted inside the container: %s",
                 DOWNLOAD_DIR, exc,
             )
+            _log_album_error(
+                album_id, album_title, artist_name,
+                f"DOWNLOAD_PATH '{DOWNLOAD_DIR}' is not mounted: {exc}",
+            )
             return {
                 "error": (
                     f"DOWNLOAD_PATH '{DOWNLOAD_DIR}' is not mounted. "
@@ -584,6 +775,10 @@ def process_album_download(
                 "Ensure DOWNLOAD_PATH (%s) is owned by uid=%s "
                 "(set PUID/PGID correctly and check host directory ownership).",
                 album_path, exc, DOWNLOAD_DIR, puid,
+            )
+            _log_album_error(
+                album_id, album_title, artist_name,
+                f"Permission denied creating {album_path}: {exc}",
             )
             return {
                 "error": (
@@ -636,11 +831,12 @@ def process_album_download(
         if not cover_data:
             logger.info("   No album cover found in any source")
 
-        ytmusic_album = None
-        try:
-            ytmusic_album = find_album_on_ytmusic(artist_name, album_title)
-        except Exception as exc:
-            logger.debug("YT Music album discovery raised: %s", exc)
+        ytmusic_album = _hinted_ytmusic_album(album_id, artist_name)
+        if ytmusic_album is None:
+            try:
+                ytmusic_album = find_album_on_ytmusic(artist_name, album_title)
+            except Exception as exc:
+                logger.debug("YT Music album discovery raised: %s", exc)
         state["ytmusic_album"] = ytmusic_album
 
         if cover_data and cfg.get("save_cover_art_file", True):
@@ -690,16 +886,10 @@ def process_album_download(
             "lidarr_album_path": lidarr_album_path,
             "ytmusic_album": ytmusic_album,
         }
-        def _parse_track_num(raw, fallback):
-            try:
-                return int(raw)
-            except (ValueError, TypeError):
-                return fallback
-
         state["tracks"] = [
             {
                 "track_title": t["title"],
-                "track_number": _parse_track_num(t.get("trackNumber"), i + 1),
+                "track_number": _track_number(t, tracks, i + 1),
                 "status": "pending",
                 "youtube_url": "",
                 "youtube_title": "",
@@ -771,6 +961,12 @@ def process_album_download(
             lidarr_path, album_path, sanitized_artist,
             album_folder_name,
         )
+        if copy_succeeded:
+            # The download folder is deleted below; history must find the library copy.
+            models.set_lidarr_album_path(album_id, run_start, lidarr_album_path)
+
+        if succeeded_tracks and import_path:
+            _ensure_artist_image(os.path.dirname(import_path), artist_name, album)
 
         logutil.milestone(
             logger,
@@ -792,7 +988,7 @@ def process_album_download(
 
         if config.get("lidarr_rename_after_import", False):
             logger.info(
-                "Triggering Lidarr RenameFiles for albumId=%s", album_id
+                "   Triggering Lidarr RenameFiles for albumId=%s", album_id
             )
             lidarr_request_with_retry(
                 "command",
@@ -803,17 +999,23 @@ def process_album_download(
                 },
             )
 
-        if lidarr_path and copy_succeeded and os.path.exists(artist_path):
+        if lidarr_path and copy_succeeded and os.path.exists(album_path):
+            # Only this album: the artist folder can hold another album
+            # still waiting for Lidarr or one whose copy failed.
             try:
                 logger.info(
-                    f"Cleaning up download folder: {artist_path}"
+                    f"   Cleaning up download folder: {album_path}"
                 )
-                shutil.rmtree(artist_path)
+                shutil.rmtree(album_path)
                 logger.info("Download folder cleaned up successfully")
             except Exception as e:
                 logger.warning(
                     f"Failed to cleanup download folder: {e}"
                 )
+            try:
+                os.rmdir(artist_path)  # only succeeds when nothing else is left
+            except OSError:
+                pass
 
         return {"success": True, "album_path": lidarr_album_path or album_path}
 
@@ -966,7 +1168,6 @@ def _compute_deferred_tracks(album_id, tracks, cfg=None):
     if not counts:
         return {}
 
-    base = retry_cooldown_seconds(cfg) or 24 * 3600
     now = time.time()
     deferred = {}
     for track in tracks:
@@ -975,17 +1176,31 @@ def _compute_deferred_tracks(album_id, tracks, cfg=None):
         if not info:
             continue
         failures = info["failures"]
-        if max_retries > 0 and failures >= max_retries:
-            deferred[title] = {"failures": failures, "retry_at": None}
-            continue
-        if not backoff_on:
-            continue
-        exponent = min(max(failures - 1, 0), _TRACK_BACKOFF_MAX_EXPONENT)
-        wait = min(base * (2 ** exponent), _TRACK_BACKOFF_MAX_SECONDS)
-        retry_at = info["last_failure"] + wait
-        if now < retry_at:
+        retry_at = _track_retry_at(failures, info["last_failure"], cfg)
+        if retry_at is None or now < retry_at:
             deferred[title] = {"failures": failures, "retry_at": retry_at}
     return deferred
+
+
+def _track_retry_at(failures, last_failure, cfg):
+    """When a failing track may be tried again (issue #90).
+
+    Returns None when it is given up on (``max_track_retries`` reached),
+    0.0 when backoff is off, else ``last_failure`` plus
+    ``scheduler_retry_after_hours * 2^(failures-1)``, capped at 30 days.
+    """
+    try:
+        max_retries = int(cfg.get("max_track_retries", 0) or 0)
+    except (TypeError, ValueError):
+        max_retries = 0
+    if max_retries > 0 and failures >= max_retries:
+        return None
+    if not cfg.get("track_retry_backoff", True):
+        return 0.0
+    base = retry_cooldown_seconds(cfg) or 24 * 3600
+    exponent = min(max(failures - 1, 0), _TRACK_BACKOFF_MAX_EXPONENT)
+    wait = min(base * (2 ** exponent), _TRACK_BACKOFF_MAX_SECONDS)
+    return last_failure + wait
 
 
 def _filter_tracks(tracks, force, album_path, deferred=None):
@@ -1003,10 +1218,7 @@ def _filter_tracks(tracks, force, album_path, deferred=None):
                 continue
             if deferred and t.get("title", "") in deferred:
                 continue
-            try:
-                track_num = int(t.get("trackNumber", 0))
-            except (ValueError, TypeError):
-                track_num = 0
+            track_num = _track_number(t, tracks)
             track_title = t["title"]
             sanitized_track = sanitize_filename(track_title)
             final_file = os.path.join(
@@ -1029,6 +1241,25 @@ def _cleanup_temp_files(temp_file):
                 logger.debug(
                     "Failed to remove temp file %s: %s", tmp, rm_err,
                 )
+
+
+def _cleanup_track_temp_files(album_path, track_num):
+    prefix = f"temp_{track_num:02d}_"
+    try:
+        names = os.listdir(album_path)
+    except OSError:
+        return
+    for name in names:
+        if name.startswith(prefix):
+            try:
+                os.remove(os.path.join(album_path, name))
+            except OSError as rm_err:
+                logger.debug(
+                    "Failed to remove temp file %s: %s", name, rm_err,
+                )
+
+
+_SKIP_JOIN_TIMEOUT = 120
 
 
 def _download_candidate_threaded(
@@ -1054,14 +1285,17 @@ def _download_candidate_threaded(
         except Exception as exc:
             dl_error_box[0] = exc
 
-    dl_thread = threading.Thread(target=_run_dl, daemon=True)
+    dl_thread = threading.Thread(
+        target=contextvars.copy_context().run, args=(_run_dl,), daemon=True,
+    )
     dl_thread.start()
 
     while dl_thread.is_alive():
         dl_thread.join(timeout=0.5)
         if dl_thread.is_alive() and skip_check():
-            _cleanup_temp_files(attempt_temp)
             track_state["status"] = "skipped"
+            dl_thread.join(timeout=_SKIP_JOIN_TIMEOUT)
+            _cleanup_temp_files(attempt_temp)
             return None
 
     if dl_error_box[0] == "skipped":
@@ -1092,6 +1326,7 @@ def _download_candidate_threaded(
         return None
 
     if not dl_result.get("success"):
+        track_state["last_download_error"] = dl_result.get("error_message", "")
         if dl_result.get("postprocess_error"):
             track_state["postprocess_error"] = True
             track_state["error_message"] = dl_result.get("error_message", "")
@@ -1336,15 +1571,17 @@ def _download_tracks(
     )
 
     def _process_single_track(idx, track):
+        label = f"{_track_number(track, album.get('tracks'), idx + 1):02d}"
+        with logutil.track_label(label):
+            _process_track_body(idx, track)
+
+    def _process_track_body(idx, track):
         nonlocal total_downloaded_size
 
         track_state = state["tracks"][idx]
         state["current_track_index"] = idx
         track_title = track.get("title", f"Track {idx + 1}")
-        try:
-            track_num = int(track.get("trackNumber", idx + 1))
-        except (ValueError, TypeError):
-            track_num = idx + 1
+        track_num = _track_number(track, album.get("tracks"), idx + 1)
         track_duration_ms = track.get("duration")
         expected_recording_id = track.get("foreignRecordingId")
         track_artist = track.get("artist") or artist_name
@@ -1381,30 +1618,65 @@ def _download_tracks(
         ytm_album = album_ctx.get("ytmusic_album")
         album_candidate = None
         if ytm_album:
+            album_position, album_total = _album_position(
+                track, album.get("tracks"),
+            )
             album_candidate = match_album_track(
                 ytm_album.get("entries", []),
                 track_title,
                 track_duration_ms,
+                position=album_position,
+                total_tracks=album_total,
             )
-            if album_candidate and album_candidate.get("url") in banned_url_set:
+            banned_ids = {
+                _extract_video_id(u) or u for u in banned_url_set
+            }
+            if album_candidate and (
+                _extract_video_id(album_candidate.get("url"))
+                or album_candidate.get("url")
+            ) in banned_ids:
                 logger.info(
                     "   Album-playlist match for '%s' is banned, falling"
                     " back to search", track_title,
                 )
                 album_candidate = None
 
-        if album_candidate:
+        base_query = f"{track_artist} {track_title} official audio"
+        searched = [False]
+
+        def _search_candidates():
+            searched[0] = True
             logger.info(
-                "   Album-first match: '%s' from official playlist %s",
-                album_candidate["title"],
-                ytm_album.get("playlist_url", ""),
+                "   Per-track search query for '%s': \"%s\""
+                " (track_artist='%s')",
+                track_title, base_query, track_artist,
             )
-            # Coming from the artist's official YT Music album playlist,
-            # the song mapping is already canonical. AcoustID's job here
-            # is only to catch wrong/garbage uploads, so a recording-id
-            # mismatch (same song, different MusicBrainz recording) must
-            # not reject it. (Issue #58.)
-            album_candidate["from_official_album"] = True
+            return search_youtube_candidates(
+                base_query,
+                track_title, track_duration_ms,
+                skip_check=_skip_check, banned_urls=banned_url_set,
+            )
+
+        if album_candidate:
+            if album_candidate.get("matched_by") == "position":
+                logger.info(
+                    "   Album-first match by position: '%s' (#%d of %d,"
+                    " same duration) from official playlist %s",
+                    album_candidate["title"], album_position, album_total,
+                    ytm_album.get("playlist_url", ""),
+                )
+            else:
+                logger.info(
+                    "   Album-first match: '%s' from official playlist %s",
+                    album_candidate["title"],
+                    ytm_album.get("playlist_url", ""),
+                )
+                # Coming from the artist's official YT Music album playlist,
+                # the song mapping is already canonical. AcoustID's job here
+                # is only to catch wrong/garbage uploads, so a recording-id
+                # mismatch (same song, different MusicBrainz recording) must
+                # not reject it. (Issue #58.)
+                album_candidate["from_official_album"] = True
             candidates = [album_candidate]
         else:
             if ytm_album:
@@ -1412,17 +1684,36 @@ def _download_tracks(
                     "   No album-playlist match for '%s';"
                     " falling back to per-track search", track_title,
                 )
-            base_query = f"{track_artist} {track_title} official audio"
+            candidates = _search_candidates()
+
+        def _extend_with_search():
+            if searched[0] or _skip_check():
+                return False
             logger.info(
-                "   Per-track search query for '%s': \"%s\""
-                " (track_artist='%s')",
-                track_title, base_query, track_artist,
+                "   Album-playlist track for '%s' was not usable;"
+                " searching YouTube for another upload", track_title,
             )
-            candidates = search_youtube_candidates(
-                base_query,
-                track_title, track_duration_ms,
-                skip_check=_skip_check, banned_urls=banned_url_set,
-            )
+            tried = {
+                _extract_video_id(c.get("url")) or c.get("url")
+                for c in candidates
+            }
+            extra = [
+                c for c in _search_candidates()
+                if (_extract_video_id(c.get("url")) or c.get("url"))
+                not in tried
+            ]
+            candidates.extend(extra)
+            return bool(extra)
+
+        def _iter_candidates():
+            position = 0
+            while True:
+                if position >= len(candidates):
+                    if not _extend_with_search():
+                        return
+                    continue
+                yield position, candidates[position]
+                position += 1
 
         if not candidates:
             if _skip_check():
@@ -1471,8 +1762,17 @@ def _download_tracks(
         any_low_score_skipped = False
         candidate_attempts_buf = []
 
-        for ci, candidate in enumerate(candidates):
+        held_unverified = None
+
+        def _drop_held_unverified():
+            nonlocal held_unverified
+            if held_unverified:
+                _cleanup_temp_files(held_unverified[2])
+            held_unverified = None
+
+        for ci, candidate in _iter_candidates():
             if _skip_check():
+                _drop_held_unverified()
                 track_state["status"] = "skipped"
                 return
 
@@ -1493,7 +1793,7 @@ def _download_tracks(
                     )
                 )
                 logger.info(
-                    "Rejected '%s' for '%s': score %.2f < min %.2f (%s)",
+                    "   Rejected '%s' for '%s': score %.2f < min %.2f (%s)",
                     candidate.get("title", ""), track_title,
                     candidate.get("score", 0.0), min_match_score,
                     no_verify_reason,
@@ -1517,16 +1817,18 @@ def _download_tracks(
                         candidate,
                         CandidateOutcome.DOWNLOAD_FAILED,
                         expected_recording_id,
-                        error_message=track_state.get(
-                            "error_message", "",
+                        error_message=(
+                            track_state.get("error_message")
+                            or track_state.get("last_download_error", "")
                         ),
                     )
                 )
                 if track_state["status"] == "skipped":
+                    _drop_held_unverified()
                     return
                 if track_state.get("postprocess_error"):
                     logger.error(
-                        "Aborting remaining candidates for '%s': %s",
+                        "   Aborting remaining candidates for '%s': %s",
                         track_title,
                         track_state.get("error_message", ""),
                     )
@@ -1601,7 +1903,7 @@ def _download_tracks(
                         )
                     )
                     logger.info(
-                        "AcoustID recording-id mismatch for '%s' accepted"
+                        "   AcoustID recording-id mismatch for '%s' accepted"
                         " (official album playlist, score=%.2f)",
                         track_title,
                         fp_data.get("acoustid_score", 0.0),
@@ -1633,14 +1935,17 @@ def _download_tracks(
                         mismatch_attempt,
                     )
                     remaining = len(candidates) - ci - 1
-                    next_msg = (
-                        f"Trying next candidate"
-                        f" ({ci + 2}/{len(candidates)})."
-                        if remaining > 0
-                        else "No more candidates."
-                    )
+                    if remaining > 0:
+                        next_msg = (
+                            f"Trying next candidate"
+                            f" ({ci + 2}/{len(candidates)})."
+                        )
+                    elif not searched[0]:
+                        next_msg = "Searching YouTube for alternatives."
+                    else:
+                        next_msg = "No more candidates."
                     logger.info(
-                        "AcoustID verification failed for"
+                        "   AcoustID verification failed for"
                         " '%s': expected=%s, got=%s"
                         " (score=%.2f). %s",
                         track_title,
@@ -1671,6 +1976,21 @@ def _download_tracks(
                     track_state["youtube_url"] = ""
                     track_state["youtube_title"] = ""
                     continue
+                elif (
+                    vresult["status"] == "unverified"
+                    and candidate.get("from_official_album")
+                ):
+                    candidate_attempts_buf.append(
+                        _build_candidate_attempt(
+                            candidate,
+                            CandidateOutcome.ACCEPTED_NO_VERIFY,
+                            expected_recording_id,
+                        )
+                    )
+                    logger.info(
+                        "   AcoustID has no data for '%s'; kept (official"
+                        " album playlist)", track_title,
+                    )
                 elif vresult["status"] == "unverified":
                     candidate_attempts_buf.append(
                         _build_candidate_attempt(
@@ -1686,7 +2006,11 @@ def _download_tracks(
                     )
                     if best_unverified_candidate is None:
                         best_unverified_candidate = candidate
-                    _cleanup_temp_files(attempt_temp)
+                        held_unverified = (
+                            actual_file, dl_result, attempt_temp,
+                        )
+                    else:
+                        _cleanup_temp_files(attempt_temp)
                     continue
             else:
                 if cfg.get("acoustid_enabled", True):
@@ -1707,6 +2031,7 @@ def _download_tracks(
                     )
                 )
 
+            _drop_held_unverified()
             file_size, td_id = _accept_track_file(
                 actual_file, track_num, sanitized_track,
                 dl_result, fp_data,
@@ -1756,7 +2081,7 @@ def _download_tracks(
                     )
                 )
                 logger.info(
-                    "Skipping unverified fallback for '%s':"
+                    "   Skipping unverified fallback for '%s':"
                     " best score %.2f < min %.2f",
                     track_title,
                     best_unverified_candidate.get("score", 0.0),
@@ -1764,23 +2089,35 @@ def _download_tracks(
                 )
                 low_score_fallback = True
                 best_unverified_candidate = None
+                _drop_held_unverified()
             if best_unverified_candidate:
-                track_state["status"] = "downloading"
-                fallback_temp = os.path.join(
-                    album_path,
-                    f"temp_{track_num:02d}"
-                    f"_{uuid.uuid4().hex[:8]}",
-                )
-                fb_result = download_youtube_candidate(
-                    best_unverified_candidate, fallback_temp,
-                    progress_hook=progress_hook,
-                    skip_check=_skip_check,
-                )
-                if fb_result.get("skipped"):
-                    _cleanup_temp_files(fallback_temp)
-                    track_state["status"] = "skipped"
-                    return
-                fb_file = fallback_temp + f".{load_config().get('audio_format', 'mp3')}"
+                if held_unverified and os.path.exists(held_unverified[0]):
+                    fb_file, fb_result, fallback_temp = held_unverified
+                    held_unverified = None
+                    logger.info(
+                        "   Keeping unverified '%s' for '%s' (no verified"
+                        " match among %d candidates)",
+                        best_unverified_candidate["title"], track_title,
+                        len(candidates),
+                    )
+                else:
+                    _drop_held_unverified()
+                    track_state["status"] = "downloading"
+                    fallback_temp = os.path.join(
+                        album_path,
+                        f"temp_{track_num:02d}"
+                        f"_{uuid.uuid4().hex[:8]}",
+                    )
+                    fb_result = download_youtube_candidate(
+                        best_unverified_candidate, fallback_temp,
+                        progress_hook=progress_hook,
+                        skip_check=_skip_check,
+                    )
+                    if fb_result.get("skipped"):
+                        _cleanup_temp_files(fallback_temp)
+                        track_state["status"] = "skipped"
+                        return
+                    fb_file = fallback_temp + f".{load_config().get('audio_format', 'mp3')}"
                 if (
                     fb_result.get("success")
                     and os.path.exists(fb_file)
@@ -1851,10 +2188,12 @@ def _download_tracks(
                     _cleanup_temp_files(fallback_temp)
 
             if track_state.get("postprocess_error"):
-                fail_reason = track_state.get(
-                    "error_message",
-                    "Audio postprocessing failed (local ffmpeg error)",
-                )
+                fail_reason = track_state.get("error_message") or ""
+                if not fail_reason.startswith(models.HOST_FAILURE_PREFIX):
+                    fail_reason = (
+                        "Audio postprocessing failed (local ffmpeg error)"
+                        + (f": {fail_reason}" if fail_reason else "")
+                    )
             elif low_score_fallback:
                 fail_reason = (
                     f"Unverified fallback below"
@@ -1872,6 +2211,9 @@ def _download_tracks(
                     "All candidate downloads failed"
                     f" (tried {len(candidates)} candidates)"
                 )
+                last_error = track_state.get("last_download_error")
+                if last_error:
+                    fail_reason += f": {last_error}"
             else:
                 fail_reason = (
                     "AcoustID verification failed: no"
@@ -1879,6 +2221,10 @@ def _download_tracks(
                     f" {expected_recording_id}"
                     f" (tried {len(candidates)} candidates)"
                 )
+            last_error = track_state.get("last_download_error") or ""
+            if "no space left" in last_error.lower():
+                fail_reason = f"{models.DISK_FULL_PREFIX}: {fail_reason}"
+                _pause_queue_for_full_disk(album_ctx)
             _record_track_failure(
                 fail_reason,
                 track_state, track_title, track_num,
@@ -1901,7 +2247,21 @@ def _download_tracks(
             try:
                 future.result()
             except Exception as e:
-                logger.warning("Track worker exception: %s", e)
+                logger.warning("Track worker exception: %s", e, exc_info=True)
+                idx = futures[future]
+                track = tracks_to_download[idx]
+                track_num = _track_number(track, album.get("tracks"), idx + 1)
+                _cleanup_track_temp_files(album_path, track_num)
+                _record_track_failure(
+                    f"Internal error: {e}",
+                    state["tracks"][idx],
+                    track.get("title", f"Track {idx + 1}"),
+                    track_num,
+                    album_path=album_path, album_ctx=album_ctx,
+                    failed_tracks=failed_tracks,
+                    _results_lock=_results_lock,
+                    track_artist=track.get("artist") or artist_name,
+                )
 
     return (
         failed_tracks, succeeded_tracks, total_downloaded_size,
@@ -2260,6 +2620,24 @@ def _handle_post_download(
     return None
 
 
+def _ensure_artist_image(artist_dir, artist_name, album):
+    artist = (album or {}).get("artist") or {}
+    urls = [
+        img.get("remoteUrl") or img.get("url") or ""
+        for img in artist.get("images") or []
+        if isinstance(img, dict) and (img.get("coverType") or "").lower() == "poster"
+    ]
+
+    def from_ytmusic():
+        import explore
+        return explore.artist_image_for_name(artist_name)
+
+    try:
+        ensure_artist_image(artist_dir, artist_name, urls, fallbacks=(from_ytmusic,))
+    except Exception as exc:
+        logger.debug("Artist image step failed for %s: %s", artist_name, exc)
+
+
 def _write_cover_art(
     cover_data, album_path, lidarr_path, sanitized_artist, album_folder_name,
 ):
@@ -2300,19 +2678,18 @@ def _copy_to_lidarr(
     """
     lidarr_album_path = ""
     if lidarr_path:
-        abs_lidarr = os.path.abspath(lidarr_path)
-        abs_download = os.path.abspath(DOWNLOAD_DIR)
-
-        if abs_lidarr == abs_download:
+        if os.path.realpath(lidarr_path) == os.path.realpath(DOWNLOAD_DIR):
+            # The files already sit in the library. Must return here with
+            # copy_succeeded=False: the caller deletes the download folder
+            # after a successful copy, which would delete the only copy.
             logger.warning(
                 "LIDARR_PATH matches DOWNLOAD_PATH."
                 " Skipping move to prevent data loss."
             )
-            lidarr_path = ""
-        else:
-            logger.info(
-                f"Moving files to Lidarr music folder: {lidarr_path}"
-            )
+            return album_path, "", False
+        logger.info(
+            f"   Moving files to Lidarr music folder: {lidarr_path}"
+        )
         lidarr_artist_path = os.path.join(
             lidarr_path, sanitized_artist
         )
@@ -2348,6 +2725,8 @@ def _copy_to_lidarr(
                 )
                 return album_path, lidarr_album_path, False
             for item in os.listdir(album_path):
+                if item.startswith("temp_") or item.endswith(".part"):
+                    continue
                 src = os.path.join(album_path, item)
                 dst = os.path.join(lidarr_album_path, item)
                 if os.path.isfile(src):
@@ -2436,6 +2815,30 @@ def _client_concurrency_limit():
     return max(1, min(5, n))
 
 
+def _run_queued_album(album_id, state=None, ignore_backoff=False):
+    import download_client
+
+    result = None
+    try:
+        result = process_album_download(
+            album_id, state=state, ignore_backoff=ignore_backoff,
+        )
+    finally:
+        busy = isinstance(result, dict) and result.get("error") == "Busy"
+        if busy:
+            logger.info(
+                "Album %s found the download slot busy; re-queued", album_id,
+            )
+        if busy or download_client.is_client_album(album_id):
+            # Back to 'queued' in place: a busy slot keeps its turn, and a
+            # Lidarr grab that landed mid-run (its enqueue was a no-op on
+            # this row) still has to run.
+            models.set_queue_status(album_id, models.QUEUE_STATUS_QUEUED)
+        else:
+            models.dequeue_album(album_id)
+    return result
+
+
 def _dispatch_next_from_queue():
     """Start the next eligible queued album, honoring concurrency limits.
 
@@ -2445,10 +2848,12 @@ def _dispatch_next_from_queue():
     download-client albums always run in their own state container, up to
     ``download_client_concurrent_albums`` at once. Blocked albums keep
     their queue position; an album that is already downloading is dropped
-    as a duplicate.
+    as a duplicate. While the queue is paused nothing new starts.
     """
     import download_client
 
+    if automatic_downloads_held():
+        return
     try:
         queued = [
             (row["album_id"], bool(row.get("force", 0)))
@@ -2463,6 +2868,10 @@ def _dispatch_next_from_queue():
         # Already downloading this album (e.g. a re-grab landed in the
         # queue): drop the duplicate so it can't start a colliding download.
         if is_album_active(album_id):
+            if download_client.is_client_album(album_id) and not (
+                _active_state_is_client(album_id)
+            ):
+                continue
             models.dequeue_album(album_id)
             continue
         if download_client.is_client_album(album_id):
@@ -2473,11 +2882,17 @@ def _dispatch_next_from_queue():
         else:
             if download_process["active"]:
                 continue  # foreground busy; the album keeps its position
-            target = process_album_download
+            target = _run_queued_album
             job_state = download_process
-        models.dequeue_album(album_id)
+        if target is _run_queued_album:
+            # Keep the row until the run ends, so a restart re-queues it
+            # (reset_downloading_to_queued). Client grabs live in
+            # download_client_jobs instead.
+            models.set_queue_status(album_id, models.QUEUE_STATUS_DOWNLOADING)
+        else:
+            models.dequeue_album(album_id)
         kwargs = {"state": job_state}
-        if target is process_album_download:
+        if target is _run_queued_album:
             kwargs["ignore_backoff"] = forced
         threading.Thread(
             target=target,

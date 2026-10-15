@@ -1,0 +1,105 @@
+{
+ "countries": {
+  "selected": {
+   "text": "Tutto il mondo"
+  },
+  "options": [
+   "ZZ",
+   "SA",
+   "AR"
+  ]
+ },
+ "videos": [
+  {
+   "title": "Video musicali più visti del giorno: globale",
+   "playlistId": "PL4fGSI1pDJn6t3TXLGiiJdD-sZbrG3tG0",
+   "thumbnails": [
+    {
+     "url": "https://yt3.googleusercontent.com/6ewcpAutCZAGigXE-wBKn_uVy_Jl0vsLgVOZsVpog5lAnfNTs_u8Q5HH0LuPcTef2l0leWo8Xg=s192",
+     "width": 192,
+     "height": 192
+    },
+    {
+     "url": "https://yt3.googleusercontent.com/6ewcpAutCZAGigXE-wBKn_uVy_Jl0vsLgVOZsVpog5lAnfNTs_u8Q5HH0LuPcTef2l0leWo8Xg=s576",
+     "width": 576,
+     "height": 576
+    }
+   ]
+  },
+  {
+   "title": "I 100 video musicali più visti nel mondo",
+   "playlistId": "PL4fGSI1pDJn5kI81J1fYWK5eZRl1zJ5kM",
+   "thumbnails": [
+    {
+     "url": "https://yt3.googleusercontent.com/qKm7_zOE0pgeFShCViZnBf7GXNFaH5wQKmbuITnd1gRNl1DTexb5JEf7RiJkUQErgS8Mdy8Rsw=s192",
+     "width": 192,
+     "height": 192
+    },
+    {
+     "url": "https://yt3.googleusercontent.com/qKm7_zOE0pgeFShCViZnBf7GXNFaH5wQKmbuITnd1gRNl1DTexb5JEf7RiJkUQErgS8Mdy8Rsw=s576",
+     "width": 576,
+     "height": 576
+    }
+   ]
+  }
+ ],
+ "artists": [
+  {
+   "title": "Alka Yagnik",
+   "browseId": "UCptBkLZ6XRxoyn8SkUMc_Iw",
+   "subscribers": "2,27 Mln",
+   "thumbnails": [
+    {
+     "url": "https://lh3.googleusercontent.com/_wPXKRCH5rAX8AK1kJZ1bNhSpNyyEgBRNmREdPmLbvTy3sX_ldiKMRYFc5uChygV_KRx_SDrH1KgUifk=w60-h60-p-l90-rj",
+     "width": 60,
+     "height": 60
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/_wPXKRCH5rAX8AK1kJZ1bNhSpNyyEgBRNmREdPmLbvTy3sX_ldiKMRYFc5uChygV_KRx_SDrH1KgUifk=w120-h120-p-l90-rj",
+     "width": 120,
+     "height": 120
+    }
+   ],
+   "rank": "1",
+   "trend": "neutral"
+  },
+  {
+   "title": "Udit Narayan",
+   "browseId": "UC13ToEQgfmTe8_GW19LYtCg",
+   "subscribers": "3,92 Mln",
+   "thumbnails": [
+    {
+     "url": "https://lh3.googleusercontent.com/coesV4OVEVkua3_wJG-2BVvTc95yHF9sS1W6mOAtl4-vvTjQb250Hy_nVlfvudmEugb7_k05vhY9aJm4=w60-h60-l90-rj",
+     "width": 60,
+     "height": 60
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/coesV4OVEVkua3_wJG-2BVvTc95yHF9sS1W6mOAtl4-vvTjQb250Hy_nVlfvudmEugb7_k05vhY9aJm4=w120-h120-l90-rj",
+     "width": 120,
+     "height": 120
+    }
+   ],
+   "rank": "2",
+   "trend": "neutral"
+  },
+  {
+   "title": "Arijit Singh",
+   "browseId": "UCDxKh1gFWeYsqePvgVzmPoQ",
+   "subscribers": "6,49 Mln",
+   "thumbnails": [
+    {
+     "url": "https://lh3.googleusercontent.com/W_yOqnKSDYyeVOY_AsXhuAtb6rW3vCL3GtJ9DA1GxWOrJfyeSOqzvTv_TkFHijdkVPXWutASBlRFPg=w60-h60-p-l90-rj",
+     "width": 60,
+     "height": 60
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/W_yOqnKSDYyeVOY_AsXhuAtb6rW3vCL3GtJ9DA1GxWOrJfyeSOqzvTv_TkFHijdkVPXWutASBlRFPg=w120-h120-p-l90-rj",
+     "width": 120,
+     "height": 120
+    }
+   ],
+   "rank": "3",
+   "trend": "neutral"
+  }
+ ]
+}

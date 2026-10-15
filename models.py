@@ -8,6 +8,7 @@ import json
 import logging
 import math
 import time
+import uuid
 from datetime import datetime, timedelta
 from enum import Enum
 
@@ -31,12 +32,19 @@ QUEUE_STATUS_QUEUED = "queued"
 QUEUE_STATUS_DOWNLOADING = "downloading"
 QUEUE_STATUSES = {QUEUE_STATUS_QUEUED, QUEUE_STATUS_DOWNLOADING}
 
+MAX_PER_PAGE = 500
+
+HOST_FAILURE_PREFIX = "Audio postprocessing failed"
+# Also a host problem, not the track's: not counted toward its backoff.
+DISK_FULL_PREFIX = "Download disk is full"
+
 
 def _paginate(query_with_limit, count_query, params, page, per_page):
     """Run a paginated query and return a standard response dict.
 
     query_with_limit must include 'LIMIT ? OFFSET ?' placeholders at the end.
     """
+    per_page = max(1, min(int(per_page), MAX_PER_PAGE))
     conn = db.get_db()
     total = conn.execute(count_query, params).fetchone()[0]
     pages = max(1, math.ceil(total / per_page))
@@ -130,6 +138,21 @@ def add_track_download(
     return cursor.lastrowid
 
 
+def set_lidarr_album_path(album_id, since_ts, path):
+    """Point this run's track rows at the library copy of the album.
+
+    Negative ids are YouTube imports, which keep their source URL in this
+    column, so they are never touched.
+    """
+    conn = db.get_db()
+    conn.execute(
+        "UPDATE track_downloads SET lidarr_album_path = ?"
+        " WHERE album_id = ? AND timestamp >= ? AND album_id > 0",
+        (path, album_id, since_ts),
+    )
+    conn.commit()
+
+
 def get_track_downloads_for_album(album_id):
     """Return all track download records for an album, newest first."""
     conn = db.get_db()
@@ -141,41 +164,98 @@ def get_track_downloads_for_album(album_id):
     return [dict(row) for row in rows]
 
 
-def get_album_history(page=1, per_page=50):
-    """Return album-grouped download summaries, newest first."""
-    query = """
+HISTORY_OUTCOMES = ("success", "partial", "error")
+
+# Same rules as getAlbumStatus() in templates/downloads.html.
+_OUTCOME_SQL = {
+    "success": "fail_count = 0",
+    "error": "fail_count > 0 AND success_count = 0",
+    "partial": "fail_count > 0 AND success_count > 0",
+}
+
+_ALBUM_HISTORY_CTE = """
+    WITH latest AS (
         SELECT
-            album_id,
-            album_title,
-            artist_name,
-            cover_url,
-            MAX(timestamp) as latest_timestamp,
-            SUM(CASE WHEN latest_success = 1 THEN 1 ELSE 0 END)
-                as success_count,
-            SUM(CASE WHEN latest_success = 0 THEN 1 ELSE 0 END)
-                as fail_count,
-            COUNT(*) as total_count
+            l.album_id,
+            a.album_title,
+            a.artist_name,
+            a.cover_url,
+            l.latest_timestamp,
+            l.success_count,
+            l.fail_count,
+            l.total_count
         FROM (
-            SELECT t1.album_id, t1.album_title, t1.artist_name,
-                   t1.cover_url, t1.track_title, t1.timestamp,
-                   t1.success as latest_success
-            FROM track_downloads t1
-            INNER JOIN (
-                SELECT album_id, track_title, MAX(timestamp) as max_ts
-                FROM track_downloads
-                GROUP BY album_id, track_title
-            ) t2 ON t1.album_id = t2.album_id
-                AND t1.track_title = t2.track_title
-                AND t1.timestamp = t2.max_ts
+            SELECT
+                album_id,
+                MAX(timestamp) as latest_timestamp,
+                SUM(CASE WHEN latest_success = 1 THEN 1 ELSE 0 END)
+                    as success_count,
+                SUM(CASE WHEN latest_success = 0 THEN 1 ELSE 0 END)
+                    as fail_count,
+                COUNT(*) as total_count
+            FROM (
+                SELECT t1.album_id, t1.timestamp,
+                       t1.success as latest_success
+                FROM track_downloads t1
+                INNER JOIN (
+                    SELECT album_id, track_title, MAX(timestamp) as max_ts
+                    FROM track_downloads
+                    GROUP BY album_id, track_title
+                ) t2 ON t1.album_id = t2.album_id
+                    AND t1.track_title = t2.track_title
+                    AND t1.timestamp = t2.max_ts
+            )
+            GROUP BY album_id
+        ) l
+        JOIN track_downloads a ON a.id = (
+            SELECT id FROM track_downloads
+            WHERE album_id = l.album_id
+            ORDER BY timestamp DESC, id DESC
+            LIMIT 1
         )
-        GROUP BY album_id, album_title, artist_name
-        ORDER BY latest_timestamp DESC
-        LIMIT ? OFFSET ?
-    """
-    count_query = (
-        "SELECT COUNT(DISTINCT album_id) FROM track_downloads"
     )
-    return _paginate(query, count_query, (), page, per_page)
+"""
+
+
+def get_album_history(page=1, per_page=50, outcome=None, q=None):
+    """Return album-grouped download summaries, newest first.
+
+    ``outcome`` ('success'|'partial'|'error') keeps only albums with that
+    status; ``q`` is a case-insensitive substring of the latest row's album
+    title or artist name. ``counts`` holds the per-outcome totals matching
+    ``q`` (ignoring ``outcome``) for the filter chips.
+    """
+    q_where, params = "1", ()
+    if q:
+        q_where = (
+            "(album_title LIKE ? ESCAPE '\\' OR artist_name LIKE ? ESCAPE '\\')"
+        )
+        escaped = (
+            q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        params = ("%" + escaped + "%",) * 2
+    where = q_where
+    if outcome in _OUTCOME_SQL:
+        where += " AND " + _OUTCOME_SQL[outcome]
+    query = (
+        _ALBUM_HISTORY_CTE
+        + f"SELECT * FROM latest WHERE {where}"
+        " ORDER BY latest_timestamp DESC, album_id DESC LIMIT ? OFFSET ?"
+    )
+    count_query = (
+        _ALBUM_HISTORY_CTE + f"SELECT COUNT(*) FROM latest WHERE {where}"
+    )
+    result = _paginate(query, count_query, params, page, per_page)
+    sums = ", ".join(
+        f"COALESCE(SUM({_OUTCOME_SQL[o]}), 0)" for o in HISTORY_OUTCOMES
+    )
+    row = db.get_db().execute(
+        _ALBUM_HISTORY_CTE
+        + f"SELECT COUNT(*), {sums} FROM latest WHERE {q_where}",
+        params,
+    ).fetchone()
+    result["counts"] = dict(zip(("all",) + HISTORY_OUTCOMES, row))
+    return result
 
 
 def get_track_failure_counts(album_id):
@@ -198,6 +278,8 @@ def get_track_failure_counts(album_id):
         FROM track_downloads AS f
         WHERE f.album_id = ?
           AND f.success = 0
+          AND COALESCE(f.error_message, '') NOT LIKE ?
+          AND COALESCE(f.error_message, '') NOT LIKE ?
           AND f.timestamp > COALESCE((
                 SELECT MAX(s.timestamp) FROM track_downloads AS s
                 WHERE s.album_id = f.album_id
@@ -206,7 +288,7 @@ def get_track_failure_counts(album_id):
               ), 0)
         GROUP BY f.track_title
         """,
-        (album_id,),
+        (album_id, HOST_FAILURE_PREFIX + "%", DISK_FULL_PREFIX + "%"),
     ).fetchall()
     return {
         row["track_title"]: {
@@ -215,6 +297,55 @@ def get_track_failure_counts(album_id):
         }
         for row in rows
     }
+
+
+def get_stuck_tracks(min_failures=3, limit=50):
+    """Tracks with the most consecutive failures across all Lidarr albums.
+
+    Same counting rules as ``get_track_failure_counts`` (host and disk-full
+    failures ignored, only failures after the track's last success),
+    grouped by ``(album_id, track_title)``. Playlist imports
+    (``album_id <= 0``) are left out: they are never retried automatically.
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        """
+        SELECT f.album_id AS album_id,
+               MAX(f.artist_name) AS artist_name,
+               MAX(f.album_title) AS album_title,
+               f.track_title AS track_title,
+               COUNT(*) AS failures,
+               MAX(f.timestamp) AS last_failure
+        FROM track_downloads AS f
+        WHERE f.album_id > 0
+          AND f.success = 0
+          AND COALESCE(f.error_message, '') NOT LIKE ?
+          AND COALESCE(f.error_message, '') NOT LIKE ?
+          AND f.timestamp > COALESCE((
+                SELECT MAX(s.timestamp) FROM track_downloads AS s
+                WHERE s.album_id = f.album_id
+                  AND s.track_title = f.track_title
+                  AND s.success = 1
+              ), 0)
+        GROUP BY f.album_id, f.track_title
+        HAVING COUNT(*) >= ?
+        ORDER BY failures DESC, last_failure DESC
+        LIMIT ?
+        """,
+        (HOST_FAILURE_PREFIX + "%", DISK_FULL_PREFIX + "%",
+         min_failures, limit),
+    ).fetchall()
+    return [
+        {
+            "album_id": row["album_id"],
+            "artist_name": row["artist_name"] or "",
+            "album_title": row["album_title"] or "",
+            "track_title": row["track_title"],
+            "failures": row["failures"],
+            "last_failure": row["last_failure"] or 0.0,
+        }
+        for row in rows
+    ]
 
 
 def get_failed_tracks_for_retry(album_id):
@@ -409,17 +540,20 @@ def get_insights(days=30):
 
 
 def get_attempted_album_ids_since(since_timestamp):
-    """Return album IDs that have *any* download log entry since timestamp.
+    """Return album IDs attempted since timestamp: any download log entry
+    or any per-track download record.
 
     Used by the scheduler to avoid hammering a failing album on every
     cycle: an album that has already been attempted (success or failure)
     within the retry window is skipped until other albums get a turn.
+    The track records keep that window when the user clears or dismisses
+    log rows.
     """
     conn = db.get_db()
     rows = conn.execute(
-        "SELECT DISTINCT album_id FROM download_logs"
-        " WHERE timestamp >= ?",
-        (since_timestamp,),
+        "SELECT album_id FROM download_logs WHERE timestamp >= ?"
+        " UNION SELECT album_id FROM track_downloads WHERE timestamp >= ?",
+        (since_timestamp, since_timestamp),
     ).fetchall()
     return {row[0] for row in rows}
 
@@ -520,10 +654,11 @@ def add_log(
     """Create a download log entry. Returns the generated log ID."""
     conn = db.get_db()
     ts = int(time.time() * 1000)
+    suffix = uuid.uuid4().hex[:8]
     if track_number is not None:
-        log_id = f"{ts}_{album_id}_{track_number}"
+        log_id = f"{ts}_{album_id}_{track_number}_{suffix}"
     else:
-        log_id = f"{ts}_{album_id}"
+        log_id = f"{ts}_{album_id}_{suffix}"
     conn.execute(
         """INSERT INTO download_logs
            (id, type, album_id, album_title, artist_name, timestamp,
@@ -576,6 +711,33 @@ def clear_logs():
     """Delete all download log entries."""
     conn = db.get_db()
     conn.execute("DELETE FROM download_logs")
+    conn.commit()
+
+
+def prune_old_records(cutoff_ts):
+    """Delete history older than ``cutoff_ts`` that nothing reads any more.
+
+    Logs and candidate attempts go by age alone. A track_downloads row goes
+    only when it is a failure a later success of the same track has
+    superseded: other rows still drive the backoff (failures since the last
+    success), and successes tell playlist watch and artist import what is
+    already imported.
+    """
+    conn = db.get_db()
+    stale = (
+        "SELECT f.id FROM track_downloads AS f"
+        " WHERE f.success = 0 AND f.timestamp < ?"
+        " AND EXISTS (SELECT 1 FROM track_downloads AS s"
+        "   WHERE s.album_id = f.album_id AND s.track_title = f.track_title"
+        "   AND s.success = 1 AND s.timestamp > f.timestamp)"
+    )
+    conn.execute(
+        "DELETE FROM candidate_attempts WHERE timestamp < ?"
+        f" OR track_download_id IN ({stale})",
+        (cutoff_ts, cutoff_ts),
+    )
+    conn.execute(f"DELETE FROM track_downloads WHERE id IN ({stale})", (cutoff_ts,))
+    conn.execute("DELETE FROM download_logs WHERE timestamp < ?", (cutoff_ts,))
     conn.commit()
 
 
@@ -634,6 +796,25 @@ def get_candidate_attempts(track_download_id):
     return [dict(row) for row in rows]
 
 
+def get_candidate_attempts_for(track_download_ids):
+    """Return {track_download_id: [attempts, oldest first]} in one query."""
+    ids = list(track_download_ids)
+    if not ids:
+        return {}
+    conn = db.get_db()
+    placeholders = ",".join("?" * len(ids))
+    rows = conn.execute(
+        "SELECT * FROM candidate_attempts"
+        f" WHERE track_download_id IN ({placeholders})"
+        " ORDER BY track_download_id, timestamp ASC",
+        ids,
+    ).fetchall()
+    grouped = {}
+    for row in rows:
+        grouped.setdefault(row["track_download_id"], []).append(dict(row))
+    return grouped
+
+
 def get_banned_urls_for_album(album_id):
     """Return list of {id, youtube_url} dicts for all banned URLs in an album."""
     conn = db.get_db()
@@ -644,26 +825,45 @@ def get_banned_urls_for_album(album_id):
     return [{"id": row[0], "youtube_url": row[1]} for row in rows]
 
 
+def get_track_download_youtube_urls():
+    """Every YouTube URL ever attempted (success or failure), as a set."""
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT DISTINCT youtube_url FROM track_downloads"
+        " WHERE youtube_url != ''"
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
 # --- Queue ---
 
 
-def enqueue_album(album_id, force=False):
+def enqueue_album(album_id, force=False, front=False):
     """Add an album to the download queue. Returns False if duplicate.
 
     ``force`` marks the entry as explicitly requested by the user, which
     makes the download bypass the per-track retry backoff. Re-adding an
     album that is already queued still returns False, but a forced request
     upgrades the existing entry so the manual intent isn't lost.
+
+    ``front`` puts it at the head instead of the tail: an album that was
+    dispatched but found the download slot taken goes back where it was,
+    not behind the whole queue.
     """
     conn = db.get_db()
-    max_pos = conn.execute(
-        "SELECT COALESCE(MAX(position), 0) FROM download_queue"
-    ).fetchone()[0]
+    if front:
+        position = conn.execute(
+            "SELECT COALESCE(MIN(position), 1) - 1 FROM download_queue"
+        ).fetchone()[0]
+    else:
+        position = conn.execute(
+            "SELECT COALESCE(MAX(position), 0) + 1 FROM download_queue"
+        ).fetchone()[0]
     cursor = conn.execute(
         "INSERT OR IGNORE INTO download_queue"
         " (album_id, position, status, force)"
         " VALUES (?, ?, ?, ?)",
-        (album_id, max_pos + 1, QUEUE_STATUS_QUEUED, 1 if force else 0),
+        (album_id, position, QUEUE_STATUS_QUEUED, 1 if force else 0),
     )
     added = cursor.rowcount > 0
     if not added and force:
@@ -694,11 +894,39 @@ def get_queue():
     return [dict(row) for row in rows]
 
 
+def get_queue_details():
+    """Queued albums in order, with display fields from missing_albums_cache.
+
+    One query for the whole queue: a queue of thousands must not cost one
+    Lidarr call per album (issue #95). Fields are empty for albums the
+    cache doesn't know.
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT q.album_id,"
+        " COALESCE(m.title, '') AS title,"
+        " COALESCE(m.artist_name, '') AS artist_name,"
+        " COALESCE(m.cover_url, '') AS cover_url,"
+        " COALESCE(m.track_count, 0) AS track_count"
+        " FROM download_queue q"
+        " LEFT JOIN missing_albums_cache m ON m.album_id = q.album_id"
+        " WHERE q.status = ?"
+        " ORDER BY q.position",
+        (QUEUE_STATUS_QUEUED,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_queue_length():
-    """Return the number of albums in the queue."""
+    """Return the number of albums waiting in the queue.
+
+    The album downloading in the foreground keeps its row (as 'downloading')
+    until it ends; it is counted as active, not queued.
+    """
     conn = db.get_db()
     return conn.execute(
-        "SELECT COUNT(*) FROM download_queue"
+        "SELECT COUNT(*) FROM download_queue WHERE status = ?",
+        (QUEUE_STATUS_QUEUED,),
     ).fetchone()[0]
 
 
@@ -746,11 +974,22 @@ def reset_downloading_to_queued():
     conn.commit()
 
 
-def clear_queue():
-    """Delete all entries from the download queue."""
+def clear_queue(include_active=True):
+    """Delete entries from the download queue.
+
+    With ``include_active=False`` only waiting albums go: the album being
+    downloaded keeps its row, so a restart still re-queues it.
+    """
     conn = db.get_db()
-    conn.execute("DELETE FROM download_queue")
+    if include_active:
+        conn.execute("DELETE FROM download_queue")
+        conn.commit()
+        return
+    conn.execute(
+        "DELETE FROM download_queue WHERE status = ?", (QUEUE_STATUS_QUEUED,)
+    )
     conn.commit()
+    _reorder_queue(conn)
 
 
 def reorder_queue(new_order):
@@ -943,6 +1182,40 @@ def get_cached_missing_albums():
     return out
 
 
+def get_cached_missing_albums_summary():
+    """Return the cached missing albums with only the fields the Library
+    and the scheduler read, built from the indexed columns (no raw_json).
+
+    Same order and nested shape as get_cached_missing_albums().
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT album_id, foreign_album_id, title, artist_id, artist_name,"
+        " release_date, track_count, missing_track_count, cover_url"
+        " FROM missing_albums_cache"
+        " ORDER BY release_date DESC, album_id DESC"
+    ).fetchall()
+    return [
+        {
+            "id": row["album_id"],
+            "foreignAlbumId": row["foreign_album_id"],
+            "title": row["title"],
+            "releaseDate": row["release_date"],
+            "missingTrackCount": row["missing_track_count"],
+            "statistics": {"trackCount": row["track_count"]},
+            "artist": {
+                "id": row["artist_id"],
+                "artistName": row["artist_name"],
+            },
+            "images": (
+                [{"coverType": "cover", "remoteUrl": row["cover_url"]}]
+                if row["cover_url"] else []
+            ),
+        }
+        for row in rows
+    ]
+
+
 def count_cached_missing_albums():
     """Return the number of albums currently in the cache."""
     conn = db.get_db()
@@ -1067,3 +1340,51 @@ def get_cached_album(album_id):
         (int(album_id),),
     ).fetchone()
     return dict(row) if row else None
+
+
+def set_album_source_hint(album_id, playlist_id, browse_id="", source="explore"):
+    if not isinstance(album_id, int) or album_id <= 0 or not playlist_id:
+        return False
+    conn = db.get_db()
+    conn.execute(
+        "INSERT INTO album_source_hints"
+        " (album_id, playlist_id, browse_id, source, created_at)"
+        " VALUES (?, ?, ?, ?, ?)"
+        " ON CONFLICT(album_id) DO UPDATE SET"
+        " playlist_id = excluded.playlist_id,"
+        " browse_id = excluded.browse_id,"
+        " source = excluded.source,"
+        " created_at = excluded.created_at",
+        (album_id, playlist_id, browse_id or "", source, time.time()),
+    )
+    conn.commit()
+    return True
+
+
+def get_album_source_hint(album_id):
+    if not isinstance(album_id, int) or album_id <= 0:
+        return None
+    row = db.get_db().execute(
+        "SELECT album_id, playlist_id, browse_id, source, created_at"
+        " FROM album_source_hints WHERE album_id = ?",
+        (album_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def delete_album_source_hint(album_id):
+    conn = db.get_db()
+    conn.execute(
+        "DELETE FROM album_source_hints WHERE album_id = ?", (album_id,),
+    )
+    conn.commit()
+
+
+def get_imported_youtube_album_titles(artist_name):
+    rows = db.get_db().execute(
+        "SELECT album_title FROM track_downloads"
+        " WHERE album_id < 0 AND success = 1 AND artist_name = ? COLLATE NOCASE"
+        " GROUP BY album_title",
+        (artist_name or "",),
+    ).fetchall()
+    return [r[0] for r in rows]

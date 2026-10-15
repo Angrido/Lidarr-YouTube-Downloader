@@ -66,6 +66,12 @@ _STATUS_QUEUED = "queued"
 _STATUS_DOWNLOADING = "downloading"
 _STATUS_COMPLETED = "completed"
 _STATUS_FAILED = "failed"
+_STATUS_COMPLETED_REMOVED = "completed_removed"
+_STATUS_FAILED_REMOVED = "failed_removed"
+_REMOVED_STATUS = {
+    _STATUS_COMPLETED: _STATUS_COMPLETED_REMOVED,
+    _STATUS_FAILED: _STATUS_FAILED_REMOVED,
+}
 
 _HISTORY_LIMIT = 200
 
@@ -156,6 +162,21 @@ def is_client_album(album_id):
         )
 
 
+def cancel_queued(album_id):
+    """Drop a Lidarr grab the user removed from the download queue.
+
+    Without this its job stays "Queued" in Lidarr forever, the album is
+    hidden from the indexer, and restore_jobs() re-queues it on restart.
+    Only a job still waiting is dropped; a running one is left alone.
+    """
+    with _lock:
+        nzo_id = _album_to_nzo.get(int(album_id))
+        job = _jobs.get(nzo_id) if nzo_id else None
+        if not job or job["status"] != _STATUS_QUEUED:
+            return False
+    return remove_job(nzo_id)
+
+
 def mark_downloading(album_id):
     with _lock:
         job = _active_job(album_id)
@@ -231,13 +252,21 @@ def remove_job(nzo_id, delete_files=False):
         job = _jobs.pop(nzo_id, None)
         if not job:
             return False
-        _album_to_nzo.pop(job["album_id"], None)
+        if _album_to_nzo.get(job["album_id"]) == nzo_id:
+            _album_to_nzo.pop(job["album_id"], None)
     try:
-        models.delete_client_job(nzo_id)
+        if job["status"] in _REMOVED_STATUS and _in_cooldown(job):
+            models.upsert_client_job(
+                dict(job, status=_REMOVED_STATUS[job["status"]]),
+            )
+        else:
+            models.delete_client_job(nzo_id)
     except Exception:
         logger.warning(
             "Failed to delete job %s from DB", nzo_id, exc_info=True,
         )
+    if job["status"] == _STATUS_DOWNLOADING:
+        _stop_running_download(job["album_id"])
     if job["status"] in (_STATUS_QUEUED, _STATUS_DOWNLOADING):
         try:
             models.dequeue_album(job["album_id"])
@@ -249,6 +278,23 @@ def remove_job(nzo_id, delete_files=False):
     if delete_files and job.get("storage"):
         _safe_rmtree(job["storage"])
     return True
+
+
+def _in_cooldown(job, cooldown=None):
+    if cooldown is None:
+        cooldown = retry_cooldown_seconds()
+    if not cooldown:
+        return False
+    return (job.get("completed_ts") or 0) >= time.time() - cooldown
+
+
+def _stop_running_download(album_id):
+    import processing
+
+    with processing.queue_lock:
+        state = processing._active_states.get(int(album_id))
+        if state is not None and state.get("is_client"):
+            state["stop"] = True
 
 
 def _safe_rmtree(path):
@@ -275,8 +321,13 @@ def restore_jobs():
     except Exception:
         logger.warning("Failed to restore download-client jobs", exc_info=True)
         return
+    cooldown = retry_cooldown_seconds()
     with _lock:
         for job in rows:
+            if job.get("status") in _REMOVED_STATUS.values():
+                if not _in_cooldown(job, cooldown):
+                    _delete_persisted(job["nzo_id"])
+                continue
             if job.get("status") == _STATUS_DOWNLOADING:
                 job["status"] = _STATUS_QUEUED  # interrupted: retry
             _jobs[job["nzo_id"]] = job
@@ -298,6 +349,13 @@ def restore_jobs():
             "Restored %d download-client job(s); resumed %d",
             len(_jobs), len(to_resume),
         )
+
+
+def _delete_persisted(nzo_id):
+    try:
+        models.delete_client_job(nzo_id)
+    except Exception:
+        logger.warning("Failed to delete job %s from DB", nzo_id, exc_info=True)
 
 
 def run_album_job(album_id, force=False, state=None):
@@ -341,7 +399,7 @@ def run_album_job(album_id, force=False, state=None):
         # Engine busy with another album: requeue instead of failing
         # (a failure would blocklist the grab).
         mark_queued(album_id)
-        models.enqueue_album(album_id)
+        models.enqueue_album(album_id, front=True)
     else:
         mark_failed(album_id, result.get("error", "Download failed"))
 
@@ -644,7 +702,8 @@ def _search_xml(albums, cfg, base_url):
             f"&apikey={api_key}"
         )
         pub = formatdate(
-            _release_pubdate(album.get("release_date")), usegmt=True,
+            max(_release_pubdate(album.get("release_date")), bucket * window),
+            usegmt=True,
         )
         guid = f"lidarr-yt-{album_id}-{bucket}"
         items.append(
@@ -685,7 +744,7 @@ def _release_pubdate(release_date):
             return calendar.timegm(time.strptime(release_date[:10], "%Y-%m-%d"))
         except (ValueError, TypeError):
             pass
-    return time.time()
+    return 0
 
 
 def _build_nzb(album_id, title, category):
@@ -1056,8 +1115,26 @@ def _recently_failed_client_ids(cfg=None):
     and blocklisted.
     """
     return _cooldown_album_ids(
-        models.get_failed_client_album_ids_since, "failed-client-ids", cfg,
+        _failed_client_album_ids_since, "failed-client-ids", cfg,
     )
+
+
+def _failed_client_album_ids_since(since_timestamp):
+    failed = models.get_failed_client_album_ids_since(since_timestamp)
+    rows = models.get_all_client_jobs()
+    latest = {}
+    for row in rows:
+        ts = row.get("completed_ts") or 0
+        latest[row["album_id"]] = max(latest.get(row["album_id"], ts), ts)
+    for row in rows:
+        ts = row.get("completed_ts") or 0
+        if (
+            row.get("status") == _STATUS_FAILED_REMOVED
+            and ts >= since_timestamp
+            and ts == latest[row["album_id"]]
+        ):
+            failed.add(row["album_id"])
+    return failed
 
 
 def _grab_blocked(album_id, cfg=None):

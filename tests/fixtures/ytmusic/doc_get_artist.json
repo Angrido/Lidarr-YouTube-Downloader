@@ -1,0 +1,246 @@
+{
+ "description": "Oasis were ...",
+ "views": "3,693,390,359 views",
+ "name": "Oasis",
+ "channelId": "UCUDVBtnOQi4c7E8jebpjc9Q",
+ "shuffleId": "RDAOkjHYJjL1a3xspEyVkhHAsg",
+ "radioId": "RDEMkjHYJjL1a3xspEyVkhHAsg",
+ "subscribers": "3.86M",
+ "monthlyListeners": "29.1M",
+ "subscribed": false,
+ "thumbnails": [
+  {
+   "url": "https://lh3.googleusercontent.com/oasis=w60-h60-l90-rj",
+   "width": 60,
+   "height": 60
+  },
+  {
+   "url": "https://lh3.googleusercontent.com/oasis=w226-h226-l90-rj",
+   "width": 226,
+   "height": 226
+  },
+  {
+   "url": "https://lh3.googleusercontent.com/oasis=w544-h544-l90-rj",
+   "width": 544,
+   "height": 544
+  },
+  {
+   "url": "https://lh3.googleusercontent.com/oasis=w1200-h1200-l90-rj",
+   "width": 1200,
+   "height": 1200
+  }
+ ],
+ "songs": {
+  "browseId": "VLPLMpM3Z0118S42R1npOhcjoakLIv1aqnS1",
+  "results": [
+   {
+    "videoId": "ZrOKjDZOtkA",
+    "title": "Wonderwall (Remastered)",
+    "thumbnails": [
+     {
+      "url": "https://lh3.googleusercontent.com/wonder=w60-h60-l90-rj",
+      "width": 60,
+      "height": 60
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/wonder=w226-h226-l90-rj",
+      "width": 226,
+      "height": 226
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/wonder=w544-h544-l90-rj",
+      "width": 544,
+      "height": 544
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/wonder=w1200-h1200-l90-rj",
+      "width": 1200,
+      "height": 1200
+     }
+    ],
+    "artists": [
+     {
+      "name": "Oasis",
+      "id": "UCmMUZbaYdNH0bEd1PAlAqsA"
+     }
+    ],
+    "album": {
+     "name": "(What's The Story) Morning Glory? (Remastered)",
+     "id": "MPREb_9nqEki4ZDpp"
+    }
+   }
+  ]
+ },
+ "albums": {
+  "results": [
+   {
+    "title": "Familiar To Millions",
+    "thumbnails": [
+     {
+      "url": "https://lh3.googleusercontent.com/familiar=w60-h60-l90-rj",
+      "width": 60,
+      "height": 60
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/familiar=w226-h226-l90-rj",
+      "width": 226,
+      "height": 226
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/familiar=w544-h544-l90-rj",
+      "width": 544,
+      "height": 544
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/familiar=w1200-h1200-l90-rj",
+      "width": 1200,
+      "height": 1200
+     }
+    ],
+    "year": "2018",
+    "browseId": "MPREb_AYetWMZunqA",
+    "type": "Album"
+   },
+   {
+    "title": "(What's The Story) Morning Glory? (Remastered)",
+    "thumbnails": [
+     {
+      "url": "https://lh3.googleusercontent.com/morning=w60-h60-l90-rj",
+      "width": 60,
+      "height": 60
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/morning=w226-h226-l90-rj",
+      "width": 226,
+      "height": 226
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/morning=w544-h544-l90-rj",
+      "width": 544,
+      "height": 544
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/morning=w1200-h1200-l90-rj",
+      "width": 1200,
+      "height": 1200
+     }
+    ],
+    "year": "2014",
+    "browseId": "MPREb_9nqEki4ZDpp",
+    "isExplicit": false
+   }
+  ],
+  "browseId": "UCmMUZbaYdNH0bEd1PAlAqsA",
+  "params": "6gPTAUNwc0JDbndLYlFBQV"
+ },
+ "singles": {
+  "results": [
+   {
+    "title": "Stand By Me (Mustique Demo)",
+    "thumbnails": [
+     {
+      "url": "https://lh3.googleusercontent.com/standby=w60-h60-l90-rj",
+      "width": 60,
+      "height": 60
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/standby=w226-h226-l90-rj",
+      "width": 226,
+      "height": 226
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/standby=w544-h544-l90-rj",
+      "width": 544,
+      "height": 544
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/standby=w1200-h1200-l90-rj",
+      "width": 1200,
+      "height": 1200
+     }
+    ],
+    "type": "Single",
+    "year": "2016",
+    "browseId": "MPREb_7MPKLhibN5G"
+   }
+  ],
+  "browseId": "UCmMUZbaYdNH0bEd1PAlAqsA",
+  "params": "6gPTAUNwc0JDbndLYlFBQV"
+ },
+ "videos": {
+  "results": [
+   {
+    "title": "Wonderwall",
+    "thumbnails": [
+     {
+      "url": "https://i.ytimg.com/vi/bx1Bh8ZvH84/hqdefault.jpg",
+      "width": 480,
+      "height": 360
+     }
+    ],
+    "views": "358M",
+    "videoId": "bx1Bh8ZvH84",
+    "playlistId": "PLMpM3Z0118S5xuNckw1HUcj1D021AnMEB"
+   }
+  ],
+  "browseId": "VLPLMpM3Z0118S5xuNckw1HUcj1D021AnMEB"
+ },
+ "related": {
+  "results": [
+   {
+    "browseId": "UCt2KxZpY5D__kapeQ8cauQw",
+    "subscribers": "450K",
+    "title": "The Verve",
+    "thumbnails": [
+     {
+      "url": "https://lh3.googleusercontent.com/verve=w60-h60-l90-rj",
+      "width": 60,
+      "height": 60
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/verve=w226-h226-l90-rj",
+      "width": 226,
+      "height": 226
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/verve=w544-h544-l90-rj",
+      "width": 544,
+      "height": 544
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/verve=w1200-h1200-l90-rj",
+      "width": 1200,
+      "height": 1200
+     }
+    ]
+   },
+   {
+    "browseId": "UCwK2Grm574W1u-sBzLikldQ",
+    "subscribers": "341K",
+    "title": "Liam Gallagher",
+    "thumbnails": [
+     {
+      "url": "https://lh3.googleusercontent.com/liam=w60-h60-l90-rj",
+      "width": 60,
+      "height": 60
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/liam=w226-h226-l90-rj",
+      "width": 226,
+      "height": 226
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/liam=w544-h544-l90-rj",
+      "width": 544,
+      "height": 544
+     },
+     {
+      "url": "https://lh3.googleusercontent.com/liam=w1200-h1200-l90-rj",
+      "width": 1200,
+      "height": 1200
+     }
+    ]
+   }
+  ]
+ }
+}

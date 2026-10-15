@@ -1,0 +1,1168 @@
+{
+ "contents": {
+  "singleColumnBrowseResultsRenderer": {
+   "tabs": [
+    {
+     "tabRenderer": {
+      "endpoint": {
+       "browseEndpoint": {
+        "browseId": "FEmusic_explore"
+       }
+      },
+      "selected": true,
+      "content": {
+       "sectionListRenderer": {
+        "contents": [
+         {
+          "gridRenderer": {
+           "items": [
+            {
+             "musicNavigationButtonRenderer": {
+              "buttonText": {
+               "runs": [
+                {
+                 "text": "Nuove uscite"
+                }
+               ]
+              },
+              "clickCommand": {
+               "browseEndpoint": {
+                "browseId": "FEmusic_new_releases"
+               }
+              },
+              "iconStyle": {
+               "icon": {
+                "iconType": "MUSIC_NEW_RELEASE"
+               }
+              }
+             }
+            },
+            {
+             "musicNavigationButtonRenderer": {
+              "buttonText": {
+               "runs": [
+                {
+                 "text": "Classifiche"
+                }
+               ]
+              },
+              "clickCommand": {
+               "browseEndpoint": {
+                "browseId": "FEmusic_charts",
+                "params": "sgYPRkVtdXNpY19leHBsb3Jl"
+               }
+              },
+              "iconStyle": {
+               "icon": {
+                "iconType": "TRENDING_UP"
+               }
+              }
+             }
+            },
+            {
+             "musicNavigationButtonRenderer": {
+              "buttonText": {
+               "runs": [
+                {
+                 "text": "Podcast"
+                }
+               ]
+              },
+              "clickCommand": {
+               "browseEndpoint": {
+                "browseId": "FEmusic_non_music_audio"
+               }
+              },
+              "iconStyle": {
+               "icon": {
+                "iconType": "BROADCAST"
+               }
+              }
+             }
+            }
+           ]
+          }
+         },
+         {
+          "musicCarouselShelfRenderer": {
+           "header": {
+            "musicCarouselShelfBasicHeaderRenderer": {
+             "title": {
+              "runs": [
+               {
+                "text": "Puntate popolari",
+                "navigationEndpoint": {
+                 "browseEndpoint": {
+                  "browseId": "FEmusic_top_non_music_audio_episodes"
+                 }
+                }
+               }
+              ]
+             },
+             "accessibilityData": {
+              "accessibilityData": {
+               "label": "Puntate popolari"
+              }
+             },
+             "headerStyle": "MUSIC_CAROUSEL_SHELF_BASIC_HEADER_STYLE_DEFAULT",
+             "moreContentButton": {
+              "buttonRenderer": {
+               "style": "STYLE_TEXT",
+               "text": {
+                "runs": [
+                 {
+                  "text": "Altro"
+                 }
+                ]
+               },
+               "navigationEndpoint": {
+                "browseEndpoint": {
+                 "browseId": "FEmusic_top_non_music_audio_episodes"
+                }
+               },
+               "accessibilityData": {
+                "accessibilityData": {
+                 "label": "Altro"
+                }
+               }
+              }
+             }
+            }
+           },
+           "contents": [
+            {
+             "musicMultiRowListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/vfuZcd7L8EI/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3km26I6zLae2-Ocj9fJ9BbSK3ETVA",
+                   "width": 400,
+                   "height": 225
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/vfuZcd7L8EI/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3kd0KjZf3FeXOELfH9DdiXB5g-vyg",
+                   "width": 800,
+                   "height": 450
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/vfuZcd7L8EI/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3kcPyISh5JDKnZyl_DZWBGr0gvzZw",
+                   "width": 853,
+                   "height": 479
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "vfuZcd7L8EI",
+                    "params": "8gEDmAEI",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
+                     }
+                    }
+                   }
+                  },
+                  "playIcon": {
+                   "iconType": "PLAY_ARROW"
+                  },
+                  "pauseIcon": {
+                   "iconType": "PAUSE"
+                  },
+                  "iconColor": 4294967295,
+                  "backgroundColor": 0,
+                  "activeBackgroundColor": 0,
+                  "loadingIndicatorColor": 14745645,
+                  "playingIcon": {
+                   "iconType": "VOLUME_UP"
+                  },
+                  "iconLoadingColor": 0,
+                  "activeScaleFactor": 1,
+                  "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+                  "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                  "accessibilityPlayData": {
+                   "accessibilityData": {
+                    "label": "Riproduci Garlasco, le prove alterate tra l'inchiesta Sempio e la revisione Stasi | ARCHIVIO TRUE CRIME LIVE - Archivio True Crime | Gian Guido Zurli"
+                   }
+                  }
+                 }
+                },
+                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+               }
+              },
+              "onTap": {
+               "watchEndpoint": {
+                "videoId": "vfuZcd7L8EI",
+                "params": "8gEDmAEI",
+                "watchEndpointMusicSupportedConfigs": {
+                 "watchEndpointMusicConfig": {
+                  "musicVideoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
+                 }
+                }
+               }
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "35K visualizzazioni"
+                },
+                {
+                 "text": " • "
+                },
+                {
+                 "text": "2 gg fa"
+                }
+               ],
+               "accessibility": {
+                "accessibilityData": {
+                 "label": "35 mila visualizzazioni • 2 gg fa"
+                }
+               }
+              },
+              "playbackProgress": {
+               "musicPlaybackProgressRenderer": {
+                "playbackProgressPercentage": 0,
+                "playbackProgressText": {
+                 "runs": [
+                  {
+                   "text": " • "
+                  },
+                  {
+                   "text": "2 h 13 min"
+                  }
+                 ]
+                },
+                "videoPlaybackPositionFeedbackToken": "",
+                "durationText": {
+                 "runs": [
+                  {
+                   "text": " • "
+                  },
+                  {
+                   "text": "2 h 13 min"
+                  }
+                 ]
+                },
+                "playedText": {
+                 "runs": [
+                  {
+                   "text": " • "
+                  },
+                  {
+                   "text": "Riprodotto",
+                   "textColor": 4294921797
+                  }
+                 ]
+                }
+               }
+              },
+              "title": {
+               "runs": [
+                {
+                 "text": "Garlasco, le prove alterate tra l'inchiesta Sempio e la revisione Stasi | ARCHIVIO TRUE CRIME LIVE",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "MPEDvfuZcd7L8EI",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_NON_MUSIC_AUDIO_TRACK_PAGE"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "secondTitle": {
+               "runs": [
+                {
+                 "text": "Archivio True Crime",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "MPSPPLcPJ2M0o5ogcZQxFkGxiVPBGPmxOJ0ruv",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "description": {
+               "runs": [
+                {
+                 "text": "Questa sera, giovedì 1 ottobre 2026, alle ore 21:00.\nNuova puntata in diretta di Archivio True Crime sul caso di #Garlasco dove facciamo il punto sulla chiusura delle indagini della Procura di Pavia su Andrea Sempio per il delitto di Chiara Poggi. Ad accompagnarci ci sono l'ex comandante della stazione di Garlasco Francesco Marchetto, i periti informatici Roberto Porta e Daniele Occhetti e il professor Andrea Velardi.\n\n\n🔴 SOSTIENI IL CANALE! 🔴\nPer sostenere il mio canale:\n    1. ISCRIVITI 👉🏻 http://www.youtube.com/channel/UCbDSzMjEOoTOi0_6osBFplg?sub_confirmation=1 \n    2. Attiva la campanella per ricevere NOTIFICHE 🔔 su nuove uscite \n    3. Metti un LIKE 👍🏻 \n\nSe questo canale ti piace in modo particolare, ti invito a prendere in considerazione l’opzione di abbonarti: https://www.youtube.com/channel/UCbDSzMjEOoTOi0_6osBFplg/join \n    * Gli abbonati avranno accesso al salotto virtuale di Archivio True Crime su Telegram, dove discuteremo insieme dei casi trattati e molto altro ancora.\n    * Gli abbonati avranno accesso anticipato ai video subito dopo che verranno caricati sul canale.\n    * Gli abbonati avranno accesso ad una trasmissione in diretta, ogni mese, a loro dedicata, dove potranno interagire con me e fare domande.\n\nSeguimi su https://twitter.com/gianguidozurli \nSeguimi su https://www.instagram.com/gianguidozurli/ \n\nLIBRI 📕 \n\n    * L’assassino del plenilunio, il mistero dei delitti del Mostro di Parma. https://amzn.to/4hKvyoL \n    * Maritza: i misteriosi delitti della chiromante. https://amzn.to/4p4Heas \n    * La Scandalosa Tresca, storia di Sofia Pescatori (l’ultima avvelenatrice giustiziata in Italia).  https://amzn.to/3ZtEjgY \n\n🎙️ Nuovo allo streaming o vuoi migliorare? Dai un'occhiata a StreamYard e ottieni uno sconto di $10! 😍 https://streamyard.com/pal/d/5780585752297472"
+                }
+               ]
+              },
+              "displayStyle": "MUSIC_MULTI_ROW_LIST_ITEM_DISPLAY_STYLE_EXPANDED"
+             }
+            },
+            {
+             "musicMultiRowListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/8jUrTgO0Rbk/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3ka1Y6l3HeMysYbmdFgde2xn0BnbQ",
+                   "width": 400,
+                   "height": 225
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/8jUrTgO0Rbk/hq720.jpg?sqp=-oaymwEKCKAGEMIDIABIWg&rs=AMzJL3ne8JnqQUgYo8-b1JYvfV3py77ZQw",
+                   "width": 800,
+                   "height": 450
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/8jUrTgO0Rbk/hq720.jpg?sqp=-oaymwEKCNUGEN8DIABIWg&rs=AMzJL3mS1y2_HSPlXpPp7LO8cn6e23bwRA",
+                   "width": 853,
+                   "height": 479
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "8jUrTgO0Rbk",
+                    "params": "8gEDmAEI",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
+                     }
+                    }
+                   }
+                  },
+                  "playIcon": {
+                   "iconType": "PLAY_ARROW"
+                  },
+                  "pauseIcon": {
+                   "iconType": "PAUSE"
+                  },
+                  "iconColor": 4294967295,
+                  "backgroundColor": 0,
+                  "activeBackgroundColor": 0,
+                  "loadingIndicatorColor": 14745645,
+                  "playingIcon": {
+                   "iconType": "VOLUME_UP"
+                  },
+                  "iconLoadingColor": 0,
+                  "activeScaleFactor": 1,
+                  "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+                  "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                  "accessibilityPlayData": {
+                   "accessibilityData": {
+                    "label": "Riproduci YARA GAMBIRASIO - Ignoto 1: la vera storia (con Gianluca Neri) - Federico Liguori"
+                   }
+                  }
+                 }
+                },
+                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+               }
+              },
+              "onTap": {
+               "watchEndpoint": {
+                "videoId": "8jUrTgO0Rbk",
+                "params": "8gEDmAEI",
+                "watchEndpointMusicSupportedConfigs": {
+                 "watchEndpointMusicConfig": {
+                  "musicVideoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
+                 }
+                }
+               }
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "15K visualizzazioni"
+                },
+                {
+                 "text": " • "
+                },
+                {
+                 "text": "2 gg fa"
+                }
+               ],
+               "accessibility": {
+                "accessibilityData": {
+                 "label": "15 mila visualizzazioni • 2 gg fa"
+                }
+               }
+              },
+              "playbackProgress": {
+               "musicPlaybackProgressRenderer": {
+                "playbackProgressPercentage": 0,
+                "playbackProgressText": {
+                 "runs": [
+                  {
+                   "text": " • "
+                  },
+                  {
+                   "text": "2 h 2 min"
+                  }
+                 ]
+                },
+                "videoPlaybackPositionFeedbackToken": "",
+                "durationText": {
+                 "runs": [
+                  {
+                   "text": " • "
+                  },
+                  {
+                   "text": "2 h 2 min"
+                  }
+                 ]
+                },
+                "playedText": {
+                 "runs": [
+                  {
+                   "text": " • "
+                  },
+                  {
+                   "text": "Riprodotto",
+                   "textColor": 4294921797
+                  }
+                 ]
+                }
+               }
+              },
+              "title": {
+               "runs": [
+                {
+                 "text": "YARA GAMBIRASIO - Ignoto 1: la vera storia (con Gianluca Neri)",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "MPED8jUrTgO0Rbk",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_NON_MUSIC_AUDIO_TRACK_PAGE"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "secondTitle": {
+               "runs": [
+                {
+                 "text": "Interviste",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "MPSPPLSel5ncK-WUI",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "description": {
+               "runs": [
+                {
+                 "text": "Scopri il caso di Yara Gambirasio nel mio libro-inchiesta:\n👉 “Yara Gambirasio. Un caso irrisolto”: https://amzn.to/4f6Td3e (link affiliato)*\n\n📲 Seguimi sui miei canali social:\nInstagram → https://www.instagram.com/federico.liguori\nFacebook → https://www.facebook.com/federico.liguori.750/\nX (ex Twitter) → https://www.x.com/f_liguori2611\nTikTok → https://tinyurl.com/2sw6rb2v\n\n💖 Sostieni il mio lavoro cliccando sul tasto “GRAZIE” sotto ai video o abbonandoti al canale: https://www.youtube.com/@FedericoLiguori-2611/join\n\n👥 Unisciti alla community su Telegram: https://t.me/lecodellaltromondo\n\n📰 Leggi il mio giornale online: https://federicoliguori2611.substack.com/\n\n📧 Contattami: federicoliguori2611@gmail.com\n\n*in qualità di affiliato Amazon ricevo un guadagno dagli acquisti idonei\n\n#yaragambirasio #yara #massimobossetti #bossetti #truecrime #indagini #errorigiudiziari"
+                }
+               ]
+              },
+              "displayStyle": "MUSIC_MULTI_ROW_LIST_ITEM_DISPLAY_STYLE_EXPANDED"
+             }
+            },
+            {
+             "musicMultiRowListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/OTfErHr4QsQ/sddefault.jpg?sqp=-oaymwElCIAFEOgCIAQqCghQELAEGAAg4ANIWvKriqkDCZoCBggPECEYMw&rs=AMzJL3nTU7oTfmPJIAgRFae-NAAoXDFu4g",
+                   "width": 640,
+                   "height": 360
+                  },
+                  {
+                   "url": "https://i.ytimg.com/vi/OTfErHr4QsQ/hq720.jpg?sqp=-oaymwEmCIAKENAFIAQqCwiYAhDoBxgAINAFSFryq4qpAwmaAgYIDxAhGDM&rs=AMzJL3mrG8mu2NL3u8IgcutTGlfZBLRtPw",
+                   "width": 1280,
+                   "height": 720
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "OTfErHr4QsQ",
+                    "params": "8gEDmAEI",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
+                     }
+                    }
+                   }
+                  },
+                  "playIcon": {
+                   "iconType": "PLAY_ARROW"
+                  },
+                  "pauseIcon": {
+                   "iconType": "PAUSE"
+                  },
+                  "iconColor": 4294967295,
+                  "backgroundColor": 0,
+                  "activeBackgroundColor": 0,
+                  "loadingIndicatorColor": 14745645,
+                  "playingIcon": {
+                   "iconType": "VOLUME_UP"
+                  },
+                  "iconLoadingColor": 0,
+                  "activeScaleFactor": 1,
+                  "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+                  "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                  "accessibilityPlayData": {
+                   "accessibilityData": {
+                    "label": "Riproduci Otto e Mezzo - La7 Attualità"
+                   }
+                  }
+                 }
+                },
+                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+               }
+              },
+              "onTap": {
+               "watchEndpoint": {
+                "videoId": "OTfErHr4QsQ",
+                "params": "8gEDmAEI",
+                "watchEndpointMusicSupportedConfigs": {
+                 "watchEndpointMusicConfig": {
+                  "musicVideoType": "MUSIC_VIDEO_TYPE_PODCAST_EPISODE"
+                 }
+                }
+               }
+              },
+              "subtitle": {
+               "runs": [
+                {
+                 "text": "18K visualizzazioni"
+                },
+                {
+                 "text": " • "
+                },
+                {
+                 "text": "2 gg fa"
+                }
+               ],
+               "accessibility": {
+                "accessibilityData": {
+                 "label": "18 mila visualizzazioni • 2 gg fa"
+                }
+               }
+              },
+              "playbackProgress": {
+               "musicPlaybackProgressRenderer": {
+                "playbackProgressPercentage": 0,
+                "playbackProgressText": {
+                 "runs": [
+                  {
+                   "text": " • "
+                  },
+                  {
+                   "text": "33 min"
+                  }
+                 ]
+                },
+                "videoPlaybackPositionFeedbackToken": "",
+                "durationText": {
+                 "runs": [
+                  {
+                   "text": " • "
+                  },
+                  {
+                   "text": "33 min"
+                  }
+                 ]
+                },
+                "playedText": {
+                 "runs": [
+                  {
+                   "text": " • "
+                  },
+                  {
+                   "text": "Riprodotto",
+                   "textColor": 4294921797
+                  }
+                 ]
+                }
+               }
+              },
+              "title": {
+               "runs": [
+                {
+                 "text": "Otto e Mezzo",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "MPEDOTfErHr4QsQ",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_NON_MUSIC_AUDIO_TRACK_PAGE"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "secondTitle": {
+               "runs": [
+                {
+                 "text": "Otto e mezzo",
+                 "navigationEndpoint": {
+                  "browseEndpoint": {
+                   "browseId": "MPSPPLTQLA-sdhEzT52jBz1sHC42B-0ahp_Yyo",
+                   "browseEndpointContextSupportedConfigs": {
+                    "browseEndpointContextMusicConfig": {
+                     "pageType": "MUSIC_PAGE_TYPE_PODCAST_SHOW_DETAIL_PAGE"
+                    }
+                   }
+                  }
+                 }
+                }
+               ]
+              },
+              "description": {
+               "runs": [
+                {
+                 "text": "Ospiti di Lilli Gruber: Fausto Brizzi, Massimo Giannini, Andrea Scanzi \n\n \n\n\nLearn more about your ad choices. Visit megaphone.fm/adchoices (https://megaphone.fm/adchoices)"
+                }
+               ]
+              },
+              "displayStyle": "MUSIC_MULTI_ROW_LIST_ITEM_DISPLAY_STYLE_EXPANDED"
+             }
+            }
+           ],
+           "itemSize": "COLLECTION_STYLE_ITEM_SIZE_MEDIUM",
+           "numItemsPerColumn": "3"
+          }
+         },
+         {
+          "musicCarouselShelfRenderer": {
+           "header": {
+            "musicCarouselShelfBasicHeaderRenderer": {
+             "title": {
+              "runs": [
+               {
+                "text": "Tendenze",
+                "navigationEndpoint": {
+                 "browseEndpoint": {
+                  "browseId": "VLOLAK5uy_kNWGJvgWVqlt5LsFDL9Sdluly4M8TvGkM",
+                  "browseEndpointContextSupportedConfigs": {
+                   "browseEndpointContextMusicConfig": {
+                    "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                   }
+                  }
+                 }
+                }
+               }
+              ]
+             },
+             "accessibilityData": {
+              "accessibilityData": {
+               "label": "Tendenze"
+              }
+             },
+             "headerStyle": "MUSIC_CAROUSEL_SHELF_BASIC_HEADER_STYLE_DEFAULT",
+             "moreContentButton": {
+              "buttonRenderer": {
+               "style": "STYLE_TEXT",
+               "text": {
+                "runs": [
+                 {
+                  "text": "Altro"
+                 }
+                ]
+               },
+               "navigationEndpoint": {
+                "browseEndpoint": {
+                 "browseId": "VLOLAK5uy_kNWGJvgWVqlt5LsFDL9Sdluly4M8TvGkM",
+                 "browseEndpointContextSupportedConfigs": {
+                  "browseEndpointContextMusicConfig": {
+                   "pageType": "MUSIC_PAGE_TYPE_PLAYLIST"
+                  }
+                 }
+                }
+               },
+               "accessibilityData": {
+                "accessibilityData": {
+                 "label": "Altro"
+                }
+               }
+              }
+             }
+            }
+           },
+           "contents": [
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://yt3.googleusercontent.com/DNFuGZeuZ7vGTxa49zFs3YNAwA-TOTVXYRFqPt3RQGmq0vK2zbLyTxJHxc88dShIoQrfQUiIugawXoK_=w60-h60-l90-rj",
+                   "width": 60,
+                   "height": 60
+                  },
+                  {
+                   "url": "https://yt3.googleusercontent.com/DNFuGZeuZ7vGTxa49zFs3YNAwA-TOTVXYRFqPt3RQGmq0vK2zbLyTxJHxc88dShIoQrfQUiIugawXoK_=w120-h120-l90-rj",
+                   "width": 120,
+                   "height": 120
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playIcon": {
+                   "iconType": "PLAY_ARROW"
+                  },
+                  "pauseIcon": {
+                   "iconType": "PAUSE"
+                  },
+                  "iconColor": 4294967295,
+                  "backgroundColor": 0,
+                  "activeBackgroundColor": 0,
+                  "loadingIndicatorColor": 14745645,
+                  "playingIcon": {
+                   "iconType": "VOLUME_UP"
+                  },
+                  "iconLoadingColor": 0,
+                  "activeScaleFactor": 1,
+                  "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+                  "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF"
+                 }
+                },
+                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Patient Zero"
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Taylor Swift"
+                   }
+                  ],
+                  "accessibility": {
+                   "accessibilityData": {
+                    "label": "Taylor Swift"
+                   }
+                  }
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "The Life of a Showgirl: The Encore"
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_MEDIUM"
+                }
+               }
+              ],
+              "playlistItemData": {
+               "videoId": "V-uIp-WuD60"
+              },
+              "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK",
+              "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_MEDIUM_COMPACT",
+              "customIndexColumn": {
+               "musicCustomIndexColumnRenderer": {
+                "text": {
+                 "runs": [
+                  {
+                   "text": "1"
+                  }
+                 ]
+                },
+                "accessibilityData": {
+                 "accessibilityData": {
+                  "label": "1"
+                 }
+                }
+               }
+              },
+              "musicItemRendererDisplayPolicy": "MUSIC_ITEM_RENDERER_DISPLAY_POLICY_GREY_OUT"
+             }
+            },
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/PVVKKwYeEQs/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3m7oBhpF6phAMLMS7LWqMd35w-MSA",
+                   "width": 400,
+                   "height": 225
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "PVVKKwYeEQs",
+                    "playlistId": "OLAK5uy_kNWGJvgWVqlt5LsFDL9Sdluly4M8TvGkM",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                     }
+                    }
+                   }
+                  },
+                  "playIcon": {
+                   "iconType": "PLAY_ARROW"
+                  },
+                  "pauseIcon": {
+                   "iconType": "PAUSE"
+                  },
+                  "iconColor": 4294967295,
+                  "backgroundColor": 0,
+                  "activeBackgroundColor": 0,
+                  "loadingIndicatorColor": 14745645,
+                  "playingIcon": {
+                   "iconType": "VOLUME_UP"
+                  },
+                  "iconLoadingColor": 0,
+                  "activeScaleFactor": 1,
+                  "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+                  "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                  "accessibilityPlayData": {
+                   "accessibilityData": {
+                    "label": "Riproduci Menor - Dalvin La Melodia"
+                   }
+                  }
+                 }
+                },
+                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Menor",
+                    "navigationEndpoint": {
+                     "watchEndpoint": {
+                      "videoId": "PVVKKwYeEQs",
+                      "playlistId": "OLAK5uy_kNWGJvgWVqlt5LsFDL9Sdluly4M8TvGkM",
+                      "watchEndpointMusicSupportedConfigs": {
+                       "watchEndpointMusicConfig": {
+                        "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Dalvin La Melodia",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UCM2p13ALz2FCSo5WcPFKeoQ",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                       }
+                      }
+                     }
+                    }
+                   },
+                   {
+                    "text": ", "
+                   },
+                   {
+                    "text": "Prince Royce",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UC1amDmVt3wHmB7zKpkmf3rg",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_ARTIST"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ],
+                  "accessibility": {
+                   "accessibilityData": {
+                    "label": "Dalvin La Melodia, Prince Royce e Romeo Santos • 2,8 milioni di visualizzazioni"
+                   }
+                  }
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {},
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_MEDIUM"
+                }
+               }
+              ],
+              "playlistItemData": {
+               "videoId": "PVVKKwYeEQs"
+              },
+              "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK",
+              "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_MEDIUM_COMPACT",
+              "customIndexColumn": {
+               "musicCustomIndexColumnRenderer": {
+                "text": {
+                 "runs": [
+                  {
+                   "text": "2"
+                  }
+                 ]
+                },
+                "accessibilityData": {
+                 "accessibilityData": {
+                  "label": "2"
+                 }
+                }
+               }
+              }
+             }
+            },
+            {
+             "musicResponsiveListItemRenderer": {
+              "thumbnail": {
+               "musicThumbnailRenderer": {
+                "thumbnail": {
+                 "thumbnails": [
+                  {
+                   "url": "https://i.ytimg.com/vi/JdXdQsP2_9M/hqdefault.jpg?sqp=-oaymwEWCJADEOEBIAQqCggAEOADGC0guwJIWg&rs=AMzJL3ki3_MHskgPyPQfnAUp8OTs1x698A",
+                   "width": 400,
+                   "height": 225
+                  }
+                 ]
+                },
+                "thumbnailCrop": "MUSIC_THUMBNAIL_CROP_UNSPECIFIED",
+                "thumbnailScale": "MUSIC_THUMBNAIL_SCALE_ASPECT_FIT"
+               }
+              },
+              "overlay": {
+               "musicItemThumbnailOverlayRenderer": {
+                "content": {
+                 "musicPlayButtonRenderer": {
+                  "playNavigationEndpoint": {
+                   "watchEndpoint": {
+                    "videoId": "JdXdQsP2_9M",
+                    "playlistId": "OLAK5uy_kNWGJvgWVqlt5LsFDL9Sdluly4M8TvGkM",
+                    "watchEndpointMusicSupportedConfigs": {
+                     "watchEndpointMusicConfig": {
+                      "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                     }
+                    }
+                   }
+                  },
+                  "playIcon": {
+                   "iconType": "PLAY_ARROW"
+                  },
+                  "pauseIcon": {
+                   "iconType": "PAUSE"
+                  },
+                  "iconColor": 4294967295,
+                  "backgroundColor": 0,
+                  "activeBackgroundColor": 0,
+                  "loadingIndicatorColor": 14745645,
+                  "playingIcon": {
+                   "iconType": "VOLUME_UP"
+                  },
+                  "iconLoadingColor": 0,
+                  "activeScaleFactor": 1,
+                  "buttonSize": "MUSIC_PLAY_BUTTON_SIZE_SMALL",
+                  "rippleTarget": "MUSIC_PLAY_BUTTON_RIPPLE_TARGET_SELF",
+                  "accessibilityPlayData": {
+                   "accessibilityData": {
+                    "label": "Riproduci James 1:17 (Jesus Is King) - Kid Rock [Official Music Video} - Kid Rock"
+                   }
+                  }
+                 }
+                },
+                "contentPosition": "MUSIC_ITEM_THUMBNAIL_OVERLAY_CONTENT_POSITION_CENTERED",
+                "displayStyle": "MUSIC_ITEM_THUMBNAIL_OVERLAY_DISPLAY_STYLE_PERSISTENT"
+               }
+              },
+              "flexColumns": [
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "James 1:17 (Jesus Is King) - Kid Rock [Official Music Video}",
+                    "navigationEndpoint": {
+                     "watchEndpoint": {
+                      "videoId": "JdXdQsP2_9M",
+                      "playlistId": "OLAK5uy_kNWGJvgWVqlt5LsFDL9Sdluly4M8TvGkM",
+                      "watchEndpointMusicSupportedConfigs": {
+                       "watchEndpointMusicConfig": {
+                        "musicVideoType": "MUSIC_VIDEO_TYPE_OMV"
+                       }
+                      }
+                     }
+                    }
+                   }
+                  ]
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {
+                  "runs": [
+                   {
+                    "text": "Kid Rock",
+                    "navigationEndpoint": {
+                     "browseEndpoint": {
+                      "browseId": "UCjwhEPNX5rsU6gl_8qZMQZg",
+                      "browseEndpointContextSupportedConfigs": {
+                       "browseEndpointContextMusicConfig": {
+                        "pageType": "MUSIC_PAGE_TYPE_USER_CHANNEL"
+                       }
+                      }
+                     }
+                    }
+                   },
+                   {
+                    "text": " • "
+                   },
+                   {
+                    "text": "990K visualizzazioni"
+                   }
+                  ],
+                  "accessibility": {
+                   "accessibilityData": {
+                    "label": "Kid Rock • 990 mila visualizzazioni"
+                   }
+                  }
+                 },
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_HIGH"
+                }
+               },
+               {
+                "musicResponsiveListItemFlexColumnRenderer": {
+                 "text": {},
+                 "displayPriority": "MUSIC_RESPONSIVE_LIST_ITEM_COLUMN_DISPLAY_PRIORITY_MEDIUM"
+                }
+               }
+              ],
+              "playlistItemData": {
+               "videoId": "JdXdQsP2_9M"
+              },
+              "flexColumnDisplayStyle": "MUSIC_RESPONSIVE_LIST_ITEM_FLEX_COLUMN_DISPLAY_STYLE_TWO_LINE_STACK",
+              "itemHeight": "MUSIC_RESPONSIVE_LIST_ITEM_HEIGHT_MEDIUM_COMPACT",
+              "customIndexColumn": {
+               "musicCustomIndexColumnRenderer": {
+                "text": {
+                 "runs": [
+                  {
+                   "text": "3"
+                  }
+                 ]
+                },
+                "accessibilityData": {
+                 "accessibilityData": {
+                  "label": "3"
+                 }
+                }
+               }
+              }
+             }
+            }
+           ],
+           "itemSize": "COLLECTION_STYLE_ITEM_SIZE_MEDIUM",
+           "numItemsPerColumn": "4"
+          }
+         }
+        ]
+       }
+      },
+      "icon": {
+       "iconType": "TAB_EXPLORE"
+      },
+      "tabIdentifier": "FEmusic_explore"
+     }
+    }
+   ]
+  }
+ },
+ "maxAgeStoreSeconds": 300
+}

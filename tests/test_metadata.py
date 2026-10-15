@@ -1,6 +1,10 @@
 """Tests for metadata module — ID3 tagging, XML metadata, and iTunes API."""
 
+import os
+import shutil
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 import metadata
 
@@ -105,6 +109,52 @@ class TestGetItunesTracks:
         assert metadata.get_itunes_tracks("Artist", "Album") == []
 
 
+def _image_response(content, status=200, ctype="image/jpeg"):
+    headers = {"Content-Type": ctype} if ctype else {}
+    return MagicMock(status_code=status, content=content, headers=headers)
+
+
+class TestArtworkResponseValidation:
+    @patch("metadata.requests.get")
+    def test_rejects_a_404_page(self, mock_get):
+        mock_get.return_value = _image_response(
+            b"<html>Not Found</html>", status=404, ctype="text/html",
+        )
+        assert metadata.get_artwork_from_url("https://x/600x600bb.jpg") is None
+
+    @patch("metadata.requests.get")
+    def test_rejects_a_200_html_page(self, mock_get):
+        mock_get.return_value = _image_response(
+            b"<html>oops</html>", ctype="text/html; charset=utf-8",
+        )
+        assert metadata.get_artwork_from_url("https://x/a.jpg") is None
+
+    @patch("metadata.requests.get")
+    def test_accepts_image_bytes_without_content_type(self, mock_get):
+        png = b"\x89PNG\r\n\x1a\n" + b"0" * 10
+        mock_get.return_value = _image_response(png, ctype=None)
+        assert metadata.get_artwork_from_url("https://x/a.png") == png
+
+    @patch("metadata.requests.get")
+    def test_rejects_unknown_bytes_without_content_type(self, mock_get):
+        mock_get.return_value = _image_response(b"garbage", ctype=None)
+        assert metadata.get_artwork_from_url("https://x/a.png") is None
+
+    @patch("metadata.requests.get")
+    def test_deezer_skips_a_failed_cover_download(self, mock_get):
+        mock_get.side_effect = [
+            MagicMock(json=lambda: {
+                "data": [
+                    {"artist": {"name": "Zaho"}, "cover_xl": "https://a"},
+                    {"artist": {"name": "Zaho"}, "cover_xl": "https://b"},
+                ],
+            }),
+            _image_response(b"<html>404</html>", status=404, ctype="text/html"),
+            _image_response(b"\xff\xd8\xffgood"),
+        ]
+        assert metadata.get_deezer_artwork("Zaho", "X") == b"\xff\xd8\xffgood"
+
+
 class TestGetItunesArtwork:
     @patch("metadata.requests.get")
     def test_returns_artwork_data(self, mock_get):
@@ -117,7 +167,7 @@ class TestGetItunesArtwork:
                     ],
                 }
             ),
-            MagicMock(content=b"image_data"),
+            _image_response(b"image_data"),
         ]
         result = metadata.get_itunes_artwork("Artist", "Album")
         assert result == b"image_data"
@@ -133,7 +183,7 @@ class TestGetItunesArtwork:
                     ],
                 }
             ),
-            MagicMock(content=b"hires"),
+            _image_response(b"hires"),
         ]
         metadata.get_itunes_artwork("Artist", "Album")
         second_call_url = mock_get.call_args_list[1][0][0]
@@ -154,7 +204,7 @@ class TestGetItunesArtwork:
 
     @patch("metadata.requests.get")
     def test_fetches_known_artwork_url(self, mock_get):
-        mock_get.return_value = MagicMock(content=b"cover")
+        mock_get.return_value = _image_response(b"cover")
         result = metadata.get_artwork_from_url(
             "https://is1-ssl.mzstatic.com/image/600x600bb.jpg"
         )
@@ -180,7 +230,7 @@ class TestGetDeezerArtwork:
                     },
                 ],
             }),
-            MagicMock(content=b"deezer_cover"),
+            _image_response(b"deezer_cover"),
         ]
         result = metadata.get_deezer_artwork("Zaho", "VERSATILE")
         assert result == b"deezer_cover"
@@ -204,7 +254,7 @@ class TestGetDeezerArtwork:
                     },
                 ],
             }),
-            MagicMock(content=b"correct_cover"),
+            _image_response(b"correct_cover"),
         ]
         result = metadata.get_deezer_artwork("Zaho", "VERSATILE")
         assert result == b"correct_cover"
@@ -288,6 +338,18 @@ class TestGetMusicbrainzRecordingArtist:
         with patch("metadata.time.sleep") as mock_sleep:
             assert metadata.get_musicbrainz_recording_artist("rec-1") == "Zaho"
         assert 5.0 in [c[0][0] for c in mock_sleep.call_args_list]
+
+    @patch("metadata.requests.get")
+    def test_caps_a_huge_retry_after(self, mock_get):
+        mock_get.side_effect = [
+            MagicMock(status_code=503, text="busy", headers={
+                "Retry-After": "3600",
+            }),
+            self._ok([{"name": "Zaho", "joinphrase": ""}]),
+        ]
+        with patch("metadata.time.sleep") as mock_sleep:
+            assert metadata.get_musicbrainz_recording_artist("rec-1") == "Zaho"
+        assert max(c[0][0] for c in mock_sleep.call_args_list) <= 10
 
     @patch("metadata.requests.get")
     def test_returns_none_on_empty_credit(self, mock_get):
@@ -611,6 +673,21 @@ class TestReplayGain:
         assert audio.tags.add.call_count == 2
         audio.save.assert_called_once()
 
+    @patch("metadata._measure_loudness", return_value=(-20.0, -1.0))
+    def test_replaygain_keeps_mp3_at_id3v23(self, _measure, tmp_path):
+        from mutagen.id3 import ID3
+
+        mp3_path = _create_minimal_mp3(tmp_path / "rg.mp3")
+        assert metadata.tag_mp3(
+            str(mp3_path),
+            {"title": "T", "trackNumber": "1"},
+            {"title": "A", "artist": {"artistName": "Ar"}, "trackCount": 1},
+            None,
+        ) is True
+        assert ID3(str(mp3_path)).version[:2] == (2, 3)
+        assert metadata.apply_replaygain_tags(str(mp3_path)) == "2.00 dB"
+        assert ID3(str(mp3_path)).version[:2] == (2, 3)
+
     @patch("metadata._measure_loudness", return_value=None)
     def test_replaygain_none_when_measure_fails(self, _measure, tmp_path):
         f = tmp_path / "track.mp3"
@@ -806,9 +883,10 @@ class TestMusicBrainzFrames:
             == self.TRACK["foreignTrackId"]
         )
         assert (
-            freeform("MusicBrainz Recording Id")
+            freeform("MusicBrainz Track Id")
             == self.TRACK["foreignRecordingId"]
         )
+        assert "----:com.apple.iTunes:MusicBrainz Recording Id" not in store
         assert freeform("MusicBrainz Release Group Id") == "rg-012"
         assert freeform("MusicBrainz Album Release Country") == "US"
         assert freeform("MusicBrainz Album Artist Id") == "art-789"
@@ -819,6 +897,51 @@ class TestMusicBrainzFrames:
             "----:com.apple.iTunes:MusicBrainz Album Release Group Id"
             not in store
         )
+
+    @patch("metadata.get_monitored_release")
+    def test_m4a_retag_uses_picard_recording_key(self, mock_release, tmp_path):
+        from mutagen.mp4 import MP4, MP4FreeForm
+
+        m4a = tmp_path / "t.m4a"
+        shutil.copyfile(
+            os.path.join(os.path.dirname(__file__), "fixtures", "audio", "silence.m4a"),
+            m4a,
+        )
+        old = "----:com.apple.iTunes:MusicBrainz Recording Id"
+        audio = MP4(str(m4a))
+        audio[old] = [MP4FreeForm(b"stale-recording")]
+        audio.save()
+
+        mock_release.return_value = self.RELEASE
+        assert metadata.tag_m4a(str(m4a), self.TRACK, self.ALBUM, None) is True
+
+        tags = MP4(str(m4a)).tags
+        assert old not in tags
+        assert bytes(
+            tags["----:com.apple.iTunes:MusicBrainz Track Id"][0]
+        ).decode() == self.TRACK["foreignRecordingId"]
+        assert bytes(
+            tags["----:com.apple.iTunes:MusicBrainz Release Track Id"][0]
+        ).decode() == self.TRACK["foreignTrackId"]
+
+    @patch("metadata.get_monitored_release")
+    @patch("metadata.MP4")
+    def test_m4a_without_release_still_writes_recording_id(
+        self, mock_mp4_cls, mock_release,
+    ):
+        store = {}
+        mock_audio = MagicMock()
+        mock_audio.__setitem__ = lambda self, k, v: store.update({k: v})
+        mock_mp4_cls.return_value = mock_audio
+        mock_release.return_value = None
+
+        assert metadata.tag_m4a(
+            "/fake/path.m4a", self.TRACK, self.ALBUM, None
+        ) is True
+        assert list(store) == [
+            "\xa9nam", "\xa9ART", "aART", "\xa9alb", "\xa9day", "trkn",
+            "----:com.apple.iTunes:MusicBrainz Track Id",
+        ]
 
     @patch("metadata.get_monitored_release")
     @patch("metadata.OggOpus")
@@ -848,3 +971,133 @@ class TestMusicBrainzFrames:
         assert store["musicbrainz_albumartistid"] == ["art-789"]
         assert store["musicbrainz_artistid"] == ["art-789"]
         assert store["releasecountry"] == ["US"]
+
+
+class TestEnsureArtistImage:
+    class Resp:
+        def __init__(self, status=200, content=b"\xff\xd8\xff\xe0JPEG", ctype="image/jpeg"):
+            self.status_code = status
+            self.content = content
+            self.headers = {"Content-Type": ctype}
+
+    def test_existing_image_is_left_alone(self, tmp_path, monkeypatch):
+        import metadata
+        (tmp_path / "Folder.JPG").write_bytes(b"old")
+        monkeypatch.setattr(metadata.requests, "get", lambda *a, **k: pytest.fail("no download"))
+        assert metadata.ensure_artist_image(str(tmp_path), "A", ["https://x/y.jpg"]) == "exists"
+        assert not (tmp_path / "artist.jpg").exists()
+
+    def test_downloads_first_working_url(self, tmp_path, monkeypatch):
+        import metadata
+        seen = []
+
+        def fake_get(url, **k):
+            seen.append(url)
+            return self.Resp(404) if "bad" in url else self.Resp()
+
+        monkeypatch.setattr(metadata.requests, "get", fake_get)
+        result = metadata.ensure_artist_image(
+            str(tmp_path), "A", ["/MediaCover/1/poster.jpg", "https://img/bad.jpg", "https://img/good.jpg"],
+        )
+        assert result == "saved"
+        assert seen == ["https://img/bad.jpg", "https://img/good.jpg"]
+        assert (tmp_path / "artist.jpg").read_bytes().startswith(b"\xff\xd8")
+        assert (tmp_path / "folder.jpg").exists()
+
+    def test_falls_back_to_deezer_then_callables(self, tmp_path, monkeypatch):
+        import metadata
+        order = []
+        monkeypatch.setattr(metadata, "get_deezer_artist_image", lambda name: order.append("deezer") or None)
+        monkeypatch.setattr(metadata.requests, "get", lambda url, **k: order.append(url) or self.Resp())
+        result = metadata.ensure_artist_image(
+            str(tmp_path), "Zo killeuh", [], fallbacks=(lambda: "https://yt3.googleusercontent.com/a=w1200-h1200",),
+        )
+        assert result == "saved"
+        assert order == ["deezer", "https://yt3.googleusercontent.com/a=w1200-h1200"]
+
+    def test_nothing_found(self, tmp_path, monkeypatch):
+        import metadata
+        monkeypatch.setattr(metadata.requests, "get", lambda *a, **k: self.Resp(200, b"<html>", "text/html"))
+        assert metadata.ensure_artist_image(str(tmp_path), "A", ["https://x/y"]) == "missing"
+        assert list(tmp_path.iterdir()) == []
+
+    def test_missing_folder(self, tmp_path):
+        import metadata
+        assert metadata.ensure_artist_image(str(tmp_path / "nope"), "A") == "missing"
+
+    @pytest.mark.real_artist_image
+    def test_deezer_artist_exact_name_only(self, monkeypatch):
+        import metadata
+        real = metadata.get_deezer_artist_image
+        calls = []
+
+        class JsonResp:
+            def json(self):
+                return {"data": [
+                    {"name": "Oasis Tribute", "picture_xl": "https://e/tribute.jpg"},
+                    {"name": "OASIS", "picture_xl": "https://e/oasis.jpg"},
+                ]}
+
+        def fake_get(url, **k):
+            calls.append(url)
+            return JsonResp() if "search" in url else self.Resp()
+
+        monkeypatch.setattr(metadata.requests, "get", fake_get)
+        assert real("Oasis").startswith(b"\xff\xd8")
+        assert calls[-1] == "https://e/oasis.jpg"
+
+
+class TestDiscNumberTag:
+    """A multi-disc album gets a disc tag; on its own, track 1 of disc 2
+    would read as track 1 of the album."""
+
+    TRACK = {"title": "Intro", "trackNumber": "1", "mediumNumber": 2}
+
+    @staticmethod
+    def _album(media):
+        return {
+            "title": "A", "artist": {"artistName": "Art"},
+            "releaseDate": "2020-01-01", "trackCount": 4,
+            "tracks": [{"mediumNumber": m} for m in media],
+        }
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    def test_mp3_multi_disc_writes_tpos(self, _rel, tmp_path):
+        from mutagen.mp3 import MP3
+        path = _create_minimal_mp3(tmp_path / "t.mp3")
+        assert metadata.tag_mp3(str(path), self.TRACK, self._album([1, 1, 2, 2]), None)
+        tags = MP3(str(path)).tags
+        assert str(tags["TPOS"]) == "2/2"
+        assert str(tags["TRCK"]) == "1/4"
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    def test_mp3_single_disc_has_no_tpos(self, _rel, tmp_path):
+        from mutagen.mp3 import MP3
+        path = _create_minimal_mp3(tmp_path / "t.mp3")
+        track = dict(self.TRACK, mediumNumber=1)
+        assert metadata.tag_mp3(str(path), track, self._album([1, 1]), None)
+        assert "TPOS" not in MP3(str(path)).tags
+
+    @staticmethod
+    def _store(mock_cls):
+        store = {}
+        mock_audio = MagicMock()
+        mock_audio.__setitem__ = lambda self, k, v: store.update({k: v})
+        mock_audio.__getitem__ = lambda self, k: store[k]
+        mock_cls.return_value = mock_audio
+        return store
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    @patch("metadata.MP4")
+    def test_m4a_multi_disc_writes_disk(self, mock_mp4, _rel):
+        store = self._store(mock_mp4)
+        metadata.tag_m4a("/f.m4a", self.TRACK, self._album([1, 2]), None)
+        assert store["disk"] == [(2, 2)]
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    @patch("metadata.OggOpus")
+    def test_opus_multi_disc_writes_discnumber(self, mock_opus, _rel):
+        store = self._store(mock_opus)
+        metadata.tag_opus("/f.opus", self.TRACK, self._album([1, 2]), None)
+        assert store["discnumber"] == ["2"]
+        assert store["disctotal"] == ["2"]

@@ -17,9 +17,20 @@ from processing import download_process, queue_lock
 
 logger = logging.getLogger(__name__)
 
+# Albums last reported with auto-download off: nothing gets attempted, so
+# nothing cools down, and the same list would be re-notified every cycle.
+_last_reported_ids = set()
+
 
 def scheduled_check():
     """Check Lidarr for new missing albums and optionally queue them."""
+    try:
+        _scheduled_check()
+    except Exception:
+        logger.exception("Scheduled missing-album check failed")
+
+
+def _scheduled_check():
     with queue_lock:
         is_active = download_process["active"]
     if is_active:
@@ -30,7 +41,7 @@ def scheduled_check():
     if not albums:
         return
 
-    interval_minutes = int(config.get("scheduler_interval", 60))
+    interval_minutes = _interval_minutes(config)
     lookback_seconds = interval_minutes * 60 * 2
     now = time.time()
     recent_history_ids = models.get_history_album_ids_since(
@@ -88,18 +99,28 @@ def scheduled_check():
         for album in new_albums:
             models.enqueue_album(album["id"])
     else:
+        global _last_reported_ids
+        ids = {a["id"] for a in new_albums}
+        fresh = len(ids - _last_reported_ids)
+        _last_reported_ids = ids
+        if not fresh:
+            logger.debug(
+                f"Scheduler: {len(ids)} missing albums, none new"
+                " (Auto-Download disabled)"
+            )
+            return
         logger.info(
-            f"Scheduler: Found {len(new_albums)} missing albums"
+            f"Scheduler: Found {fresh} missing albums"
             " (Auto-Download disabled)"
         )
         send_notifications(
-            f"Scheduler: Found {len(new_albums)} missing albums"
+            f"Scheduler: Found {fresh} missing albums"
             " (Auto-DL Disabled)",
             log_type="download_started",
             embed_data={
                 "title": "Scheduler",
                 "description": (
-                    f"Found {len(new_albums)} missing albums"
+                    f"Found {fresh} missing albums"
                     " (Auto-DL Disabled)"
                 ),
                 "color": 0xE67E22,
@@ -110,8 +131,24 @@ def scheduled_check():
 def run_scheduler():
     """Run the schedule loop forever, checking every 10 seconds."""
     while True:
-        schedule.run_pending()
+        try:
+            schedule.run_pending()
+        except Exception:
+            logger.exception("Scheduler job failed; will retry next cycle")
         time.sleep(10)
+
+
+def next_run_timestamp():
+    """Unix time of the next scheduled check, or None when no job is set."""
+    if not schedule.get_jobs():
+        return None
+    return schedule.next_run().timestamp()
+
+
+def _interval_minutes(config):
+    # schedule.every(0) never returns (its next-run loop can't advance), and
+    # a config import or SCHEDULER_INTERVAL=0 can carry any int here.
+    return max(1, int(config.get("scheduler_interval", 60)))
 
 
 def setup_scheduler():
@@ -119,5 +156,4 @@ def setup_scheduler():
     config = load_config()
     schedule.clear()
     if config.get("scheduler_enabled"):
-        interval = int(config.get("scheduler_interval", 60))
-        schedule.every(interval).minutes.do(scheduled_check)
+        schedule.every(_interval_minutes(config)).minutes.do(scheduled_check)

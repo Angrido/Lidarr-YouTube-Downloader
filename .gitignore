@@ -1,5 +1,4 @@
 .claude/
-CLAUDE.md
 CLAUDE.local.md
 AGENTS.md
 requirements-dev.txt
@@ -43,6 +42,7 @@ desktop.ini
 cookies.txt
 *.mp3
 *.m4a
+!tests/fixtures/audio/*.m4a
 *.opus
 *.webm
 *.flac
@@ -51,7 +51,15 @@ cookies.txt
 tmp/
 .serena/
 .superpowers/
+docs/superpowers/
 .lean-ctx/
+.omc/
+.gstack/
+.agents/
+.codex/
+.gemini/
+.playwright-mcp/
+strix_runs/
 agent-tools/
 agent-transcripts/
 terminals/

@@ -1,3 +1,4 @@
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -2193,3 +2194,868 @@ class TestProbeCoversBothFfmpegShapes:
 
         mock_ffmpeg.side_effect = _run
         assert downloader._probe_ffmpeg_can_write_audio(str(tmp_path)) is True
+
+
+def _search_ydl(entries):
+    def _factory(opts):
+        ydl = MagicMock()
+        ydl.__enter__.return_value.extract_info.return_value = (
+            {"entries": entries} if entries is not None else None
+        )
+        return ydl
+    return _factory
+
+
+_SEARCH_CFG = {
+    "forbidden_words": [],
+    "duration_tolerance": 15,
+    "yt_player_client": "android",
+}
+
+
+class TestLoudnessNormalization:
+    def _cfg(self, fmt):
+        return {
+            "yt_player_client": "android",
+            "audio_format": fmt,
+            "audio_quality": "320",
+            "audio_normalize": True,
+        }
+
+    def _write_download(self, mock_ydl_class, target):
+        def _dl(urls):
+            with open(target, "wb") as fh:
+                fh.write(b"raw")
+            return 0
+        mock_ydl_class.return_value.__enter__.return_value.download \
+            .side_effect = _dl
+
+    @pytest.mark.parametrize("fmt,encoder", [
+        ("mp3", "libmp3lame"), ("m4a", "aac"), ("opus", "libopus"),
+    ])
+    @patch("downloader._run_ffmpeg")
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_loudnorm_runs_as_a_separate_reencode_pass(
+        self, mock_config, mock_ydl_class, mock_ffmpeg, tmp_path,
+        fmt, encoder,
+    ):
+        import os
+        mock_config.return_value = self._cfg(fmt)
+        out = str(tmp_path / "output")
+        self._write_download(mock_ydl_class, f"{out}.{fmt}")
+
+        def _ff(args, timeout=30):
+            with open(args[-1], "wb") as fh:
+                fh.write(b"normalized")
+            return MagicMock(returncode=0, stderr="")
+
+        mock_ffmpeg.side_effect = _ff
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, out)
+        assert result["success"] is True
+        for call in mock_ydl_class.call_args_list:
+            assert "postprocessor_args" not in call[0][0]
+        args = mock_ffmpeg.call_args[0][0]
+        assert any("loudnorm" in a for a in args)
+        assert args[args.index("-c:a") + 1] == encoder
+        assert args[-1] != f"{out}.{fmt}"
+        with open(f"{out}.{fmt}", "rb") as fh:
+            assert fh.read() == b"normalized"
+        assert os.listdir(tmp_path) == [f"output.{fmt}"]
+
+    @patch("downloader._run_ffmpeg")
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_failed_normalization_keeps_file_and_host_healthy(
+        self, mock_config, mock_ydl_class, mock_ffmpeg, tmp_path,
+    ):
+        import os
+        mock_config.return_value = self._cfg("opus")
+        out = str(tmp_path / "output")
+        self._write_download(mock_ydl_class, out + ".opus")
+
+        def _ff(args, timeout=30):
+            with open(args[-1], "wb") as fh:
+                fh.write(b"partial")
+            return MagicMock(
+                returncode=1,
+                stderr="Error opening output files: Function not implemented",
+            )
+
+        mock_ffmpeg.side_effect = _ff
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, out)
+        assert result["success"] is True
+        with open(out + ".opus", "rb") as fh:
+            assert fh.read() == b"raw"
+        assert os.listdir(tmp_path) == ["output.opus"]
+        assert downloader._ffmpeg_pp_observed_broken is False
+        assert downloader._ffmpeg_pp_state is True
+
+    @patch("downloader._run_ffmpeg")
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_normalization_timeout_keeps_file(
+        self, mock_config, mock_ydl_class, mock_ffmpeg, tmp_path,
+    ):
+        import subprocess
+        mock_config.return_value = self._cfg("mp3")
+        out = str(tmp_path / "output")
+        self._write_download(mock_ydl_class, out + ".mp3")
+        mock_ffmpeg.side_effect = subprocess.TimeoutExpired("ffmpeg", 1)
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, out)
+        assert result["success"] is True
+        with open(out + ".mp3", "rb") as fh:
+            assert fh.read() == b"raw"
+        assert downloader._ffmpeg_pp_observed_broken is False
+
+    @patch("downloader._run_ffmpeg")
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_no_pass_when_normalization_disabled(
+        self, mock_config, mock_ydl_class, mock_ffmpeg, tmp_path,
+    ):
+        cfg = self._cfg("mp3")
+        cfg["audio_normalize"] = False
+        mock_config.return_value = cfg
+        out = str(tmp_path / "output")
+        self._write_download(mock_ydl_class, out + ".mp3")
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        assert download_youtube_candidate(candidate, out)["success"] is True
+        assert mock_ffmpeg.call_count == 0
+
+
+class TestOpusIsNotNative:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    def test_raw_fallback_refuses_opus(self, mock_ydl_class, tmp_path):
+        assert "opus" not in downloader.NATIVE_AUDIO_FORMATS
+        result = downloader._download_raw_audio(
+            {"url": "u"}, str(tmp_path / "o"), "opus", False,
+            {"yt_player_client": "android"},
+        )
+        assert result is None
+        assert mock_ydl_class.call_count == 0
+
+    @patch("downloader.load_config")
+    def test_status_says_opus_needs_ffmpeg(self, mock_config):
+        mock_config.return_value = {"audio_format": "opus"}
+        downloader._ffmpeg_pp_state = False
+        st = downloader.ffmpeg_status()
+        assert st["downloads_work"] is False
+        assert "opus" in st["impact"]
+        assert "m4a" in st["fixes"][0]
+        assert "opus" not in st["fixes"][0]
+        assert st["native_formats"] == ["m4a"]
+
+    @patch("downloader.load_config")
+    def test_status_for_mp3_does_not_suggest_opus(self, mock_config):
+        mock_config.return_value = {"audio_format": "mp3"}
+        downloader._ffmpeg_pp_state = False
+        st = downloader.ffmpeg_status()
+        assert "opus" not in st["fixes"][0]
+
+
+class TestConversionErrorNeedsHostEvidence:
+    _BAD_SOURCE = (
+        "ERROR: Postprocessing: audio conversion failed:"
+        " /dl/temp_01.webm: Invalid data found when processing input"
+    )
+
+    @patch("downloader._probe_ffmpeg_can_write_audio", return_value=True)
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_source_specific_error_only_fails_this_candidate(
+        self, mock_config, mock_ydl_class, mock_probe,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "mp3",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(self._BAD_SOURCE)
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result["success"] is False
+        assert not result.get("postprocess_error")
+        assert downloader._ffmpeg_pp_observed_broken is False
+        assert downloader._ffmpeg_pp_state is True
+        assert mock_probe.call_count == 1
+
+    @patch("downloader._probe_ffmpeg_can_write_audio", return_value=False)
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_error_with_failing_fresh_probe_marks_broken(
+        self, mock_config, mock_ydl_class, mock_probe,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "mp3",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(self._BAD_SOURCE)
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result.get("postprocess_error") is True
+        assert downloader._ffmpeg_pp_observed_broken is True
+        assert mock_probe.call_count == 1
+
+    @patch("downloader._probe_ffmpeg_can_write_audio", return_value=False)
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_disk_full_never_marks_host_broken(
+        self, mock_config, mock_ydl_class, mock_probe,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "mp3",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "ERROR: Postprocessing: audio conversion failed:"
+            " /dl/x.mp3: No space left on device"
+        )
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result["success"] is False
+        assert not result.get("postprocess_error")
+        assert downloader._ffmpeg_pp_observed_broken is False
+
+    @patch("downloader._probe_ffmpeg_can_write_audio", return_value=True)
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_enosys_marks_broken_without_reprobing(
+        self, mock_config, mock_ydl_class, mock_probe,
+    ):
+        mock_config.return_value = {
+            "yt_player_client": "android", "audio_format": "mp3",
+        }
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(
+            "ERROR: Postprocessing: Error opening output files:"
+            " Function not implemented"
+        )
+        candidate = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result.get("postprocess_error") is True
+        assert downloader._ffmpeg_pp_observed_broken is True
+        assert mock_probe.call_count == 0
+
+
+class TestUnicodeFolding:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_typographic_apostrophe_matches_ascii(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = _SEARCH_CFG
+        mock_ydl_class.side_effect = _search_ydl([{
+            "title": "Don't Stop Me Now (Remastered 2011)",
+            "url": "https://music.youtube.com/watch?v=eeeeeeeeeee",
+            "duration": 210,
+            "channel": "Queen - Topic",
+        }])
+        candidates = search_youtube_candidates(
+            "Queen Don’t Stop Me Now official audio",
+            "Don’t Stop Me Now", 210000,
+        )
+        assert len(candidates) == 1
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_accents_are_folded(self, mock_config, mock_ydl_class):
+        mock_config.return_value = _SEARCH_CFG
+        mock_ydl_class.side_effect = _search_ydl([{
+            "title": "Beyonce - Deja Vu",
+            "url": "https://www.youtube.com/watch?v=fffffffffff",
+            "duration": 240,
+            "channel": "Beyonce",
+        }])
+        candidates = search_youtube_candidates(
+            "Beyoncé Déjà Vu official audio",
+            "Déjà Vu", 240000,
+        )
+        assert len(candidates) == 1
+
+    def test_title_similarity_folds_both_sides(self):
+        assert _title_similarity(
+            "Queen - Don't Stop Me Now", "Don’t Stop Me Now", "Queen",
+        ) == 1.0
+        assert _title_similarity(
+            "Beyonce - Deja Vu", "Déjà Vu", "Beyoncé",
+        ) == 1.0
+
+    def test_normalize_yt_title_folds(self):
+        assert downloader._normalize_yt_title(
+            "“Déjà Vu”"
+        ) == '"deja vu"'
+
+    def test_channel_matching_folds_accents(self):
+        assert _is_official_channel("Beyonce", "Beyoncé")
+        assert downloader._is_topic_channel("Bjork - Topic", "Björk")
+        assert not _is_official_channel("Some Channel", "")
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_accented_artist_is_not_an_explicit_mismatch(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = _SEARCH_CFG
+        mock_ydl_class.side_effect = _search_ydl([{
+            "title": "Deja Vu",
+            "url": "https://music.youtube.com/watch?v=hhhhhhhhhhh",
+            "duration": 240,
+            "channel": "Beyonce",
+            "artists": [{"name": "Beyonce"}],
+        }])
+        candidates = search_youtube_candidates(
+            "Beyoncé Déjà Vu official audio",
+            "Déjà Vu", 240000,
+        )
+        assert len(candidates) == 1
+        assert candidates[0]["score"] > 0.6
+
+
+class TestMissingEntryFields:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_none_duration_candidate_downloads(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {"yt_player_client": "android"}
+        candidate = {"url": "u", "title": "t", "duration": None, "score": 0.9}
+        result = download_youtube_candidate(candidate, "/tmp/output")
+        assert result["success"] is True
+        assert result["duration_seconds"] == 0
+        assert mock_ydl_class.return_value.__enter__.return_value \
+            .download.call_count == 1
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_none_title_does_not_discard_the_page(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = _SEARCH_CFG
+        mock_ydl_class.side_effect = _search_ydl([
+            None,
+            {
+                "title": None,
+                "url": "https://www.youtube.com/watch?v=bbbbbbbbbbb",
+                "duration": 200,
+            },
+            {
+                "title": "Artist - Song",
+                "url": "https://www.youtube.com/watch?v=ccccccccccc",
+                "duration": None,
+                "channel": "Artist - Topic",
+            },
+        ])
+        candidates = search_youtube_candidates(
+            "Artist Song official audio", "Song", 200000,
+        )
+        assert len(candidates) == 1
+        assert candidates[0]["duration"] == 0
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_none_search_result_is_not_an_error(
+        self, mock_config, mock_ydl_class, caplog,
+    ):
+        mock_config.return_value = _SEARCH_CFG
+        mock_ydl_class.side_effect = _search_ydl(None)
+        with caplog.at_level("ERROR", logger="downloader"):
+            assert search_youtube_candidates("Artist Song", "Song") == []
+        assert not [r for r in caplog.records if r.levelname == "ERROR"]
+
+    @patch("downloader.download_youtube_candidate")
+    @patch("downloader.search_youtube_candidates")
+    def test_download_track_logs_none_duration(self, mock_search, mock_dl):
+        mock_search.return_value = [
+            {"url": "u", "title": "t", "duration": None, "score": 0.9},
+        ]
+        mock_dl.return_value = {"success": True}
+        assert download_track_youtube("q", "/tmp/o", "t")["success"] is True
+
+
+class TestBannedUrlForms:
+    @pytest.mark.parametrize("banned", [
+        "https://www.youtube.com/watch?v=aaaaaaaaaaa",
+        "https://youtu.be/aaaaaaaaaaa",
+        "https://music.youtube.com/watch?v=aaaaaaaaaaa&list=x",
+        "aaaaaaaaaaa",
+    ])
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_ban_matches_any_url_form(
+        self, mock_config, mock_ydl_class, banned,
+    ):
+        mock_config.return_value = _SEARCH_CFG
+        mock_ydl_class.side_effect = _search_ydl([{
+            "title": "Artist - Song",
+            "url": "https://music.youtube.com/watch?v=aaaaaaaaaaa",
+            "duration": 200,
+            "channel": "Artist - Topic",
+        }])
+        candidates = search_youtube_candidates(
+            "Artist Song official audio", "Song", 200000,
+            banned_urls={banned},
+        )
+        assert candidates == []
+
+
+class TestShortTracks:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_track_shorter_than_15s_can_match(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = _SEARCH_CFG
+        mock_ydl_class.side_effect = _search_ydl([{
+            "title": "Artist - Intro",
+            "url": "https://www.youtube.com/watch?v=ddddddddddd",
+            "duration": 8,
+            "channel": "Artist - Topic",
+        }])
+        candidates = search_youtube_candidates(
+            "Artist Intro official audio", "Intro", 8000,
+        )
+        assert len(candidates) == 1
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_short_video_rejected_when_duration_unknown(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = _SEARCH_CFG
+        mock_ydl_class.side_effect = _search_ydl([{
+            "title": "Artist - Intro",
+            "url": "https://www.youtube.com/watch?v=ddddddddddd",
+            "duration": 8,
+            "channel": "Artist - Topic",
+        }])
+        assert search_youtube_candidates(
+            "Artist Intro official audio", "Intro",
+        ) == []
+
+
+class TestRawAudioGlobEscaping:
+    @patch("downloader.yt_dlp.YoutubeDL")
+    def test_leftovers_removed_in_bracketed_dir(
+        self, mock_ydl_class, tmp_path,
+    ):
+        import os
+        album = tmp_path / "Album [Deluxe]"
+        album.mkdir()
+        out = str(album / "01 - Song")
+        with open(out + ".m4a.part", "w") as fh:
+            fh.write("stale")
+        result = downloader._download_raw_audio(
+            {"url": "u"}, out, "m4a", False,
+            {"yt_player_client": "android"},
+        )
+        assert result is None
+        assert os.listdir(album) == []
+
+
+def test_encoder_quality_args_follow_yt_dlp_mapping():
+    from downloader import _encoder_quality_args
+    assert _encoder_quality_args("libmp3lame", "320") == ["-b:a", "320k"]
+    assert _encoder_quality_args("libopus", "320") == ["-b:a", "256k"]
+    assert _encoder_quality_args("libmp3lame", "0") == ["-q:a", "0.0"]
+    assert _encoder_quality_args("libopus", "5") == []
+    assert _encoder_quality_args("aac", "best") == []
+
+
+_COOKIE_ROW = (
+    ".youtube.com\tTRUE\t/\tTRUE\t1999999999\tLOGIN_INFO\tabc\n"
+)
+
+
+class TestCookiesFile:
+    def test_headered_export_is_valid(self):
+        info = downloader.inspect_cookies_text(
+            "# Netscape HTTP Cookie File\n" + _COOKIE_ROW
+        )
+        assert info == {
+            "valid": True, "entries": 1, "header": True, "reason": "",
+        }
+
+    def test_headerless_export_is_valid_but_flagged(self):
+        info = downloader.inspect_cookies_text(_COOKIE_ROW)
+        assert info["valid"] is True
+        assert info["header"] is False
+
+    def test_httponly_rows_count(self):
+        info = downloader.inspect_cookies_text("#HttpOnly_" + _COOKIE_ROW)
+        assert info["entries"] == 1
+
+    def test_json_export_is_rejected(self):
+        info = downloader.inspect_cookies_text('[{"name": "SID"}]')
+        assert info["valid"] is False
+        assert "JSON" in info["reason"]
+
+    def test_garbage_is_rejected(self):
+        info = downloader.inspect_cookies_text("hello world\nnot cookies\n")
+        assert info["valid"] is False
+
+    def test_empty_is_rejected(self):
+        assert downloader.inspect_cookies_text("")["valid"] is False
+
+    def test_snapshot_adds_header_and_leaves_original_alone(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.setattr(downloader.tempfile, "gettempdir", lambda: str(tmp_path))
+        source = tmp_path / "cookies.txt"
+        source.write_text(_COOKIE_ROW)
+        snapshot = downloader.cookiefile_for_ytdlp(str(source))
+        assert snapshot and snapshot != str(source)
+        assert source.read_text() == _COOKIE_ROW
+        from yt_dlp.cookies import YoutubeDLCookieJar
+        jar = YoutubeDLCookieJar(snapshot)
+        jar.load(ignore_discard=True, ignore_expires=True)
+        assert {c.name for c in jar} == {"LOGIN_INFO"}
+
+    def test_snapshot_is_private_to_each_thread(self, tmp_path, monkeypatch):
+        import threading
+        monkeypatch.setattr(downloader.tempfile, "gettempdir", lambda: str(tmp_path))
+        source = tmp_path / "cookies.txt"
+        source.write_text("# Netscape HTTP Cookie File\n" + _COOKIE_ROW)
+        paths = []
+        workers = [
+            threading.Thread(
+                target=lambda: paths.append(
+                    downloader.cookiefile_for_ytdlp(str(source))
+                ),
+            )
+            for _ in range(2)
+        ]
+        main_path = downloader.cookiefile_for_ytdlp(str(source))
+        for w in workers:
+            w.start()
+            w.join()
+        assert main_path not in paths
+
+    def test_invalid_file_is_skipped_and_warned_once(
+        self, tmp_path, monkeypatch, caplog,
+    ):
+        monkeypatch.setattr(downloader.tempfile, "gettempdir", lambda: str(tmp_path))
+        monkeypatch.setattr(downloader, "_cookies_warned", set())
+        source = tmp_path / "cookies.txt"
+        source.write_text("not a cookies file\n")
+        with caplog.at_level("WARNING", logger="downloader"):
+            assert downloader.cookiefile_for_ytdlp(str(source)) is None
+            assert downloader.cookiefile_for_ytdlp(str(source)) is None
+        warnings = [
+            r for r in caplog.records if "Ignoring YouTube cookies" in r.message
+        ]
+        assert len(warnings) == 1
+
+    def test_common_opts_never_hand_ytdlp_the_original(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.setattr(downloader.tempfile, "gettempdir", lambda: str(tmp_path))
+        source = tmp_path / "cookies.txt"
+        source.write_text("# Netscape HTTP Cookie File\n" + _COOKIE_ROW)
+        monkeypatch.setattr(
+            downloader, "load_config",
+            lambda: {"yt_cookies_file": str(source)},
+        )
+        opts = _build_common_opts()
+        assert opts["cookiefile"] != str(source)
+        assert os.path.exists(opts["cookiefile"])
+
+
+class TestUnavailableVideos:
+    _AGE = (
+        "ERROR: [youtube] F9EIBnTVckM: Sign in to confirm your age. This"
+        " video may be inappropriate for some users."
+    )
+
+    def _candidate(self):
+        return {"url": "u", "title": "All Night Long", "duration": 200, "score": 1.0}
+
+    def test_classify(self):
+        classify = downloader._classify_unavailable
+        assert classify(self._AGE.lower()) == "age"
+        assert classify("error: private video. sign in") == "gone"
+        assert classify("video unavailable. this video is not available") == "unavailable"
+        assert classify("video unavailable. this content isn't available, try again later") is None
+        assert classify("requested format is not available") is None
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_age_gate_without_cookies_stops_after_one_attempt(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(self._AGE)
+        result = download_youtube_candidate(self._candidate(), "/tmp/output")
+        assert result["success"] is False
+        assert result["unavailable"] is True
+        assert "cookies" in result["error_message"]
+        assert mock_ydl.download.call_count == 1
+
+    @patch("downloader.cookiefile_for_ytdlp", return_value="/tmp/c.txt")
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_age_gate_with_cookies_tries_each_client_once(
+        self, mock_config, mock_ydl_class, _cookies,
+    ):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception(self._AGE)
+        clients = downloader._client_fallback_chain(
+            mock_config.return_value, False,
+        ) + [None]
+        result = download_youtube_candidate(self._candidate(), "/tmp/output")
+        assert result["unavailable"] is True
+        assert "not signed in" in result["error_message"]
+        assert mock_ydl.download.call_count == len(clients)
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_private_video_stops_immediately(self, mock_config, mock_ydl_class):
+        mock_config.return_value = {"yt_player_client": "android"}
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.download.side_effect = Exception("ERROR: [youtube] x: Private video")
+        result = download_youtube_candidate(self._candidate(), "/tmp/output")
+        assert result["unavailable"] is True
+        assert mock_ydl.download.call_count == 1
+
+    def test_age_gate_errors_from_ytdlp_are_not_warnings(self, caplog):
+        with caplog.at_level("DEBUG", logger="downloader"):
+            downloader._SILENT_YDL_LOGGER.error(self._AGE)
+        assert all(r.levelname == "DEBUG" for r in caplog.records)
+
+
+def _search_entry(title, channel, duration=150, url=None):
+    return {
+        "title": title,
+        "url": url or f"https://www.youtube.com/watch?v={(title + 'x' * 11)[:11].replace(' ', '_')}",
+        "duration": duration,
+        "channel": channel,
+        "view_count": 1000,
+    }
+
+
+class TestGenericAndBracketedTitles:
+    _CFG = {
+        "forbidden_words": [],
+        "duration_tolerance": 15,
+        "yt_player_client": "android",
+    }
+
+    def test_generic_title_detection(self):
+        generic = downloader._is_generic_title
+        assert generic("[untitled]")
+        assert generic("Intro")
+        assert generic("Interlude II")
+        assert generic("Skit 3")
+        assert not generic("Into the Night")
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_bracketed_title_matches_unbracketed_upload(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = dict(self._CFG)
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [_search_entry("Untitled", "Mac DeMarco - Topic", 163)],
+        }
+        candidates = search_youtube_candidates(
+            "Mac DeMarco [untitled] official audio", "[untitled]",
+            expected_duration_ms=163000,
+        )
+        assert [c["title"] for c in candidates] == ["Untitled"]
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_generic_title_needs_artist_evidence(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = dict(self._CFG)
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                _search_entry(
+                    "Epic Dj intro - Tomorrowland style by Micro Jingles",
+                    "Micro Jingles", 67,
+                ),
+                _search_entry("Intro - Album 2023", "Some Uploader", 67),
+            ],
+        }
+        candidates = search_youtube_candidates(
+            "Gigi D'Alessio Intro official audio", "Intro",
+            expected_duration_ms=67000,
+        )
+        assert candidates == []
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_generic_title_from_artist_channel_is_kept(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = dict(self._CFG)
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {
+            "entries": [
+                _search_entry("SUNDRENCHED: EAGLES [OUTRO]", "Someone", 53),
+                _search_entry("Outro", "Gigi D'Alessio - Topic", 53),
+            ],
+        }
+        candidates = search_youtube_candidates(
+            "Gigi D'Alessio Outro official audio", "Outro",
+            expected_duration_ms=53000,
+        )
+        assert [c["title"] for c in candidates] == ["Outro"]
+
+    @patch("downloader.yt_dlp.YoutubeDL")
+    @patch("downloader.load_config")
+    def test_fallback_phase_reuses_phase_one_results(
+        self, mock_config, mock_ydl_class,
+    ):
+        mock_config.return_value = dict(self._CFG)
+        mock_ydl = mock_ydl_class.return_value.__enter__.return_value
+        mock_ydl.extract_info.return_value = {"entries": []}
+        search_youtube_candidates(
+            "Artist Song official audio", "Song", expected_duration_ms=200000,
+        )
+        targets = [c.args[0] for c in mock_ydl.extract_info.call_args_list]
+        assert targets
+        assert len(targets) == len(set(targets))
+
+
+class TestAlbumTrackMatching:
+    def _entries(self, *items):
+        return [
+            {"url": f"https://music.youtube.com/watch?v={i:011d}",
+             "title": title, "duration": duration}
+            for i, (title, duration) in enumerate(items)
+        ]
+
+    def test_bracketed_title_matches(self):
+        entries = self._entries(("Untitled", 163))
+        cand = match_album_track(entries, "[untitled]", 163000)
+        assert cand and cand["title"] == "Untitled"
+
+    def test_duration_breaks_title_ties(self):
+        entries = self._entries(("Intro", 40), ("Intro", 67))
+        cand = match_album_track(entries, "Intro", 67000)
+        assert cand["duration"] == 67
+
+    def test_positional_fallback_when_titles_differ(self):
+        entries = self._entries(("One", 163), ("Two", 468), ("Three", 132))
+        cand = match_album_track(
+            entries, "[untitled]", 468500, position=2, total_tracks=3,
+        )
+        assert cand["title"] == "Two"
+        assert cand["matched_by"] == "position"
+
+    def test_positional_fallback_needs_same_track_count(self):
+        entries = self._entries(("One", 163), ("Two", 468))
+        assert match_album_track(
+            entries, "[untitled]", 468000, position=2, total_tracks=3,
+        ) is None
+
+    def test_positional_fallback_needs_matching_duration(self):
+        entries = self._entries(("One", 163), ("Two", 300))
+        assert match_album_track(
+            entries, "[untitled]", 468000, position=2, total_tracks=2,
+        ) is None
+
+    def test_title_match_is_marked(self):
+        entries = self._entries(("Song", 200))
+        assert match_album_track(entries, "Song", 200000)["matched_by"] == "title"
+
+
+class TestAlbumFromYtmusicHint:
+    def test_builds_entries_from_the_hinted_album(self, monkeypatch):
+        import downloader
+
+        class FakeYT:
+            def get_album(self, browse_id):
+                assert browse_id == "MPREb_abcdef"
+                return {
+                    "audioPlaylistId": "OLAK5uy_hinted123",
+                    "tracks": [
+                        {"videoId": "aaaaaaaaaaa", "title": "One ",
+                         "artists": [{"name": "Band"}], "duration": "3:01",
+                         "duration_seconds": 181},
+                        {"videoId": None, "title": "Unavailable"},
+                        {"videoId": "bbbbbbbbbbb", "title": "Two",
+                         "artists": [], "duration": "1:02:03"},
+                    ],
+                }
+
+        monkeypatch.setattr(downloader, "_ytmusicapi_client", lambda *a, **k: FakeYT())
+        result = downloader.album_from_ytmusic_hint(
+            "OLAK5uy_hinted123", "MPREb_abcdef", "Band",
+        )
+        assert result["playlist_url"].endswith("list=OLAK5uy_hinted123")
+        assert [e["title"] for e in result["entries"]] == ["One", "Two"]
+        assert [e["duration"] for e in result["entries"]] == [181, 3723]
+        assert result["entries"][1]["channel"] == "Band"
+
+    def test_falls_back_to_playlist_extraction(self, monkeypatch):
+        import downloader
+        monkeypatch.setattr(downloader, "_ytmusicapi_client", lambda *a, **k: None)
+        monkeypatch.setattr(downloader, "load_config", lambda: {})
+        monkeypatch.setattr(
+            downloader, "_extract_ytm_album_entries",
+            lambda url, pc: [{"url": "u", "title": "T", "duration": 5, "channel": "c"}],
+        )
+        result = downloader.album_from_ytmusic_hint("OLAK5uy_hinted123", "MPREb_abcdef")
+        assert result["playlist_id"] == "OLAK5uy_hinted123"
+        assert len(result["entries"]) == 1
+
+    def test_mismatched_album_details_are_ignored(self, monkeypatch):
+        import downloader
+
+        class FakeYT:
+            def get_album(self, browse_id):
+                return {"audioPlaylistId": "OLAK5uy_other99999",
+                        "tracks": [{"videoId": "aaaaaaaaaaa", "title": "X"}]}
+
+        monkeypatch.setattr(downloader, "_ytmusicapi_client", lambda *a, **k: FakeYT())
+        monkeypatch.setattr(downloader, "load_config", lambda: {})
+        monkeypatch.setattr(downloader, "_extract_ytm_album_entries", lambda u, p: [])
+        assert downloader.album_from_ytmusic_hint(
+            "OLAK5uy_hinted123", "MPREb_abcdef",
+        ) is None
+
+    def test_rejects_invalid_ids(self, monkeypatch):
+        import downloader
+        monkeypatch.setattr(
+            downloader, "_ytmusicapi_client",
+            lambda *a, **k: (_ for _ in ()).throw(AssertionError("no call")),
+        )
+        assert downloader.album_from_ytmusic_hint("../etc", "MPREb_x") is None
+        assert downloader.album_from_ytmusic_hint("", "") is None
+
+
+class TestPickAlbumIsStrict:
+    """The picked album's tracks count as official (an AcoustID mismatch is
+    accepted), so a live or unrelated album must not pass for the studio one."""
+
+    @staticmethod
+    def _pick(lidarr_title, *yt_titles):
+        results = [
+            {"resultType": "album", "title": t, "artist": "Nirvana", "browseId": t}
+            for t in yt_titles
+        ]
+        chosen = downloader._ytmusicapi_pick_album(results, "Nirvana", lidarr_title)
+        return chosen and chosen["title"]
+
+    def test_live_album_is_not_the_studio_album(self):
+        assert self._pick("Nevermind", "Nevermind (Live)") is None
+
+    def test_a_word_inside_another_word_is_not_a_match(self):
+        assert self._pick("Live", "Alive 2007") is None
+
+    def test_edition_suffix_still_matches(self):
+        title = "Nevermind (30th Anniversary Super Deluxe Edition)"
+        assert self._pick("Nevermind", title) == title
+        assert self._pick(title, "Nevermind") == "Nevermind"
+
+    def test_exact_title_beats_an_edition(self):
+        assert self._pick("Nevermind", "Nevermind (Deluxe Edition)", "Nevermind") == "Nevermind"

@@ -1,6 +1,7 @@
 """Tests for Flask route handlers in app.py."""
 
 import json
+import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -103,6 +104,36 @@ class TestHistoryRoutes:
         assert data["total"] == 5
         assert len(data["items"]) == 2
         assert data["pages"] == 3
+
+    def test_get_history_outcome_and_search(self, client):
+        import models
+
+        _add_track(models, album_id=1, album_title="Good One")
+        _add_track(models, album_id=2, album_title="Bad One",
+                   success=False)
+        _add_track(models, album_id=3, album_title="Bad Two",
+                   success=False)
+        data = client.get(
+            "/api/download/history?outcome=error&q=%20one%20"
+        ).get_json()
+        assert [i["album_id"] for i in data["items"]] == [2]
+        assert data["counts"] == {
+            "all": 2, "success": 1, "partial": 0, "error": 1,
+        }
+
+    def test_get_history_passes_filters(self, client):
+        with patch("app.models.get_album_history",
+                   return_value={"items": []}) as mock:
+            client.get("/api/download/history?page=2&per_page=5"
+                       "&outcome=partial&q=abc")
+            mock.assert_called_once_with(2, 5, "partial", "abc")
+            mock.reset_mock()
+            client.get("/api/download/history?outcome=&q=")
+            mock.assert_called_once_with(1, 50, None, None)
+
+    def test_get_history_invalid_outcome(self, client):
+        resp = client.get("/api/download/history?outcome=bogus")
+        assert resp.status_code == 400
 
     def test_clear_history(self, client):
         import models
@@ -263,6 +294,68 @@ class TestQueueRoutes:
         assert resp.status_code == 200
         assert resp.get_json() == []
 
+    def test_stream_sends_queue_only_when_it_changes(self, client):
+        import models
+
+        models.enqueue_album(7)
+        with patch("manual_download.lidarr_request", return_value={"error": "x"}), \
+                patch("app.time.sleep"):
+            resp = client.get("/api/download/stream", buffered=False)
+            events = iter(resp.response)
+
+            def next_event():
+                return json.loads(next(events).decode()[len("data: "):])
+
+            first, second = next_event(), next_event()
+            models.enqueue_album(8)
+            third = next_event()
+            resp.close()
+        assert [q["id"] for q in first["queue"]] == [7]
+        assert "queue" not in second and "status" in second
+        assert [q["id"] for q in third["queue"]] == [7, 8]
+
+    def test_queue_reads_cache_and_lists_unknown_albums(self, client):
+        """Issue #95: a big queue renders from the local cache, and an
+        album Lidarr can't resolve is shown, not hidden."""
+        import manual_download
+        import models
+
+        models.upsert_missing_albums_batch([{
+            "id": 7, "title": "Cached", "artist": {"artistName": "Art"},
+            "images": [{"coverType": "cover", "remoteUrl": "http://c"}],
+            "statistics": {"trackCount": 9},
+        }], run_id=1)
+        models.enqueue_album(7)
+        models.enqueue_album(8)
+        manual_download.album_cache.pop(8, None)
+        with patch(
+            "manual_download.lidarr_request", return_value={"error": "not found"},
+        ) as lidarr:
+            data = client.get("/api/download/queue").get_json()
+        assert data == [
+            {"id": 7, "title": "Cached", "artist": "Art",
+             "cover": "http://c", "track_count": 9},
+            {"id": 8, "title": "Album #8", "artist": "",
+             "cover": "", "track_count": 0},
+        ]
+        # Only the uncached album asked Lidarr.
+        assert [c.args[0] for c in lidarr.call_args_list] == ["album/8"]
+
+    def test_queue_caps_lidarr_lookups(self, client):
+        import app as app_module
+        import manual_download
+        import models
+
+        for aid in range(100, 100 + app_module.QUEUE_LIDARR_LOOKUPS + 5):
+            models.enqueue_album(aid)
+            manual_download.album_cache.pop(aid, None)
+        with patch(
+            "manual_download.lidarr_request", return_value={"error": "down"},
+        ) as lidarr:
+            data = client.get("/api/download/queue").get_json()
+        assert len(data) == app_module.QUEUE_LIDARR_LOOKUPS + 5
+        assert lidarr.call_count == app_module.QUEUE_LIDARR_LOOKUPS
+
     def test_add_to_queue(self, client):
         resp = client.post(
             "/api/download/queue",
@@ -303,6 +396,20 @@ class TestQueueRoutes:
         resp = client.post("/api/download/queue/clear")
         assert resp.status_code == 200
         assert models.get_queue_length() == 0
+
+    def test_clear_queue_keeps_downloading_album(self, client):
+        import models
+
+        models.enqueue_album(1)
+        models.enqueue_album(2)
+        models.set_queue_status(1, models.QUEUE_STATUS_DOWNLOADING)
+        with patch("download_client.cancel_queued") as cancel:
+            resp = client.post("/api/download/queue/clear")
+        assert resp.status_code == 200
+        queue = models.get_queue()
+        assert [r["album_id"] for r in queue] == [1]
+        assert queue[0]["status"] == models.QUEUE_STATUS_DOWNLOADING
+        cancel.assert_called_once_with(2)
 
     def test_bulk_add_to_queue(self, client):
         resp = client.post(
@@ -421,6 +528,35 @@ class TestConfigRoutes:
         assert data["skipped"] == 1
 
 
+class TestConfigReschedules:
+    @pytest.fixture(autouse=True)
+    def _clean_schedule(self, monkeypatch):
+        import schedule
+        monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+        schedule.clear()
+        yield
+        schedule.clear()
+
+    @staticmethod
+    def _job():
+        import schedule
+        jobs = schedule.get_jobs()
+        assert len(jobs) == 1
+        assert jobs[0].unit == "minutes"
+        return jobs[0]
+
+    @pytest.mark.parametrize("url", ["/api/config", "/api/config/import"])
+    def test_interval_change_applies_without_restart(self, client, url):
+        resp = client.post(
+            url, json={"scheduler_enabled": True, "scheduler_interval": 15}
+        )
+        assert resp.status_code == 200
+        assert self._job().interval == 15
+        resp = client.post(url, json={"scheduler_interval": 30})
+        assert resp.status_code == 200
+        assert self._job().interval == 30
+
+
 class TestTemplateRoutes:
     def test_index(self, client):
         resp = client.get("/")
@@ -471,6 +607,19 @@ class TestInsightsRoute:
         assert data["totals"]["successful"] == 1
         assert data["totals"]["success_rate"] == 50.0
         assert data["top_artists"][0]["artist"] == "Artist X"
+
+    def test_insights_stuck_tracks(self, client):
+        import models
+
+        assert client.get("/api/insights").get_json()["stuck_tracks"] == []
+        for _ in range(3):
+            _add_track(models, album_id=4, track_title="Lost",
+                       success=False, error_message="No match")
+        rows = client.get("/api/insights").get_json()["stuck_tracks"]
+        assert len(rows) == 1
+        assert rows[0]["track_title"] == "Lost"
+        assert rows[0]["failures"] == 3
+        assert rows[0]["retry_at"] > rows[0]["last_failure"]
 
     def test_insights_days_clamped(self, client):
         assert len(client.get("/api/insights?days=0")
@@ -592,6 +741,50 @@ class TestQueueTracksRoute:
         assert data[0]["has_file"] is False
         assert data[1]["has_file"] is True
 
+    @patch("app._compute_deferred_tracks")
+    @patch("app.lidarr_request")
+    def test_reports_each_missing_tracks_retry_schedule(
+        self, mock_lidarr, mock_deferred, client
+    ):
+        mock_lidarr.return_value = [
+            {"title": "Backing off", "trackNumber": 1, "hasFile": False},
+            {"title": "Given up", "trackNumber": 2, "hasFile": False},
+            {"title": "Never tried", "trackNumber": 3, "hasFile": False},
+            {"title": "Have it", "trackNumber": 4, "hasFile": True},
+        ]
+        mock_deferred.return_value = {
+            "Backing off": {"failures": 2, "retry_at": 1234.5},
+            "Given up": {"failures": 5, "retry_at": None},
+        }
+        data = client.get("/api/download/queue/123/tracks").get_json()
+        assert mock_deferred.call_args[0][0] == 123
+        assert (data[0]["failures"], data[0]["retry_at"], data[0]["given_up"]) == (2, 1234.5, False)
+        assert (data[1]["failures"], data[1]["retry_at"], data[1]["given_up"]) == (5, None, True)
+        assert (data[2]["failures"], data[2]["retry_at"], data[2]["given_up"]) == (0, None, False)
+        assert "given_up" not in data[3]
+
+    @patch("app._compute_deferred_tracks", side_effect=RuntimeError("db"))
+    @patch("app.lidarr_request")
+    def test_retry_schedule_failure_still_lists_tracks(
+        self, mock_lidarr, _mock_deferred, client
+    ):
+        mock_lidarr.return_value = [{"title": "T", "trackNumber": 1, "hasFile": False}]
+        data = client.get("/api/download/queue/123/tracks").get_json()
+        assert data[0]["title"] == "T"
+        assert data[0]["given_up"] is False
+
+    @patch("app.lidarr_request")
+    def test_multi_disc_numbers_match_the_downloaded_files(self, mock_lidarr, client):
+        # A manual download names its file from this number; disc 2 track 1
+        # must not become "01 - …" next to disc 1 track 1.
+        mock_lidarr.return_value = [
+            {"title": "Intro", "trackNumber": "1", "absoluteTrackNumber": 1, "mediumNumber": 1},
+            {"title": "Song", "trackNumber": "2", "absoluteTrackNumber": 2, "mediumNumber": 1},
+            {"title": "Intro", "trackNumber": "1", "absoluteTrackNumber": 3, "mediumNumber": 2},
+        ]
+        data = client.get("/api/download/queue/123/tracks").get_json()
+        assert [t["track_number"] for t in data] == [1, 2, 3]
+
     @patch("app.lidarr_request")
     @patch("app.get_itunes_tracks")
     def test_falls_back_to_itunes(self, mock_itunes, mock_lidarr, client):
@@ -599,7 +792,7 @@ class TestQueueTracksRoute:
         mock_itunes.return_value = [
             {"title": "iTunes Track", "trackNumber": 1},
         ]
-        from app import album_cache
+        from manual_download import album_cache
         import time as time_mod
         album_cache[123] = (
             {"title": "Album", "artist": {"artistName": "Artist"}},
@@ -614,9 +807,10 @@ class TestQueueTracksRoute:
         finally:
             album_cache.pop(123, None)
 
+    @patch("manual_download.lidarr_request")
     @patch("app.lidarr_request")
-    def test_empty_when_no_tracks(self, mock_lidarr, client):
-        mock_lidarr.side_effect = lambda path, **kw: (
+    def test_empty_when_no_tracks(self, mock_lidarr, mock_album_lidarr, client):
+        mock_lidarr.side_effect = mock_album_lidarr.side_effect = lambda path, **kw: (
             {"error": "not found"} if "album/" in path else []
         )
         resp = client.get("/api/download/queue/999/tracks")
@@ -628,10 +822,14 @@ class TestQueueTracksRoute:
 class TestQueueTrackCount:
     """Queue endpoint includes track_count."""
 
-    @patch("app.lidarr_request")
-    @patch("app.models.get_queue")
+    @patch("manual_download.lidarr_request")
+    @patch("app.models.get_queue_details")
     def test_queue_includes_track_count(self, mock_queue, mock_lidarr, client):
-        mock_queue.return_value = [{"album_id": 123}]
+        # Not in missing_albums_cache, so the details come from Lidarr.
+        mock_queue.return_value = [{
+            "album_id": 123, "title": "", "artist_name": "",
+            "cover_url": "", "track_count": 0,
+        }]
         mock_lidarr.side_effect = lambda path, **kw: (
             {"title": "Album", "artist": {"artistName": "Art"},
              "images": [{"coverType": "cover", "remoteUrl": "http://img"}],
@@ -673,6 +871,23 @@ class TestMiscRoutes:
             resp = client.get("/api/missing-albums")
             assert resp.status_code == 200
             assert resp.get_json() == []
+
+    def test_missing_albums_sends_slim_rows(self, client):
+        import models
+
+        models.upsert_missing_album({
+            "id": 5, "title": "Slim", "releaseDate": "2020-01-01",
+            "artist": {"id": 2, "artistName": "Art", "overview": "x" * 500},
+            "statistics": {"trackCount": 4, "trackFileCount": 1},
+            "images": [{"coverType": "cover", "remoteUrl": "http://c"}],
+            "releases": [{"id": 1, "media": []}],
+        }, run_id=1)
+        data = client.get("/api/missing-albums").get_json()
+        assert len(data) == 1
+        assert data[0]["missingTrackCount"] == 3
+        assert data[0]["artist"]["artistName"] == "Art"
+        assert "releases" not in data[0]
+        assert "overview" not in data[0]["artist"]
 
     def test_ytdlp_version(self, client):
         with patch("app.get_ytdlp_version", return_value="2024.01.01"):
@@ -747,6 +962,28 @@ class TestDeleteTrackRoute:
         assert resp.status_code == 200
         assert not mp3_path.exists()
         assert not xml_path.exists()
+
+    def test_delete_track_removes_library_copy_and_lrc(self, client, tmp_path):
+        import models
+        library = tmp_path / "library"
+        library.mkdir()
+        mp3_path = library / "01 - Song.mp3"
+        lrc_path = library / "01 - Song.lrc"
+        mp3_path.write_text("fake mp3")
+        lrc_path.write_text("[00:01.00] la")
+        _add_track(
+            models, album_id=1, track_title="Song", track_number=1,
+            album_path=str(tmp_path / "gone"),
+            lidarr_album_path=str(library),
+        )
+        tracks = models.get_track_downloads_for_album(1)
+        resp = client.delete(
+            f"/api/download/track/{tracks[0]['id']}",
+            json={"ban_url": False},
+        )
+        assert resp.get_json()["file_deleted"] is True
+        assert not mp3_path.exists()
+        assert not lrc_path.exists()
 
     def test_delete_track_file_missing(self, client):
         import models
@@ -902,7 +1139,7 @@ class TestManualTrackDownload:
 
     @pytest.fixture(autouse=True)
     def _bypass_rate_limit(self):
-        with patch("app.check_rate_limit", return_value=True):
+        with patch("manual_download.check_rate_limit", return_value=True):
             yield
 
     def test_missing_fields_returns_400(self, client):
@@ -932,7 +1169,7 @@ class TestManualTrackDownload:
         assert resp.status_code == 400
         assert "Invalid YouTube URL" in resp.get_json()["message"]
 
-    @patch("app._get_album_cached")
+    @patch("manual_download._get_album_cached")
     def test_album_not_found_returns_500(self, mock_album, client):
         mock_album.return_value = {"error": "not found"}
         resp = client.post(
@@ -946,19 +1183,19 @@ class TestManualTrackDownload:
         assert resp.status_code == 500
         assert "Failed to fetch album" in resp.get_json()["message"]
 
-    @patch("app.fingerprint_track")
-    @patch("app.lidarr_request")
-    @patch("app._get_album_cached")
-    @patch("app.set_permissions")
-    @patch("app.tag_audio_file")
+    @patch("manual_download.fingerprint_track")
+    @patch("manual_download.lidarr_request")
+    @patch("manual_download._get_album_cached")
+    @patch("manual_download.set_permissions")
+    @patch("manual_download.tag_audio_file")
     def test_successful_download(
         self, mock_tag, mock_perms, mock_album, mock_lidarr,
         mock_fp, client, tmp_path, monkeypatch,
     ):
         dl_path = str(tmp_path / "downloads")
-        monkeypatch.setattr("app.DOWNLOAD_DIR", dl_path)
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", dl_path)
         monkeypatch.setattr("downloader._ffmpeg_postprocess_works", lambda *a, **kw: True)
-        monkeypatch.setattr("app.load_config", lambda: {
+        monkeypatch.setattr("manual_download.load_config", lambda: {
             "acoustid_enabled": True,
             "acoustid_api_key": "test-key",
             "xml_metadata_enabled": False,
@@ -1029,9 +1266,9 @@ class TestManualTrackDownload:
 
         mock_tag.assert_called_once()
 
-    @patch("app._get_album_cached")
+    @patch("manual_download._get_album_cached")
     def test_no_download_path_returns_400(self, mock_album, client, monkeypatch):
-        monkeypatch.setattr("app.DOWNLOAD_DIR", "")
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", "")
         mock_album.return_value = {
             "title": "Album",
             "releaseDate": "2024-01-01",
@@ -1052,7 +1289,7 @@ class TestManualTrackDownload:
 
     def test_rate_limiting(self, client):
         """Verify rate limiting works (bypass fixture does NOT apply here)."""
-        with patch("app.check_rate_limit", return_value=False):
+        with patch("manual_download.check_rate_limit", return_value=False):
             resp = client.post(
                 "/api/album/1/track/manual-download",
                 json={
@@ -1063,14 +1300,14 @@ class TestManualTrackDownload:
             )
         assert resp.status_code == 429
 
-    @patch("app._get_album_cached")
-    @patch("app.set_permissions")
-    @patch("app.tag_audio_file")
+    @patch("manual_download._get_album_cached")
+    @patch("manual_download.set_permissions")
+    @patch("manual_download.tag_audio_file")
     def test_ytdlp_exception_sets_failed_status(
         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
     ):
         dl_path = str(tmp_path / "downloads")
-        monkeypatch.setattr("app.DOWNLOAD_DIR", dl_path)
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", dl_path)
         mock_album.return_value = {
             "title": "Album", "releaseDate": "2024-01-01",
             "albumType": "Album", "foreignAlbumId": "m1",
@@ -1105,14 +1342,14 @@ class TestManualTrackDownload:
                     break
                 time.sleep(0.1)
 
-    @patch("app._get_album_cached")
-    @patch("app.set_permissions")
-    @patch("app.tag_audio_file")
+    @patch("manual_download._get_album_cached")
+    @patch("manual_download.set_permissions")
+    @patch("manual_download.tag_audio_file")
     def test_file_not_created_sets_failed_status(
         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
     ):
         dl_path = str(tmp_path / "downloads")
-        monkeypatch.setattr("app.DOWNLOAD_DIR", dl_path)
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", dl_path)
         mock_album.return_value = {
             "title": "Album", "releaseDate": "2024-01-01",
             "albumType": "Album", "foreignAlbumId": "m1",
@@ -1176,6 +1413,23 @@ class TestYoutubeStreamValidation:
     def test_rejects_missing_url(self, client):
         resp = client.get("/api/youtube/stream")
         assert resp.status_code == 400
+        assert resp.content_type.startswith("text/plain")
+
+    def test_extraction_error_is_plain_text_and_not_echoed(self, client):
+        import yt_dlp
+
+        def boom(self_ydl, url, download=True):
+            raise Exception("<script>alert(1)</script>")
+
+        with patch.object(yt_dlp.YoutubeDL, "extract_info", boom):
+            resp = client.get(
+                "/api/youtube/stream",
+                query_string={"url": "https://www.youtube.com/watch?v=xss12345678"},
+            )
+        assert resp.status_code == 500
+        assert resp.content_type.startswith("text/plain")
+        assert resp.headers["X-Content-Type-Options"] == "nosniff"
+        assert b"<script>" not in resp.data
 
 
 class TestSafeStreamUrl:
@@ -1308,13 +1562,13 @@ class TestPathContainment:
         assert ".." not in result
 
     def test_validate_target_path_blocks_escape(self, tmp_path):
-        from app import _validate_target_path
+        from utils import _validate_target_path
 
         config = {"lidarr_path": str(tmp_path / "music")}
         assert not _validate_target_path("/etc/evil", config)
 
     def test_validate_target_path_allows_valid_child(self, tmp_path):
-        from app import _validate_target_path
+        from utils import _validate_target_path
 
         music = tmp_path / "music"
         config = {"lidarr_path": str(music)}
@@ -1323,7 +1577,7 @@ class TestPathContainment:
         )
 
     def test_validate_target_path_allows_exact_base(self, tmp_path):
-        from app import _validate_target_path
+        from utils import _validate_target_path
 
         music = tmp_path / "music"
         config = {"lidarr_path": str(music)}
@@ -1489,10 +1743,10 @@ class TestNotifyManualDownload:
     embed fields."""
 
     def test_sends_with_manual_download_log_type(self):
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1512,10 +1766,10 @@ class TestNotifyManualDownload:
         assert kwargs["embed_data"]["fields"] == []
 
     def test_includes_acoustid_score_when_present(self):
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1535,10 +1789,10 @@ class TestNotifyManualDownload:
         }]
 
     def test_handles_missing_album_and_artist(self):
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title=None,
                 artist_name=None,
@@ -1550,10 +1804,10 @@ class TestNotifyManualDownload:
         assert "Unknown Artist" in message
 
     def test_zero_score_is_omitted(self):
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1565,10 +1819,10 @@ class TestNotifyManualDownload:
 
     def test_invalid_score_is_tolerated(self):
         """A malformed fp_data value must not raise."""
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1581,14 +1835,14 @@ class TestNotifyManualDownload:
 
     def test_notification_exception_is_swallowed(self, caplog):
         """Notification failure must not break the download flow."""
-        import app as app_module
+        import manual_download
 
         with patch(
-            "app.send_notifications",
+            "manual_download.send_notifications",
             side_effect=Exception("boom"),
         ):
             # Should not raise.
-            app_module._notify_manual_download(
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1599,10 +1853,10 @@ class TestNotifyManualDownload:
     def test_uses_unique_icon_in_title(self):
         """Manual download must use the 👤 icon to be visually distinct
         from automated download notifications (⬇️ ✅ ⚠️ ❌ 📥)."""
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1616,11 +1870,11 @@ class TestNotifyManualDownload:
     def test_cover_url_passed_to_telegram_and_discord(self):
         """When cover_url is supplied it must reach both channels:
         Telegram via photo_url, Discord via embed thumbnail."""
-        import app as app_module
+        import manual_download
 
         cover = "https://example.com/cover.jpg"
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1633,10 +1887,10 @@ class TestNotifyManualDownload:
 
     def test_no_cover_url_omits_photo_and_thumbnail(self):
         """Empty cover_url must not set photo_url or thumbnail keys."""
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1651,10 +1905,10 @@ class TestNotifyManualDownload:
         """youtube_url must appear as a clickable link in Telegram (MD2)
         with the video title as the label, and in the Discord embed
         url + a YouTube field."""
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1679,10 +1933,10 @@ class TestNotifyManualDownload:
     def test_youtube_link_falls_back_to_track_title(self):
         """When youtube_title is empty, the track title is used as the
         link label."""
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Fallback",
                 album_title="Album",
                 artist_name="Artist",
@@ -1698,10 +1952,10 @@ class TestNotifyManualDownload:
     def test_no_youtube_url_omits_link(self):
         """Without youtube_url, neither the MD2 body nor the embed get
         a YouTube link/field."""
-        import app as app_module
+        import manual_download
 
-        with patch("app.send_notifications") as mock_send:
-            app_module._notify_manual_download(
+        with patch("manual_download.send_notifications") as mock_send:
+            manual_download._notify_manual_download(
                 track_title="Song",
                 album_title="Album",
                 artist_name="Artist",
@@ -1880,17 +2134,76 @@ def test_cookies_test_no_file(client, monkeypatch):
     assert data["success"] is False
 
 
+_COOKIE_ROW = ".youtube.com\tTRUE\t/\tTRUE\t0\tLOGIN_INFO\tabc\n"
+
+
+def _upload_cookies(client, text):
+    import io
+    return client.post(
+        "/api/cookies/upload",
+        data={"file": (io.BytesIO(text.encode("utf-8")), "cookies.txt")},
+        content_type="multipart/form-data",
+    )
+
+
+def test_cookies_upload_adds_missing_header(client, tmp_path, monkeypatch):
+    target = tmp_path / "cfg" / "cookies.txt"
+    monkeypatch.setattr("app.COOKIES_PATH", str(target))
+    resp = _upload_cookies(client, _COOKIE_ROW)
+    assert resp.status_code == 200
+    assert target.read_text() == _COOKIES_HEADER + _COOKIE_ROW
+    from yt_dlp.cookies import YoutubeDLCookieJar
+    jar = YoutubeDLCookieJar(str(target))
+    jar.load(ignore_discard=True, ignore_expires=True)
+    assert [c.name for c in jar] == ["LOGIN_INFO"]
+
+
+def test_cookies_upload_rejects_json_export(client, tmp_path, monkeypatch):
+    target = tmp_path / "cookies.txt"
+    monkeypatch.setattr("app.COOKIES_PATH", str(target))
+    resp = _upload_cookies(client, '[{"name": "SID", "value": "x"}]')
+    assert resp.status_code == 400
+    assert "JSON" in resp.get_json()["message"]
+    assert not target.exists()
+
+
+def test_cookies_status_reports_unusable_file(client, tmp_path, monkeypatch):
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text("this is not a cookies file\n")
+    monkeypatch.setattr(
+        "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
+    )
+    data = client.get("/api/cookies/status").get_json()
+    assert data["valid"] is False
+    assert data["reason"]
+
+
+def test_cookies_test_never_lets_ytdlp_rewrite_the_export(
+    client, tmp_path, monkeypatch,
+):
+    cookies = tmp_path / "cookies.txt"
+    cookies.write_text(_COOKIES_HEADER + _COOKIE_ROW)
+    monkeypatch.setattr(
+        "app.load_config", lambda: {"yt_cookies_file": str(cookies)}
+    )
+    import yt_dlp
+    ydl = _mock_ydl_with_formats(3)
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", ydl)
+    client.post("/api/cookies/test")
+    assert ydl.call_args.args[0]["cookiefile"] != str(cookies)
+
+
 class TestPlaylistToLibrary:
     def test_scan_triggered_when_enabled(self, monkeypatch):
         # With playlist_to_library on, Lidarr configured and tracks done, a
         # path-based DownloadedAlbumsScan is requested (issue #79).
-        import app as app_module
+        import youtube_import
         calls = []
         monkeypatch.setattr(
-            app_module, "lidarr_request",
+            youtube_import, "lidarr_request",
             lambda *a, **k: calls.append(k.get("data")) or {"id": 1},
         )
-        app_module._maybe_scan_playlist_into_library(
+        youtube_import._maybe_scan_playlist_into_library(
             {"playlist_to_library": True, "lidarr_url": "http://lidarr:8686"},
             "/music/Artist/Album", 3,
         )
@@ -1899,39 +2212,39 @@ class TestPlaylistToLibrary:
         assert calls[0]["path"] == "/music/Artist/Album"
 
     def test_scan_skipped_when_disabled(self, monkeypatch):
-        import app as app_module
+        import youtube_import
         calls = []
         monkeypatch.setattr(
-            app_module, "lidarr_request",
+            youtube_import, "lidarr_request",
             lambda *a, **k: calls.append(1),
         )
-        app_module._maybe_scan_playlist_into_library(
+        youtube_import._maybe_scan_playlist_into_library(
             {"playlist_to_library": False, "lidarr_url": "http://lidarr:8686"},
             "/music/Artist/Album", 3,
         )
         assert calls == []
 
     def test_scan_skipped_when_nothing_downloaded(self, monkeypatch):
-        import app as app_module
+        import youtube_import
         calls = []
         monkeypatch.setattr(
-            app_module, "lidarr_request",
+            youtube_import, "lidarr_request",
             lambda *a, **k: calls.append(1),
         )
-        app_module._maybe_scan_playlist_into_library(
+        youtube_import._maybe_scan_playlist_into_library(
             {"playlist_to_library": True, "lidarr_url": "http://lidarr:8686"},
             "/music/Artist/Album", 0,
         )
         assert calls == []
 
     def test_scan_skipped_without_lidarr_url(self, monkeypatch):
-        import app as app_module
+        import youtube_import
         calls = []
         monkeypatch.setattr(
-            app_module, "lidarr_request",
+            youtube_import, "lidarr_request",
             lambda *a, **k: calls.append(1),
         )
-        app_module._maybe_scan_playlist_into_library(
+        youtube_import._maybe_scan_playlist_into_library(
             {"playlist_to_library": True, "lidarr_url": ""},
             "/music/Artist/Album", 3,
         )
@@ -1966,10 +2279,10 @@ class TestPlaylistRetryContext:
     def test_manual_download_negative_id_no_context(self, client, monkeypatch):
         # A playlist album_id with no stored row returns the context error
         # without ever querying Lidarr for a (non-existent) album.
-        import app as app_module
+        import manual_download
         calls = []
         monkeypatch.setattr(
-            app_module, "lidarr_request",
+            manual_download, "lidarr_request",
             lambda p, *a, **k: calls.append(p) or {"error": "x"},
         )
         resp = client.post("/api/download/manual", json={
@@ -1987,7 +2300,7 @@ class TestPlaylistRetryContext:
         # With stored playlist context, the retry resolves it from the DB
         # row and reaches the download step without a Lidarr album fetch.
         import models
-        import app as app_module
+        import manual_download
         album_dir = tmp_path / "downloads" / "Various" / "My Playlist"
         _add_track(
             models, album_id=-1, album_title="My Playlist",
@@ -1996,15 +2309,15 @@ class TestPlaylistRetryContext:
         )
         calls = []
         monkeypatch.setattr(
-            app_module, "lidarr_request",
+            manual_download, "lidarr_request",
             lambda p, *a, **k: calls.append(p) or {"error": "x"},
         )
         monkeypatch.setattr(
-            app_module, "_validate_target_path", lambda *a, **k: True,
+            manual_download, "_validate_target_path", lambda *a, **k: True,
         )
-        monkeypatch.setattr(app_module, "makedirs_safe", lambda *a, **k: None)
+        monkeypatch.setattr(manual_download, "makedirs_safe", lambda *a, **k: None)
         monkeypatch.setattr(
-            app_module, "download_youtube_candidate",
+            manual_download, "download_youtube_candidate",
             lambda *a, **k: {"success": False, "error_message": "SENTINEL_DL"},
         )
         resp = client.post("/api/download/manual", json={
@@ -2018,7 +2331,7 @@ class TestPlaylistRetryContext:
 
 def test_manual_download_invalid_album_id_400(client, monkeypatch):
     # A non-numeric album_id yields a clean 400, not a 500 (issue #83 review).
-    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    monkeypatch.setattr("manual_download.check_rate_limit", lambda *a, **k: True)
     resp = client.post("/api/download/manual", json={
         "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
         "track_title": "Song", "track_num": 1, "album_id": "abc",
@@ -2034,8 +2347,8 @@ def test_manual_download_negative_id_records_success(
     # the track UNDER THE NEGATIVE ID with success, so it drops out of the
     # failed-retry list.
     import models
-    import app as app_module
-    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    import manual_download
+    monkeypatch.setattr("manual_download.check_rate_limit", lambda *a, **k: True)
     album_dir = tmp_path / "downloads" / "Various" / "My Playlist"
     album_dir.mkdir(parents=True)
     _add_track(
@@ -2044,21 +2357,21 @@ def test_manual_download_negative_id_records_success(
         album_path=str(album_dir),
     )
 
-    ext = app_module.load_config().get("audio_format", "mp3")
+    ext = manual_download.load_config().get("audio_format", "mp3")
 
     def fake_dl(candidate, output_path, **kw):
         with open(output_path + "." + ext, "wb") as f:
             f.write(b"AUDIO")
         return {"success": True, "youtube_title": candidate["title"]}
 
-    monkeypatch.setattr(app_module, "download_youtube_candidate", fake_dl)
-    monkeypatch.setattr(app_module, "_validate_target_path", lambda *a, **k: True)
-    monkeypatch.setattr(app_module, "makedirs_safe", lambda *a, **k: None)
-    monkeypatch.setattr(app_module, "tag_audio_file", lambda *a, **k: None)
-    monkeypatch.setattr(app_module, "create_xml_metadata", lambda *a, **k: None)
-    monkeypatch.setattr(app_module, "set_permissions", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "download_youtube_candidate", fake_dl)
+    monkeypatch.setattr(manual_download, "_validate_target_path", lambda *a, **k: True)
+    monkeypatch.setattr(manual_download, "makedirs_safe", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "tag_audio_file", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "create_xml_metadata", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "set_permissions", lambda *a, **k: None)
     monkeypatch.setattr(
-        app_module, "lidarr_request",
+        manual_download, "lidarr_request",
         lambda *a, **k: pytest.fail("Lidarr must not be called for a playlist"),
     )
 
@@ -2081,8 +2394,8 @@ def test_manual_download_multi_playlist_isolation(
     # Retrying a track of playlist B (-2) must rebuild B's folder/context,
     # not A's (-1).
     import models
-    import app as app_module
-    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    import manual_download
+    monkeypatch.setattr("manual_download.check_rate_limit", lambda *a, **k: True)
     dir_a = tmp_path / "A"
     dir_b = tmp_path / "B"
     dir_a.mkdir()
@@ -2097,7 +2410,7 @@ def test_manual_download_multi_playlist_isolation(
         album_path=str(dir_b),
     )
     seen = {}
-    ext = app_module.load_config().get("audio_format", "mp3")
+    ext = manual_download.load_config().get("audio_format", "mp3")
 
     def fake_dl(candidate, output_path, **kw):
         seen["output_path"] = output_path
@@ -2105,12 +2418,12 @@ def test_manual_download_multi_playlist_isolation(
             f.write(b"AUDIO")
         return {"success": True, "youtube_title": candidate["title"]}
 
-    monkeypatch.setattr(app_module, "download_youtube_candidate", fake_dl)
-    monkeypatch.setattr(app_module, "_validate_target_path", lambda *a, **k: True)
-    monkeypatch.setattr(app_module, "makedirs_safe", lambda *a, **k: None)
-    monkeypatch.setattr(app_module, "tag_audio_file", lambda *a, **k: None)
-    monkeypatch.setattr(app_module, "create_xml_metadata", lambda *a, **k: None)
-    monkeypatch.setattr(app_module, "set_permissions", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "download_youtube_candidate", fake_dl)
+    monkeypatch.setattr(manual_download, "_validate_target_path", lambda *a, **k: True)
+    monkeypatch.setattr(manual_download, "makedirs_safe", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "tag_audio_file", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "create_xml_metadata", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "set_permissions", lambda *a, **k: None)
 
     resp = client.post("/api/download/manual", json={
         "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
@@ -2234,6 +2547,51 @@ def test_pwa_manifest(client):
     assert m["icons"] and m["icons"][0]["src"].endswith(".svg")
 
 
+def test_pwa_manifest_has_png_and_maskable_icons(client):
+    import json as _json
+    m = _json.loads(client.get("/manifest.webmanifest").get_data(as_text=True))
+    pngs = [i for i in m["icons"] if i["type"] == "image/png"]
+    assert {i["sizes"] for i in pngs} >= {"192x192", "512x512"}
+    assert any(i["purpose"] == "maskable" for i in pngs)
+    assert all("maskable" not in i["purpose"] for i in m["icons"] if i["src"].endswith(".svg"))
+    for icon in m["icons"]:
+        resp = client.get(icon["src"])
+        assert resp.status_code == 200
+        resp.close()
+
+
+def test_apple_touch_icon_is_png(client):
+    resp = client.get("/static/apple-touch-icon.png")
+    assert resp.status_code == 200
+    assert resp.get_data()[:8] == b"\x89PNG\r\n\x1a\n"
+    resp.close()
+
+
+def test_stats_reports_queue_and_any_active_download(client, monkeypatch):
+    import processing
+    monkeypatch.setattr("models.get_queue_length", lambda: 3)
+    monkeypatch.setattr("models.get_history_count_today", lambda: 0)
+    data = client.get("/api/stats").get_json()
+    assert data["queued"] == 3
+    assert data["active"] is False
+    monkeypatch.setitem(processing._active_states, 77, {"active": True})
+    data = client.get("/api/stats").get_json()
+    assert data["active"] is True
+    assert data["queued"] == 3
+
+
+def test_queue_pause_toggle_round_trip_and_stats(client):
+    assert client.get("/api/stats").get_json()["queue_paused"] is False
+    resp = client.post("/api/download/queue/pause")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"paused": True}
+    assert client.get("/api/stats").get_json()["queue_paused"] is True
+    assert client.post("/api/download/queue/pause").get_json() == {
+        "paused": False,
+    }
+    assert client.get("/api/stats").get_json()["queue_paused"] is False
+
+
 def test_service_worker(client):
     resp = client.get("/sw.js")
     assert resp.status_code == 200
@@ -2287,23 +2645,24 @@ def test_backup_import_rejects_invalid(client, monkeypatch):
 
 def test_backup_import_valid_restarts(client, monkeypatch, tmp_path):
     import io
-    import sqlite3
     import app as app_module
     monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
     restarted = []
     monkeypatch.setattr(app_module, "_exec_restart", lambda: restarted.append(1))
-    bak = tmp_path / "backup.db"
-    con = sqlite3.connect(str(bak))
-    con.execute("CREATE TABLE schema_version (version INTEGER, applied_at REAL)")
-    con.execute("INSERT INTO schema_version VALUES (10, 0)")
-    con.commit()
-    con.close()
-    data = {"file": (io.BytesIO(bak.read_bytes()), "backup.db")}
+    # A real backup, as the export produces it.
+    backup = client.get("/api/backup/export").get_data()
+    data = {"file": (io.BytesIO(backup), "backup.db")}
     resp = client.post(
         "/api/backup/import", data=data, content_type="multipart/form-data"
     )
     assert resp.status_code == 200
     assert resp.get_json()["success"] is True
+    import time
+    for _ in range(50):
+        if restarted:
+            break
+        time.sleep(0.1)
+    assert restarted == [1]
 
 
 def test_backup_import_rejects_empty_schema_version(client, monkeypatch, tmp_path):
@@ -2319,6 +2678,29 @@ def test_backup_import_rejects_empty_schema_version(client, monkeypatch, tmp_pat
     con.commit()
     con.close()
     data = {"file": (io.BytesIO(bak.read_bytes()), "empty.db")}
+    resp = client.post(
+        "/api/backup/import", data=data, content_type="multipart/form-data"
+    )
+    assert resp.status_code == 400
+    assert resp.get_json()["success"] is False
+
+
+@pytest.mark.parametrize("version", [1, 12])
+def test_backup_import_rejects_db_without_core_tables(
+    client, monkeypatch, tmp_path, version,
+):
+    # Only a schema_version row: it passed the version check, then the
+    # restarted app crash-looped on "no such table: download_queue".
+    import io
+    import sqlite3
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    bak = tmp_path / "foreign.db"
+    con = sqlite3.connect(str(bak))
+    con.execute("CREATE TABLE schema_version (version INTEGER, applied_at REAL)")
+    con.execute("INSERT INTO schema_version VALUES (?, 0)", (version,))
+    con.commit()
+    con.close()
+    data = {"file": (io.BytesIO(bak.read_bytes()), "foreign.db")}
     resp = client.post(
         "/api/backup/import", data=data, content_type="multipart/form-data"
     )
@@ -2358,6 +2740,30 @@ def test_backup_import_refused_while_downloading(client, monkeypatch):
         assert resp.status_code == 409
     finally:
         app_module.download_process["active"] = False
+
+
+
+def test_backup_import_refused_while_client_job_downloads(client, monkeypatch):
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    import io
+    import processing
+    monkeypatch.setitem(processing._active_states, 4242, {"active": True})
+    data = {"file": (io.BytesIO(b"x"), "b.db")}
+    resp = client.post(
+        "/api/backup/import", data=data,
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 409
+
+
+def test_restart_refused_while_client_job_downloads(client, monkeypatch):
+    import processing
+    called = []
+    monkeypatch.setattr("app._exec_restart", lambda: called.append(1))
+    monkeypatch.setitem(processing._active_states, 4243, {"active": True})
+    resp = client.post("/api/restart")
+    assert resp.get_json()["success"] is False
+    assert called == []
 
 
 class TestFfmpegStatusRoute:
@@ -2454,4 +2860,1211 @@ class TestNtfyNotificationRoute:
             assert resp.status_code == 429
             assert "Too many test requests" in resp.get_json()["message"]
 
+    def _saved_ntfy(self, monkeypatch):
+        monkeypatch.setattr("app.load_config", lambda: {
+            "ntfy_url": "https://ntfy.sh",
+            "ntfy_token": "secret",
+            "ntfy_topic": "t",
+        })
 
+    def test_test_ntfy_saved_token_not_sent_to_other_server(
+        self, client, monkeypatch,
+    ):
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post(
+                "/api/notifications/test/ntfy",
+                json={"server_url": "https://evil.example"},
+            )
+        assert mock_test.call_args.args[0] == "https://evil.example"
+        assert not mock_test.call_args.kwargs["token"]
+
+    def test_test_ntfy_saved_token_sent_to_saved_server(
+        self, client, monkeypatch,
+    ):
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post("/api/notifications/test/ntfy", json={})
+        assert mock_test.call_args.kwargs["token"] == "secret"
+
+    def test_test_ntfy_masked_token_not_sent_to_other_server(
+        self, client, monkeypatch,
+    ):
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post("/api/notifications/test/ntfy", json={
+                "server_url": "https://evil.example", "topic": "x",
+                "token": "********",
+            })
+        assert mock_test.call_args.args[0] == "https://evil.example"
+        assert not mock_test.call_args.kwargs["token"]
+
+    def test_test_ntfy_masked_token_sent_to_saved_server(
+        self, client, monkeypatch,
+    ):
+        # What Settings sends once a token is saved: the form's URL, topic
+        # and the mask in place of the token.
+        self._saved_ntfy(monkeypatch)
+        with patch("notifications.send_ntfy_test") as mock_test:
+            mock_test.return_value = {"success": True, "error": ""}
+            client.post("/api/notifications/test/ntfy", json={
+                "server_url": "https://ntfy.sh/", "topic": "t",
+                "token": "********",
+            })
+        assert mock_test.call_args.kwargs["token"] == "secret"
+
+
+
+
+class TestManualDownloadTrackNumber:
+    @pytest.fixture(autouse=True)
+    def _bypass_rate_limit(self):
+        with patch("manual_download.check_rate_limit", return_value=True):
+            yield
+
+    def test_vinyl_track_number_does_not_leave_download_active(
+        self, client, monkeypatch, tmp_path,
+    ):
+        import manual_download
+        from processing import download_process
+        seen = {}
+        monkeypatch.setattr(manual_download, "makedirs_safe", lambda *a, **k: None)
+        monkeypatch.setattr(
+            manual_download, "_do_manual_dl",
+            lambda **kw: seen.update(kw),
+        )
+        monkeypatch.setitem(download_process, "active", False)
+        manual_download._execute_manual_dl_with_progress(
+            youtube_url="https://www.youtube.com/watch?v=abcdefghijk",
+            track_title="Song", track_num="A1",
+            target_path=str(tmp_path), album_data={}, album_id=1,
+            album_title="Album", artist_name="Artist", config={},
+            album_path=str(tmp_path), lidarr_album_path=str(tmp_path),
+            cover_url="", makedirs_bases=[],
+        )
+        assert download_process["active"] is False
+        assert seen["track_num"] == 0
+
+    def test_state_setup_failure_still_releases_active(
+        self, client, monkeypatch, tmp_path,
+    ):
+        import manual_download
+        from processing import download_process
+        monkeypatch.setitem(download_process, "active", False)
+        monkeypatch.setattr(
+            manual_download, "_parse_track_number",
+            lambda raw: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        with pytest.raises(RuntimeError):
+            manual_download._execute_manual_dl_with_progress(
+                youtube_url="https://www.youtube.com/watch?v=abcdefghijk",
+                track_title="Song", track_num=1,
+                target_path=str(tmp_path), album_data={}, album_id=1,
+                album_title="Album", artist_name="Artist", config={},
+                album_path=str(tmp_path), lidarr_album_path=str(tmp_path),
+                cover_url="", makedirs_bases=[],
+            )
+        assert download_process["active"] is False
+
+    def test_album_route_parses_vinyl_track_number(
+        self, client, monkeypatch, tmp_path,
+    ):
+        import manual_download
+        seen = {}
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        monkeypatch.setattr(manual_download, "_get_album_cached", lambda aid: {
+            "title": "Album", "artist": {"artistName": "Artist"},
+            "images": [],
+        })
+        monkeypatch.setattr(
+            manual_download, "_execute_manual_dl_with_progress",
+            lambda **kw: seen.update(kw),
+        )
+        monkeypatch.setattr(
+            manual_download.threading, "Thread",
+            lambda target, daemon=None: MagicMock(start=target),
+        )
+        resp = client.post("/api/album/1/track/manual-download", json={
+            "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+            "track_title": "Song", "track_number": "A1",
+        })
+        assert resp.status_code == 200
+        assert seen["track_num"] == 0
+
+    def test_manual_route_vinyl_track_number_not_500(
+        self, client, monkeypatch, tmp_path,
+    ):
+        import models
+        import manual_download
+        album_dir = tmp_path / "downloads" / "Various" / "My Playlist"
+        _add_track(
+            models, album_id=-1, album_title="My Playlist",
+            artist_name="Various", track_title="Song", track_number=1,
+            success=False, album_path=str(album_dir),
+        )
+        monkeypatch.setattr(
+            manual_download, "_validate_target_path", lambda *a, **k: True,
+        )
+        monkeypatch.setattr(manual_download, "makedirs_safe", lambda *a, **k: None)
+        monkeypatch.setattr(
+            manual_download, "download_youtube_candidate",
+            lambda *a, **k: {"success": False, "error_message": "SENTINEL_DL"},
+        )
+        resp = client.post("/api/download/manual", json={
+            "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+            "track_title": "Song", "track_num": "A1", "album_id": -1,
+        })
+        assert "SENTINEL_DL" in (resp.get_json().get("message") or "")
+
+
+class TestAppearanceSettings:
+    @pytest.fixture(autouse=True)
+    def _bypass_rate_limit(self):
+        with patch("app.check_rate_limit", return_value=True):
+            yield
+
+    def test_saved_colours_reach_every_page_head(self, client):
+        resp = client.post("/api/config", json={"ui_accent": "#10B981", "ui_aura_mode": "off"})
+        assert resp.status_code == 200
+        for path in ("/", "/settings", "/explore"):
+            html = client.get(path).get_data(as_text=True)
+            assert "--accent-base:#10b981" in html, path
+            assert "setAttribute('data-aura','off')" in html, path
+
+    def test_defaults_before_any_choice(self, client):
+        html = client.get("/").get_data(as_text=True)
+        assert "--accent-base:#7c5cff" in html
+        assert "setAttribute('data-aura','cover')" in html
+
+    def test_unsafe_accent_is_rejected(self, client):
+        resp = client.post("/api/config", json={"ui_accent": "#000000;}</style><script>"})
+        assert resp.status_code == 400
+        assert "</style><script>" not in client.get("/").get_data(as_text=True)
+
+
+class TestConfigHardening:
+    @pytest.fixture(autouse=True)
+    def _bypass_rate_limit(self):
+        with patch("app.check_rate_limit", return_value=True):
+            yield
+
+    def test_get_config_hides_lidarr_api_key(self, client):
+        data = client.get("/api/config").get_json()
+        assert "lidarr_api_key" not in data
+        assert "test-key" not in json.dumps(data)
+
+    def test_export_hides_lidarr_api_key(self, client):
+        resp = client.get("/api/config/export")
+        assert "lidarr_api_key" not in json.loads(resp.data)
+
+    def test_secrets_masked_in_get_and_dropped_from_export(self, client):
+        from config import SECRET_MASK, load_config
+        client.post("/api/config", json={"telegram_bot_token": "123:secret"})
+        assert load_config()["telegram_bot_token"] == "123:secret"
+        data = client.get("/api/config").get_json()
+        assert data["telegram_bot_token"] == SECRET_MASK
+        raw = client.get("/api/config/export").data.decode()
+        assert "telegram_bot_token" not in json.loads(raw)
+        assert "123:secret" not in raw
+
+    def test_posting_mask_keeps_secret_and_empty_clears(self, client):
+        from config import SECRET_MASK, load_config
+        client.post("/api/config", json={"telegram_bot_token": "123:secret"})
+        client.post("/api/config", json={"telegram_bot_token": SECRET_MASK})
+        assert load_config()["telegram_bot_token"] == "123:secret"
+        client.post("/api/config", json={"telegram_bot_token": ""})
+        assert load_config()["telegram_bot_token"] == ""
+
+    def test_telegram_test_with_mask_uses_saved_token(
+        self, client, monkeypatch
+    ):
+        from config import SECRET_MASK
+        client.post("/api/config", json={"telegram_bot_token": "123:secret"})
+        calls = []
+        monkeypatch.setattr(
+            "notifications.send_telegram_test",
+            lambda token, chat: calls.append((token, chat)) or {"success": True},
+        )
+        resp = client.post(
+            "/api/notifications/test/telegram",
+            json={"bot_token": SECRET_MASK, "chat_id": "42"},
+        )
+        assert resp.status_code == 200
+        assert calls == [("123:secret", "42")]
+
+    @pytest.mark.parametrize("value", ["abc", None, [], True])
+    def test_invalid_int_returns_400(self, client, value):
+        resp = client.post("/api/config", json={"scheduler_interval": value})
+        assert resp.status_code == 400
+        assert "scheduler_interval" in resp.get_json()["message"]
+
+    def test_invalid_value_not_saved(self, client):
+        client.post(
+            "/api/config",
+            json={"scheduler_interval": 5, "duration_tolerance": "x"},
+        )
+        assert client.get("/api/config").get_json()["scheduler_interval"] == 60
+
+    def test_string_int_coerced(self, client):
+        resp = client.post("/api/config", json={"scheduler_interval": "90"})
+        assert resp.status_code == 200
+        assert client.get("/api/config").get_json()["scheduler_interval"] == 90
+
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [("false", False), ("true", True), ("0", False), ("yes", True),
+         ("off", False), (0, False), (1, True), (False, False)],
+    )
+    def test_bool_strings_coerced(self, client, raw, expected):
+        resp = client.post("/api/config", json={"audio_normalize": raw})
+        assert resp.status_code == 200
+        assert client.get("/api/config").get_json()["audio_normalize"] is expected
+
+    def test_invalid_bool_returns_400(self, client):
+        resp = client.post("/api/config", json={"audio_normalize": "maybe"})
+        assert resp.status_code == 400
+
+    def test_invalid_float_returns_400(self, client):
+        resp = client.post("/api/config", json={"min_match_score": "high"})
+        assert resp.status_code == 400
+
+    def test_list_key_rejects_string(self, client):
+        resp = client.post("/api/config", json={"forbidden_words": "remix"})
+        assert resp.status_code == 400
+
+    def test_import_invalid_value_returns_400(self, client):
+        resp = client.post(
+            "/api/config/import", json={"scheduler_interval": "abc"},
+        )
+        assert resp.status_code == 400
+
+    def test_import_coerces_bool(self, client):
+        resp = client.post(
+            "/api/config/import", json={"scheduler_auto_download": "false"},
+        )
+        assert resp.status_code == 200
+        cfg = client.get("/api/config").get_json()
+        assert cfg["scheduler_auto_download"] is False
+
+    def test_config_array_body_returns_400(self, client):
+        resp = client.post("/api/config", json=[1, 2])
+        assert resp.status_code == 400
+
+    def test_concurrent_toggles_do_not_lose_updates(self, client, monkeypatch):
+        import threading
+        import time
+        import config as config_module
+        from app import app as flask_app
+        real_load = config_module.load_config
+
+        def slow_load():
+            cfg = real_load()
+            time.sleep(0.1)
+            return cfg
+
+        monkeypatch.setattr("config.load_config", slow_load)
+        monkeypatch.setattr("app.load_config", slow_load)
+        before = real_load()
+        results = []
+
+        def toggle(path):
+            with flask_app.test_client() as c:
+                results.append(c.post(path).status_code)
+
+        threads = [
+            threading.Thread(target=toggle, args=("/api/xmlmetadata/toggle",)),
+            threading.Thread(target=toggle, args=("/api/acoustid/toggle",)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        after = real_load()
+        assert results == [200, 200]
+        assert after["xml_metadata_enabled"] is not before["xml_metadata_enabled"]
+        assert after["acoustid_enabled"] is not before["acoustid_enabled"]
+
+    def test_saved_file_omits_env_only_keys(self, client, tmp_path):
+        client.post("/api/xmlmetadata/toggle")
+        with open(tmp_path / "config.json") as f:
+            raw = json.load(f)
+        assert "lidarr_api_key" not in raw
+        assert "lidarr_url" not in raw
+
+
+class TestYoutubeRecent:
+    def test_lists_negative_playlist_imports(self, client):
+        import models
+        _add_track(models, album_id=-1, album_title="P1", artist_name="V")
+        _add_track(models, album_id=-2, album_title="P1", artist_name="V")
+        _add_track(models, album_id=7, album_title="Real", artist_name="R")
+        data = client.get("/api/youtube/recent").get_json()
+        assert len(data) == 2
+        assert {d["album_title"] for d in data} == {"P1"}
+
+
+class TestQueueIdValidation:
+    @pytest.fixture(autouse=True)
+    def _bypass_rate_limit(self):
+        with patch("app.check_rate_limit", return_value=True):
+            yield
+
+    @pytest.mark.parametrize("value", [-1, 0, True, "5", 1.5])
+    def test_add_rejects_non_positive_or_non_int(self, client, value):
+        import models
+        resp = client.post("/api/download/queue", json={"album_id": value})
+        assert resp.status_code == 400
+        assert models.get_queue_length() == 0
+
+    def test_bulk_skips_invalid_ids(self, client):
+        import models
+        resp = client.post(
+            "/api/download/queue/bulk",
+            json={"album_ids": [-1, True, 0, 2]},
+        )
+        assert resp.get_json()["added"] == 1
+        assert [r["album_id"] for r in models.get_queue()] == [2]
+
+    def test_add_array_body_returns_400(self, client):
+        resp = client.post("/api/download/queue", json=[1])
+        assert resp.status_code == 400
+
+    def test_bulk_array_body_returns_400(self, client):
+        resp = client.post("/api/download/queue/bulk", json=[1])
+        assert resp.status_code == 400
+
+    def test_queue_tolerates_images_missing_keys(self, client, monkeypatch):
+        import models
+        models.enqueue_album(5)
+        monkeypatch.setattr("manual_download._get_album_cached", lambda aid: {
+            "title": "A", "artist": {"artistName": "B"},
+            "images": [{"url": "x"}, {"coverType": "cover"},
+                       {"coverType": "cover", "remoteUrl": "http://c"}],
+        })
+        resp = client.get("/api/download/queue")
+        assert resp.status_code == 200
+        assert resp.get_json()[0]["cover"] == ""
+
+
+class TestJsonBodyValidation:
+    @pytest.fixture(autouse=True)
+    def _bypass_rate_limit(self):
+        with patch("app.check_rate_limit", return_value=True), \
+                patch("youtube_import.check_rate_limit", return_value=True), \
+                patch("manual_download.check_rate_limit", return_value=True):
+            yield
+
+    def test_youtube_search_null_query(self, client):
+        resp = client.post("/api/youtube/search", json={"query": None})
+        assert resp.status_code == 400
+
+    def test_youtube_search_array_body(self, client):
+        resp = client.post("/api/youtube/search", json=["x"])
+        assert resp.status_code == 400
+
+    def test_skip_track_array_body(self, client):
+        resp = client.post("/api/download/skip-track", json=[0])
+        assert resp.status_code == 400
+
+    def test_manual_download_null_url(self, client):
+        resp = client.post("/api/download/manual", json={
+            "youtube_url": None, "track_title": "Song",
+        })
+        assert resp.status_code == 400
+
+    def test_manual_track_download_non_string_title(self, client):
+        resp = client.post("/api/album/1/track/manual-download", json={
+            "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+            "track_title": 5,
+        })
+        assert resp.status_code == 400
+
+    def test_playlist_info_non_string_url(self, client):
+        resp = client.post("/api/youtube/playlist/info", json={"url": 5})
+        assert resp.status_code == 400
+
+    @pytest.mark.parametrize("entries", [["x"], [{"url": 5}], "abc",
+                                         [{"url": "abcdefghijk", "title": 3}]])
+    def test_playlist_download_bad_entries(self, client, entries):
+        resp = client.post("/api/youtube/playlist/download", json={
+            "artist_name": "A", "album_title": "B", "entries": entries,
+        })
+        assert resp.status_code == 400
+
+    def test_playlist_download_null_artist(self, client):
+        resp = client.post("/api/youtube/playlist/download", json={
+            "artist_name": None, "album_title": "B",
+            "entries": [{"url": "abcdefghijk"}],
+        })
+        assert resp.status_code == 400
+
+    def test_reorder_array_body(self, client):
+        resp = client.put("/api/download/queue/reorder", json=[1, 2])
+        assert resp.status_code == 400
+
+    def test_ytdlp_formats_non_string_url(self, client):
+        resp = client.post("/api/ytdlp/formats", json={"url": 5})
+        assert resp.status_code == 400
+
+    def test_pot_provider_array_body(self, client):
+        resp = client.post("/api/pot-provider/test", json=["x"])
+        assert resp.status_code == 400
+
+
+class TestLibraryRoutes:
+    def test_add_page_is_gone_and_redirects_to_explore(self, client):
+        resp = client.get("/add")
+        assert resp.status_code == 301
+        assert resp.headers["Location"].endswith("/explore")
+        resp = client.get("/add?q=daft punk")
+        assert resp.headers["Location"].endswith("/explore?q=daft%20punk")
+
+    @pytest.mark.parametrize("method,url", [
+        ("get", "/api/library/search?type=album&term=disc"),
+        ("post", "/api/library/artist"),
+        ("post", "/api/library/album"),
+        ("get", "/api/library/pending"),
+    ])
+    def test_add_page_endpoints_are_removed(self, client, method, url):
+        assert getattr(client, method)(url).status_code in (404, 405)
+
+    def test_options_still_served_for_explore(self, client, monkeypatch):
+        import library
+        monkeypatch.setattr(library, "get_add_options", lambda: {"rootFolders": []})
+        assert client.get("/api/library/options").get_json() == {"success": True, "rootFolders": []}
+
+    def test_library_errors_keep_their_status(self, client, monkeypatch):
+        import library
+
+        def boom():
+            raise library.LibraryError("Cannot read Lidarr root folders: down", 502)
+
+        monkeypatch.setattr(library, "get_add_options", boom)
+        resp = client.get("/api/library/options")
+        assert resp.status_code == 502
+        assert resp.get_json()["success"] is False
+
+
+class TestExploreRoutes:
+    @pytest.fixture(autouse=True)
+    def _fresh(self, monkeypatch):
+        import app as app_module
+        import explore
+        explore.cache.invalidate()
+        app_module.rate_limit_store.clear()
+        yield
+        explore.cache.invalidate()
+
+    def test_page_renders(self, client):
+        resp = client.get("/explore")
+        assert resp.status_code == 200
+        html = resp.get_data(as_text=True)
+        assert "<title>Explore" in html
+        assert 'id="player"' in html
+
+    def test_explore_is_in_the_navigation(self, client):
+        html = client.get("/").get_data(as_text=True)
+        assert 'href="/explore" data-nav="explore"' in html
+        assert 'href="/add"' not in html
+        tabbar = html.split('class="app-tabbar"', 1)[1].split("</nav>", 1)[0]
+        assert 'href="/explore"' in tabbar
+        assert 'href="/youtube"' not in tabbar
+        assert tabbar.count('class="app-tab"') == 6
+
+    def test_youtube_page_highlights_explore_tab(self, client):
+        html = client.get("/youtube").get_data(as_text=True)
+        tabbar = html.split('class="app-tabbar"', 1)[1].split("</nav>", 1)[0]
+        assert 'href="/explore" aria-current="page"' in tabbar
+
+    def test_home_ok(self, client, monkeypatch):
+        import explore
+        monkeypatch.setattr(explore, "home", lambda country="": {
+            "country": "IT", "sections": [{"key": "hero", "items": []}], "moods": [],
+        })
+        data = client.get("/api/explore/home").get_json()
+        assert data["success"] is True and data["country"] == "IT"
+
+    def test_home_reports_youtube_down(self, client, monkeypatch):
+        import explore
+        monkeypatch.setattr(explore, "home", lambda country="": {
+            "country": "IT", "sections": [], "moods": [],
+        })
+        resp = client.get("/api/explore/home")
+        assert resp.status_code == 502
+        assert resp.get_json()["success"] is False
+
+    def test_unexpected_errors_never_leak(self, client, monkeypatch):
+        import explore
+
+        def boom(country=""):
+            raise RuntimeError("Traceback secret")
+
+        monkeypatch.setattr(explore, "home", boom)
+        resp = client.get("/api/explore/home")
+        assert resp.status_code == 502
+        assert "secret" not in resp.get_data(as_text=True)
+
+    @pytest.mark.parametrize("url", [
+        "/api/explore/album/UC_not_an_album",
+        "/api/explore/artist/MPREb_abcdef",
+        "/api/explore/playlist/notaplaylist",
+        "/api/explore/mood/%3Cscript%3E",
+        "/api/explore/charts?country=ITA",
+        "/api/explore/search?q=a",
+        "/api/explore/suggestions?q=",
+        "/api/explore/match?kind=song&id=aaaaaaaaaaa",
+        "/api/explore/match?kind=album&id=../../x",
+    ])
+    def test_invalid_input_is_400(self, client, monkeypatch, url):
+        import explore
+        monkeypatch.setattr(explore, "call", lambda *a, **k: pytest.fail("YouTube was called"))
+        resp = client.get(url)
+        assert resp.status_code == 400
+        assert resp.get_json()["success"] is False
+
+    def test_album_route(self, client, monkeypatch):
+        import explore
+        monkeypatch.setattr(explore, "album", lambda bid: {"id": bid, "title": "Revival"})
+        data = client.get("/api/explore/album/MPREb_abcdef").get_json()
+        assert data["album"] == {"id": "MPREb_abcdef", "title": "Revival"}
+
+    def test_match_route_passes_refresh(self, client, monkeypatch):
+        import explore
+        seen = {}
+        monkeypatch.setattr(
+            explore, "match",
+            lambda kind, item_id, refresh=False: seen.update(kind=kind, id=item_id, refresh=refresh) or {"status": "complete"},
+        )
+        data = client.get("/api/explore/match?kind=album&id=MPREb_abcdef&refresh=1").get_json()
+        assert data["match"]["status"] == "complete"
+        assert seen == {"kind": "album", "id": "MPREb_abcdef", "refresh": True}
+
+    def test_add_route_errors_keep_status(self, client, monkeypatch):
+        import explore
+
+        def boom(payload):
+            raise explore.ExploreError("Several MusicBrainz releases match; pick one.", 409)
+
+        monkeypatch.setattr(explore, "add", boom)
+        resp = client.post("/api/explore/add", json={"kind": "album", "id": "MPREb_abcdef"})
+        assert resp.status_code == 409
+        assert "pick one" in resp.get_json()["message"]
+
+    def test_add_route_rejects_non_object(self, client):
+        resp = client.post("/api/explore/add", json=[1, 2])
+        assert resp.status_code == 400
+
+    def test_search_is_rate_limited(self, client, monkeypatch):
+        import explore
+        monkeypatch.setattr(explore, "search", lambda q: {"query": q, "top": None, "results": {}})
+        codes = [client.get("/api/explore/search?q=abc").status_code for _ in range(16)]
+        assert codes[:15] == [200] * 15
+        assert codes[15] == 429
+
+    def test_import_route_starts_a_playlist_import(self, client, monkeypatch, tmp_path):
+        import app as app_module
+        import explore_routes
+        import explore
+        library = tmp_path / "music"
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        monkeypatch.setattr(explore_routes, "load_config", lambda: {"lidarr_path": str(library)})
+        monkeypatch.setattr("youtube_import.load_config", lambda: {"lidarr_path": str(library)})
+        monkeypatch.setattr(explore, "import_plan", lambda payload: {
+            "artist_name": "Eminem", "album_title": "Revival",
+            "entries": [{"url": "https://music.youtube.com/watch?v=iKLU7z_xdYQ", "title": "Walk On Water"}],
+            "thumbnail_url": "https://lh3.googleusercontent.com/x=w1200-h1200",
+            "source_url": "https://music.youtube.com/playlist?list=OLAK5uy_x",
+            "year": "2017",
+        })
+        started = {}
+
+        class FakeThread:
+            def __init__(self, target, args, daemon):
+                started["args"] = args
+
+            def start(self):
+                started["started"] = True
+
+        monkeypatch.setattr(app_module.threading, "Thread", FakeThread)
+        resp = client.post("/api/explore/import", json={"kind": "album", "id": "MPREb_abcdef"})
+        assert resp.status_code == 200, resp.get_json()
+        assert started["started"] is True
+        artist, album, entries, target, _cfg, thumb, source, year = started["args"]
+        assert (artist, album, year) == ("Eminem", "Revival", "2017")
+        assert target == str(library / "Eminem" / "Revival (2017)")
+        assert thumb.startswith("https://lh3.googleusercontent.com/")
+
+    def test_import_route_refused_while_downloading(self, client, monkeypatch):
+        import app as app_module
+        import explore
+        monkeypatch.setattr(explore, "import_plan", lambda payload: {
+            "artist_name": "A", "album_title": "B",
+            "entries": [{"url": "https://music.youtube.com/watch?v=iKLU7z_xdYQ", "title": "x"}],
+            "thumbnail_url": "", "source_url": "",
+        })
+        monkeypatch.setitem(app_module.download_process, "active", True)
+        resp = client.post("/api/explore/import", json={"kind": "album", "id": "MPREb_abcdef"})
+        assert resp.status_code == 409
+
+    def test_import_route_validation(self, client):
+        resp = client.post("/api/explore/import", json={"kind": "song", "id": "x"})
+        assert resp.status_code == 400
+
+    def test_explore_config_keys_via_api(self, client):
+        resp = client.post("/api/config", json={"explore_country": "us", "explore_language": "it"})
+        assert resp.status_code == 200
+        cfg = client.get("/api/config").get_json()
+        assert cfg["explore_country"] == "US" and cfg["explore_language"] == "it"
+        resp = client.post("/api/config", json={"explore_country": "USA"})
+        assert resp.status_code == 400
+
+
+class TestExploreArtistImport:
+    PLAN = {
+        "artist_id": "UCZCjpHpj2MJ2Z_txErorumg",
+        "artist_name": "Zo killeuh",
+        "artist_image": "",
+        "mode": "tracks",
+        "releases": [
+            {"kind": "track", "videoId": "aaaaaaaaaaa", "title": "KOUMAY FENN", "year": "", "type": "Single", "thumbnail_url": ""},
+            {"kind": "album", "id": "MPREb_abcdef", "title": "Galsen", "year": "2021", "type": "Album", "thumbnail_url": ""},
+        ],
+        "skipped": ["Notification"],
+    }
+
+    @pytest.fixture(autouse=True)
+    def _fresh(self, monkeypatch, tmp_path):
+        import app as app_module
+        import explore_routes
+        import explore
+        explore.cache.invalidate()
+        app_module.rate_limit_store.clear()
+        explore_routes._artist_imports.clear()
+        yield
+        explore_routes._artist_imports.clear()
+
+    def _wire(self, monkeypatch, tmp_path, plan=None):
+        import explore_routes
+        import copy
+        monkeypatch.setattr(explore_routes, "_artist_import_plan", lambda cid: copy.deepcopy(plan or self.PLAN))
+        library = tmp_path / "music"
+        monkeypatch.setattr(explore_routes, "load_config", lambda: {"lidarr_path": str(library)})
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        return library
+
+    def test_plan_endpoint(self, client, monkeypatch, tmp_path):
+        library = self._wire(monkeypatch, tmp_path)
+        data = client.get("/api/explore/import-artist/plan?id=UCZCjpHpj2MJ2Z_txErorumg").get_json()
+        assert data["success"] is True
+        assert data["total"] == 2 and data["mode"] == "tracks"
+        assert data["path"] == str(library / "Zo killeuh")
+        assert data["skipped"] == ["Notification"]
+
+    def test_start_runs_in_background(self, client, monkeypatch, tmp_path):
+        import app as app_module
+        import explore_routes
+        self._wire(monkeypatch, tmp_path)
+        started = {}
+
+        class FakeThread:
+            def __init__(self, target, args, daemon, name):
+                started["target"] = target
+                started["args"] = args
+
+            def start(self):
+                started["started"] = True
+
+        monkeypatch.setattr(app_module.threading, "Thread", FakeThread)
+        resp = client.post("/api/explore/import-artist", json={"id": "UCZCjpHpj2MJ2Z_txErorumg"})
+        assert resp.status_code == 200, resp.get_json()
+        assert started["started"] and started["target"] is explore_routes._run_artist_import
+        job = client.get("/api/explore/import-artist/status?id=UCZCjpHpj2MJ2Z_txErorumg").get_json()["job"]
+        assert job["state"] == "running" and job["total"] == 2
+        again = client.post("/api/explore/import-artist", json={"id": "UCZCjpHpj2MJ2Z_txErorumg"})
+        assert again.status_code == 409
+        stop = client.post("/api/explore/import-artist/stop", json={"id": "UCZCjpHpj2MJ2Z_txErorumg"})
+        assert stop.status_code == 200
+        assert explore_routes._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]["stop"] is True
+
+    def test_nothing_left_to_import(self, client, monkeypatch, tmp_path):
+        plan = dict(self.PLAN, releases=[])
+        self._wire(monkeypatch, tmp_path, plan)
+        resp = client.post("/api/explore/import-artist", json={"id": "UCZCjpHpj2MJ2Z_txErorumg"})
+        assert resp.status_code == 409
+        assert "already imported" in resp.get_json()["message"]
+
+    def test_invalid_id(self, client):
+        resp = client.post("/api/explore/import-artist", json={"id": "../etc"})
+        assert resp.status_code == 400
+        assert client.get("/api/explore/import-artist/plan?id=x").status_code == 400
+
+    def test_stop_without_job(self, client):
+        resp = client.post("/api/explore/import-artist/stop", json={"id": "UCZCjpHpj2MJ2Z_txErorumg"})
+        assert resp.status_code == 404
+
+    def test_runner_creates_lidarr_style_folders(self, monkeypatch, tmp_path):
+        import explore_routes
+        import explore
+        library = tmp_path / "music"
+        config = {"lidarr_path": str(library)}
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", "")
+        calls = []
+        attempts = {"n": 0}
+
+        def fake_execute(artist, album, entries, target, cfg, thumb, source, year):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                return False
+            calls.append((artist, album, target, year, len(entries)))
+            return True
+
+        original = explore.release_import
+
+        def fake_release(release, artist):
+            if release["kind"] == "album":
+                return {"artist_name": artist, "album_title": "Galsen", "entries": [{"url": "u", "title": "t"}] * 3,
+                        "thumbnail_url": "", "source_url": "", "year": "2021"}
+            return original(release, artist)
+
+        monkeypatch.setattr(explore_routes, "_execute_playlist_download", fake_execute)
+        monkeypatch.setattr(explore, "release_import", fake_release)
+        explore_routes._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"] = {"state": "running", "done": 0, "stop": False}
+        artist_dir = str(library / "Zo killeuh")
+        explore_routes._run_artist_import(dict(self.PLAN), artist_dir, config)
+        assert os.path.isdir(artist_dir)
+        assert calls == [
+            ("Zo killeuh", "KOUMAY FENN", os.path.join(artist_dir, "KOUMAY FENN"), "", 1),
+            ("Zo killeuh", "Galsen", os.path.join(artist_dir, "Galsen (2021)"), "2021", 3),
+        ]
+        state = explore_routes._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]
+        assert state["state"] == "done" and state["done"] == 2
+
+    def test_runner_skips_unloadable_release_and_honours_stop(self, monkeypatch, tmp_path):
+        import explore_routes
+        import explore
+        config = {"lidarr_path": str(tmp_path / "music")}
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", "")
+        ran = []
+
+        def fake_release(release, artist):
+            if release["kind"] == "track":
+                raise explore.ExploreError("This album could not be loaded from YouTube Music.", 502)
+            return {"artist_name": artist, "album_title": "Galsen", "entries": [{"url": "u", "title": "t"}],
+                    "thumbnail_url": "", "source_url": "", "year": ""}
+
+        def fake_execute(*args):
+            ran.append(args[1])
+            explore_routes._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]["stop"] = True
+            return True
+
+        monkeypatch.setattr(explore, "release_import", fake_release)
+        monkeypatch.setattr(explore_routes, "_execute_playlist_download", fake_execute)
+        plan = dict(self.PLAN)
+        plan["releases"] = plan["releases"] + [dict(plan["releases"][1], id="MPREb_second", title="Later")]
+        explore_routes._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"] = {"state": "running", "done": 0, "stop": False}
+        explore_routes._run_artist_import(plan, str(tmp_path / "music" / "Zo killeuh"), config)
+        state = explore_routes._artist_imports["UCZCjpHpj2MJ2Z_txErorumg"]
+        assert ran == ["Galsen"]
+        assert state["failed"] == 1 and state["state"] == "stopped"
+
+    CID = "UCZCjpHpj2MJ2Z_txErorumg"
+
+    def _stub_runner(self, monkeypatch, execute, release_import=None, makedirs=None):
+        import explore_routes as app_module
+        calls = {"execute": [], "release": []}
+
+        def fake_release(release, artist):
+            calls["release"].append(release["title"])
+            if release_import:
+                return release_import(release, artist)
+            return {"album_title": release["title"], "entries": [{"url": "u", "title": "t"}], "year": ""}
+
+        def fake_execute(*args):
+            calls["execute"].append(args[1])
+            return execute()
+
+        monkeypatch.setattr(app_module, "makedirs_safe", makedirs or (lambda *a, **k: None))
+        monkeypatch.setattr(app_module, "set_permissions", lambda *a, **k: None)
+        monkeypatch.setattr(app_module, "_ensure_artist_dir_image", lambda *a, **k: None)
+        monkeypatch.setattr(app_module, "_validate_target_path", lambda *a, **k: True)
+        monkeypatch.setattr(app_module.explore, "release_import", fake_release)
+        monkeypatch.setattr(app_module, "_execute_playlist_download", fake_execute)
+        app_module._artist_import_state(self.CID, state="running", done=0, stop=False)
+        return calls
+
+    def _run(self, tmp_path):
+        import explore_routes as app_module
+        app_module._run_artist_import(dict(self.PLAN), str(tmp_path / "Zo killeuh"), {})
+        return app_module._artist_imports[self.CID]
+
+    def test_runner_processes_every_release(self, monkeypatch, tmp_path):
+        calls = self._stub_runner(monkeypatch, lambda: None)
+        state = self._run(tmp_path)
+        assert calls["execute"] == ["KOUMAY FENN", "Galsen"]
+        assert state["state"] == "done" and state["done"] == 2
+        assert state["message"] == "2 of 2 releases processed"
+
+    def test_runner_retries_until_download_slot_is_free(self, monkeypatch, tmp_path):
+        results = iter([False, False, None, None])
+        calls = self._stub_runner(monkeypatch, lambda: next(results))
+        state = self._run(tmp_path)
+        assert calls["execute"] == ["KOUMAY FENN"] * 3 + ["Galsen"]
+        assert state["state"] == "done" and state["done"] == 2
+
+    def test_runner_counts_failed_release_and_continues(self, monkeypatch, tmp_path):
+        import explore
+
+        def release_import(release, artist):
+            if release["kind"] == "track":
+                raise explore.ExploreError("unavailable", 502)
+            return {"album_title": release["title"], "entries": [], "year": "2021"}
+
+        calls = self._stub_runner(monkeypatch, lambda: None, release_import=release_import)
+        state = self._run(tmp_path)
+        assert calls["execute"] == ["Galsen"]
+        assert state["failed"] == 1 and state["done"] == 1 and state["state"] == "done"
+
+    def test_runner_fails_when_artist_folder_is_unusable(self, monkeypatch, tmp_path):
+        def makedirs(*a, **k):
+            raise PermissionError("denied")
+
+        calls = self._stub_runner(monkeypatch, lambda: None, makedirs=makedirs)
+        state = self._run(tmp_path)
+        assert state["state"] == "failed" and "denied" in state["message"]
+        assert calls["execute"] == [] and calls["release"] == []
+
+    def test_runner_stop_while_waiting_for_slot_counts_nothing(self, monkeypatch, tmp_path):
+        import explore_routes as app_module
+        attempts = {"n": 0}
+
+        def busy():
+            attempts["n"] += 1
+            if attempts["n"] == 3:
+                app_module._artist_import_state(self.CID, stop=True)
+            return False
+
+        calls = self._stub_runner(monkeypatch, busy)
+        state = self._run(tmp_path)
+        assert calls["execute"] == ["KOUMAY FENN"] * 3
+        assert calls["release"] == ["KOUMAY FENN"]
+        assert state["state"] == "stopped" and state["done"] == 0
+        assert state["message"] == "0 of 2 releases processed"
+
+    def test_playlist_download_tags_year_and_embeds_cover(self, monkeypatch, tmp_path):
+        import youtube_import
+        target = tmp_path / "downloads" / "Zo killeuh" / "Galsen (2021)"
+        config = {"audio_format": "mp3"}
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        tagged = []
+
+        def fake_dl(candidate, output_path, **kw):
+            with open(output_path + ".mp3", "wb") as f:
+                f.write(b"AUDIO")
+            return {"success": True, "youtube_title": candidate["title"]}
+
+        class FakeResp:
+            status_code = 200
+
+            def iter_content(self, n):
+                return [b"JPEGDATA"]
+
+        import requests
+        monkeypatch.setattr(requests, "get", lambda *a, **k: FakeResp())
+        monkeypatch.setattr(youtube_import, "download_youtube_candidate", fake_dl)
+        monkeypatch.setattr(youtube_import, "tag_audio_file", lambda path, info, album, cover: tagged.append((album["releaseDate"], cover)))
+        monkeypatch.setattr(youtube_import, "send_notifications", lambda *a, **k: None)
+        monkeypatch.setattr(youtube_import, "set_permissions", lambda *a, **k: None)
+        ok = youtube_import._execute_playlist_download(
+            "Zo killeuh", "Galsen", [{"url": "https://music.youtube.com/watch?v=aaaaaaaaaaa", "title": "One"}],
+            str(target), config, "https://lh3.googleusercontent.com/x=w1200-h1200", "", "2021",
+        )
+        assert ok is True
+        assert tagged == [("2021-01-01", b"JPEGDATA")]
+        assert (target / "01 - One.mp3").exists()
+
+
+class TestImportArtistImage:
+    def test_only_for_artist_folders(self, monkeypatch, tmp_path):
+        import youtube_import
+        seen = []
+        monkeypatch.setattr(
+            youtube_import, "ensure_artist_image",
+            lambda artist_dir, name, urls, fallbacks=(): seen.append((artist_dir, name, list(urls))) or "saved",
+        )
+        base = tmp_path / "downloads"
+        youtube_import._ensure_import_artist_image(str(base / "Zo killeuh" / "Galsen (2021)"), "Zo killeuh", "Galsen")
+        youtube_import._ensure_import_artist_image(str(base / "My Playlist"), "", "My Playlist")
+        youtube_import._ensure_import_artist_image(str(base / "Other" / "Album"), "Zo killeuh", "Album")
+        assert seen == [(str(base / "Zo killeuh"), "Zo killeuh", [])]
+
+    def test_playlist_download_calls_it_after_success(self, monkeypatch, tmp_path):
+        import youtube_import
+        target = tmp_path / "downloads" / "Zo killeuh" / "Galsen"
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        called = []
+
+        def fake_dl(candidate, output_path, **kw):
+            with open(output_path + ".mp3", "wb") as f:
+                f.write(b"AUDIO")
+            return {"success": True, "youtube_title": candidate["title"]}
+
+        monkeypatch.setattr(youtube_import, "download_youtube_candidate", fake_dl)
+        monkeypatch.setattr(youtube_import, "tag_audio_file", lambda *a, **k: None)
+        monkeypatch.setattr(youtube_import, "send_notifications", lambda *a, **k: None)
+        monkeypatch.setattr(youtube_import, "_ensure_import_artist_image", lambda *a: called.append(a))
+        youtube_import._execute_playlist_download(
+            "Zo killeuh", "Galsen", [{"url": "https://music.youtube.com/watch?v=aaaaaaaaaaa", "title": "One"}],
+            str(target), {"audio_format": "mp3"},
+        )
+        assert called == [(str(target), "Zo killeuh", "Galsen")]
+
+
+class TestPlaylistWatch:
+    """Issue #96: watched playlists import each new full-album upload once."""
+
+    def test_imports_only_new_videos_and_waits_for_the_slot(self, monkeypatch, tmp_path):
+        import youtube_import
+        import models
+
+        library = tmp_path / "downloads"
+        config = {"yt_watch_playlists": ["https://www.youtube.com/playlist?list=PLwatch"]}
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(library))
+        models.add_track_download(
+            album_id=-1, album_title="Old", artist_name="A", track_title="Old",
+            track_number=1, success=False, error_message="x",
+            youtube_url="https://www.youtube.com/watch?v=oldoldold01",
+            youtube_title="", match_score=0, duration_seconds=0,
+            album_path="", lidarr_album_path="", cover_url="",
+        )
+        monkeypatch.setattr(youtube_import, "_flat_youtube_info", lambda url, cfg: {"entries": [
+            {"id": "oldoldold01", "title": "A - Old"},
+            {"id": "newnewnew01", "title": "Can - Tago Mago (1971) [Full Album, Vinyl Rip]",
+             "channel": "rips"},
+            {"id": "bad id", "title": "ignored"},
+            None,
+        ]})
+        calls = []
+
+        def fake_execute(artist, album, entries, target, cfg, thumb, source, year):
+            calls.append((artist, album, entries, target, thumb, year))
+            return False if len(calls) == 1 else None
+
+        monkeypatch.setattr(youtube_import, "_execute_playlist_download", fake_execute)
+        youtube_import._watch_playlists_once(config)
+        expected = (
+            "Can", "Tago Mago",
+            [{"title": "Tago Mago", "url": "https://www.youtube.com/watch?v=newnewnew01"}],
+            os.path.join(str(library), "Can", "Tago Mago (1971)"),
+            "https://i.ytimg.com/vi/newnewnew01/hqdefault.jpg", "1971",
+        )
+        # Busy slot (False) → retried; the old, already-attempted video is skipped.
+        assert calls == [expected, expected]
+
+    def _one_new_video(self, monkeypatch, tmp_path):
+        import youtube_import
+
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        monkeypatch.setattr(youtube_import, "_flat_youtube_info", lambda url, cfg: {"entries": [
+            {"id": "newnewnew01", "title": "Can - Tago Mago (1971) [Full Album]"},
+        ]})
+        return {"yt_watch_playlists": ["https://www.youtube.com/playlist?list=PLwatch"]}
+
+    def test_waits_while_the_queue_is_paused(self, monkeypatch, tmp_path):
+        import processing
+        import youtube_import
+
+        config = self._one_new_video(monkeypatch, tmp_path)
+        state = {"paused": True, "sleeps": 0}
+        monkeypatch.setattr(processing, "load_config", lambda: {"queue_paused": state["paused"]})
+
+        def fake_sleep(seconds):
+            state["sleeps"] += 1
+            state["paused"] = False
+
+        calls = []
+        monkeypatch.setattr(youtube_import.time, "sleep", fake_sleep)
+        monkeypatch.setattr(
+            youtube_import, "_execute_playlist_download",
+            lambda *a: calls.append(state["sleeps"]),
+        )
+        youtube_import._watch_playlists_once(config)
+        assert calls == [1]  # started only after the pause lifted
+
+    def test_starts_nothing_while_a_restart_is_pending(self, monkeypatch, tmp_path):
+        import processing
+        import youtube_import
+
+        import threading
+
+        config = self._one_new_video(monkeypatch, tmp_path)
+        flag = threading.Event()
+        flag.set()
+        monkeypatch.setattr(processing, "restart_pending", flag)
+        sleeps = []
+
+        def fake_sleep(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) >= 3:
+                raise StopIteration
+
+        monkeypatch.setattr(youtube_import.time, "sleep", fake_sleep)
+        monkeypatch.setattr(
+            youtube_import, "_execute_playlist_download",
+            lambda *a: pytest.fail("restart pending"),
+        )
+        with pytest.raises(StopIteration):
+            youtube_import._watch_playlists_once(config)
+
+    def test_skips_video_whose_folder_already_has_audio(self, monkeypatch, tmp_path):
+        import youtube_import
+
+        library = tmp_path / "downloads"
+        target = library / "Can" / "Tago Mago (1971)"
+        target.mkdir(parents=True)
+        (target / "01 - Tago Mago.mp3").write_bytes(b"AUDIO")
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(library))
+        monkeypatch.setattr(youtube_import, "_flat_youtube_info", lambda url, cfg: {"entries": [
+            {"id": "newnewnew01", "title": "Can - Tago Mago (1971) [Full Album]"},
+        ]})
+        monkeypatch.setattr(
+            youtube_import, "_execute_playlist_download",
+            lambda *a: pytest.fail("already imported"),
+        )
+        # History empty (e.g. after Clear history), but the folder holds it.
+        youtube_import._watch_playlists_once(
+            {"yt_watch_playlists": ["https://www.youtube.com/playlist?list=PLwatch"]},
+        )
+
+    def test_unreadable_playlist_is_skipped(self, monkeypatch):
+        import youtube_import
+
+        def boom(url, cfg):
+            raise RuntimeError("private playlist")
+
+        monkeypatch.setattr(youtube_import, "_flat_youtube_info", boom)
+        monkeypatch.setattr(
+            youtube_import, "_execute_playlist_download",
+            lambda *a: pytest.fail("nothing to download"),
+        )
+        youtube_import._watch_playlists_once({
+            "yt_watch_playlists": ["https://www.youtube.com/playlist?list=PLx"],
+            "download_path": "/tmp",
+        })
+
+    def test_config_rejects_non_playlist_urls(self, client):
+        with patch("app.check_rate_limit", return_value=True):
+            bad = client.post("/api/config", json={"yt_watch_playlists": ["https://evil.example/?list=x"]})
+            good = client.post("/api/config", json={"yt_watch_playlists": [
+                " https://www.youtube.com/playlist?list=PLabc_-1 ", "",
+            ]})
+        assert bad.status_code == 400
+        assert good.status_code == 200
+        assert client.get("/api/config").get_json()["yt_watch_playlists"] == [
+            "https://www.youtube.com/playlist?list=PLabc_-1",
+        ]
+
+
+class TestCrossSiteWrites:
+    """A page on another site must not be able to drive the API (CSRF)."""
+
+    @pytest.mark.parametrize("headers", [
+        {"Origin": "https://evil.example"},
+        {"Origin": "null"},
+        {"Origin": "http://localhost:6666"},
+        {"Sec-Fetch-Site": "cross-site"},
+        {"Sec-Fetch-Site": "cross-site", "Origin": "http://localhost"},
+    ])
+    def test_cross_site_post_is_refused(self, client, headers):
+        import models
+        models.enqueue_album(1)
+        resp = client.post("/api/download/queue/clear", headers=headers)
+        assert resp.status_code == 403
+        assert models.get_queue_length() == 1
+
+    @pytest.mark.parametrize("headers", [
+        {},  # Lidarr / curl: no browser headers
+        {"Origin": "http://localhost", "Sec-Fetch-Site": "same-origin"},
+        # Reverse proxy that rewrites Host but forwards the public one.
+        {"Origin": "https://music.example", "X-Forwarded-Host": "music.example"},
+    ])
+    def test_same_origin_and_server_calls_pass(self, client, headers):
+        import models
+        models.enqueue_album(1)
+        resp = client.post("/api/download/queue/clear", headers=headers)
+        assert resp.status_code == 200
+        assert models.get_queue_length() == 0
+
+    def test_reads_are_not_checked(self, client):
+        resp = client.get("/api/stats", headers={"Origin": "https://evil.example"})
+        assert resp.status_code == 200
+
+
+class TestStartupYtdlpUpdate:
+    """The startup self-update must not restart over a running download."""
+
+    def _patch(self, monkeypatch, pip_error=None):
+        import threading
+        import app as app_module
+        calls = []
+        active = iter([True, False])
+
+        def fake_active():
+            value = next(active, False)
+            calls.append(("active", value))
+            return value
+
+        monkeypatch.setattr(app_module, "get_ytdlp_version", lambda: "2025.01.01")
+        monkeypatch.setattr(app_module, "_get_ytdlp_pypi_version", lambda: "2025.02.02")
+        monkeypatch.setattr(
+            app_module, "_pip_update_ytdlp",
+            lambda: ("2025.01.01", "2025.02.02", pip_error),
+        )
+        monkeypatch.setattr(app_module, "any_download_active", fake_active)
+        monkeypatch.setattr(app_module, "_exec_restart", lambda: calls.append("restart"))
+        monkeypatch.setattr(app_module.time, "sleep", lambda s: None)
+        monkeypatch.setattr(app_module, "restart_pending", threading.Event())
+        return app_module, calls
+
+    def test_restart_waits_for_active_download(self, monkeypatch):
+        app_module, calls = self._patch(monkeypatch)
+        app_module._startup_ytdlp_update()
+        assert calls.count("restart") == 1
+        assert calls[-1] == "restart"
+        assert calls[-2] == ("active", False)
+        assert ("active", True) in calls
+        assert app_module.restart_pending.is_set()
+
+    def test_failed_update_does_not_restart(self, monkeypatch):
+        app_module, calls = self._patch(monkeypatch, pip_error="pip exploded")
+        app_module._startup_ytdlp_update()
+        assert "restart" not in calls
+        assert not app_module.restart_pending.is_set()
+
+
+class TestSchedulerRunRoutes:
+    @pytest.fixture(autouse=True)
+    def reset_rate_limit(self):
+        import app
+        app.rate_limit_store.clear()
+        yield
+        app.rate_limit_store.clear()
+
+    def test_status_disabled_has_no_next_run(self, client):
+        import schedule
+        schedule.clear()
+        data = client.get("/api/scheduler/status").get_json()
+        assert data == {"enabled": False, "next_run": None}
+
+    def test_run_starts_check_thread_and_is_rate_limited(self, client):
+        import scheduler
+        with patch("app.threading.Thread") as thread:
+            resp = client.post("/api/scheduler/run")
+            assert resp.status_code == 200
+            assert resp.get_json() == {"success": True}
+            assert thread.call_args.kwargs["target"] is scheduler.scheduled_check
+            thread.return_value.start.assert_called_once()
+            assert client.post("/api/scheduler/run").status_code == 429
+            assert thread.call_count == 1

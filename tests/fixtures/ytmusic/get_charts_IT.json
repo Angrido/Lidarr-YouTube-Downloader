@@ -1,0 +1,141 @@
+{
+ "countries": {
+  "selected": {
+   "text": "Italia"
+  },
+  "options": [
+   "ZZ",
+   "SA",
+   "AR",
+   "AU"
+  ]
+ },
+ "videos": [
+  {
+   "title": "20 video di tendenza in Italia",
+   "playlistId": "OLAK5uy_lOjIgcbrxv7bPplDRWt5bu9jLuye6bA8A",
+   "thumbnails": [
+    {
+     "url": "https://yt3.googleusercontent.com/j_cAEJQmTGPmm2BmOEE96Nqum7xoLhh-wAA78FxS9iedVF9z7C-ZjPa8RY1LWFgM4ZnKIiGg0zlZ=s192",
+     "width": 192,
+     "height": 192
+    },
+    {
+     "url": "https://yt3.googleusercontent.com/j_cAEJQmTGPmm2BmOEE96Nqum7xoLhh-wAA78FxS9iedVF9z7C-ZjPa8RY1LWFgM4ZnKIiGg0zlZ=s576",
+     "width": 576,
+     "height": 576
+    }
+   ]
+  },
+  {
+   "title": "Video musicali più visti del giorno: Italia",
+   "playlistId": "PL4fGSI1pDJn4BS_9asdKGOdwGJr-5JJVu",
+   "thumbnails": [
+    {
+     "url": "https://yt3.googleusercontent.com/uZu9Ro8NK7CVNW_RBFE1qY9W0NmryyW72qTjvmqQ-5maxUyoaN8yEZFEqB1M2Ssp_MZoCegrPlQ=s192",
+     "width": 192,
+     "height": 192
+    },
+    {
+     "url": "https://yt3.googleusercontent.com/uZu9Ro8NK7CVNW_RBFE1qY9W0NmryyW72qTjvmqQ-5maxUyoaN8yEZFEqB1M2Ssp_MZoCegrPlQ=s576",
+     "width": 576,
+     "height": 576
+    }
+   ]
+  },
+  {
+   "title": "I 100 video musicali più visti in Italia",
+   "playlistId": "PL4fGSI1pDJn5BPviUFX4a3IMnAgyknC68",
+   "thumbnails": [
+    {
+     "url": "https://yt3.googleusercontent.com/By4ZyU7uSAkSiNa-0EaVxxrf5GAAEakQJNNH46aozpJECZ8Es0FGvcc9QNMi_ZajcoK2hqk9Gjc=s192",
+     "width": 192,
+     "height": 192
+    },
+    {
+     "url": "https://yt3.googleusercontent.com/By4ZyU7uSAkSiNa-0EaVxxrf5GAAEakQJNNH46aozpJECZ8Es0FGvcc9QNMi_ZajcoK2hqk9Gjc=s576",
+     "width": 576,
+     "height": 576
+    }
+   ]
+  }
+ ],
+ "artists": [
+  {
+   "title": "Geolier",
+   "browseId": "UCcVStX6y07F8-euPi0A7hLA",
+   "subscribers": "1,34 Mln",
+   "thumbnails": [
+    {
+     "url": "https://yt3.googleusercontent.com/ea2H_1lutspYkLfVu-AzXbjygGO-7L2XP1u8KfyQiVA00xoqDGmdN1SW3JLHWj8r7vANzX_o-jmgckKF=w60-h60-p-l90-rj",
+     "width": 60,
+     "height": 60
+    },
+    {
+     "url": "https://yt3.googleusercontent.com/ea2H_1lutspYkLfVu-AzXbjygGO-7L2XP1u8KfyQiVA00xoqDGmdN1SW3JLHWj8r7vANzX_o-jmgckKF=w120-h120-p-l90-rj",
+     "width": 120,
+     "height": 120
+    }
+   ],
+   "rank": "1",
+   "trend": "neutral"
+  },
+  {
+   "title": "Sfera Ebbasta",
+   "browseId": "UC7-K3cpctiu-1pUllHQqkvg",
+   "subscribers": "2,42 Mln",
+   "thumbnails": [
+    {
+     "url": "https://lh3.googleusercontent.com/kw2YdXQt1uwaArBXzJiQv0EcR7HmnRBVvFOdFx6v6Fbw7QmJ5Fy-ugbeRstcSmGEtPZmg1HfCTFv-g=w60-h60-p-l90-rj",
+     "width": 60,
+     "height": 60
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/kw2YdXQt1uwaArBXzJiQv0EcR7HmnRBVvFOdFx6v6Fbw7QmJ5Fy-ugbeRstcSmGEtPZmg1HfCTFv-g=w120-h120-p-l90-rj",
+     "width": 120,
+     "height": 120
+    }
+   ],
+   "rank": "2",
+   "trend": "neutral"
+  },
+  {
+   "title": "Shiva",
+   "browseId": "UCG8dba9iFwcp5UYB76Eu3gA",
+   "subscribers": "1,4 Mln",
+   "thumbnails": [
+    {
+     "url": "https://lh3.googleusercontent.com/_A6IgC2GU94ju2LyAqZlOtbZwRe4mY5pCuWYMVJl6zwq81a40xrIXGis37WMVdmNKXVNDfT8aWlwqw=w60-h60-p-l90-rj",
+     "width": 60,
+     "height": 60
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/_A6IgC2GU94ju2LyAqZlOtbZwRe4mY5pCuWYMVJl6zwq81a40xrIXGis37WMVdmNKXVNDfT8aWlwqw=w120-h120-p-l90-rj",
+     "width": 120,
+     "height": 120
+    }
+   ],
+   "rank": "3",
+   "trend": "neutral"
+  },
+  {
+   "title": "ANNA",
+   "browseId": "UCrBqELGfjmdVc6U1utFnBZg",
+   "subscribers": "855K",
+   "thumbnails": [
+    {
+     "url": "https://lh3.googleusercontent.com/eg-LLKSlIvPGgPKoclj-op-BZ1xV5F1OGMP9fx1l_9soAeAKWPHHTUuImacZWwm_cAjse9I-bgjKxQ=w60-h60-l90-rj",
+     "width": 60,
+     "height": 60
+    },
+    {
+     "url": "https://lh3.googleusercontent.com/eg-LLKSlIvPGgPKoclj-op-BZ1xV5F1OGMP9fx1l_9soAeAKWPHHTUuImacZWwm_cAjse9I-bgjKxQ=w120-h120-l90-rj",
+     "width": 120,
+     "height": 120
+    }
+   ],
+   "rank": "4",
+   "trend": "up"
+  }
+ ]
+}

@@ -23,6 +23,7 @@ from mutagen.id3 import (
     TIT2,
     TPE1,
     TPE2,
+    TPOS,
     TRCK,
     TXXX,
     UFID,
@@ -32,7 +33,7 @@ from mutagen.mp4 import MP4, MP4Cover, MP4FreeForm
 from mutagen.oggopus import OggOpus
 
 from lidarr import get_monitored_release
-from utils import sanitize_filename
+from utils import sanitize_filename, set_permissions
 from version import USER_AGENT
 
 logger = logging.getLogger(__name__)
@@ -40,6 +41,27 @@ logger = logging.getLogger(__name__)
 # Identifying User-Agent for the MusicBrainz family of APIs (musicbrainz.org,
 # coverartarchive.org), which reject or throttle the default requests one.
 _API_HEADERS = {"User-Agent": USER_AGENT}
+
+
+def _disc_position(track_info, album_info):
+    """(disc, disc count) for a track of a multi-disc album, else None.
+
+    Lidarr's trackNumber restarts on every disc, so without a disc tag
+    track 1 of disc 2 reads as track 1 of the album.
+    """
+    discs = set()
+    for t in album_info.get("tracks") or ():
+        try:
+            discs.add(int(t.get("mediumNumber")))
+        except (TypeError, ValueError):
+            pass
+    try:
+        disc = int(track_info.get("mediumNumber"))
+    except (TypeError, ValueError):
+        return None
+    if len(discs) < 2 or disc < 1:
+        return None
+    return disc, max(discs)
 
 
 def tag_mp3(file_path, track_info, album_info, cover_data):
@@ -91,6 +113,9 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
             )
         except (ValueError, KeyError):
             pass
+        disc = _disc_position(track_info, album_info)
+        if disc:
+            audio.tags.add(TPOS(encoding=3, text=f"{disc[0]}/{disc[1]}"))
 
         release = get_monitored_release(album_info)
         if release:
@@ -137,6 +162,10 @@ def tag_opus(file_path, track_info, album_info, cover_data):
             audio["tracknumber"] = [f"{t_num}/{total}"]
         except (ValueError, KeyError):
             pass
+        disc = _disc_position(track_info, album_info)
+        if disc:
+            audio["discnumber"] = [str(disc[0])]
+            audio["disctotal"] = [str(disc[1])]
 
         release = get_monitored_release(album_info)
         if release:
@@ -194,22 +223,21 @@ def tag_m4a(file_path, track_info, album_info, cover_data):
             audio["trkn"] = [(t_num, total)]
         except (ValueError, KeyError):
             pass
+        disc = _disc_position(track_info, album_info)
+        if disc:
+            audio["disk"] = [disc]
 
         release = get_monitored_release(album_info)
         if release:
-            for desc in _STALE_MB_DESCS:
+            for desc in _STALE_MP4_MB_DESCS:
                 audio.pop(f"----:com.apple.iTunes:{desc}", None)
-            fields = _musicbrainz_fields(track_info, album_info, release)
-            for value, desc in fields:
-                if value:
-                    key = f"----:com.apple.iTunes:{desc}"
-                    audio[key] = [MP4FreeForm(str(value).encode())]
-
-        if track_info.get("foreignRecordingId"):
-            key = "----:com.apple.iTunes:MusicBrainz Recording Id"
-            audio[key] = [
-                MP4FreeForm(track_info["foreignRecordingId"].encode())
-            ]
+        fields = _musicbrainz_fields(
+            track_info, album_info, release, mp4=True,
+        )
+        for value, desc in fields:
+            if value:
+                key = f"----:com.apple.iTunes:{desc}"
+                audio[key] = [MP4FreeForm(str(value).encode())]
 
         if cover_data:
             audio["covr"] = [
@@ -351,7 +379,7 @@ def apply_replaygain_tags(audio_file):
             audio.tags.add(
                 TXXX(encoding=3, desc="REPLAYGAIN_TRACK_PEAK", text=peak_str)
             )
-            audio.save()
+            audio.save(v2_version=3)
         logger.info(
             "   ReplayGain written: %s (%s)",
             os.path.basename(audio_file), gain_str,
@@ -369,9 +397,10 @@ _STALE_MB_DESCS = (
     "MusicBrainz Release Country",
     "MusicBrainz Release Track Id",
 )
+_STALE_MP4_MB_DESCS = _STALE_MB_DESCS + ("MusicBrainz Recording Id",)
 
 
-def _musicbrainz_fields(track_info, album_info, release):
+def _musicbrainz_fields(track_info, album_info, release, *, mp4=False):
     """Return ``(value, frame description)`` pairs for the MusicBrainz tags.
 
     ``foreignTrackId`` is the release-specific track MBID and is what
@@ -386,13 +415,19 @@ def _musicbrainz_fields(track_info, album_info, release):
     recording id; callers clear those first so a re-tag of an existing file
     cannot leave a stale or mislabeled value behind.
     """
+    recording = (
+        track_info.get("foreignRecordingId"),
+        "MusicBrainz Track Id" if mp4 else "MusicBrainz Recording Id",
+    )
+    if not release:
+        return [recording]
     country = release.get("country")
     if isinstance(country, list):
         country = country[0] if country else None
     album_artist_id = album_info["artist"].get("foreignArtistId")
     return [
         (track_info.get("foreignTrackId"), "MusicBrainz Release Track Id"),
-        (track_info.get("foreignRecordingId"), "MusicBrainz Recording Id"),
+        recording,
         (release.get("foreignReleaseId"), "MusicBrainz Album Id"),
         (album_artist_id, "MusicBrainz Artist Id"),
         (album_artist_id, "MusicBrainz Album Artist Id"),
@@ -521,14 +556,30 @@ def _hires_artwork_url(artwork_url):
     )
 
 
+_IMAGE_MAGIC = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n")
+
+
+def _image_bytes(response):
+    if response.status_code != 200:
+        return None
+    data = response.content
+    if not data:
+        return None
+    ctype = (response.headers.get("Content-Type") or "").lower()
+    if ctype.startswith("image/"):
+        return data
+    if data.startswith(_IMAGE_MAGIC):
+        return data
+    return None
+
+
 def get_artwork_from_url(artwork_url):
     """Fetch artwork bytes from a known artwork URL."""
     try:
         artwork_url = _hires_artwork_url(artwork_url)
         if not artwork_url.startswith(("http://", "https://")):
             return None
-        data = requests.get(artwork_url, timeout=15).content
-        return data or None
+        return _image_bytes(requests.get(artwork_url, timeout=15))
     except Exception as e:
         logger.debug(f"Artwork URL fetch failed: {e}")
     return None
@@ -597,12 +648,97 @@ def get_deezer_artwork(artist, album):
                 or ""
             )
             if cover_url:
-                data_bytes = requests.get(cover_url, timeout=15).content
+                data_bytes = _image_bytes(requests.get(cover_url, timeout=15))
                 if data_bytes:
                     return data_bytes
     except Exception as e:
         logger.debug(f"Deezer artwork lookup failed: {e}")
     return None
+
+
+ARTIST_IMAGE_NAMES = (
+    "artist.jpg", "artist.jpeg", "artist.png",
+    "folder.jpg", "folder.jpeg", "folder.png",
+)
+
+
+def has_artist_image(artist_dir):
+    try:
+        names = {n.lower() for n in os.listdir(artist_dir)}
+    except OSError:
+        return False
+    return any(n in names for n in ARTIST_IMAGE_NAMES)
+
+
+def get_deezer_artist_image(artist):
+    name = (artist or "").strip()
+    if not name:
+        return None
+    try:
+        r = requests.get(
+            "https://api.deezer.com/search/artist",
+            params={"q": name, "limit": 5}, timeout=10,
+        )
+        for entry in (r.json() or {}).get("data", []) or []:
+            if (entry.get("name") or "").strip().casefold() != name.casefold():
+                continue
+            url = entry.get("picture_xl") or entry.get("picture_big") or ""
+            if not url or "/artist//" in url:
+                continue
+            data = _image_bytes(requests.get(url, timeout=15))
+            if data:
+                return data
+    except Exception as e:
+        logger.debug("Deezer artist image lookup failed: %s", e)
+    return None
+
+
+def _image_from_urls(urls):
+    for url in urls or ():
+        if not isinstance(url, str) or not url.startswith(("http://", "https://")):
+            continue
+        try:
+            data = _image_bytes(requests.get(
+                url, timeout=15, headers={"User-Agent": USER_AGENT},
+            ))
+        except Exception as e:
+            logger.debug("Artist image fetch failed for %s: %s", url[:120], e)
+            continue
+        if data:
+            return data
+    return None
+
+
+def ensure_artist_image(artist_dir, artist_name, image_urls=(), fallbacks=()):
+    if not artist_dir or not os.path.isdir(artist_dir):
+        return "missing"
+    if has_artist_image(artist_dir):
+        return "exists"
+    data = _image_from_urls(image_urls)
+    if not data:
+        data = get_deezer_artist_image(artist_name)
+    for fallback in fallbacks or ():
+        if data:
+            break
+        try:
+            data = _image_from_urls([fallback()])
+        except Exception as e:
+            logger.debug("Artist image fallback failed: %s", e)
+    if not data:
+        return "missing"
+    written = False
+    for name in ("artist.jpg", "folder.jpg"):
+        path = os.path.join(artist_dir, name)
+        try:
+            with open(path, "wb") as f:
+                f.write(data)
+            set_permissions(path)
+            written = True
+        except OSError as e:
+            logger.warning("Could not write %s: %s", path, e)
+    if written:
+        logger.info("   Artist image saved for %s", artist_name)
+    return "saved" if written else "missing"
 
 
 _mb_rate_lock = threading.Lock()
@@ -630,6 +766,7 @@ def _musicbrainz_throttle():
 _MB_RETRY_ATTEMPTS = 5
 _MB_RETRY_BACKOFF = 2.0
 _MB_RETRY_STATUS = (429, 500, 502, 503, 504)
+_MB_RETRY_MAX_DELAY = 10.0
 
 
 def _musicbrainz_get(url, params, label="lookup"):
@@ -658,6 +795,7 @@ def _musicbrainz_get(url, params, label="lookup"):
                     delay = max(delay, float(r.headers.get("Retry-After", 0)))
                 except (TypeError, ValueError):
                     pass
+                delay = min(delay, _MB_RETRY_MAX_DELAY)
                 logger.info(
                     "      MB %s: HTTP %s, retrying in %.1fs (attempt %d/%d)",
                     label, r.status_code, delay, attempt, _MB_RETRY_ATTEMPTS,
