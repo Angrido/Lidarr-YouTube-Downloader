@@ -11,7 +11,7 @@ import time
 
 import db
 import models
-from config import load_config
+from config import load_config, retry_cooldown_seconds
 from lidarr import lidarr_request
 
 logger = logging.getLogger(__name__)
@@ -137,6 +137,7 @@ def _run_sync():
         last_full_sync_at=time.time(),
         last_error="",
     )
+    _prune_old_history()
     # This runs on a loop; logging the same sentence every cycle buries the
     # rest of the log. Only speak up when the result actually changed.
     global _last_sync_summary
@@ -183,6 +184,22 @@ def trigger_sync():
 
     threading.Thread(target=runner, daemon=True).start()
     return True
+
+
+HISTORY_RETENTION_DAYS = 90
+
+
+def _prune_old_history():
+    """Drop old logs / attempts / superseded failures (they otherwise grow
+    forever), never inside the retry cooldown that reads them."""
+    keep = max(
+        HISTORY_RETENTION_DAYS * 86400,
+        retry_cooldown_seconds(load_config()),
+    )
+    try:
+        models.prune_old_records(time.time() - keep)
+    except Exception as e:
+        logger.warning("Pruning old history failed: %s", e)
 
 
 def sync_loop():

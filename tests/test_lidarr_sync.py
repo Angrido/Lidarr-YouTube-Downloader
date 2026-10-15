@@ -60,6 +60,24 @@ def test_successful_sync_prunes_stale_albums(monkeypatch):
     assert state["last_full_sync_at"]
 
 
+@pytest.mark.parametrize("cooldown_hours,keep_days", [(24, 90), (24 * 200, 200)])
+def test_successful_sync_prunes_old_history(monkeypatch, cooldown_hours, keep_days):
+    # Without a prune, logs, history and candidate attempts grow forever.
+    # Never prune inside the retry cooldown, which reads those rows.
+    import time
+    cutoffs = []
+    monkeypatch.setattr(models, "prune_old_records", cutoffs.append)
+    monkeypatch.setattr(
+        lidarr_sync, "load_config",
+        lambda: {"scheduler_retry_after_hours": cooldown_hours},
+    )
+    fake, _ = _fake_lidarr({1: [_album(1)]})
+    monkeypatch.setattr(lidarr_sync, "lidarr_request", fake)
+    lidarr_sync._run_sync()
+    assert len(cutoffs) == 1
+    assert abs((time.time() - cutoffs[0]) / 86400 - keep_days) < 0.01
+
+
 def test_failed_page_upsert_keeps_its_albums_and_reports_error(monkeypatch):
     _seed_cache([1, 2, 3, 4, 99])
     fake, calls = _fake_lidarr({

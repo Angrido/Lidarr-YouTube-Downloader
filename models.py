@@ -665,6 +665,33 @@ def clear_logs():
     conn.commit()
 
 
+def prune_old_records(cutoff_ts):
+    """Delete history older than ``cutoff_ts`` that nothing reads any more.
+
+    Logs and candidate attempts go by age alone. A track_downloads row goes
+    only when it is a failure a later success of the same track has
+    superseded: other rows still drive the backoff (failures since the last
+    success), and successes tell playlist watch and artist import what is
+    already imported.
+    """
+    conn = db.get_db()
+    stale = (
+        "SELECT f.id FROM track_downloads AS f"
+        " WHERE f.success = 0 AND f.timestamp < ?"
+        " AND EXISTS (SELECT 1 FROM track_downloads AS s"
+        "   WHERE s.album_id = f.album_id AND s.track_title = f.track_title"
+        "   AND s.success = 1 AND s.timestamp > f.timestamp)"
+    )
+    conn.execute(
+        "DELETE FROM candidate_attempts WHERE timestamp < ?"
+        f" OR track_download_id IN ({stale})",
+        (cutoff_ts, cutoff_ts),
+    )
+    conn.execute(f"DELETE FROM track_downloads WHERE id IN ({stale})", (cutoff_ts,))
+    conn.execute("DELETE FROM download_logs WHERE timestamp < ?", (cutoff_ts,))
+    conn.commit()
+
+
 def get_logs_db_size():
     """Estimate the storage used by log text fields."""
     conn = db.get_db()

@@ -121,6 +121,8 @@ Current schema version: **12**. Migrations:
 - V10→V11: Added `force` to `download_queue`, marking an entry as an explicit user request (manual "Add to Queue"). A forced entry bypasses the per-track retry backoff; the scheduler enqueues without it.
 - V11→V12: Added `album_source_hints` (`album_id` → YT Music `playlist_id` + `browse_id`), written when Explore adds an album so `process_album_download` downloads from that album playlist instead of searching for it. Positive `album_id`s only.
 
+**Retention:** after each successful Lidarr sync, `lidarr_sync._prune_old_history()` calls `models.prune_old_records()` with a cutoff of `HISTORY_RETENTION_DAYS` (90), or the retry cooldown if longer. `download_logs` and `candidate_attempts` go by age; a `track_downloads` row goes only when it is a failure a later success of the same track superseded — the remaining rows drive the backoff, and successes are how playlist watch and artist import know what is already imported, so never prune those by age.
+
 Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
 1. Increment `SCHEMA_VERSION` in `db.py`

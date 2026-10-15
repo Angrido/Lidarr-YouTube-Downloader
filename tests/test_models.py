@@ -304,6 +304,54 @@ def test_clearing_logs_keeps_the_retry_cooldown():
     assert models.get_attempted_album_ids_since(time.time() + 60) == set()
 
 
+def test_prune_old_records_keeps_what_still_matters():
+    import db
+    import time
+    now = time.time()
+    old, new = now - 100 * 86400, now - 86400
+    conn = db.get_db()
+
+    def at(table, row_id, ts):
+        conn.execute(f"UPDATE {table} SET timestamp = ? WHERE id = ?", (ts, row_id))
+
+    def attempt(dl_id, ts):
+        conn.execute(
+            "INSERT INTO candidate_attempts (track_download_id, outcome, timestamp)"
+            " VALUES (?, 'download_failed', ?)", (dl_id, ts),
+        )
+
+    models.add_log("album_error", 1, "A", "X")
+    models.add_log("album_error", 1, "A", "X")
+    old_log, new_log = [i["id"] for i in models.get_logs()["items"]][:2]
+    conn.execute("UPDATE download_logs SET timestamp = ? WHERE id = ?", (old, old_log))
+    conn.execute("UPDATE download_logs SET timestamp = ? WHERE id = ?", (new, new_log))
+    # Superseded: failed long ago, succeeded since. Prunable.
+    superseded = _add_dl(track_title="Fixed", success=False)
+    fixed_ok = _add_dl(track_title="Fixed", success=True)
+    # Still failing: its failures drive the backoff / max_track_retries.
+    still_failing = _add_dl(track_title="Broken", success=False)
+    # An old success: playlist watch and artist import skip what it imported.
+    old_success = _add_dl(track_title="Kept", success=True)
+    at("track_downloads", superseded, old)
+    at("track_downloads", fixed_ok, new)
+    at("track_downloads", still_failing, old)
+    at("track_downloads", old_success, old)
+    attempt(superseded, old)
+    attempt(still_failing, old)
+    attempt(fixed_ok, new)
+    conn.commit()
+
+    models.prune_old_records(now - 90 * 86400)
+
+    assert {i["id"] for i in models.get_logs()["items"]} == {new_log}
+    ids = {r[0] for r in conn.execute("SELECT id FROM track_downloads")}
+    assert ids == {fixed_ok, still_failing, old_success}
+    attempts = conn.execute(
+        "SELECT track_download_id FROM candidate_attempts"
+    ).fetchall()
+    assert [r[0] for r in attempts] == [fixed_ok]
+
+
 def test_get_logs_db_size():
     models.add_log("download_success", 1, "A", "A", details="some text")
     size = models.get_logs_db_size()
