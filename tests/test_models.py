@@ -706,6 +706,36 @@ class TestCandidateAttempts:
         assert rows[0]["youtube_title"] == "Earlier"
         assert rows[1]["youtube_title"] == "Later"
 
+    def test_get_candidate_attempts_for_groups_by_track_download(self):
+        def td(title):
+            return models.add_track_download(
+                album_id=1, album_title="A", artist_name="A",
+                track_title=title, track_number=1, success=True,
+                error_message="", youtube_url="", youtube_title="",
+                match_score=0.0, duration_seconds=0,
+                album_path="", lidarr_album_path="", cover_url="",
+            )
+
+        def attempt(title, ts):
+            return {
+                "youtube_url": f"https://yt/{title}", "youtube_title": title,
+                "match_score": 0.5, "duration_seconds": 100,
+                "outcome": CandidateOutcome.MISMATCH,
+                "acoustid_matched_id": "", "acoustid_matched_title": "",
+                "acoustid_score": 0.0, "expected_recording_id": "",
+                "error_message": "", "timestamp": ts,
+            }
+
+        td1, td2 = td("T1"), td("T2")
+        models.flush_candidate_attempts(
+            td1, [attempt("b", 2000.0), attempt("a", 1000.0)])
+        models.flush_candidate_attempts(td2, [attempt("c", 500.0)])
+        got = models.get_candidate_attempts_for([td1, td2, 9999])
+        assert set(got) == {td1, td2}
+        assert [r["youtube_title"] for r in got[td1]] == ["a", "b"]
+        assert [r["youtube_title"] for r in got[td2]] == ["c"]
+        assert models.get_candidate_attempts_for([]) == {}
+
 
 def test_add_track_download_stores_source_format():
     models.add_track_download(
