@@ -2876,6 +2876,41 @@ class TestConfigHardening:
         resp = client.get("/api/config/export")
         assert "lidarr_api_key" not in json.loads(resp.data)
 
+    def test_secrets_masked_in_get_and_dropped_from_export(self, client):
+        from config import SECRET_MASK, load_config
+        client.post("/api/config", json={"telegram_bot_token": "123:secret"})
+        assert load_config()["telegram_bot_token"] == "123:secret"
+        data = client.get("/api/config").get_json()
+        assert data["telegram_bot_token"] == SECRET_MASK
+        raw = client.get("/api/config/export").data.decode()
+        assert "telegram_bot_token" not in json.loads(raw)
+        assert "123:secret" not in raw
+
+    def test_posting_mask_keeps_secret_and_empty_clears(self, client):
+        from config import SECRET_MASK, load_config
+        client.post("/api/config", json={"telegram_bot_token": "123:secret"})
+        client.post("/api/config", json={"telegram_bot_token": SECRET_MASK})
+        assert load_config()["telegram_bot_token"] == "123:secret"
+        client.post("/api/config", json={"telegram_bot_token": ""})
+        assert load_config()["telegram_bot_token"] == ""
+
+    def test_telegram_test_with_mask_uses_saved_token(
+        self, client, monkeypatch
+    ):
+        from config import SECRET_MASK
+        client.post("/api/config", json={"telegram_bot_token": "123:secret"})
+        calls = []
+        monkeypatch.setattr(
+            "notifications.send_telegram_test",
+            lambda token, chat: calls.append((token, chat)) or {"success": True},
+        )
+        resp = client.post(
+            "/api/notifications/test/telegram",
+            json={"bot_token": SECRET_MASK, "chat_id": "42"},
+        )
+        assert resp.status_code == 200
+        assert calls == [("123:secret", "42")]
+
     @pytest.mark.parametrize("value", ["abc", None, [], True])
     def test_invalid_int_returns_400(self, client, value):
         resp = client.post("/api/config", json={"scheduler_interval": value})
