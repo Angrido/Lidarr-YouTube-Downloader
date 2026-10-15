@@ -1,5 +1,4 @@
 .claude/
-CLAUDE.md
 CLAUDE.local.md
 AGENTS.md
 requirements-dev.txt
@@ -53,6 +52,13 @@ tmp/
 .serena/
 .superpowers/
 .lean-ctx/
+.omc/
+.gstack/
+.agents/
+.codex/
+.gemini/
+.playwright-mcp/
+strix_runs/
 agent-tools/
 agent-transcripts/
 terminals/
