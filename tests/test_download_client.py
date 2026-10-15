@@ -493,10 +493,13 @@ def test_run_album_job_busy_resets_to_queued(client, monkeypatch):
         "processing.process_album_download",
         lambda *a, **kw: {"error": "Busy"},
     )
+    models.enqueue_album(7)
     download_client.run_album_job(42)
     # Job stays active but is reset to queued (no phantom 'downloading').
     assert download_client._jobs[nzo]["status"] == "queued"
     assert download_client.is_client_album(42)
+    # Re-queued at the head, ahead of albums queued after its grab.
+    assert [r["album_id"] for r in models.get_queue()] == [42, 7]
 
 
 def test_register_grab_rolls_back_on_enqueue_failure(client, monkeypatch):

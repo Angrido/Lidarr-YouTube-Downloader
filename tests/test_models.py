@@ -348,6 +348,17 @@ def test_enqueue_and_get_queue():
     assert queue[1]["album_id"] == 20
 
 
+def test_enqueue_front_goes_to_the_head():
+    models.enqueue_album(10)
+    models.enqueue_album(20)
+    models.enqueue_album(30, front=True)
+    assert [r["album_id"] for r in models.get_queue()] == [30, 10, 20]
+    # A dequeue renumbers, and the head placement survives it.
+    models.dequeue_album(20)
+    models.enqueue_album(40, front=True)
+    assert [r["album_id"] for r in models.get_queue()] == [40, 30, 10]
+
+
 def test_enqueue_duplicate_ignored():
     models.enqueue_album(10)
     models.enqueue_album(10)

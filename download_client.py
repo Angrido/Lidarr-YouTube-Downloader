@@ -399,7 +399,7 @@ def run_album_job(album_id, force=False, state=None):
         # Engine busy with another album: requeue instead of failing
         # (a failure would blocklist the grab).
         mark_queued(album_id)
-        models.enqueue_album(album_id)
+        models.enqueue_album(album_id, front=True)
     else:
         mark_failed(album_id, result.get("error", "Download failed"))
 

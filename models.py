@@ -679,23 +679,32 @@ def get_track_download_youtube_urls():
 # --- Queue ---
 
 
-def enqueue_album(album_id, force=False):
+def enqueue_album(album_id, force=False, front=False):
     """Add an album to the download queue. Returns False if duplicate.
 
     ``force`` marks the entry as explicitly requested by the user, which
     makes the download bypass the per-track retry backoff. Re-adding an
     album that is already queued still returns False, but a forced request
     upgrades the existing entry so the manual intent isn't lost.
+
+    ``front`` puts it at the head instead of the tail: an album that was
+    dispatched but found the download slot taken goes back where it was,
+    not behind the whole queue.
     """
     conn = db.get_db()
-    max_pos = conn.execute(
-        "SELECT COALESCE(MAX(position), 0) FROM download_queue"
-    ).fetchone()[0]
+    if front:
+        position = conn.execute(
+            "SELECT COALESCE(MIN(position), 1) - 1 FROM download_queue"
+        ).fetchone()[0]
+    else:
+        position = conn.execute(
+            "SELECT COALESCE(MAX(position), 0) + 1 FROM download_queue"
+        ).fetchone()[0]
     cursor = conn.execute(
         "INSERT OR IGNORE INTO download_queue"
         " (album_id, position, status, force)"
         " VALUES (?, ?, ?, ?)",
-        (album_id, max_pos + 1, QUEUE_STATUS_QUEUED, 1 if force else 0),
+        (album_id, position, QUEUE_STATUS_QUEUED, 1 if force else 0),
     )
     added = cursor.rowcount > 0
     if not added and force:

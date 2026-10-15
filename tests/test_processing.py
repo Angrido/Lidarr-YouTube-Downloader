@@ -2286,7 +2286,8 @@ class TestQueueDispatch:
         enqueued = []
         monkeypatch.setattr(
             "models.enqueue_album",
-            lambda album_id, force=False: enqueued.append((album_id, force)),
+            lambda album_id, force=False, front=False: enqueued.append(
+                (album_id, force, front)),
         )
         monkeypatch.setattr(download_client, "is_client_album", lambda a: False)
         started = self._capture_threads(monkeypatch)
@@ -2297,7 +2298,8 @@ class TestQueueDispatch:
             lambda *a, **k: {"error": "Busy"},
         )
         started[0].target(*started[0].args, **started[0].kwargs)
-        assert enqueued == [(42, forced)]
+        # Back at the head of the queue, not behind every other album.
+        assert enqueued == [(42, forced, True)]
 
     def test_non_busy_result_is_not_requeued(self, monkeypatch):
         import processing

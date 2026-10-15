@@ -2737,7 +2737,7 @@ def _run_queued_album(album_id, state=None, ignore_backoff=False):
         logger.info(
             "Album %s found the download slot busy; re-queued", album_id,
         )
-        models.enqueue_album(album_id, force=ignore_backoff)
+        models.enqueue_album(album_id, force=ignore_backoff, front=True)
     return result
 
 
