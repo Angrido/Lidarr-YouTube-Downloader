@@ -147,9 +147,17 @@ def get_track_downloads_for_album(album_id):
     return [dict(row) for row in rows]
 
 
-def get_album_history(page=1, per_page=50):
-    """Return album-grouped download summaries, newest first."""
-    query = """
+HISTORY_OUTCOMES = ("success", "partial", "error")
+
+# Same rules as getAlbumStatus() in templates/downloads.html.
+_OUTCOME_SQL = {
+    "success": "fail_count = 0",
+    "error": "fail_count > 0 AND success_count = 0",
+    "partial": "fail_count > 0 AND success_count > 0",
+}
+
+_ALBUM_HISTORY_CTE = """
+    WITH latest AS (
         SELECT
             l.album_id,
             a.album_title,
@@ -181,8 +189,6 @@ def get_album_history(page=1, per_page=50):
                     AND t1.timestamp = t2.max_ts
             )
             GROUP BY album_id
-            ORDER BY latest_timestamp DESC, album_id DESC
-            LIMIT ? OFFSET ?
         ) l
         JOIN track_downloads a ON a.id = (
             SELECT id FROM track_downloads
@@ -190,12 +196,49 @@ def get_album_history(page=1, per_page=50):
             ORDER BY timestamp DESC, id DESC
             LIMIT 1
         )
-        ORDER BY l.latest_timestamp DESC, l.album_id DESC
-    """
-    count_query = (
-        "SELECT COUNT(DISTINCT album_id) FROM track_downloads"
     )
-    return _paginate(query, count_query, (), page, per_page)
+"""
+
+
+def get_album_history(page=1, per_page=50, outcome=None, q=None):
+    """Return album-grouped download summaries, newest first.
+
+    ``outcome`` ('success'|'partial'|'error') keeps only albums with that
+    status; ``q`` is a case-insensitive substring of the latest row's album
+    title or artist name. ``counts`` holds the per-outcome totals matching
+    ``q`` (ignoring ``outcome``) for the filter chips.
+    """
+    q_where, params = "1", ()
+    if q:
+        q_where = (
+            "(album_title LIKE ? ESCAPE '\\' OR artist_name LIKE ? ESCAPE '\\')"
+        )
+        escaped = (
+            q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        )
+        params = ("%" + escaped + "%",) * 2
+    where = q_where
+    if outcome in _OUTCOME_SQL:
+        where += " AND " + _OUTCOME_SQL[outcome]
+    query = (
+        _ALBUM_HISTORY_CTE
+        + f"SELECT * FROM latest WHERE {where}"
+        " ORDER BY latest_timestamp DESC, album_id DESC LIMIT ? OFFSET ?"
+    )
+    count_query = (
+        _ALBUM_HISTORY_CTE + f"SELECT COUNT(*) FROM latest WHERE {where}"
+    )
+    result = _paginate(query, count_query, params, page, per_page)
+    sums = ", ".join(
+        f"COALESCE(SUM({_OUTCOME_SQL[o]}), 0)" for o in HISTORY_OUTCOMES
+    )
+    row = db.get_db().execute(
+        _ALBUM_HISTORY_CTE
+        + f"SELECT COUNT(*), {sums} FROM latest WHERE {q_where}",
+        params,
+    ).fetchone()
+    result["counts"] = dict(zip(("all",) + HISTORY_OUTCOMES, row))
+    return result
 
 
 def get_track_failure_counts(album_id):
