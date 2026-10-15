@@ -58,6 +58,7 @@ from metadata import (
 )
 from notifications import send_notifications
 from processing import (
+    _compute_deferred_tracks,
     _track_number,
     _track_retry_at,
     any_download_active,
@@ -1385,16 +1386,30 @@ def api_queue_tracks(album_id):
                     title,
                 )
                 tracks = get_itunes_tracks(artist, title)
-    result = [
-        {
+    try:
+        deferred = _compute_deferred_tracks(album_id, tracks)
+    except Exception:
+        logger.debug(
+            "Could not compute the retry schedule for album %s",
+            album_id, exc_info=True,
+        )
+        deferred = {}
+    result = []
+    for i, t in enumerate(tracks):
+        has_file = t.get("hasFile", False)
+        item = {
             "title": t.get("title", ""),
             # The number the album run names this track's file with.
             "track_number": _track_number(t, tracks, i + 1),
-            "has_file": t.get("hasFile", False),
+            "has_file": has_file,
             "foreign_recording_id": t.get("foreignRecordingId", ""),
         }
-        for i, t in enumerate(tracks)
-    ]
+        if not has_file:
+            info = deferred.get(item["title"]) or {}
+            item["failures"] = info.get("failures", 0)
+            item["retry_at"] = info.get("retry_at")
+            item["given_up"] = bool(info) and info.get("retry_at") is None
+        result.append(item)
     return jsonify(result)
 
 

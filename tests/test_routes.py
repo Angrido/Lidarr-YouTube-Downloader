@@ -726,6 +726,38 @@ class TestQueueTracksRoute:
         assert data[0]["has_file"] is False
         assert data[1]["has_file"] is True
 
+    @patch("app._compute_deferred_tracks")
+    @patch("app.lidarr_request")
+    def test_reports_each_missing_tracks_retry_schedule(
+        self, mock_lidarr, mock_deferred, client
+    ):
+        mock_lidarr.return_value = [
+            {"title": "Backing off", "trackNumber": 1, "hasFile": False},
+            {"title": "Given up", "trackNumber": 2, "hasFile": False},
+            {"title": "Never tried", "trackNumber": 3, "hasFile": False},
+            {"title": "Have it", "trackNumber": 4, "hasFile": True},
+        ]
+        mock_deferred.return_value = {
+            "Backing off": {"failures": 2, "retry_at": 1234.5},
+            "Given up": {"failures": 5, "retry_at": None},
+        }
+        data = client.get("/api/download/queue/123/tracks").get_json()
+        assert mock_deferred.call_args[0][0] == 123
+        assert (data[0]["failures"], data[0]["retry_at"], data[0]["given_up"]) == (2, 1234.5, False)
+        assert (data[1]["failures"], data[1]["retry_at"], data[1]["given_up"]) == (5, None, True)
+        assert (data[2]["failures"], data[2]["retry_at"], data[2]["given_up"]) == (0, None, False)
+        assert "given_up" not in data[3]
+
+    @patch("app._compute_deferred_tracks", side_effect=RuntimeError("db"))
+    @patch("app.lidarr_request")
+    def test_retry_schedule_failure_still_lists_tracks(
+        self, mock_lidarr, _mock_deferred, client
+    ):
+        mock_lidarr.return_value = [{"title": "T", "trackNumber": 1, "hasFile": False}]
+        data = client.get("/api/download/queue/123/tracks").get_json()
+        assert data[0]["title"] == "T"
+        assert data[0]["given_up"] is False
+
     @patch("app.lidarr_request")
     def test_multi_disc_numbers_match_the_downloaded_files(self, mock_lidarr, client):
         # A manual download names its file from this number; disc 2 track 1

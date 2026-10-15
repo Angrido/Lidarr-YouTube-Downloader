@@ -1901,6 +1901,28 @@
             renderTrackList(albumId, albumTracksCache[albumId]);
         }
 
+        function retryIn(retryAt) {
+            const hours = (retryAt * 1000 - Date.now()) / 3600000;
+            if (hours < 1) return "soon";
+            if (hours < 24) return `in ${Math.round(hours)} h`;
+            const days = Math.round(hours / 24);
+            return `in ${days} day${days === 1 ? "" : "s"}`;
+        }
+
+        // Backoff from processing._compute_deferred_tracks; a manual pick or Add to Queue bypasses it.
+        function retryText(track) {
+            if (track.given_up) return `Gave up after ${track.failures} tries`;
+            if (track.retry_at) return `Retry ${retryIn(track.retry_at)}`;
+            return "";
+        }
+
+        function retryBadge(track) {
+            const text = retryText(track);
+            if (!text) return "";
+            const variant = track.given_up ? "danger" : "warning";
+            return `<span class="ui-badge ui-badge-${variant}" title="Select this track or use Add to Queue to retry it now">${esc(text)}</span>`;
+        }
+
         function renderTrackList(albumId, tracks) {
             const list = $("tracksList");
             if (!tracks || tracks.length === 0) {
@@ -1917,8 +1939,8 @@
                 if (track.has_file) {
                     return `<li><div class="ui-track tl-have"><span class="ui-track-num">${num}</span><div class="tl-text"><div class="ui-track-title bidi">${title}</div><div class="ui-track-meta"><span>In library</span></div></div><span class="tl-go">${UI.icon("check-circle")}<span class="sr-only">In library</span></span></div></li>`;
                 }
-                const label = esc(`Track ${track.track_number}: ${track.title} (missing) - download from a YouTube URL`);
-                return `<li><button type="button" class="ui-track tl-missing" data-track-idx="${idx}" aria-haspopup="dialog" aria-label="${label}"><span class="ui-track-num">${num}</span><span class="tl-text"><span class="ui-track-title bidi">${title}</span><span class="ui-track-meta"><span>Missing · paste a YouTube link</span></span></span><span class="tl-go">${UI.icon("link")}</span></button></li>`;
+                const label = esc(`Track ${track.track_number}: ${track.title} (missing${retryText(track) ? ", " + retryText(track) : ""}) - download from a YouTube URL`);
+                return `<li><button type="button" class="ui-track tl-missing" data-track-idx="${idx}" aria-haspopup="dialog" aria-label="${label}"><span class="ui-track-num">${num}</span><span class="tl-text"><span class="ui-track-title bidi">${title}</span><span class="ui-track-meta"><span>Missing · paste a YouTube link</span>${retryBadge(track)}</span></span><span class="tl-go">${UI.icon("link")}</span></button></li>`;
             }).join("");
         }
 
