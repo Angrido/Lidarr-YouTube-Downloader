@@ -542,6 +542,17 @@ code, kbd, pre, samp {
 .app-content {
     max-width: var(--content-max);
     margin: 0 auto;
+    animation: ui-enter 0.5s var(--ease-out) backwards;
+}
+
+/* UI.stagger(container) (static/motion.js): first 12 children rise in turn. */
+.is-entering > * {
+    animation: ui-enter 0.5s var(--ease-out) backwards;
+    animation-delay: calc(var(--i, 0) * 30ms);
+}
+
+@keyframes ui-enter {
+    from { opacity: 0; transform: translateY(8px); }
 }
 
 .app-content-narrow {
@@ -765,6 +776,7 @@ code, kbd, pre, samp {
 
 .ui-btn:active {
     transform: scale(0.97);
+    transition: transform 90ms var(--ease-spring);
 }
 
 .ui-btn:focus-visible {
@@ -1816,6 +1828,21 @@ tr[data-status="accent"] { --row-status: var(--accent); }
     background-size: 200% 100%;
     box-shadow: 0 0 12px -2px rgba(124, 92, 255, 0.6);
     transition: width var(--dur-slow) var(--ease);
+    overflow: hidden;
+}
+
+/* A highlight travels along bars that are still filling. */
+.ui-progress:not(.ui-progress-success):not(.ui-progress-danger) .ui-progress-bar::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+    transform: translateX(-100%);
+    animation: ui-shimmer 1.8s var(--ease) infinite;
+}
+
+@keyframes ui-shimmer {
+    to { transform: translateX(100%); }
 }
 
 .ui-progress-lg {
@@ -2607,7 +2634,28 @@ body:has(.ui-bulkbar:not([hidden])) .app-main {
 .ui-album:hover .ui-album-cover,
 .ui-album:focus-within .ui-album-cover {
     transform: translateY(-3px);
-    box-shadow: var(--shadow-3);
+    box-shadow: var(--shadow-3), var(--glow, var(--glow-accent));
+}
+
+/* static/motion.js sets --rx/--ry (tilt) and --mx/--my (sheen) while the
+   pointer is over a card; fine pointers only, never under reduced motion. */
+.ui-album.is-tilting .ui-album-cover {
+    transform: perspective(800px) translateY(-3px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
+    transition-duration: 80ms;
+}
+
+.ui-album-cover::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    background: radial-gradient(circle at var(--mx, 50%) var(--my, 0%), rgba(255, 255, 255, 0.28), transparent 55%);
+    transition: opacity var(--dur) var(--ease);
+}
+
+.ui-album.is-tilting .ui-album-cover::after {
+    opacity: 1;
 }
 
 .ui-album-actions {

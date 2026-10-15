@@ -21,3 +21,7 @@ def _run_node(script):
 
 def test_aura_palette():
     _run_node("aura.test.js")
+
+
+def test_motion_helpers():
+    _run_node("motion.test.js")
