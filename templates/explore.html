@@ -552,6 +552,7 @@
         }
 
         .ex-candidate-sub {
+            display: block;
             font-size: var(--text-footnote);
             color: var(--text-2);
         }
@@ -613,6 +614,37 @@
             .ex-top {
                 grid-template-columns: 1fr;
             }
+        }
+        .ex-row.ex-row-lead {
+            grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+        }
+
+        .ex-mt-2 { margin-top: var(--sp-2); }
+        .ex-mb-4 { margin-bottom: var(--sp-4); }
+        .ex-break { overflow-wrap: anywhere; }
+
+        .ex-import-callout {
+            margin-top: var(--sp-3);
+            text-align: left;
+        }
+
+        .ex-import-body {
+            min-width: 0;
+            flex: 1;
+        }
+
+        /* Skeleton placeholder sizes */
+        .ex-skel-w-full { width: 100%; }
+        .ex-skel-w-180 { width: 180px; }
+        .ex-skel-w-90 { width: 90px; }
+        .ex-skel-w-50 { width: 50%; }
+        .ex-skel-w-40 { width: 40%; }
+        .ex-skel-w-30 { width: 30%; }
+        .ex-skel-thumb { width: 44px; height: 44px; }
+        .ex-skel-head-title {
+            width: 60%;
+            height: 34px;
+            margin: var(--sp-3) 0;
         }
     </style>
 </head>
@@ -923,7 +955,7 @@
                 ? `<span class="ui-check ex-row-check"><input type="checkbox" data-select="${esc(item.id)}" ${available ? "checked" : "disabled"} aria-label="Select ${esc(item.title)}"><span class="ui-check-box"></span></span>`
                 : "";
             const rank = opts.rank && item.rank ? `<span class="ex-row-rank">${esc(item.rank)}</span>` : "";
-            return `<div class="ex-row" data-vid="${esc(item.id)}"${available ? "" : ' aria-disabled="true"'} style="${check || rank ? "grid-template-columns: auto auto minmax(0,1fr) auto auto" : ""}">
+            return `<div class="ex-row${check || rank ? " ex-row-lead" : ""}" data-vid="${esc(item.id)}"${available ? "" : ' aria-disabled="true"'}>
                 ${check}${rank}
                 <button type="button" class="ex-row-play${opts.numbers ? " is-number" : ""}" data-play="${list}:${index}" ${available ? "" : "disabled"} aria-label="${available ? "Play preview of " + esc(item.title) : esc(item.title) + " is unavailable"}">${art}<span class="ex-row-icon" aria-hidden="true">${UI.icon("play")}</span></button>
                 <div class="ex-row-main">
@@ -1012,21 +1044,21 @@
 
         function skeletonCards(n, round) {
             let html = "";
-            for (let i = 0; i < n; i++) html += `<div class="ui-album"><div class="ui-skeleton ui-skeleton-cover"${round ? ' style="border-radius:50%"' : ""}></div><div class="ui-album-text"><div class="ui-skeleton ui-skeleton-title"></div><div class="ui-skeleton ui-skeleton-text"></div></div></div>`;
+            for (let i = 0; i < n; i++) html += `<div class="ui-album"><div class="ui-skeleton ui-skeleton-cover${round ? " ui-skeleton-round" : ""}"></div><div class="ui-album-text"><div class="ui-skeleton ui-skeleton-title"></div><div class="ui-skeleton ui-skeleton-text"></div></div></div>`;
             return html;
         }
 
         function skeletonShelf(round) {
-            return `<section class="ui-shelf" aria-hidden="true"><div class="ui-shelf-head"><div class="ui-skeleton ui-skeleton-title" style="width:180px"></div></div><div class="ui-shelf-track">${skeletonCards(7, round)}</div></section>`;
+            return `<section class="ui-shelf" aria-hidden="true"><div class="ui-shelf-head"><div class="ui-skeleton ui-skeleton-title ex-skel-w-180"></div></div><div class="ui-shelf-track">${skeletonCards(7, round)}</div></section>`;
         }
 
         function skeletonHead() {
-            return `<div class="ex-head" aria-hidden="true"><div class="ex-head-cover ui-skeleton"></div><div style="width:100%"><div class="ui-skeleton ui-skeleton-text" style="width:90px"></div><div class="ui-skeleton ui-skeleton-title" style="width:60%;height:34px;margin:12px 0"></div><div class="ui-skeleton ui-skeleton-text" style="width:40%"></div></div></div>`;
+            return `<div class="ex-head" aria-hidden="true"><div class="ex-head-cover ui-skeleton"></div><div class="ex-skel-w-full"><div class="ui-skeleton ui-skeleton-text ex-skel-w-90"></div><div class="ui-skeleton ui-skeleton-title ex-skel-head-title"></div><div class="ui-skeleton ui-skeleton-text ex-skel-w-40"></div></div></div>`;
         }
 
         function skeletonRows(n) {
             let html = '<div class="ex-list" aria-hidden="true">';
-            for (let i = 0; i < n; i++) html += '<div class="ex-row"><div class="ui-skeleton" style="width:44px;height:44px;border-radius:6px"></div><div><div class="ui-skeleton ui-skeleton-title" style="width:50%"></div><div class="ui-skeleton ui-skeleton-text" style="width:30%"></div></div><span></span><span></span></div>';
+            for (let i = 0; i < n; i++) html += '<div class="ex-row"><div class="ui-skeleton ex-skel-thumb"></div><div><div class="ui-skeleton ui-skeleton-title ex-skel-w-50"></div><div class="ui-skeleton ui-skeleton-text ex-skel-w-30"></div></div><span></span><span></span></div>';
             return html + "</div>";
         }
 
@@ -1245,7 +1277,7 @@
         function renderCandidates(candidates) {
             const items = candidates.map((c, i) => `<label class="ex-candidate">
                     <input type="radio" name="candidate" value="${esc(c.foreignAlbumId)}"${i === 0 ? " checked" : ""}>
-                    <span><span class="ex-candidate-title"><bdi>${esc(c.title)}</bdi></span>${c.disambiguation ? ` <span class="ui-muted">(${esc(c.disambiguation)})</span>` : ""}<span class="ex-candidate-sub" style="display:block">${esc(matchSummary(c))}</span></span>
+                    <span><span class="ex-candidate-title"><bdi>${esc(c.title)}</bdi></span>${c.disambiguation ? ` <span class="ui-muted">(${esc(c.disambiguation)})</span>` : ""}<span class="ex-candidate-sub">${esc(matchSummary(c))}</span></span>
                     ${c.inLibrary ? statusBadge(c.missingTracks ? "missing" : "complete") : ""}
                 </label>`).join("");
             $("candidateBox").innerHTML = `<div class="ex-candidates" role="radiogroup" aria-label="MusicBrainz releases">${items}</div>
@@ -1407,13 +1439,13 @@
             const detail = running
                 ? (job.current ? `Now: ${job.current}` : "Starting…")
                 : (job.message || "");
-            box.innerHTML = `<div class="ui-callout ui-callout-${running ? "info" : job.state === "done" ? "success" : "warning"}" style="margin-top:12px;text-align:left">
+            box.innerHTML = `<div class="ui-callout ui-callout-${running ? "info" : job.state === "done" ? "success" : "warning"} ex-import-callout">
                     ${UI.icon(running ? "download" : job.state === "done" ? "check-circle" : "alert")}
-                    <div class="ui-callout-body" style="min-width:0;flex:1">
+                    <div class="ui-callout-body ex-import-body">
                         <div class="ui-callout-title">${esc(title)}</div>
-                        <div class="ui-callout-text"><bdi>${esc(detail)}</bdi>${job.path ? `<br><span class="t-mono t-footnote" style="overflow-wrap:anywhere">${esc(job.path)}</span>` : ""}</div>
-                        ${running ? `<div class="ui-progress" style="margin-top:8px" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}" aria-label="Releases processed"><div class="ui-progress-bar" style="width:${pct}%"></div></div>` : ""}
-                        <div class="ui-row" style="margin-top:8px;flex-wrap:wrap">
+                        <div class="ui-callout-text"><bdi>${esc(detail)}</bdi>${job.path ? `<br><span class="t-mono t-footnote ex-break">${esc(job.path)}</span>` : ""}</div>
+                        ${running ? `<div class="ui-progress ex-mt-2" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${done}" aria-label="Releases processed"><div class="ui-progress-bar" style="width:${pct}%"></div></div>` : ""}
+                        <div class="ui-row ui-row-wrap ex-mt-2">
                             <a class="ui-btn ui-btn-sm ui-btn-tinted" href="/downloads">${UI.icon("download")}Downloads</a>
                             ${running ? `<button type="button" class="ui-btn ui-btn-sm ui-btn-plain" data-action="stop-artist-import">${UI.icon("stop")}Stop after this release</button>` : ""}
                         </div>
@@ -1502,7 +1534,7 @@
         function pickArtist(candidates) {
             $("pickList").innerHTML = candidates.map((c, i) => `<label class="ex-candidate">
                     <input type="radio" name="pick" value="${esc(c.foreignArtistId)}"${i === 0 ? " checked" : ""}>
-                    <span><span class="ex-candidate-title"><bdi>${esc(c.name)}</bdi></span><span class="ex-candidate-sub" style="display:block">${esc([c.disambiguation, c.type, (c.genres || []).join(", ")].filter(Boolean).join(" · ") || "No description on MusicBrainz")}</span></span>
+                    <span><span class="ex-candidate-title"><bdi>${esc(c.name)}</bdi></span><span class="ex-candidate-sub">${esc([c.disambiguation, c.type, (c.genres || []).join(", ")].filter(Boolean).join(" · ") || "No description on MusicBrainz")}</span></span>
                     ${c.inLibrary ? statusBadge("in_library") : ""}
                 </label>`).join("");
             $("pickError").textContent = "";
@@ -1554,7 +1586,7 @@
                         <p class="t-eyebrow">Playlist</p>
                         <h2 class="ex-head-title"><bdi>${esc(p.title)}</bdi></h2>
                         <p class="ex-head-meta">${meta}</p>
-                        ${p.description ? `<p class="ex-head-meta" style="margin-top:8px">${esc(p.description.slice(0, 240))}</p>` : ""}
+                        ${p.description ? `<p class="ex-head-meta ex-mt-2">${esc(p.description.slice(0, 240))}</p>` : ""}
                         <div class="ex-head-actions">
                             <button type="button" class="ui-btn ui-btn-primary" data-action="import-playlist" ${playable ? "" : "disabled"}>${UI.icon("download")}<span id="importLabel">Import ${playable} tracks</span></button>
                             <button type="button" class="ui-btn ui-btn-secondary" data-action="play-all" data-list="${list}" ${playable ? "" : "disabled"}>${UI.icon("play")}Preview</button>
@@ -1597,11 +1629,11 @@
         async function renderMood(seq) {
             const view = $("view");
             setTitle(route.title);
-            view.innerHTML = crumbs() + `<h2 class="section-title" style="margin-bottom:16px">${esc(route.title)}</h2><div class="ui-album-grid">${skeletonCards(10)}</div>`;
+            view.innerHTML = crumbs() + `<h2 class="section-title ex-mb-4">${esc(route.title)}</h2><div class="ui-album-grid">${skeletonCards(10)}</div>`;
             const data = await api("/api/explore/mood/" + enc(route.id));
             if (seq !== viewSeq) return;
             const list = register(data.items);
-            view.innerHTML = crumbs() + `<h2 class="section-title" style="margin-bottom:16px"><bdi>${esc(route.title)}</bdi></h2>` + (data.items.length
+            view.innerHTML = crumbs() + `<h2 class="section-title ex-mb-4"><bdi>${esc(route.title)}</bdi></h2>` + (data.items.length
                 ? `<div class="ui-album-grid">${data.items.map((it, i) => card(it, list, i)).join("")}</div>`
                 : emptyHtml("No playlists", "YouTube Music has no playlists for this mood right now.", {}));
             hydrate(view);
