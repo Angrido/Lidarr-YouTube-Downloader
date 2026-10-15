@@ -116,6 +116,14 @@ _WATCH_PLAYLIST_RE = re.compile(
     r"^https://(?:www\.|m\.|music\.)?youtube\.com/\S*[?&]list=[\w-]+",
 )
 
+# Masked in GET /api/config, dropped from the export. download_client_api_key
+# is left out on purpose: /api/download-client/info shows it for Lidarr.
+SECRET_CONFIG_KEYS = (
+    "telegram_bot_token", "discord_webhook_url", "ntfy_token",
+    "acoustid_api_key", "yt_po_token",
+)
+SECRET_MASK = "********"
+
 ENV_PREFERRED_KEYS = frozenset({
     "lidarr_url", "lidarr_api_key", "download_path",
 })

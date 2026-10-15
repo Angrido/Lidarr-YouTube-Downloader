@@ -33,6 +33,8 @@ import download_client
 import models
 from config import (
     ALLOWED_CONFIG_KEYS,
+    SECRET_CONFIG_KEYS,
+    SECRET_MASK,
     coerce_config_value,
     load_config,
     update_config,
@@ -176,6 +178,8 @@ def _coerce_config_updates(incoming):
         if key not in ALLOWED_CONFIG_KEYS:
             skipped.append(key)
             continue
+        if key in SECRET_CONFIG_KEYS and value == SECRET_MASK:
+            continue  # the mask round-tripped: keep the stored secret
         try:
             updates[key] = coerce_config_value(key, value)
         except ValueError as exc:
@@ -185,7 +189,14 @@ def _coerce_config_updates(incoming):
 
 def _public_config(cfg):
     cfg.pop("lidarr_api_key", None)
+    for key in SECRET_CONFIG_KEYS:
+        if cfg.get(key):
+            cfg[key] = SECRET_MASK
     return cfg
+
+
+def _unmasked(value):
+    return None if value == SECRET_MASK else value
 
 
 def _toggle_config(key, default):
@@ -735,6 +746,8 @@ def api_config():
 def api_config_export():
     config = _public_config(load_config())
     config.pop("path_conflict", None)
+    for key in SECRET_CONFIG_KEYS:
+        config.pop(key, None)
     formatted = json.dumps(config, indent=2, ensure_ascii=False)
     response = Response(formatted, mimetype="application/json")
     response.headers["Content-Disposition"] = "attachment; filename=config.json"
@@ -1047,7 +1060,7 @@ def api_notifications_test_telegram():
             {"success": False, "message": "Too many test requests"}
         ), 429
     payload = _json_object()
-    bot_token = _str_field(payload, "bot_token", nullable=True)
+    bot_token = _unmasked(_str_field(payload, "bot_token", nullable=True))
     chat_id = _str_field(payload, "chat_id", nullable=True)
     if not bot_token or not chat_id:
         cfg = load_config()
@@ -1079,7 +1092,9 @@ def api_notifications_test_discord():
             {"success": False, "message": "Too many test requests"}
         ), 429
     payload = _json_object()
-    webhook_url = _str_field(payload, "webhook_url", nullable=True)
+    webhook_url = _unmasked(
+        _str_field(payload, "webhook_url", nullable=True)
+    )
     if not webhook_url:
         webhook_url = load_config().get("discord_webhook_url", "")
     if not webhook_url.startswith(("http://", "https://")):
@@ -1116,6 +1131,8 @@ def api_notifications_test_ntfy():
     topic = _str_field(payload, "topic", nullable=True)
     server_url = _str_field(payload, "server_url", nullable=True)
     token = payload.get("token")
+    if token == SECRET_MASK:
+        token = load_config().get("ntfy_token", "")
     priority = payload.get("priority")
     if not topic or not server_url:
         cfg = load_config()
