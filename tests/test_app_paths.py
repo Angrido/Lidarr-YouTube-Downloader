@@ -12,7 +12,7 @@ def dual_paths(tmp_path, monkeypatch):
     lidarr_dir = tmp_path / "lidarr"
     download_dir.mkdir()
     lidarr_dir.mkdir()
-    monkeypatch.setattr(app, "DOWNLOAD_DIR", str(download_dir))
+    monkeypatch.setattr("utils.DOWNLOAD_DIR", str(download_dir))
     config = {
         "download_path": str(download_dir),
         "lidarr_path": str(lidarr_dir),

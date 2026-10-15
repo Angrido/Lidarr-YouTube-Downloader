@@ -1061,7 +1061,7 @@ class TestManualTrackDownload:
         mock_fp, client, tmp_path, monkeypatch,
     ):
         dl_path = str(tmp_path / "downloads")
-        monkeypatch.setattr("app.DOWNLOAD_DIR", dl_path)
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", dl_path)
         monkeypatch.setattr("downloader._ffmpeg_postprocess_works", lambda *a, **kw: True)
         monkeypatch.setattr("app.load_config", lambda: {
             "acoustid_enabled": True,
@@ -1136,7 +1136,7 @@ class TestManualTrackDownload:
 
     @patch("app._get_album_cached")
     def test_no_download_path_returns_400(self, mock_album, client, monkeypatch):
-        monkeypatch.setattr("app.DOWNLOAD_DIR", "")
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", "")
         mock_album.return_value = {
             "title": "Album",
             "releaseDate": "2024-01-01",
@@ -1175,7 +1175,7 @@ class TestManualTrackDownload:
         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
     ):
         dl_path = str(tmp_path / "downloads")
-        monkeypatch.setattr("app.DOWNLOAD_DIR", dl_path)
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", dl_path)
         mock_album.return_value = {
             "title": "Album", "releaseDate": "2024-01-01",
             "albumType": "Album", "foreignAlbumId": "m1",
@@ -1217,7 +1217,7 @@ class TestManualTrackDownload:
         self, mock_tag, mock_perms, mock_album, client, tmp_path, monkeypatch,
     ):
         dl_path = str(tmp_path / "downloads")
-        monkeypatch.setattr("app.DOWNLOAD_DIR", dl_path)
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", dl_path)
         mock_album.return_value = {
             "title": "Album", "releaseDate": "2024-01-01",
             "albumType": "Album", "foreignAlbumId": "m1",
@@ -2048,13 +2048,13 @@ class TestPlaylistToLibrary:
     def test_scan_triggered_when_enabled(self, monkeypatch):
         # With playlist_to_library on, Lidarr configured and tracks done, a
         # path-based DownloadedAlbumsScan is requested (issue #79).
-        import app as app_module
+        import youtube_import
         calls = []
         monkeypatch.setattr(
-            app_module, "lidarr_request",
+            youtube_import, "lidarr_request",
             lambda *a, **k: calls.append(k.get("data")) or {"id": 1},
         )
-        app_module._maybe_scan_playlist_into_library(
+        youtube_import._maybe_scan_playlist_into_library(
             {"playlist_to_library": True, "lidarr_url": "http://lidarr:8686"},
             "/music/Artist/Album", 3,
         )
@@ -2063,39 +2063,39 @@ class TestPlaylistToLibrary:
         assert calls[0]["path"] == "/music/Artist/Album"
 
     def test_scan_skipped_when_disabled(self, monkeypatch):
-        import app as app_module
+        import youtube_import
         calls = []
         monkeypatch.setattr(
-            app_module, "lidarr_request",
+            youtube_import, "lidarr_request",
             lambda *a, **k: calls.append(1),
         )
-        app_module._maybe_scan_playlist_into_library(
+        youtube_import._maybe_scan_playlist_into_library(
             {"playlist_to_library": False, "lidarr_url": "http://lidarr:8686"},
             "/music/Artist/Album", 3,
         )
         assert calls == []
 
     def test_scan_skipped_when_nothing_downloaded(self, monkeypatch):
-        import app as app_module
+        import youtube_import
         calls = []
         monkeypatch.setattr(
-            app_module, "lidarr_request",
+            youtube_import, "lidarr_request",
             lambda *a, **k: calls.append(1),
         )
-        app_module._maybe_scan_playlist_into_library(
+        youtube_import._maybe_scan_playlist_into_library(
             {"playlist_to_library": True, "lidarr_url": "http://lidarr:8686"},
             "/music/Artist/Album", 0,
         )
         assert calls == []
 
     def test_scan_skipped_without_lidarr_url(self, monkeypatch):
-        import app as app_module
+        import youtube_import
         calls = []
         monkeypatch.setattr(
-            app_module, "lidarr_request",
+            youtube_import, "lidarr_request",
             lambda *a, **k: calls.append(1),
         )
-        app_module._maybe_scan_playlist_into_library(
+        youtube_import._maybe_scan_playlist_into_library(
             {"playlist_to_library": True, "lidarr_url": ""},
             "/music/Artist/Album", 3,
         )
@@ -2769,7 +2769,7 @@ class TestManualDownloadTrackNumber:
     ):
         import app as app_module
         seen = {}
-        monkeypatch.setattr("app.DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
         monkeypatch.setattr(app_module, "_get_album_cached", lambda aid: {
             "title": "Album", "artist": {"artistName": "Artist"},
             "images": [],
@@ -2987,7 +2987,8 @@ class TestQueueIdValidation:
 class TestJsonBodyValidation:
     @pytest.fixture(autouse=True)
     def _bypass_rate_limit(self):
-        with patch("app.check_rate_limit", return_value=True):
+        with patch("app.check_rate_limit", return_value=True), \
+                patch("youtube_import.check_rate_limit", return_value=True):
             yield
 
     def test_youtube_search_null_query(self, client):
@@ -3201,8 +3202,9 @@ class TestExploreRoutes:
         import app as app_module
         import explore
         library = tmp_path / "music"
-        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
         monkeypatch.setattr(app_module, "load_config", lambda: {"lidarr_path": str(library)})
+        monkeypatch.setattr("youtube_import.load_config", lambda: {"lidarr_path": str(library)})
         monkeypatch.setattr(explore, "import_plan", lambda payload: {
             "artist_name": "Eminem", "album_title": "Revival",
             "entries": [{"url": "https://music.youtube.com/watch?v=iKLU7z_xdYQ", "title": "Walk On Water"}],
@@ -3282,7 +3284,7 @@ class TestExploreArtistImport:
         monkeypatch.setattr(app_module, "_artist_import_plan", lambda cid: copy.deepcopy(plan or self.PLAN))
         library = tmp_path / "music"
         monkeypatch.setattr(app_module, "load_config", lambda: {"lidarr_path": str(library)})
-        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
         return library
 
     def test_plan_endpoint(self, client, monkeypatch, tmp_path):
@@ -3339,7 +3341,7 @@ class TestExploreArtistImport:
         import explore
         library = tmp_path / "music"
         config = {"lidarr_path": str(library)}
-        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", "")
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", "")
         calls = []
         attempts = {"n": 0}
 
@@ -3375,7 +3377,7 @@ class TestExploreArtistImport:
         import app as app_module
         import explore
         config = {"lidarr_path": str(tmp_path / "music")}
-        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", "")
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", "")
         ran = []
 
         def fake_release(release, artist):
@@ -3400,10 +3402,10 @@ class TestExploreArtistImport:
         assert state["failed"] == 1 and state["state"] == "stopped"
 
     def test_playlist_download_tags_year_and_embeds_cover(self, monkeypatch, tmp_path):
-        import app as app_module
+        import youtube_import
         target = tmp_path / "downloads" / "Zo killeuh" / "Galsen (2021)"
         config = {"audio_format": "mp3"}
-        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
         tagged = []
 
         def fake_dl(candidate, output_path, **kw):
@@ -3419,11 +3421,11 @@ class TestExploreArtistImport:
 
         import requests
         monkeypatch.setattr(requests, "get", lambda *a, **k: FakeResp())
-        monkeypatch.setattr(app_module, "download_youtube_candidate", fake_dl)
-        monkeypatch.setattr(app_module, "tag_audio_file", lambda path, info, album, cover: tagged.append((album["releaseDate"], cover)))
-        monkeypatch.setattr(app_module, "send_notifications", lambda *a, **k: None)
-        monkeypatch.setattr(app_module, "set_permissions", lambda *a, **k: None)
-        ok = app_module._execute_playlist_download(
+        monkeypatch.setattr(youtube_import, "download_youtube_candidate", fake_dl)
+        monkeypatch.setattr(youtube_import, "tag_audio_file", lambda path, info, album, cover: tagged.append((album["releaseDate"], cover)))
+        monkeypatch.setattr(youtube_import, "send_notifications", lambda *a, **k: None)
+        monkeypatch.setattr(youtube_import, "set_permissions", lambda *a, **k: None)
+        ok = youtube_import._execute_playlist_download(
             "Zo killeuh", "Galsen", [{"url": "https://music.youtube.com/watch?v=aaaaaaaaaaa", "title": "One"}],
             str(target), config, "https://lh3.googleusercontent.com/x=w1200-h1200", "", "2021",
         )
@@ -3434,22 +3436,22 @@ class TestExploreArtistImport:
 
 class TestImportArtistImage:
     def test_only_for_artist_folders(self, monkeypatch, tmp_path):
-        import app as app_module
+        import youtube_import
         seen = []
         monkeypatch.setattr(
-            app_module, "ensure_artist_image",
+            youtube_import, "ensure_artist_image",
             lambda artist_dir, name, urls, fallbacks=(): seen.append((artist_dir, name, list(urls))) or "saved",
         )
         base = tmp_path / "downloads"
-        app_module._ensure_import_artist_image(str(base / "Zo killeuh" / "Galsen (2021)"), "Zo killeuh", "Galsen")
-        app_module._ensure_import_artist_image(str(base / "My Playlist"), "", "My Playlist")
-        app_module._ensure_import_artist_image(str(base / "Other" / "Album"), "Zo killeuh", "Album")
+        youtube_import._ensure_import_artist_image(str(base / "Zo killeuh" / "Galsen (2021)"), "Zo killeuh", "Galsen")
+        youtube_import._ensure_import_artist_image(str(base / "My Playlist"), "", "My Playlist")
+        youtube_import._ensure_import_artist_image(str(base / "Other" / "Album"), "Zo killeuh", "Album")
         assert seen == [(str(base / "Zo killeuh"), "Zo killeuh", [])]
 
     def test_playlist_download_calls_it_after_success(self, monkeypatch, tmp_path):
-        import app as app_module
+        import youtube_import
         target = tmp_path / "downloads" / "Zo killeuh" / "Galsen"
-        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
         called = []
 
         def fake_dl(candidate, output_path, **kw):
@@ -3457,11 +3459,11 @@ class TestImportArtistImage:
                 f.write(b"AUDIO")
             return {"success": True, "youtube_title": candidate["title"]}
 
-        monkeypatch.setattr(app_module, "download_youtube_candidate", fake_dl)
-        monkeypatch.setattr(app_module, "tag_audio_file", lambda *a, **k: None)
-        monkeypatch.setattr(app_module, "send_notifications", lambda *a, **k: None)
-        monkeypatch.setattr(app_module, "_ensure_import_artist_image", lambda *a: called.append(a))
-        app_module._execute_playlist_download(
+        monkeypatch.setattr(youtube_import, "download_youtube_candidate", fake_dl)
+        monkeypatch.setattr(youtube_import, "tag_audio_file", lambda *a, **k: None)
+        monkeypatch.setattr(youtube_import, "send_notifications", lambda *a, **k: None)
+        monkeypatch.setattr(youtube_import, "_ensure_import_artist_image", lambda *a: called.append(a))
+        youtube_import._execute_playlist_download(
             "Zo killeuh", "Galsen", [{"url": "https://music.youtube.com/watch?v=aaaaaaaaaaa", "title": "One"}],
             str(target), {"audio_format": "mp3"},
         )
@@ -3472,12 +3474,12 @@ class TestPlaylistWatch:
     """Issue #96: watched playlists import each new full-album upload once."""
 
     def test_imports_only_new_videos_and_waits_for_the_slot(self, monkeypatch, tmp_path):
-        import app as app_module
+        import youtube_import
         import models
 
         library = tmp_path / "downloads"
         config = {"yt_watch_playlists": ["https://www.youtube.com/playlist?list=PLwatch"]}
-        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", str(library))
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(library))
         models.add_track_download(
             album_id=-1, album_title="Old", artist_name="A", track_title="Old",
             track_number=1, success=False, error_message="x",
@@ -3485,7 +3487,7 @@ class TestPlaylistWatch:
             youtube_title="", match_score=0, duration_seconds=0,
             album_path="", lidarr_album_path="", cover_url="",
         )
-        monkeypatch.setattr(app_module, "_flat_youtube_info", lambda url, cfg: {"entries": [
+        monkeypatch.setattr(youtube_import, "_flat_youtube_info", lambda url, cfg: {"entries": [
             {"id": "oldoldold01", "title": "A - Old"},
             {"id": "newnewnew01", "title": "Can - Tago Mago (1971) [Full Album, Vinyl Rip]",
              "channel": "rips"},
@@ -3498,8 +3500,8 @@ class TestPlaylistWatch:
             calls.append((artist, album, entries, target, thumb, year))
             return False if len(calls) == 1 else None
 
-        monkeypatch.setattr(app_module, "_execute_playlist_download", fake_execute)
-        app_module._watch_playlists_once(config)
+        monkeypatch.setattr(youtube_import, "_execute_playlist_download", fake_execute)
+        youtube_import._watch_playlists_once(config)
         expected = (
             "Can", "Tago Mago",
             [{"title": "Tago Mago", "url": "https://www.youtube.com/watch?v=newnewnew01"}],
@@ -3510,17 +3512,17 @@ class TestPlaylistWatch:
         assert calls == [expected, expected]
 
     def test_unreadable_playlist_is_skipped(self, monkeypatch):
-        import app as app_module
+        import youtube_import
 
         def boom(url, cfg):
             raise RuntimeError("private playlist")
 
-        monkeypatch.setattr(app_module, "_flat_youtube_info", boom)
+        monkeypatch.setattr(youtube_import, "_flat_youtube_info", boom)
         monkeypatch.setattr(
-            app_module, "_execute_playlist_download",
+            youtube_import, "_execute_playlist_download",
             lambda *a: pytest.fail("nothing to download"),
         )
-        app_module._watch_playlists_once({
+        youtube_import._watch_playlists_once({
             "yt_watch_playlists": ["https://www.youtube.com/playlist?list=PLx"],
             "download_path": "/tmp",
         })
