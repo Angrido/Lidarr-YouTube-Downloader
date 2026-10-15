@@ -1488,6 +1488,43 @@ def clean_video_title(title, artist_name=""):
     return text or (title or "").strip()
 
 
+_ALBUM_UPLOAD_NOISE_RE = re.compile(
+    r"\b(?:full\s+(?:album|lp|ep)|vinyl(?:\s+rip)?|lp\s+rip|rip|"
+    r"remaster(?:ed)?|complete\s+album)\b",
+    re.I,
+)
+_FULL_ALBUM_RE = re.compile(r"\bfull\s+(?:album|lp|ep)\b", re.I)
+_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+_ARTIST_SEP_RE = re.compile(r"\s+[-–—]\s+")
+
+
+def album_from_video_title(title, channel=""):
+    """Split a full-album upload's title into (artist, album, year).
+
+    "Artist - Album (1974) [Full Album, Vinyl Rip]" → ("Artist", "Album",
+    "1974"). Without an "Artist - " prefix the channel is the artist.
+    """
+    text = clean_video_title(title)
+    years = []
+
+    def drop(match):
+        inner = match.group(1)
+        if re.sub(r"[\W_]+", "", _YEAR_RE.sub("", _ALBUM_UPLOAD_NOISE_RE.sub("", inner))):
+            return match.group(0)
+        years.extend(_YEAR_RE.findall(inner))
+        return " "
+
+    text = _FULL_ALBUM_RE.sub(" ", _VIDEO_BRACKET_RE.sub(drop, text))
+    parts = _ARTIST_SEP_RE.split(text, maxsplit=1)
+    if len(parts) == 2 and parts[0].strip() and parts[1].strip():
+        artist, album = parts
+    else:
+        artist = re.sub(r"\s+-\s+Topic$", "", channel or "")
+        album = text
+    clean = lambda s: " ".join(s.split()).strip(" -–—|:_,")
+    return clean(artist), clean(album) or (title or "").strip(), (years or [""])[0]
+
+
 def _unproxy(path):
     if not path or not path.startswith("/api/thumbnail?url="):
         return ""

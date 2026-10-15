@@ -3377,3 +3377,73 @@ class TestImportArtistImage:
             str(target), {"audio_format": "mp3"},
         )
         assert called == [(str(target), "Zo killeuh", "Galsen")]
+
+
+class TestPlaylistWatch:
+    """Issue #96: watched playlists import each new full-album upload once."""
+
+    def test_imports_only_new_videos_and_waits_for_the_slot(self, monkeypatch, tmp_path):
+        import app as app_module
+        import models
+
+        library = tmp_path / "downloads"
+        config = {"yt_watch_playlists": ["https://www.youtube.com/playlist?list=PLwatch"]}
+        monkeypatch.setattr(app_module, "DOWNLOAD_DIR", str(library))
+        models.add_track_download(
+            album_id=-1, album_title="Old", artist_name="A", track_title="Old",
+            track_number=1, success=False, error_message="x",
+            youtube_url="https://www.youtube.com/watch?v=oldoldold01",
+            youtube_title="", match_score=0, duration_seconds=0,
+            album_path="", lidarr_album_path="", cover_url="",
+        )
+        monkeypatch.setattr(app_module, "_flat_youtube_info", lambda url, cfg: {"entries": [
+            {"id": "oldoldold01", "title": "A - Old"},
+            {"id": "newnewnew01", "title": "Can - Tago Mago (1971) [Full Album, Vinyl Rip]",
+             "channel": "rips"},
+            {"id": "bad id", "title": "ignored"},
+            None,
+        ]})
+        calls = []
+
+        def fake_execute(artist, album, entries, target, cfg, thumb, source, year):
+            calls.append((artist, album, entries, target, thumb, year))
+            return False if len(calls) == 1 else None
+
+        monkeypatch.setattr(app_module, "_execute_playlist_download", fake_execute)
+        app_module._watch_playlists_once(config)
+        expected = (
+            "Can", "Tago Mago",
+            [{"title": "Tago Mago", "url": "https://www.youtube.com/watch?v=newnewnew01"}],
+            os.path.join(str(library), "Can", "Tago Mago (1971)"),
+            "https://i.ytimg.com/vi/newnewnew01/hqdefault.jpg", "1971",
+        )
+        # Busy slot (False) → retried; the old, already-attempted video is skipped.
+        assert calls == [expected, expected]
+
+    def test_unreadable_playlist_is_skipped(self, monkeypatch):
+        import app as app_module
+
+        def boom(url, cfg):
+            raise RuntimeError("private playlist")
+
+        monkeypatch.setattr(app_module, "_flat_youtube_info", boom)
+        monkeypatch.setattr(
+            app_module, "_execute_playlist_download",
+            lambda *a: pytest.fail("nothing to download"),
+        )
+        app_module._watch_playlists_once({
+            "yt_watch_playlists": ["https://www.youtube.com/playlist?list=PLx"],
+            "download_path": "/tmp",
+        })
+
+    def test_config_rejects_non_playlist_urls(self, client):
+        with patch("app.check_rate_limit", return_value=True):
+            bad = client.post("/api/config", json={"yt_watch_playlists": ["https://evil.example/?list=x"]})
+            good = client.post("/api/config", json={"yt_watch_playlists": [
+                " https://www.youtube.com/playlist?list=PLabc_-1 ", "",
+            ]})
+        assert bad.status_code == 400
+        assert good.status_code == 200
+        assert client.get("/api/config").get_json()["yt_watch_playlists"] == [
+            "https://www.youtube.com/playlist?list=PLabc_-1",
+        ]

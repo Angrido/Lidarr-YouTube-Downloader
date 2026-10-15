@@ -68,6 +68,7 @@ ALLOWED_CONFIG_KEYS = {
     "search_artist_source",
     "save_lyrics", "apply_replaygain",
     "explore_country", "explore_language",
+    "yt_watch_playlists",
 }
 
 EXPLORE_LANGUAGES = frozenset({
@@ -106,8 +107,13 @@ BOOL_CONFIG_KEYS = frozenset({
 
 LIST_CONFIG_KEYS = frozenset({
     "telegram_log_types", "discord_log_types", "ntfy_log_types",
-    "forbidden_words", "forbidden_words_custom",
+    "forbidden_words", "forbidden_words_custom", "yt_watch_playlists",
 })
+
+# A watched playlist must be a YouTube / YT Music URL carrying a list id.
+_WATCH_PLAYLIST_RE = re.compile(
+    r"^https://(?:www\.|m\.|music\.)?youtube\.com/\S*[?&]list=[\w-]+",
+)
 
 ENV_PREFERRED_KEYS = frozenset({
     "lidarr_url", "lidarr_api_key", "download_path",
@@ -220,6 +226,10 @@ def coerce_config_value(key, value):
                 isinstance(item, str) for item in value
             ):
                 raise ValueError("expected a list of strings")
+            if key == "yt_watch_playlists":
+                value = [url.strip() for url in value if url.strip()]
+                if not all(_WATCH_PLAYLIST_RE.match(url) for url in value):
+                    raise ValueError("expected YouTube playlist URLs")
             return value
         if isinstance(value, str):
             return value
@@ -373,6 +383,9 @@ def _env_config():
         # files land where Jellyfin/Lidarr look instead of only the download
         # folder. Default false keeps the legacy download-folder-only flow.
         "playlist_to_library": _env_bool("PLAYLIST_TO_LIBRARY", False),
+        # YouTube playlists checked periodically: every video not yet
+        # downloaded is imported as one album (issue #96).
+        "yt_watch_playlists": [],
         "path_conflict": False,
     }
 

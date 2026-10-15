@@ -666,6 +666,16 @@ def get_banned_urls_for_album(album_id):
     return [{"id": row[0], "youtube_url": row[1]} for row in rows]
 
 
+def get_track_download_youtube_urls():
+    """Every YouTube URL ever attempted (success or failure), as a set."""
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT DISTINCT youtube_url FROM track_downloads"
+        " WHERE youtube_url != ''"
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
 # --- Queue ---
 
 

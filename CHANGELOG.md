@@ -55,6 +55,11 @@
   then YouTube Music); an existing image is never replaced.
 - Lidarr validation errors (HTTP 400) are now reported in plain words.
 - The Library accepts `/?q=` to open with a search.
+- **Watched YouTube playlists** (Settings → Library & metadata, issue #96):
+  every hour each video of the listed playlists that hasn't been
+  downloaded yet is imported as one album — "Artist - Album (1974) [Full
+  Album]" becomes `Artist/Album (1974)/`. Made for full-album uploads such
+  as vinyl rips.
 
 ### Changed
 - **A completely redesigned interface.** Every page now shares one design
@@ -189,6 +194,10 @@
 - "Recent imports" on the YouTube page was always empty.
 
 ### Fixed — interface
+- A queue of thousands of albums showed up empty on the Downloads page
+  (one Lidarr call per album before anything appeared), so it could not
+  be cleared. The queue now loads from the local cache in one query and
+  albums Lidarr can't resolve are listed as "Album #id" (issue #95).
 - Many UI bugs found in an audit: Save reporting success on errors,
   double-submits (manual downloads, add to queue, toggles), XSS through
   server messages and cover URLs, Esc/focus handling in dialogs, keyboard

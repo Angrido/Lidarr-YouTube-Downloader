@@ -643,6 +643,17 @@ class TestArtistImport:
     def test_clean_video_title(self, raw, artist, expected):
         assert explore.clean_video_title(raw, artist) == expected
 
+    @pytest.mark.parametrize("raw,channel,expected", [
+        ("Can - Tago Mago (1971) [Full Album, Vinyl Rip]", "rips", ("Can", "Tago Mago", "1971")),
+        ("Goblin – Roller [1976] Full Album", "", ("Goblin", "Roller", "1976")),
+        ("Pink Floyd - Animals (Remastered 2018) (Official Audio)", "", ("Pink Floyd", "Animals", "2018")),
+        ("Tago Mago (Full LP)", "Can - Topic", ("Can", "Tago Mago", "")),
+        ("Kraftwerk - Live at Budokan (1981 Tour) [Vinyl]", "", ("Kraftwerk", "Live at Budokan (1981 Tour)", "")),
+        ("Hyphen-ated Name - Album", "", ("Hyphen-ated Name", "Album", "")),
+    ])
+    def test_album_from_video_title(self, raw, channel, expected):
+        assert explore.album_from_video_title(raw, channel) == expected
+
     def test_plan_lists_albums_and_singles(self, yt):
         plan = explore.artist_import_plan("UCUDVBtnOQi4c7E8jebpjc9Q")
         assert plan["mode"] == "releases"

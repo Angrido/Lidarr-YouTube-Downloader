@@ -832,6 +832,9 @@
                                 {{ switch_row('coverArtBtn', 'Save cover.jpg in album folder', 'Write the album artwork as cover.jpg next to the audio files. Disable to save disk space if you don&#39;t want artwork stored on disk. (Cover is still embedded in ID3 tags and used for notifications regardless.)', 'disc', 'pink', '/api/cover_art/toggle', 'save_cover_art_file') }}
                                 {{ switch_row('saveLyricsBtn', 'Save synced lyrics (.lrc)', 'Fetch time-synced lyrics from <a href="https://lrclib.net" target="_blank" rel="noopener">LRCLIB</a> and write a <code>.lrc</code> file next to each track, so Jellyfin/Navidrome/Plex can show synced lyrics. Falls back to plain lyrics when synced aren&#39;t available.', 'list-music', 'teal') }}
                                 {{ switch_row('playlistToLibraryBtn', 'Save YouTube playlist imports to library', 'For “Playlist creation from YouTube”: write the downloaded tracks into your Lidarr music library path (instead of only the download folder) and ask Lidarr to scan them, so they show up in Jellyfin/Lidarr (Lidarr imports whatever it can match). Requires LIDARR_PATH configured. Off keeps the files in the download folder only.', 'youtube', 'danger') }}
+                                {% call stack_row('watchPlaylists', 'Watched YouTube playlists', 'One playlist URL per line. Every hour, each video not downloaded yet is imported as one album — a title like “Artist - Album (1974) [Full Album]” becomes <code>Artist/Album (1974)/</code>. Made for full-album uploads such as vinyl rips. Follows “Save YouTube playlist imports to library” for where the files go.', 'list-music', 'danger') %}
+                                <textarea class="ui-textarea t-mono" id="watchPlaylists" rows="3" placeholder="https://www.youtube.com/playlist?list=…" autocomplete="off" spellcheck="false" aria-describedby="watchPlaylists-desc"></textarea>
+                                {% endcall %}
                             </div>
                         </div>
                         <div class="settings-group">
@@ -1327,6 +1330,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             $('ytdlpFormat').value = conf.ytdlp_format || '';
             setSwitch('audioNormalizeBtn', conf.audio_normalize === true);
             setSwitch('playlistToLibraryBtn', conf.playlist_to_library === true);
+            $('watchPlaylists').value = (conf.yt_watch_playlists || []).join('\n');
             setSwitch('replayGainBtn', conf.apply_replaygain === true);
             setSwitch('saveLyricsBtn', conf.save_lyrics === true);
             $('ytPoToken').value = conf.yt_po_token || '';
@@ -1392,6 +1396,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 ytdlp_format: ($('ytdlpFormat').value || '').trim(),
                 audio_normalize: $('audioNormalizeBtn').checked,
                 playlist_to_library: $('playlistToLibraryBtn').checked,
+                yt_watch_playlists: ($('watchPlaylists').value || '').split('\n').map(function (s) { return s.trim(); }).filter(Boolean),
                 apply_replaygain: $('replayGainBtn').checked,
                 save_lyrics: $('saveLyricsBtn').checked,
                 yt_po_token: ($('ytPoToken').value || '').trim(),

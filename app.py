@@ -697,6 +697,8 @@ def api_config():
         return jsonify({"success": False, "message": "Too many requests"}), 429
     updates, _ = _coerce_config_updates(_json_object())
     update_config(lambda cfg: cfg.update(updates))
+    if updates.get("yt_watch_playlists"):
+        _watch_wakeup.set()
     return jsonify({"success": True})
 
 
@@ -3176,24 +3178,10 @@ def youtube_import():
     return render_template("youtube.html")
 
 
-@app.route("/api/youtube/playlist/info", methods=["POST"])
-def api_youtube_playlist_info():
-    client_ip = request.remote_addr or "unknown"
-    if not check_rate_limit(
-        f"playlist_info:{client_ip}", rate_limit_store, window=5, max_requests=3
-    ):
-        return jsonify({"error": "Too many requests"}), 429
-
-    url = _str_field(_json_object(), "url")
-    if not url:
-        return jsonify({"error": "Missing URL"}), 400
-
-    if not _validate_youtube_url_for_playlist(url):
-        return jsonify({"error": "Invalid YouTube URL"}), 400
-
+def _flat_youtube_info(url, config):
+    """yt-dlp info for a video or playlist, entries listed without download."""
     import yt_dlp
 
-    config = load_config()
     ydl_opts = {
         "quiet": True,
         "no_warnings": True,
@@ -3211,10 +3199,27 @@ def api_youtube_playlist_info():
     pc = config.get("yt_player_client", "android")
     if pc:
         ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        return ydl.extract_info(url, download=False)
+
+
+@app.route("/api/youtube/playlist/info", methods=["POST"])
+def api_youtube_playlist_info():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"playlist_info:{client_ip}", rate_limit_store, window=5, max_requests=3
+    ):
+        return jsonify({"error": "Too many requests"}), 429
+
+    url = _str_field(_json_object(), "url")
+    if not url:
+        return jsonify({"error": "Missing URL"}), 400
+
+    if not _validate_youtube_url_for_playlist(url):
+        return jsonify({"error": "Invalid YouTube URL"}), 400
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
+        info = _flat_youtube_info(url, load_config())
 
         if not info:
             return jsonify({"error": "Could not extract info from URL"}), 404
@@ -3542,15 +3547,7 @@ def _start_playlist_import(
             artist_name, album_title, validated_entries, target_path, config,
             thumbnail_url, source_url, release_year,
         )
-    # When "save playlist imports to the music library" is on, write under
-    # LIDARR_PATH so the files land where Jellyfin/Lidarr look (issue #79);
-    # otherwise keep the legacy download-folder location.
-    if config.get("playlist_to_library") and (
-        config.get("lidarr_path") or ""
-    ).strip():
-        write_base = config["lidarr_path"].strip()
-    else:
-        write_base = _resolve_write_base(config)
+    write_base = _playlist_write_base(config)
     if not write_base:
         return jsonify(
             {"success": False, "message": "No download path configured"}
@@ -3563,6 +3560,88 @@ def _start_playlist_import(
         artist_name, album_title, validated_entries, target_path, config,
         thumbnail_url, source_url, release_year,
     )
+
+
+def _playlist_write_base(config):
+    # When "save playlist imports to the music library" is on, write under
+    # LIDARR_PATH so the files land where Jellyfin/Lidarr look (issue #79);
+    # otherwise keep the legacy download-folder location.
+    if config.get("playlist_to_library") and (
+        config.get("lidarr_path") or ""
+    ).strip():
+        return config["lidarr_path"].strip()
+    return _resolve_write_base(config)
+
+
+# Watched playlists (issue #96): each video is one full-album upload (vinyl
+# rips and the like), imported as Artist/Album (Year)/01 - Album.<ext>.
+WATCH_INTERVAL_SECONDS = 3600
+_watch_wakeup = threading.Event()
+
+
+def _watch_playlists_once(config):
+    """Import every video of the watched playlists not downloaded yet.
+
+    A video counts as done once it has any track_downloads row (success or
+    failure); failed ones are retried from the failed-tracks view, so a
+    video that isn't downloadable doesn't cost a full attempt every cycle.
+    """
+    urls = config.get("yt_watch_playlists") or []
+    if not urls:
+        return
+    seen = models.get_track_download_youtube_urls()
+    base = _playlist_write_base(config)
+    if not base:
+        logger.warning("Playlist watch: no download path configured")
+        return
+    for playlist_url in urls:
+        try:
+            info = _flat_youtube_info(playlist_url, config) or {}
+        except Exception as e:
+            logger.warning("Playlist watch: cannot read %s: %s", playlist_url, e)
+            continue
+        for entry in info.get("entries") or []:
+            video_id = (entry or {}).get("id") or ""
+            if not re.match(r"^[\w-]{11}$", video_id):
+                continue
+            video_url = f"https://www.youtube.com/watch?v={video_id}"
+            if video_url in seen:
+                continue
+            artist, album, year = explore.album_from_video_title(
+                entry.get("title") or "",
+                entry.get("channel") or entry.get("uploader") or "",
+            )
+            artist = artist or "Unknown artist"
+            target = os.path.join(
+                base, sanitize_filename(artist) or "Unknown artist",
+                _release_folder(album, year),
+            )
+            if not _validate_target_path(target, config):
+                continue
+            logger.info("Playlist watch: new upload %s — %s", artist, album)
+            # Wait for the download slot like the artist import does; the
+            # Lidarr queue can keep it busy for a long time.
+            while _execute_playlist_download(
+                artist, album, [{"title": album, "url": video_url}], target,
+                config, f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+                playlist_url, year,
+            ) is False:
+                pass
+            seen.add(video_url)
+
+
+def _playlist_watch_loop():
+    timeout = 60  # first check shortly after startup
+    while True:
+        _watch_wakeup.wait(timeout)
+        timeout = WATCH_INTERVAL_SECONDS
+        _watch_wakeup.clear()
+        try:
+            _watch_playlists_once(load_config())
+        except Exception:
+            logger.exception("Playlist watch failed; will retry next cycle")
+        finally:
+            db.close_db()
 
 
 def _launch_playlist_import(
@@ -4197,6 +4276,7 @@ if __name__ == "__main__":
     threading.Thread(target=process_download_queue, daemon=True).start()
     threading.Thread(target=_startup_ytdlp_update, daemon=True).start()
     threading.Thread(target=lidarr_sync.sync_loop, daemon=True).start()
+    threading.Thread(target=_playlist_watch_loop, daemon=True).start()
     lidarr_sync.trigger_sync()
     flask_host = os.environ.get("FLASK_HOST", "0.0.0.0")
     flask_port = int(os.environ.get("FLASK_PORT", "5000"))
