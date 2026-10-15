@@ -17,6 +17,10 @@ from processing import download_process, queue_lock
 
 logger = logging.getLogger(__name__)
 
+# Albums last reported with auto-download off: nothing gets attempted, so
+# nothing cools down, and the same list would be re-notified every cycle.
+_last_reported_ids = set()
+
 
 def scheduled_check():
     """Check Lidarr for new missing albums and optionally queue them."""
@@ -95,18 +99,28 @@ def _scheduled_check():
         for album in new_albums:
             models.enqueue_album(album["id"])
     else:
+        global _last_reported_ids
+        ids = {a["id"] for a in new_albums}
+        fresh = len(ids - _last_reported_ids)
+        _last_reported_ids = ids
+        if not fresh:
+            logger.debug(
+                f"Scheduler: {len(ids)} missing albums, none new"
+                " (Auto-Download disabled)"
+            )
+            return
         logger.info(
-            f"Scheduler: Found {len(new_albums)} missing albums"
+            f"Scheduler: Found {fresh} missing albums"
             " (Auto-Download disabled)"
         )
         send_notifications(
-            f"Scheduler: Found {len(new_albums)} missing albums"
+            f"Scheduler: Found {fresh} missing albums"
             " (Auto-DL Disabled)",
             log_type="download_started",
             embed_data={
                 "title": "Scheduler",
                 "description": (
-                    f"Found {len(new_albums)} missing albums"
+                    f"Found {fresh} missing albums"
                     " (Auto-DL Disabled)"
                 ),
                 "color": 0xE67E22,

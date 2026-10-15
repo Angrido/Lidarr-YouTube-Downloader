@@ -47,3 +47,44 @@ def test_scheduled_check_failure_keeps_job_scheduled(monkeypatch):
     job.next_run = datetime.datetime.now() - datetime.timedelta(seconds=1)
     runner.run_pending()
     assert job.next_run > datetime.datetime.now()
+
+
+def test_auto_download_off_notifies_only_new_albums(monkeypatch):
+    import processing
+
+    albums = [
+        {"id": 1, "missingTrackCount": 3},
+        {"id": 2, "missingTrackCount": 1},
+    ]
+    sent = []
+    monkeypatch.setitem(processing.download_process, "active", False)
+    monkeypatch.setattr(scheduler, "_last_reported_ids", set())
+    monkeypatch.setattr(
+        scheduler,
+        "load_config",
+        lambda: {
+            "scheduler_auto_download": False,
+            "scheduler_retry_after_hours": 0,
+        },
+    )
+    monkeypatch.setattr(scheduler, "get_missing_albums", lambda: list(albums))
+    monkeypatch.setattr(
+        scheduler.models, "get_history_album_ids_since", lambda ts: set()
+    )
+    monkeypatch.setattr(
+        scheduler.models, "get_attempted_album_ids_since", lambda ts: set()
+    )
+    monkeypatch.setattr(scheduler.models, "get_queue", lambda: [])
+    monkeypatch.setattr(
+        scheduler, "send_notifications", lambda msg, **kw: sent.append(msg)
+    )
+
+    scheduler._scheduled_check()
+    scheduler._scheduled_check()
+    assert sent == ["Scheduler: Found 2 missing albums (Auto-DL Disabled)"]
+
+    albums.append({"id": 3, "missingTrackCount": 2})
+    scheduler._scheduled_check()
+    assert sent[1:] == [
+        "Scheduler: Found 1 missing albums (Auto-DL Disabled)"
+    ]
