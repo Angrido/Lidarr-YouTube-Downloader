@@ -3860,6 +3860,61 @@ class TestPlaylistWatch:
         # Busy slot (False) → retried; the old, already-attempted video is skipped.
         assert calls == [expected, expected]
 
+    def _one_new_video(self, monkeypatch, tmp_path):
+        import youtube_import
+
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        monkeypatch.setattr(youtube_import, "_flat_youtube_info", lambda url, cfg: {"entries": [
+            {"id": "newnewnew01", "title": "Can - Tago Mago (1971) [Full Album]"},
+        ]})
+        return {"yt_watch_playlists": ["https://www.youtube.com/playlist?list=PLwatch"]}
+
+    def test_waits_while_the_queue_is_paused(self, monkeypatch, tmp_path):
+        import processing
+        import youtube_import
+
+        config = self._one_new_video(monkeypatch, tmp_path)
+        state = {"paused": True, "sleeps": 0}
+        monkeypatch.setattr(processing, "load_config", lambda: {"queue_paused": state["paused"]})
+
+        def fake_sleep(seconds):
+            state["sleeps"] += 1
+            state["paused"] = False
+
+        calls = []
+        monkeypatch.setattr(youtube_import.time, "sleep", fake_sleep)
+        monkeypatch.setattr(
+            youtube_import, "_execute_playlist_download",
+            lambda *a: calls.append(state["sleeps"]),
+        )
+        youtube_import._watch_playlists_once(config)
+        assert calls == [1]  # started only after the pause lifted
+
+    def test_starts_nothing_while_a_restart_is_pending(self, monkeypatch, tmp_path):
+        import processing
+        import youtube_import
+
+        import threading
+
+        config = self._one_new_video(monkeypatch, tmp_path)
+        flag = threading.Event()
+        flag.set()
+        monkeypatch.setattr(processing, "restart_pending", flag)
+        sleeps = []
+
+        def fake_sleep(seconds):
+            sleeps.append(seconds)
+            if len(sleeps) >= 3:
+                raise StopIteration
+
+        monkeypatch.setattr(youtube_import.time, "sleep", fake_sleep)
+        monkeypatch.setattr(
+            youtube_import, "_execute_playlist_download",
+            lambda *a: pytest.fail("restart pending"),
+        )
+        with pytest.raises(StopIteration):
+            youtube_import._watch_playlists_once(config)
+
     def test_skips_video_whose_folder_already_has_audio(self, monkeypatch, tmp_path):
         import youtube_import
 
