@@ -3573,3 +3573,45 @@ class TestCrossSiteWrites:
     def test_reads_are_not_checked(self, client):
         resp = client.get("/api/stats", headers={"Origin": "https://evil.example"})
         assert resp.status_code == 200
+
+
+class TestStartupYtdlpUpdate:
+    """The startup self-update must not restart over a running download."""
+
+    def _patch(self, monkeypatch, pip_error=None):
+        import threading
+        import app as app_module
+        calls = []
+        active = iter([True, False])
+
+        def fake_active():
+            value = next(active, False)
+            calls.append(("active", value))
+            return value
+
+        monkeypatch.setattr(app_module, "get_ytdlp_version", lambda: "2025.01.01")
+        monkeypatch.setattr(app_module, "_get_ytdlp_pypi_version", lambda: "2025.02.02")
+        monkeypatch.setattr(
+            app_module, "_pip_update_ytdlp",
+            lambda: ("2025.01.01", "2025.02.02", pip_error),
+        )
+        monkeypatch.setattr(app_module, "any_download_active", fake_active)
+        monkeypatch.setattr(app_module, "_exec_restart", lambda: calls.append("restart"))
+        monkeypatch.setattr(app_module.time, "sleep", lambda s: None)
+        monkeypatch.setattr(app_module, "restart_pending", threading.Event())
+        return app_module, calls
+
+    def test_restart_waits_for_active_download(self, monkeypatch):
+        app_module, calls = self._patch(monkeypatch)
+        app_module._startup_ytdlp_update()
+        assert calls.count("restart") == 1
+        assert calls[-1] == "restart"
+        assert calls[-2] == ("active", False)
+        assert ("active", True) in calls
+        assert app_module.restart_pending.is_set()
+
+    def test_failed_update_does_not_restart(self, monkeypatch):
+        app_module, calls = self._patch(monkeypatch, pip_error="pip exploded")
+        app_module._startup_ytdlp_update()
+        assert "restart" not in calls
+        assert not app_module.restart_pending.is_set()

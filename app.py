@@ -61,6 +61,7 @@ from processing import (
     get_download_status,
     process_download_queue,
     queue_lock,
+    restart_pending,
     skip_track,
     stop_download,
 )
@@ -3174,6 +3175,13 @@ def _startup_ytdlp_update():
         logger.warning("yt-dlp update failed: %s", error)
         return
     logger.info("yt-dlp updated %s -> %s, restarting...", current, new_version)
+    # Hold the queue, then let a download that started during pip finish:
+    # os.execv would kill it, and its queue entry is already gone.
+    restart_pending.set()
+    if any_download_active():
+        logger.info("Restart deferred until the current download finishes")
+        while any_download_active():
+            time.sleep(5)
     _exec_restart()
 
 

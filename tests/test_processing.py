@@ -2175,6 +2175,22 @@ class TestQueueDispatch:
         assert len(started) == 1
         assert ids == []
 
+    def test_pending_restart_starts_nothing(self, monkeypatch):
+        import threading
+        import processing
+        import download_client
+        ids = [42]
+        self._patch_queue(monkeypatch, ids)
+        monkeypatch.setattr(download_client, "is_client_album", lambda a: False)
+        started = self._capture_threads(monkeypatch)
+        self._patch_limit(monkeypatch, 1)
+        flag = threading.Event()
+        flag.set()
+        monkeypatch.setattr(processing, "restart_pending", flag)
+        processing._dispatch_next_from_queue()
+        assert started == []
+        assert ids == [42]
+
     def test_client_grab_waits_while_album_downloads_in_foreground(
         self, monkeypatch,
     ):
