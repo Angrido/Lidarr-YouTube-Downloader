@@ -225,6 +225,22 @@ def test_migrate_v1_to_v2_indexes(temp_db):
     conn.close()
 
 
+def test_history_lookups_by_album_and_title_use_an_index(temp_db):
+    # The History page groups track_downloads by (album_id, track_title) and
+    # the backoff counts failures per title; without this index both scan
+    # the whole table on every load. Added outside migrations, so existing
+    # databases get it on the next start too.
+    init_db()
+    conn = get_db()
+    plan = " ".join(
+        str(row[3]) for row in conn.execute(
+            "EXPLAIN QUERY PLAN SELECT MAX(timestamp) FROM track_downloads"
+            " WHERE album_id = 1 AND track_title = 'x'"
+        ).fetchall()
+    )
+    assert "idx_track_dl_album_title_ts" in plan
+
+
 def test_migrate_v1_to_v2_rollback_on_failure(temp_db, monkeypatch):
     """If migration fails, V1 schema remains and version stays at 1."""
     _create_v1_db(temp_db)

@@ -234,6 +234,11 @@ def _ensure_current_tables(conn):
             current_run_id INTEGER DEFAULT 0
         );
         INSERT OR IGNORE INTO sync_state (id, status) VALUES (1, 'idle');
+        -- History groups by (album_id, track_title) and the backoff counts
+        -- failures per title; here rather than in a migration so existing
+        -- databases get it without a schema bump.
+        CREATE INDEX IF NOT EXISTS idx_track_dl_album_title_ts
+            ON track_downloads(album_id, track_title, timestamp);
     """)
     conn.execute(_DOWNLOAD_CLIENT_JOBS_DDL)
     conn.execute(_ALBUM_SOURCE_HINTS_DDL)
