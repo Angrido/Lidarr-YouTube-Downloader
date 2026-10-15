@@ -3573,3 +3573,29 @@ class TestCrossSiteWrites:
     def test_reads_are_not_checked(self, client):
         resp = client.get("/api/stats", headers={"Origin": "https://evil.example"})
         assert resp.status_code == 200
+
+
+class TestSchedulerRunRoutes:
+    @pytest.fixture(autouse=True)
+    def reset_rate_limit(self):
+        import app
+        app.rate_limit_store.clear()
+        yield
+        app.rate_limit_store.clear()
+
+    def test_status_disabled_has_no_next_run(self, client):
+        import schedule
+        schedule.clear()
+        data = client.get("/api/scheduler/status").get_json()
+        assert data == {"enabled": False, "next_run": None}
+
+    def test_run_starts_check_thread_and_is_rate_limited(self, client):
+        import scheduler
+        with patch("app.threading.Thread") as thread:
+            resp = client.post("/api/scheduler/run")
+            assert resp.status_code == 200
+            assert resp.get_json() == {"success": True}
+            assert thread.call_args.kwargs["target"] is scheduler.scheduled_check
+            thread.return_value.start.assert_called_once()
+            assert client.post("/api/scheduler/run").status_code == 429
+            assert thread.call_count == 1

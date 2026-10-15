@@ -124,6 +124,13 @@ def run_scheduler():
         time.sleep(10)
 
 
+def next_run_timestamp():
+    """Unix time of the next scheduled check, or None when no job is set."""
+    if not schedule.get_jobs():
+        return None
+    return schedule.next_run().timestamp()
+
+
 def setup_scheduler():
     """Configure the scheduler based on current config settings."""
     config = load_config()
