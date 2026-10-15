@@ -1128,7 +1128,6 @@ def _compute_deferred_tracks(album_id, tracks, cfg=None):
     if not counts:
         return {}
 
-    base = retry_cooldown_seconds(cfg) or 24 * 3600
     now = time.time()
     deferred = {}
     for track in tracks:
@@ -1137,17 +1136,31 @@ def _compute_deferred_tracks(album_id, tracks, cfg=None):
         if not info:
             continue
         failures = info["failures"]
-        if max_retries > 0 and failures >= max_retries:
-            deferred[title] = {"failures": failures, "retry_at": None}
-            continue
-        if not backoff_on:
-            continue
-        exponent = min(max(failures - 1, 0), _TRACK_BACKOFF_MAX_EXPONENT)
-        wait = min(base * (2 ** exponent), _TRACK_BACKOFF_MAX_SECONDS)
-        retry_at = info["last_failure"] + wait
-        if now < retry_at:
+        retry_at = _track_retry_at(failures, info["last_failure"], cfg)
+        if retry_at is None or now < retry_at:
             deferred[title] = {"failures": failures, "retry_at": retry_at}
     return deferred
+
+
+def _track_retry_at(failures, last_failure, cfg):
+    """When a failing track may be tried again (issue #90).
+
+    Returns None when it is given up on (``max_track_retries`` reached),
+    0.0 when backoff is off, else ``last_failure`` plus
+    ``scheduler_retry_after_hours * 2^(failures-1)``, capped at 30 days.
+    """
+    try:
+        max_retries = int(cfg.get("max_track_retries", 0) or 0)
+    except (TypeError, ValueError):
+        max_retries = 0
+    if max_retries > 0 and failures >= max_retries:
+        return None
+    if not cfg.get("track_retry_backoff", True):
+        return 0.0
+    base = retry_cooldown_seconds(cfg) or 24 * 3600
+    exponent = min(max(failures - 1, 0), _TRACK_BACKOFF_MAX_EXPONENT)
+    wait = min(base * (2 ** exponent), _TRACK_BACKOFF_MAX_SECONDS)
+    return last_failure + wait
 
 
 def _filter_tracks(tracks, force, album_path, deferred=None):

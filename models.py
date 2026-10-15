@@ -299,6 +299,55 @@ def get_track_failure_counts(album_id):
     }
 
 
+def get_stuck_tracks(min_failures=3, limit=50):
+    """Tracks with the most consecutive failures across all Lidarr albums.
+
+    Same counting rules as ``get_track_failure_counts`` (host and disk-full
+    failures ignored, only failures after the track's last success),
+    grouped by ``(album_id, track_title)``. Playlist imports
+    (``album_id <= 0``) are left out: they are never retried automatically.
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        """
+        SELECT f.album_id AS album_id,
+               MAX(f.artist_name) AS artist_name,
+               MAX(f.album_title) AS album_title,
+               f.track_title AS track_title,
+               COUNT(*) AS failures,
+               MAX(f.timestamp) AS last_failure
+        FROM track_downloads AS f
+        WHERE f.album_id > 0
+          AND f.success = 0
+          AND COALESCE(f.error_message, '') NOT LIKE ?
+          AND COALESCE(f.error_message, '') NOT LIKE ?
+          AND f.timestamp > COALESCE((
+                SELECT MAX(s.timestamp) FROM track_downloads AS s
+                WHERE s.album_id = f.album_id
+                  AND s.track_title = f.track_title
+                  AND s.success = 1
+              ), 0)
+        GROUP BY f.album_id, f.track_title
+        HAVING COUNT(*) >= ?
+        ORDER BY failures DESC, last_failure DESC
+        LIMIT ?
+        """,
+        (HOST_FAILURE_PREFIX + "%", DISK_FULL_PREFIX + "%",
+         min_failures, limit),
+    ).fetchall()
+    return [
+        {
+            "album_id": row["album_id"],
+            "artist_name": row["artist_name"] or "",
+            "album_title": row["album_title"] or "",
+            "track_title": row["track_title"],
+            "failures": row["failures"],
+            "last_failure": row["last_failure"] or 0.0,
+        }
+        for row in rows
+    ]
+
+
 def get_failed_tracks_for_retry(album_id):
     """Return failed tracks for retry UI.
 
