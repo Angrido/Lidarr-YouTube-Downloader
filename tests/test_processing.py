@@ -3518,3 +3518,34 @@ class TestArtistImageAfterDownload:
 
     def test_no_import_path_no_image(self, tmp_path, monkeypatch):
         assert self._run(monkeypatch, tmp_path, "") == []
+
+
+class TestCleanupAfterLibraryCopy:
+    """After the copy to the library only the finished album leaves the
+    download folder: another album of the same artist (a Lidarr grab still
+    waiting to be imported, or an earlier album whose copy failed) stays."""
+
+    def _run(self, monkeypatch, tmp_path):
+        import processing
+        TestArtistImageAfterDownload()._run(
+            monkeypatch, tmp_path, str(tmp_path / "music" / "Art" / "A (2020)"),
+        )
+        return processing
+
+    def test_keeps_other_albums_of_the_artist(self, tmp_path, monkeypatch):
+        finished = tmp_path / "Art" / "A (2020)"
+        other = tmp_path / "Art" / "B (2021)"
+        finished.mkdir(parents=True)
+        (finished / "cover.jpg").write_text("x")
+        other.mkdir(parents=True)
+        (other / "01 - Song.mp3").write_text("x")
+        self._run(monkeypatch, tmp_path)
+        assert not finished.exists()
+        assert (other / "01 - Song.mp3").exists()
+
+    def test_removes_the_artist_folder_once_empty(self, tmp_path, monkeypatch):
+        finished = tmp_path / "Art" / "A (2020)"
+        finished.mkdir(parents=True)
+        (finished / "cover.jpg").write_text("x")
+        self._run(monkeypatch, tmp_path)
+        assert not (tmp_path / "Art").exists()

@@ -944,17 +944,23 @@ def process_album_download(
                 },
             )
 
-        if lidarr_path and copy_succeeded and os.path.exists(artist_path):
+        if lidarr_path and copy_succeeded and os.path.exists(album_path):
+            # Only this album: the artist folder can hold another album
+            # still waiting for Lidarr or one whose copy failed.
             try:
                 logger.info(
-                    f"   Cleaning up download folder: {artist_path}"
+                    f"   Cleaning up download folder: {album_path}"
                 )
-                shutil.rmtree(artist_path)
+                shutil.rmtree(album_path)
                 logger.info("Download folder cleaned up successfully")
             except Exception as e:
                 logger.warning(
                     f"Failed to cleanup download folder: {e}"
                 )
+            try:
+                os.rmdir(artist_path)  # only succeeds when nothing else is left
+            except OSError:
+                pass
 
         return {"success": True, "album_path": lidarr_album_path or album_path}
 
