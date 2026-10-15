@@ -1467,8 +1467,11 @@ def api_remove_from_queue(album_id):
 
 @app.route("/api/download/queue/clear", methods=["POST"])
 def api_clear_queue():
-    queued = [row["album_id"] for row in models.get_queue()]
-    models.clear_queue()
+    queued = [
+        row["album_id"] for row in models.get_queue()
+        if row["status"] == models.QUEUE_STATUS_QUEUED
+    ]
+    models.clear_queue(include_active=False)
     for album_id in queued:
         download_client.cancel_queued(album_id)
     return jsonify({"success": True})

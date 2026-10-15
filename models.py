@@ -974,11 +974,22 @@ def reset_downloading_to_queued():
     conn.commit()
 
 
-def clear_queue():
-    """Delete all entries from the download queue."""
+def clear_queue(include_active=True):
+    """Delete entries from the download queue.
+
+    With ``include_active=False`` only waiting albums go: the album being
+    downloaded keeps its row, so a restart still re-queues it.
+    """
     conn = db.get_db()
-    conn.execute("DELETE FROM download_queue")
+    if include_active:
+        conn.execute("DELETE FROM download_queue")
+        conn.commit()
+        return
+    conn.execute(
+        "DELETE FROM download_queue WHERE status = ?", (QUEUE_STATUS_QUEUED,)
+    )
     conn.commit()
+    _reorder_queue(conn)
 
 
 def reorder_queue(new_order):
