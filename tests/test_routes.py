@@ -1365,6 +1365,23 @@ class TestYoutubeStreamValidation:
     def test_rejects_missing_url(self, client):
         resp = client.get("/api/youtube/stream")
         assert resp.status_code == 400
+        assert resp.content_type.startswith("text/plain")
+
+    def test_extraction_error_is_plain_text_and_not_echoed(self, client):
+        import yt_dlp
+
+        def boom(self_ydl, url, download=True):
+            raise Exception("<script>alert(1)</script>")
+
+        with patch.object(yt_dlp.YoutubeDL, "extract_info", boom):
+            resp = client.get(
+                "/api/youtube/stream",
+                query_string={"url": "https://www.youtube.com/watch?v=xss12345678"},
+            )
+        assert resp.status_code == 500
+        assert resp.content_type.startswith("text/plain")
+        assert resp.headers["X-Content-Type-Options"] == "nosniff"
+        assert b"<script>" not in resp.data
 
 
 class TestSafeStreamUrl:
