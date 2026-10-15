@@ -822,6 +822,11 @@ def api_backup_import():
                 "SELECT version FROM schema_version"
                 " ORDER BY version DESC LIMIT 1"
             ).fetchone()
+            tables = {
+                row[0] for row in con.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table'"
+                )
+            }
         finally:
             con.close()
         if not (integrity and integrity[0] == "ok"):
@@ -833,6 +838,12 @@ def api_backup_import():
                 "Backup schema version %s is not supported by this "
                 "version of the app." % ver_row[0]
             )
+        elif any(
+            ver_row[0] >= since and table not in tables
+            for table, since in db.CORE_TABLES_SINCE.items()
+        ):
+            # Would pass the version check, then crash-loop at startup.
+            reason = "Not a valid Lidarr-YT backup database."
         else:
             valid = True
     except sqlite3.DatabaseError:

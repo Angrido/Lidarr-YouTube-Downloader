@@ -11,6 +11,14 @@ logger = logging.getLogger(__name__)
 DB_PATH = "/config/lidarr-downloader.db"
 SCHEMA_VERSION = 12
 
+# Tables a database must already hold at a given schema version (table →
+# version that introduced it). Migrations ALTER them and startup reads them,
+# so a restored backup missing one would crash-loop the app.
+CORE_TABLES_SINCE = {
+    "download_logs": 1, "download_queue": 1, "track_downloads": 2,
+    "banned_urls": 4, "candidate_attempts": 5,
+}
+
 _local = threading.local()
 
 # Shared by fresh-install creation and the v6->v7 migration so the

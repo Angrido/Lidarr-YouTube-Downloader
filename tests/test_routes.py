@@ -2425,18 +2425,13 @@ def test_backup_import_rejects_invalid(client, monkeypatch):
 
 def test_backup_import_valid_restarts(client, monkeypatch, tmp_path):
     import io
-    import sqlite3
     import app as app_module
     monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
     restarted = []
     monkeypatch.setattr(app_module, "_exec_restart", lambda: restarted.append(1))
-    bak = tmp_path / "backup.db"
-    con = sqlite3.connect(str(bak))
-    con.execute("CREATE TABLE schema_version (version INTEGER, applied_at REAL)")
-    con.execute("INSERT INTO schema_version VALUES (10, 0)")
-    con.commit()
-    con.close()
-    data = {"file": (io.BytesIO(bak.read_bytes()), "backup.db")}
+    # A real backup, as the export produces it.
+    backup = client.get("/api/backup/export").get_data()
+    data = {"file": (io.BytesIO(backup), "backup.db")}
     resp = client.post(
         "/api/backup/import", data=data, content_type="multipart/form-data"
     )
@@ -2463,6 +2458,29 @@ def test_backup_import_rejects_empty_schema_version(client, monkeypatch, tmp_pat
     con.commit()
     con.close()
     data = {"file": (io.BytesIO(bak.read_bytes()), "empty.db")}
+    resp = client.post(
+        "/api/backup/import", data=data, content_type="multipart/form-data"
+    )
+    assert resp.status_code == 400
+    assert resp.get_json()["success"] is False
+
+
+@pytest.mark.parametrize("version", [1, 12])
+def test_backup_import_rejects_db_without_core_tables(
+    client, monkeypatch, tmp_path, version,
+):
+    # Only a schema_version row: it passed the version check, then the
+    # restarted app crash-looped on "no such table: download_queue".
+    import io
+    import sqlite3
+    monkeypatch.setattr("app.check_rate_limit", lambda *a, **k: True)
+    bak = tmp_path / "foreign.db"
+    con = sqlite3.connect(str(bak))
+    con.execute("CREATE TABLE schema_version (version INTEGER, applied_at REAL)")
+    con.execute("INSERT INTO schema_version VALUES (?, 0)", (version,))
+    con.commit()
+    con.close()
+    data = {"file": (io.BytesIO(bak.read_bytes()), "foreign.db")}
     resp = client.post(
         "/api/backup/import", data=data, content_type="multipart/form-data"
     )
