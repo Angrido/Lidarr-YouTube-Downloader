@@ -51,6 +51,7 @@ cookies.txt
 tmp/
 .serena/
 .superpowers/
+docs/superpowers/
 .lean-ctx/
 .omc/
 .gstack/
