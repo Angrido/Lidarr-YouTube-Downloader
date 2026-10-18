@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.0.1 (unreleased)
+## 2.0.1
 
 ### Added
 - **Request pacing** (Settings → YouTube access, issue #98): the pause
