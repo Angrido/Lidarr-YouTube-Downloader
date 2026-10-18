@@ -21,7 +21,7 @@ from config import load_config
 from downloader import download_youtube_candidate
 from fingerprint import fingerprint_track
 from lidarr import lidarr_request
-from metadata import create_xml_metadata, tag_audio_file
+from metadata import apply_file_extras, create_xml_metadata, tag_audio_file
 from notifications import send_notifications
 from processing import download_process, queue_lock
 from utils import (
@@ -616,6 +616,10 @@ def _manual_dl_core(
 
         file_size = os.path.getsize(actual_file)
         shutil.move(actual_file, final_file)
+        apply_file_extras(
+            final_file, config, artist=artist_name, title=track_title,
+            album=album_title, duration=dl_result.get("duration_seconds", 0),
+        )
         set_permissions(final_file)
     except Exception as e:
         logger.error(
@@ -642,6 +646,7 @@ def _manual_dl_core(
         cover_url=cover_url,
         fp_data=fp_data,
         file_size=file_size,
+        source_format=dl_result.get("source_format", ""),
     )
 
     _refresh_lidarr_artist(album_data, track_title)
@@ -663,6 +668,7 @@ def _record_manual_download(
     cover_url,
     fp_data,
     file_size,
+    source_format="",
 ):
     try:
         models.add_track_download(
@@ -684,6 +690,7 @@ def _record_manual_download(
             acoustid_score=fp_data.get("acoustid_score", 0.0),
             acoustid_recording_id=fp_data.get("acoustid_recording_id", ""),
             acoustid_recording_title=fp_data.get("acoustid_recording_title", ""),
+            source_format=source_format,
         )
     except Exception as db_err:
         logger.error(

@@ -392,6 +392,26 @@ def apply_replaygain_tags(audio_file):
         return None
 
 
+def apply_file_extras(audio_file, config, *, artist, title, album="", duration=0):
+    """Run the optional per-file extras on a finished track.
+
+    Every download path (Lidarr album, manual / retry, YouTube import) calls
+    this on the file at its final location, so ``save_lyrics`` and
+    ``apply_replaygain`` behave the same whichever way a track arrived.
+    Failures are logged and never fail the track.
+    """
+    if config.get("save_lyrics"):
+        try:
+            write_lyrics_sidecar(audio_file, artist, title, album, duration)
+        except Exception as exc:
+            logger.debug("Lyrics sidecar failed for %s: %s", audio_file, exc)
+    if config.get("apply_replaygain"):
+        try:
+            apply_replaygain_tags(audio_file)
+        except Exception as exc:
+            logger.debug("ReplayGain failed for %s: %s", audio_file, exc)
+
+
 _STALE_MB_DESCS = (
     "MusicBrainz Album Release Group Id",
     "MusicBrainz Release Country",

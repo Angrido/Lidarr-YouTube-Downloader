@@ -1101,3 +1101,28 @@ class TestDiscNumberTag:
         metadata.tag_opus("/f.opus", self.TRACK, self._album([1, 2]), None)
         assert store["discnumber"] == ["2"]
         assert store["disctotal"] == ["2"]
+
+
+class TestApplyFileExtras:
+    @patch("metadata.apply_replaygain_tags")
+    @patch("metadata.write_lyrics_sidecar")
+    def test_runs_only_the_enabled_extras(self, lyrics, rg):
+        metadata.apply_file_extras("/f.mp3", {}, artist="A", title="T")
+        lyrics.assert_not_called()
+        rg.assert_not_called()
+
+        metadata.apply_file_extras(
+            "/f.mp3", {"save_lyrics": True, "apply_replaygain": True},
+            artist="A", title="T", album="Al", duration=200,
+        )
+        lyrics.assert_called_once_with("/f.mp3", "A", "T", "Al", 200)
+        rg.assert_called_once_with("/f.mp3")
+
+    @patch("metadata.apply_replaygain_tags", side_effect=RuntimeError("x"))
+    @patch("metadata.write_lyrics_sidecar", side_effect=RuntimeError("x"))
+    def test_failures_never_fail_the_track(self, lyrics, rg):
+        metadata.apply_file_extras(
+            "/f.mp3", {"save_lyrics": True, "apply_replaygain": True},
+            artist="A", title="T",
+        )
+        rg.assert_called_once()

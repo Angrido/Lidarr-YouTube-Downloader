@@ -23,6 +23,10 @@
 ### Fixed
 - A negative pause value made the download fail; pauses are now at least
   0 s and the maximum is never below the minimum.
+- **Lyrics and ReplayGain on every download** — *Save lyrics* and *Apply
+  ReplayGain* only worked for Lidarr albums. Retried failed tracks,
+  manual downloads and YouTube / Explore imports now get them too, and
+  their audio quality shows up in the download history.
 
 ## 2.0.0
 

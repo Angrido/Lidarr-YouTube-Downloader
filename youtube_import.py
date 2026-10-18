@@ -21,7 +21,7 @@ import models
 from config import load_config
 from downloader import cookiefile_for_ytdlp, download_youtube_candidate
 from lidarr import lidarr_request
-from metadata import ensure_artist_image, tag_audio_file
+from metadata import apply_file_extras, ensure_artist_image, tag_audio_file
 from notifications import send_notifications
 from processing import (
     _dir_has_audio,
@@ -857,6 +857,11 @@ def _execute_playlist_download(
                 tag_audio_file(actual_file, track_info, album_data, cover_bytes)
                 file_size = os.path.getsize(actual_file)
                 shutil.move(actual_file, final_file)
+                apply_file_extras(
+                    final_file, config, artist=artist_name, title=track_title,
+                    album=album_title,
+                    duration=dl_result.get("duration_seconds", 0),
+                )
                 set_permissions(final_file)
                 total_size += file_size
             except Exception as e:
@@ -895,6 +900,7 @@ def _execute_playlist_download(
                 target_path=target_path, success=True,
                 error_message="", file_size=file_size,
                 cover_url=thumbnail_url, source_url=source_url,
+                source_format=dl_result.get("source_format", ""),
             )
 
         set_permissions(target_path)
@@ -1006,6 +1012,7 @@ def _record_playlist_track(
     *, album_id, album_title, artist_name, track_title, track_num,
     youtube_url, youtube_title, target_path,
     success, error_message, file_size, cover_url="", source_url="",
+    source_format="",
 ):
     track_download_id = None
     try:
@@ -1024,6 +1031,7 @@ def _record_playlist_track(
             album_path=target_path,
             lidarr_album_path=source_url,
             cover_url=cover_url,
+            source_format=source_format,
         )
     except Exception as db_err:
         logger.error(
