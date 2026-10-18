@@ -10,7 +10,7 @@
 <sub>Matched, verified, tagged and imported — from one self-hosted web app that takes its colours from your music.</sub></p>
 
 <p>
-<a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2.0.0-4f46e5?style=for-the-badge&labelColor=1d1d1f" alt="Version 2.0.0"></a>
+<a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-2.0.1-4f46e5?style=for-the-badge&labelColor=1d1d1f" alt="Version 2.0.1"></a>
 <a href="#-quick-start"><img src="https://img.shields.io/badge/docker-ready-0b63c7?style=for-the-badge&logo=docker&logoColor=white&labelColor=1d1d1f" alt="Docker ready"></a>
 <a href="requirements.txt"><img src="https://img.shields.io/badge/python-3-3776ab?style=for-the-badge&logo=python&logoColor=white&labelColor=1d1d1f" alt="Python 3"></a>
 <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-1a7f37?style=for-the-badge&labelColor=1d1d1f" alt="MIT license"></a>

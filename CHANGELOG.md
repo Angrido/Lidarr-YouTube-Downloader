@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.0.1
+
+### Added
+- **Request pacing** (Settings → YouTube access, issue #98): the pause
+  between yt-dlp's requests and a random pause before each download (min /
+  max, 1–5 s by default) can now be set from the page, to avoid YouTube
+  blocks at the cost of slower albums.
+
+### Changed
+- **Readable buttons with any accent** — white text on the accent
+  (primary buttons, the queue badge, the gradient) was below WCAG AA
+  (4.35:1 on the default violet, under 3:1 on the green and orange
+  presets). Accent fills behind white text are now a little deeper, so
+  every preset passes 4.5:1; light accents keep their colour with dark
+  text.
+- **Bigger touch targets** — on phones and touch screens buttons, icon
+  buttons and fields are at least 44 px, and chips and segmented controls
+  get a 44 px tap area.
+- Small labels (eyebrows, badges, *Instant*) are 12 px instead of 11 px.
+
+### Fixed
+- A negative pause value made the download fail; pauses are now at least
+  0 s and the maximum is never below the minimum.
+- **Lyrics and ReplayGain on every download** — *Save lyrics* and *Apply
+  ReplayGain* only worked for Lidarr albums. Retried failed tracks,
+  manual downloads and YouTube / Explore imports now get them too, and
+  their audio quality shows up in the download history.
+
 ## 2.0.0
 
 ### Added

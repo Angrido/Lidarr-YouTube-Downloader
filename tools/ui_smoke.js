@@ -102,8 +102,8 @@ async function check(browser, path, state) {
   for (const [t, ratio] of Object.entries(r.contrast)) {
     if (!(ratio >= 4.5)) fail(label, `${t} contrast ${ratio.toFixed(2)} < 4.5 on --bg-elevated`);
   }
-  // Bold button labels: WCAG large-text threshold.
-  if (!(r.buttonText >= 3)) fail(label, `--text-on-accent contrast ${r.buttonText.toFixed(2)} < 3 on --accent`);
+  // Button labels on the accent fill: WCAG AA for normal text.
+  if (!(r.buttonText >= 4.5)) fail(label, `--text-on-accent contrast ${r.buttonText.toFixed(2)} < 4.5 on --accent`);
   if (state.auraOff && r.auraShown) fail(label, "aurora visible although ui_aura_mode is off");
   if (r.albumBlur) fail(label, `${r.albumBlur} album cards have a backdrop filter`);
   if (state.reducedMotion && r.blobsMoving) fail(label, "aurora still animates under reduced motion");

@@ -32,7 +32,7 @@ from downloader import (
 from fingerprint import fingerprint_track, verify_fingerprint
 from lidarr import get_valid_release_id, lidarr_request, lidarr_request_with_retry
 from metadata import (
-    apply_replaygain_tags,
+    apply_file_extras,
     create_xml_metadata,
     ensure_artist_image,
     tag_audio_file,
@@ -42,7 +42,6 @@ from metadata import (
     get_itunes_artwork,
     get_itunes_tracks,
     get_musicbrainz_recording_artist,
-    write_lyrics_sidecar,
 )
 from notifications import (
     build_musicbrainz_link,
@@ -1401,20 +1400,12 @@ def _accept_track_file(
     shutil.move(src_file, final_file)
     track_state["status"] = "done"
 
-    if cfg.get("save_lyrics"):
-        try:
-            write_lyrics_sidecar(
-                final_file, track_artist or album_ctx["artist_name"],
-                track_title, album_ctx["album_title"],
-                dl_result.get("duration_seconds", 0),
-            )
-        except Exception as exc:
-            logger.debug("Lyrics sidecar failed for %s: %s", final_file, exc)
-    if cfg.get("apply_replaygain"):
-        try:
-            apply_replaygain_tags(final_file)
-        except Exception as exc:
-            logger.debug("ReplayGain failed for %s: %s", final_file, exc)
+    apply_file_extras(
+        final_file, cfg,
+        artist=track_artist or album_ctx["artist_name"],
+        title=track_title, album=album_ctx["album_title"],
+        duration=dl_result.get("duration_seconds", 0),
+    )
 
     try:
         track_download_id = models.add_track_download(

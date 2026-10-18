@@ -2388,6 +2388,51 @@ def test_manual_download_negative_id_records_success(
     assert models.get_failed_tracks_for_retry(-1)["failed_tracks"] == []
 
 
+def test_manual_download_runs_extras_and_records_source_format(
+    client, monkeypatch, tmp_path,
+):
+    import models
+    import manual_download
+    monkeypatch.setattr("manual_download.check_rate_limit", lambda *a, **k: True)
+    album_dir = tmp_path / "downloads" / "Various" / "My Playlist"
+    album_dir.mkdir(parents=True)
+    _add_track(
+        models, album_id=-1, album_title="My Playlist", artist_name="Various",
+        track_title="Song", track_number=1, success=False,
+        album_path=str(album_dir),
+    )
+    ext = manual_download.load_config().get("audio_format", "mp3")
+    extras = []
+
+    def fake_dl(candidate, output_path, **kw):
+        with open(output_path + "." + ext, "wb") as f:
+            f.write(b"AUDIO")
+        return {"success": True, "youtube_title": candidate["title"],
+                "duration_seconds": 0, "source_format": "140 · m4a · 128 kbps"}
+
+    monkeypatch.setattr(manual_download, "download_youtube_candidate", fake_dl)
+    monkeypatch.setattr(manual_download, "_validate_target_path", lambda *a, **k: True)
+    monkeypatch.setattr(manual_download, "makedirs_safe", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "tag_audio_file", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "create_xml_metadata", lambda *a, **k: None)
+    monkeypatch.setattr(manual_download, "set_permissions", lambda *a, **k: None)
+    monkeypatch.setattr(
+        manual_download, "apply_file_extras",
+        lambda path, cfg, **kw: extras.append((os.path.basename(path), kw)),
+    )
+
+    resp = client.post("/api/download/manual", json={
+        "youtube_url": "https://www.youtube.com/watch?v=abcdefghijk",
+        "track_title": "Song", "track_num": 1, "album_id": -1,
+    })
+    assert resp.get_json()["success"] is True
+    assert extras == [(f"01 - Song.{ext}", {
+        "artist": "Various", "title": "Song", "album": "My Playlist", "duration": 0,
+    })]
+    ok = [r for r in models.get_track_downloads_for_album(-1) if r["success"] == 1]
+    assert ok and ok[0]["source_format"] == "140 · m4a · 128 kbps"
+
+
 def test_manual_download_multi_playlist_isolation(
     client, monkeypatch, tmp_path,
 ):
@@ -3784,6 +3829,44 @@ class TestExploreArtistImport:
         assert ok is True
         assert tagged == [("2021-01-01", b"JPEGDATA")]
         assert (target / "01 - One.mp3").exists()
+
+    def test_playlist_download_runs_extras_and_records_source_format(
+        self, monkeypatch, tmp_path,
+    ):
+        # Lyrics / ReplayGain and the source-quality report used to exist
+        # only on the Lidarr album path.
+        import models
+        import youtube_import
+        target = tmp_path / "downloads" / "Zo killeuh" / "Galsen"
+        config = {"audio_format": "mp3", "save_lyrics": True}
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path / "downloads"))
+        extras = []
+
+        def fake_dl(candidate, output_path, **kw):
+            with open(output_path + ".mp3", "wb") as f:
+                f.write(b"AUDIO")
+            return {"success": True, "youtube_title": candidate["title"],
+                    "duration_seconds": 180, "source_format": "251 · webm · 160 kbps"}
+
+        monkeypatch.setattr(youtube_import, "download_youtube_candidate", fake_dl)
+        monkeypatch.setattr(youtube_import, "tag_audio_file", lambda *a, **k: None)
+        monkeypatch.setattr(youtube_import, "send_notifications", lambda *a, **k: None)
+        monkeypatch.setattr(youtube_import, "set_permissions", lambda *a, **k: None)
+        monkeypatch.setattr(youtube_import, "_ensure_import_artist_image", lambda *a, **k: None)
+        monkeypatch.setattr(
+            youtube_import, "apply_file_extras",
+            lambda path, cfg, **kw: extras.append((os.path.basename(path), cfg, kw)),
+        )
+        ok = youtube_import._execute_playlist_download(
+            "Zo killeuh", "Galsen", [{"url": "https://music.youtube.com/watch?v=aaaaaaaaaaa", "title": "One"}],
+            str(target), config, "", "", "",
+        )
+        assert ok is True
+        assert extras == [("01 - One.mp3", config, {
+            "artist": "Zo killeuh", "title": "One", "album": "Galsen", "duration": 180,
+        })]
+        rows = [r for r in models.get_track_downloads_for_album(-1) if r["track_title"] == "One"]
+        assert rows and rows[0]["source_format"] == "251 · webm · 160 kbps"
 
 
 class TestImportArtistImage:

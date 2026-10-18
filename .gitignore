@@ -65,3 +65,31 @@ agent-transcripts/
 terminals/
 babysitter-state.json
 *.bak
+*.orig
+*.rej
+# More agent / editor / tool state
+graphify-out/
+.forge/
+.aider*
+.windsurf/
+.zed/
+.fleet/
+# Test and lint caches
+.tox/
+.nox/
+.hypothesis/
+.pyre/
+.pytype/
+.ipynb_checkpoints/
+# Node (Playwright scripts run through npx)
+node_modules/
+test-results/
+playwright-report/
+# Runtime output: a local run's database and per-track sidecars
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.lrc

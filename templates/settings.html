@@ -1027,6 +1027,20 @@
                             </div>
                         </div>
                         <div class="settings-group">
+                            <p class="ui-group-title">Request pacing</p>
+                            <div class="ui-group">
+                                {% call inline_row('ytSleepRequests', 'Pause between requests', 'Seconds yt-dlp waits between the requests it makes to YouTube while looking up a video. Raise it if YouTube starts blocking you; 0 turns it off.', 'clock', 'info', err=true) %}
+                                <span class="num-field"><input type="number" class="ui-input ui-input-num" id="ytSleepRequests" value="1" min="0" max="300" step="1" inputmode="numeric" aria-describedby="ytSleepRequests-desc"><span class="num-unit" aria-hidden="true">s</span></span>
+                                {% endcall %}
+                                {% call inline_row('ytSleepInterval', 'Pause before each download — min', 'Before every track download yt-dlp waits a random time between this minimum and the maximum below, so the requests don&#39;t follow a fixed rhythm. Slower albums, fewer blocks.', 'pause', 'warning', err=true) %}
+                                <span class="num-field"><input type="number" class="ui-input ui-input-num" id="ytSleepInterval" value="1" min="0" max="300" step="1" inputmode="numeric" aria-describedby="ytSleepInterval-desc"><span class="num-unit" aria-hidden="true">s</span></span>
+                                {% endcall %}
+                                {% call inline_row('ytMaxSleepInterval', 'Pause before each download — max', 'Upper end of the random pause. Equal to the minimum for a fixed pause.', 'pause', 'warning', err=true) %}
+                                <span class="num-field"><input type="number" class="ui-input ui-input-num" id="ytMaxSleepInterval" value="5" min="0" max="300" step="1" inputmode="numeric" aria-describedby="ytMaxSleepInterval-desc"><span class="num-unit" aria-hidden="true">s</span></span>
+                                {% endcall %}
+                            </div>
+                        </div>
+                        <div class="settings-group">
                             <p class="ui-group-title">Bot protection</p>
                             <div class="ui-group">
                                 {% call stack_row('ytPoToken', 'YouTube PO token', 'Optional. Helps with “Sign in to confirm you&#39;re not a bot” / format-unavailable errors. Paste one or more <code>po_token</code> values (comma-separated) from yt-dlp. Leave empty unless you hit those errors.', 'shield', 'gray') %}
@@ -1435,6 +1449,9 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             setSwitch('saveLyricsBtn', conf.save_lyrics === true);
             setSecret('ytPoToken', conf.yt_po_token);
             $('ytPotProviderUrl').value = conf.yt_pot_provider_url || '';
+            $('ytSleepRequests').value = conf.yt_sleep_requests != null ? conf.yt_sleep_requests : 1;
+            $('ytSleepInterval').value = conf.yt_sleep_interval != null ? conf.yt_sleep_interval : 1;
+            $('ytMaxSleepInterval').value = conf.yt_max_sleep_interval != null ? conf.yt_max_sleep_interval : 5;
             $('ytCookiesFile').value = conf.yt_cookies_file || '';
 
             setSecret('discordWebhook', conf.discord_webhook_url);
@@ -1501,6 +1518,9 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 save_lyrics: $('saveLyricsBtn').checked,
                 yt_po_token: ($('ytPoToken').value || '').trim(),
                 yt_pot_provider_url: ($('ytPotProviderUrl').value || '').trim(),
+                yt_sleep_requests: parseInt($('ytSleepRequests').value, 10) || 0,
+                yt_sleep_interval: parseInt($('ytSleepInterval').value, 10) || 0,
+                yt_max_sleep_interval: parseInt($('ytMaxSleepInterval').value, 10) || 0,
                 yt_cookies_file: ($('ytCookiesFile').value || '').trim(),
                 acoustid_api_key: $('acoustidApiKey').value,
                 download_client_api_key: ($('downloadClientApiKey').value || '').trim(),
@@ -1570,6 +1590,10 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             schedulerMaxAlbums: (v) => checkInt(v, 0, null),
             schedulerRetryAfterHours: (v) => checkNum(v, 0, null),
             maxTrackRetries: (v) => checkInt(v, 0, null),
+            ytSleepRequests: (v) => checkInt(v, 0, 300),
+            ytSleepInterval: (v) => checkInt(v, 0, 300),
+            ytMaxSleepInterval: (v) => checkInt(v, 0, 300)
+                || (Number(v) < Number($('ytSleepInterval').value) ? 'Use at least the minimum pause.' : ''),
             durationTolerance: (v) => checkInt(v, 1, 60),
             minMatchScore: (v) => checkNum(v, 0, 1),
             ytPotProviderUrl: checkUrl,

@@ -59,6 +59,21 @@ def test_build_common_opts_po_token():
     assert yt["po_token"] == ["web.gvs+ABC", "web.player+DEF"]
 
 
+def test_build_common_opts_sleep_never_negative_or_inverted():
+    # A negative pause makes yt-dlp's time.sleep raise and fail the download;
+    # a maximum below the minimum would make the "random" pause shorter.
+    cfg = {
+        "yt_retries": 3, "yt_fragment_retries": 3, "yt_sleep_requests": -2,
+        "yt_sleep_interval": 8, "yt_max_sleep_interval": 3,
+        "yt_force_ipv4": False,
+    }
+    with patch("downloader.load_config", return_value=cfg):
+        opts = _build_common_opts()
+    assert opts["sleep_interval_requests"] == 0
+    assert opts["sleep_interval"] == 8
+    assert opts["max_sleep_interval"] == 8
+
+
 def test_build_common_opts_no_po_token():
     cfg = {
         "yt_retries": 3, "yt_fragment_retries": 3, "yt_sleep_requests": 0,
