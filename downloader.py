@@ -439,6 +439,10 @@ def _classify_unavailable(msg_low):
 
 def _build_common_opts(player_client=None):
     cfg = load_config()
+    # Pacing (Settings > YouTube access): yt-dlp sleeps a random time between
+    # min and max before each download; negative values would crash time.sleep.
+    sleep_min = max(0, int(cfg.get("yt_sleep_interval", 1)))
+    sleep_max = max(sleep_min, int(cfg.get("yt_max_sleep_interval", 5)))
     opts = {
         "quiet": True,
         "no_warnings": True,
@@ -446,9 +450,9 @@ def _build_common_opts(player_client=None):
         "logger": _SILENT_YDL_LOGGER,
         "retries": int(cfg.get("yt_retries", 10)),
         "fragment_retries": int(cfg.get("yt_fragment_retries", 10)),
-        "sleep_interval_requests": int(cfg.get("yt_sleep_requests", 1)),
-        "sleep_interval": int(cfg.get("yt_sleep_interval", 1)),
-        "max_sleep_interval": int(cfg.get("yt_max_sleep_interval", 5)),
+        "sleep_interval_requests": max(0, int(cfg.get("yt_sleep_requests", 1))),
+        "sleep_interval": sleep_min,
+        "max_sleep_interval": sleep_max,
         "noplaylist": True,
         # Without this yt-dlp may pick a 128k stream over a 256k one.
         "format_sort": ["abr", "asr"],
