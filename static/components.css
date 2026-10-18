@@ -12,7 +12,7 @@
     --text-callout: 0.875rem;
     --text-subhead: 0.8125rem;
     --text-footnote: 0.75rem;
-    --text-caption: 0.6875rem;
+    --text-caption: 0.75rem;
 
     --sp-0: 0;
     --sp-1: 4px;
@@ -47,9 +47,9 @@
        from Settings > Appearance (ui_accent). Neighbouring hues give the
        gradient and the default aurora: violet -> blue / magenta. */
     --accent-base: #7c5cff;
-    --accent-2: oklch(from var(--accent-base) l c calc(h - 45));
-    --accent-3: oklch(from var(--accent-base) l c calc(h + 55));
-    --accent-gradient: linear-gradient(120deg, var(--accent-base), var(--accent-2) 55%, var(--accent-3));
+    --accent-2: oklch(from var(--accent) l c calc(h - 45));
+    --accent-3: oklch(from var(--accent) l c calc(h + 55));
+    --accent-gradient: linear-gradient(120deg, var(--accent), var(--accent-2) 55%, var(--accent-3));
     --aura-1: var(--accent-base);
     --aura-2: var(--accent-2);
     --aura-3: var(--accent-3);
@@ -77,7 +77,10 @@
     /* White on dark accents, near-black on light ones (yellow, lime…). */
     --text-on-accent: oklch(from var(--accent-base) clamp(0.15, (0.72 - l) * 1000, 1) 0 h);
 
-    --accent: var(--accent-base);
+    /* Fills behind white text (buttons, badges, the gradient): lightness
+       capped at 0.5 so white stays >= 4.5:1; accents lighter than 0.72 keep
+       their colour, since --text-on-accent turns dark on them. */
+    --accent: oklch(from var(--accent-base) calc(min(l, 0.5) + clamp(0, (l - 0.72) * 1000, 1) * (l - min(l, 0.5))) c h);
     --accent-hover: color-mix(in oklab, var(--accent-base) 86%, black);
     /* Accent as text: lightness capped so any chosen colour stays AA on white. */
     --accent-text: oklch(from var(--accent-base) min(l, 0.5) c h);
@@ -128,7 +131,7 @@
     --text-1: #f4f3fb;
     --text-2: #b8b5cc;
     --text-3: #8e8aa6;
-    --accent: var(--accent-base);
+    --accent: oklch(from var(--accent-base) calc(min(l, 0.5) + clamp(0, (l - 0.72) * 1000, 1) * (l - min(l, 0.5))) c h);
     --accent-hover: color-mix(in oklab, var(--accent-base) 84%, white);
     --accent-text: oklch(from var(--accent-base) max(l, 0.8) c h);
     --accent-soft: color-mix(in srgb, var(--accent-base) 16%, transparent);
@@ -172,7 +175,7 @@
         --text-1: #f4f3fb;
         --text-2: #b8b5cc;
         --text-3: #8e8aa6;
-        --accent: var(--accent-base);
+        --accent: oklch(from var(--accent-base) calc(min(l, 0.5) + clamp(0, (l - 0.72) * 1000, 1) * (l - min(l, 0.5))) c h);
         --accent-hover: color-mix(in oklab, var(--accent-base) 84%, white);
         --accent-text: oklch(from var(--accent-base) max(l, 0.8) c h);
         --accent-soft: color-mix(in srgb, var(--accent-base) 16%, transparent);
@@ -205,6 +208,15 @@
    shortcut: --text-on-accent stays white, so a very light custom accent
    (yellow, lime) loses contrast on these engines only. */
 @supports not (color: oklch(from red l c h)) {
+    :root,
+    :root[data-theme="dark"] {
+        --accent: #6239dc;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+            --accent: #6239dc;
+        }
+    }
     :root {
         --accent-2: #0688ca;
         --accent-3: #d22da7;
@@ -224,6 +236,15 @@
 }
 
 @supports (color: color-mix(in srgb, red 50%, white)) and (not (color: oklch(from red l c h))) {
+    :root,
+    :root[data-theme="dark"] {
+        --accent: color-mix(in srgb, var(--accent-base) 75%, black);
+    }
+    @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+            --accent: color-mix(in srgb, var(--accent-base) 75%, black);
+        }
+    }
     :root {
         --accent-2: color-mix(in srgb, var(--accent-base) 80%, black);
         --accent-3: color-mix(in srgb, var(--accent-base) 65%, black);
@@ -3145,16 +3166,28 @@ body.has-player .app-main {
     }
 }
 
+/* Touch: every control is at least 44x44 (WCAG 2.5.5 / Apple HIG). Chips and
+   segments keep their compact look and get an invisible 44px hit area. */
 @media (max-width: 720px), (pointer: coarse) {
-    .ui-btn { min-height: 40px; }
-    .ui-btn-sm { min-height: 36px; }
-    .ui-btn-icon { width: 40px; min-width: 40px; }
-    .ui-btn-icon.ui-btn-sm { width: 36px; min-width: 36px; }
+    .ui-btn,
+    .ui-btn-sm { min-height: 44px; }
+    .ui-btn-icon,
+    .ui-btn-icon.ui-btn-sm { width: 44px; min-width: 44px; }
     .ui-input,
-    .ui-select { min-height: 42px; }
+    .ui-select { min-height: 44px; }
     .ui-chip { height: 34px; }
     .ui-segmented > button,
     .ui-segmented > label { min-height: 34px; }
+    .ui-chip,
+    .ui-segmented > button,
+    .ui-segmented > label { position: relative; }
+    .ui-chip::after,
+    .ui-segmented > button::after,
+    .ui-segmented > label::after {
+        content: "";
+        position: absolute;
+        inset: -5px 0;
+    }
 }
 
 @media (max-width: 720px) {
