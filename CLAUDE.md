@@ -581,7 +581,7 @@ To hold a library back after a breaking release, add `pkg<X` to
 
 ## Version Updates
 
-The version string is defined in `version.py`: `VERSION = "2.0.0"` (the whole 2.0 line is one beta release; bump only after it is published on main). The README badge also references it and must be updated manually.
+The version string is defined in `version.py`: `VERSION = "2.0.0"` (2.0.0 is published, tag `v2.0.0` on main). Changes for the next patch go under `## 2.0.1 (unreleased)` in CHANGELOG.md; bump `version.py` and drop "(unreleased)" only when cutting the release. The README badge also references it and must be updated manually.
 
 ## Persistence Volume
 

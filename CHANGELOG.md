@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.1 (unreleased)
+
+### Added
+- **Request pacing** (Settings → YouTube access, issue #98): the pause
+  between yt-dlp's requests and a random pause before each download (min /
+  max, 1–5 s by default) can now be set from the page, to avoid YouTube
+  blocks at the cost of slower albums.
+
+### Fixed
+- A negative pause value made the download fail; pauses are now at least
+  0 s and the maximum is never below the minimum.
+
 ## 2.0.0
 
 ### Added
@@ -72,10 +84,6 @@
   notification, instead of failing album after album.
 - **Run check now** next to the scheduler switch, with the time of the next
   automatic check.
-- **Request pacing** (Settings → YouTube access, issue #98): the pause
-  between yt-dlp's requests and a random pause before each download (min /
-  max, 1–5 s by default) can now be set from the page, to avoid YouTube
-  blocks at the cost of slower albums.
 - **Retry schedule per track** in the Library tracks dialog ("Retry in 6
   days", "Gave up after 5 tries"), and a **Stuck tracks** table in Insights
   listing tracks that keep failing and when they are tried again.
