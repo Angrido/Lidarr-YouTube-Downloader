@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+    {% include "_head.html" %}
+    <title>Sign in — Lidarr YouTube Downloader</title>
+    <style>
+        .login-body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            min-height: 100dvh;
+            padding: var(--sp-12) var(--sp-4) var(--sp-8);
+            background:
+                radial-gradient(ellipse 80% 50% at 50% -10%, var(--accent-soft), transparent 70%),
+                var(--bg-base);
+        }
+
+        .login {
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .login-head {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: var(--sp-1);
+            margin-bottom: var(--sp-6);
+            text-align: center;
+        }
+
+        .login-mark {
+            width: 56px;
+            height: 56px;
+            margin-bottom: var(--sp-3);
+            border-radius: 14px;
+            box-shadow: var(--shadow-2);
+        }
+
+        .login-form {
+            display: flex;
+            flex-direction: column;
+            gap: var(--sp-4);
+        }
+
+        .login-remember {
+            display: flex;
+            align-items: center;
+            gap: var(--sp-2);
+            font-size: var(--text-subhead);
+            color: var(--text-2);
+        }
+
+        .login-form .ui-btn {
+            width: 100%;
+            justify-content: center;
+        }
+    </style>
+</head>
+<body class="login-body">
+    <main class="login" id="main">
+        <header class="login-head">
+            <img class="login-mark" src="/static/favicon.svg" alt="" width="56" height="56">
+            <p class="t-eyebrow">Lidarr YouTube Downloader</p>
+            <h1 class="t-title2">Sign in</h1>
+        </header>
+        <div class="ui-card ui-card-lg">
+            <form class="login-form" id="loginForm" novalidate>
+                <div class="ui-field">
+                    <label class="ui-label" for="username">Username</label>
+                    <input type="text" class="ui-input ui-input-lg" id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus>
+                </div>
+                <div class="ui-field">
+                    <label class="ui-label" for="password">Password</label>
+                    <input type="password" class="ui-input ui-input-lg" id="password" name="password" autocomplete="current-password" required>
+                </div>
+                <label class="login-remember">
+                    <span class="ui-check"><input type="checkbox" id="remember" checked><span class="ui-check-box"></span></span>
+                    <span>Keep me signed in for 30 days</span>
+                </label>
+                <p class="ui-error-text" id="loginError" role="alert" hidden></p>
+                <button type="submit" class="ui-btn ui-btn-primary ui-btn-lg" id="loginBtn">
+                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-unlock"></use></svg><span>Sign in</span>
+                </button>
+            </form>
+        </div>
+    </main>
+    <script>
+        (function () {
+            var form = document.getElementById('loginForm');
+            var errorBox = document.getElementById('loginError');
+            var nextUrl = {{ next_url|tojson }};
+            form.addEventListener('submit', function (e) {
+                e.preventDefault();
+                var username = document.getElementById('username').value.trim();
+                var password = document.getElementById('password').value;
+                if (!username || !password) {
+                    errorBox.textContent = 'Enter your username and password.';
+                    errorBox.hidden = false;
+                    return;
+                }
+                errorBox.hidden = true;
+                UI.guard(document.getElementById('loginBtn'), function () {
+                    return UI.fetchJSON('/api/auth/login', {
+                        method: 'POST',
+                        body: {
+                            username: username,
+                            password: password,
+                            remember: document.getElementById('remember').checked,
+                            next: nextUrl,
+                        },
+                    }).then(function (data) {
+                        window.location.replace((data && data.next) || '/');
+                    }, function (err) {
+                        errorBox.textContent = err.message || 'Sign in failed.';
+                        errorBox.hidden = false;
+                        document.getElementById('password').select();
+                    });
+                }, 'Signing in…');
+            });
+        })();
+    </script>
+</body>
+</html>

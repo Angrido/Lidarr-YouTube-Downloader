@@ -1,6 +1,18 @@
 (function () {
     "use strict";
 
+    if (window.fetch && location.pathname !== "/login") {
+        var nativeFetch = window.fetch.bind(window);
+        window.fetch = function () {
+            return nativeFetch.apply(null, arguments).then(function (res) {
+                if (res.status === 401 && res.headers.get("X-Login-Required") === "1") {
+                    location.href = "/login?next=" + encodeURIComponent(location.pathname + location.search);
+                }
+                return res;
+            });
+        };
+    }
+
     var THEME_KEY = "theme";
     var root = document.documentElement;
     var mql = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;

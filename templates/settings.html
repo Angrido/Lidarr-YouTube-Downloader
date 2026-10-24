@@ -765,6 +765,7 @@
                         <li><a class="settings-nav-link" href="#sec-notifications">{{ ico('bell') }}<span>Notifications</span></a></li>
                         <li><a class="settings-nav-link" href="#sec-client">{{ ico('plug') }}<span>Download client</span></a></li>
                         <li><a class="settings-nav-link" href="#sec-paths">{{ ico('folder') }}<span>Paths</span></a></li>
+                        <li><a class="settings-nav-link" href="#sec-security">{{ ico('shield') }}<span>Security</span></a></li>
                         <li><a class="settings-nav-link" href="#sec-backup">{{ ico('database') }}<span>Backup &amp; restore</span></a></li>
                     </ul>
                 </nav>
@@ -932,6 +933,20 @@
                             <p class="ui-group-title">Lidarr</p>
                             <div class="ui-group">
                                 {{ switch_row('lidarrRenameBtn', 'Trigger Lidarr rename after import', 'After files are imported into Lidarr, send a RenameFiles command so Lidarr applies its configured naming convention (also fires Lidarr&#39;s “on rename” connections).', 'tag', '', '/api/lidarr_rename/toggle', 'lidarr_rename_after_import') }}
+                                {% call stack_row('lidarrTag', 'Tag artists in Lidarr', 'After a download, add this Lidarr tag to the artist (e.g. <code>youtube</code>), so you can filter in Lidarr what came from YouTube. Lidarr tags artists, not single tracks or albums. Lowercase letters, digits and hyphens; empty turns it off.', 'tag', 'info', err=true) %}
+                                <input type="text" class="ui-input t-mono" id="lidarrTag" placeholder="youtube" maxlength="50" autocomplete="off" spellcheck="false" aria-describedby="lidarrTag-desc">
+                                {% endcall %}
+                            </div>
+                        </div>
+                        <div class="settings-group">
+                            <p class="ui-group-title">Spotify playlists</p>
+                            <div class="ui-group">
+                                {% call stack_row('spotifyClientId', 'Spotify client ID (optional)', 'Spotify, Deezer, Apple Music and ListenBrainz links work on the YouTube page without keys. Without a key Spotify shows at most the first 100 tracks of a playlist; with an app from <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com</a> every track is read.', 'list-music', 'success') %}
+                                <input type="text" class="ui-input t-mono" id="spotifyClientId" placeholder="Client ID" autocomplete="off" spellcheck="false" aria-describedby="spotifyClientId-desc">
+                                {% endcall %}
+                                {% call stack_row('spotifyClientSecret', 'Spotify client secret', 'The secret of the same Spotify app.', 'key', 'gray') %}
+                                <input type="password" class="ui-input t-mono" id="spotifyClientSecret" placeholder="Client secret" autocomplete="off" aria-describedby="spotifyClientSecret-desc">
+                                {% endcall %}
                             </div>
                         </div>
                         <div class="settings-group">
@@ -1083,7 +1098,7 @@
                     <section class="settings-section" id="sec-notifications" aria-labelledby="sec-notifications-title" data-section>
                         <div class="settings-section-head">
                             <h2 class="settings-section-title" id="sec-notifications-title" tabindex="-1">Notifications</h2>
-                            <p class="section-desc">Get told about downloads on Telegram, Discord or Ntfy. A channel is enabled once its token, webhook or topic is filled in.</p>
+                            <p class="section-desc">Get told about downloads on Telegram, Discord, Ntfy or any service Apprise supports. A channel is enabled once its token, webhook, topic or URL is filled in.</p>
                         </div>
                         <div class="settings-group">
                             <p class="ui-group-title">Telegram</p>
@@ -1142,6 +1157,20 @@
                                 {% endcall %}
                                 {% call inline_row('ntfyTest', 'Send test message', 'Verify your Ntfy setup by sending a test notification right now.', 'send', 'gray', label_for=false, wrap=true) %}
                                 <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" id="ntfyTestBtn" onclick="sendNtfyTest()">{{ ico('send') }}<span>Send Ntfy test</span></button>
+                                {% endcall %}
+                            </div>
+                        </div>
+                        <div class="settings-group">
+                            <p class="ui-group-title">Apprise</p>
+                            <div class="ui-group">
+                                {% call stack_row('appriseUrls', 'Apprise URLs', 'One URL per line, for any of the 100+ services <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">Apprise</a> supports: Gotify, Pushover, Matrix, Slack, email, Home Assistant, a generic webhook… e.g. <code>gotify://host/token</code> or <code>mailto://user:pass@gmail.com</code>.', 'bell', '') %}
+                                <textarea class="ui-textarea t-mono" id="appriseUrls" rows="3" placeholder="gotify://gotify.lan/AbCdEf123" autocomplete="off" spellcheck="false" aria-describedby="appriseUrls-desc"></textarea>
+                                {% endcall %}
+                                {% call stack_row('appriseFilters', 'Notify me about', 'Choose which events to receive via Apprise.', 'filter', 'gray', label_for=false) %}
+                                {{ event_chips('apprise_log_', 'appriseFilters-label') }}
+                                {% endcall %}
+                                {% call inline_row('appriseTest', 'Send test message', 'Send a test notification to every URL above right now.', 'send', 'gray', label_for=false, wrap=true) %}
+                                <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" id="appriseTestBtn" onclick="sendAppriseTest()">{{ ico('send') }}<span>Send Apprise test</span></button>
                                 {% endcall %}
                             </div>
                         </div>
@@ -1217,6 +1246,47 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                                 {% endcall %}
                                 {% call stack_row('lidarrPath', 'Lidarr music path', 'Lidarr&#39;s music library folder — leave empty to use the download path (e.g. /music).', 'library', 'success', err=true) %}
                                 <input type="text" class="ui-input t-mono" id="lidarrPath" placeholder="/music" autocomplete="off" spellcheck="false" aria-describedby="lidarrPath-desc">
+                                {% endcall %}
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="settings-section" id="sec-security" aria-labelledby="sec-security-title" data-section>
+                        <div class="settings-section-head">
+                            <h2 class="settings-section-title" id="sec-security-title" tabindex="-1">Security</h2>
+                            <p class="section-desc">Optional sign-in, for when the app can be reached by people other than you. These changes apply right away.</p>
+                        </div>
+                        <div class="settings-group">
+                            <p class="ui-group-title">Login</p>
+                            <div class="ui-group">
+                                <div class="ui-group-row" data-search-unit>
+                                    {{ tile('shield', 'success') }}
+                                    <div class="ui-group-row-text">
+                                        <div class="row-title-line"><span class="ui-group-row-title">Status</span></div>
+                                        <p class="ui-group-row-desc" id="authStatusText">Checking…</p>
+                                    </div>
+                                    <div class="ui-group-row-control">
+                                        <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" id="authLogoutBtn" onclick="authLogout()" hidden>{{ ico('power') }}<span>Sign out</span></button>
+                                    </div>
+                                </div>
+                                {% call stack_row('authUsername', 'Username', 'The name to sign in with.', 'user', 'info') %}
+                                <input type="text" class="ui-input" id="authUsername" maxlength="64" autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="authUsername-desc">
+                                {% endcall %}
+                                {% call stack_row('authPassword', 'Password', 'At least 8 characters. When login is already on, leave it empty to keep the current password.', 'key', 'gray') %}
+                                <input type="password" class="ui-input" id="authPassword" autocomplete="new-password" aria-describedby="authPassword-desc">
+                                {% endcall %}
+                                {% call stack_row('authPasswordConfirm', 'Repeat password', '', 'key', 'gray') %}
+                                <input type="password" class="ui-input" id="authPasswordConfirm" autocomplete="new-password">
+                                {% endcall %}
+                                {% call inline_row('authActions', 'Apply', 'Lidarr&#39;s Newznab / SABnzbd calls and <code>/api/health</code> keep working without a login.', 'unlock', 'gray', label_for=false, wrap=true) %}
+                                <button type="button" class="ui-btn ui-btn-primary ui-btn-sm" id="authSaveBtn" onclick="authSave()">{{ ico('check') }}<span id="authSaveLabel">Turn on login</span></button>
+                                <button type="button" class="ui-btn ui-btn-danger ui-btn-sm" id="authDisableBtn" onclick="authDisable()" hidden>{{ ico('x') }}<span>Turn off login</span></button>
+                                {% endcall %}
+                                {% call stack_row('authApiKey', 'API key', 'For scripts and dashboards while login is on: send it as the <code>X-Api-Key</code> header (or <code>?apikey=</code>).', 'key', 'orange') %}
+                                <div class="ui-input-row">
+                                    <input type="text" class="ui-input t-mono" id="authApiKey" readonly placeholder="Created when login is turned on" aria-describedby="authApiKey-desc">
+                                    <button type="button" class="ui-btn ui-btn-secondary" id="authApiKeyBtn" onclick="authRegenerateKey()">{{ ico('refresh') }}<span>New key</span></button>
+                                </div>
                                 {% endcall %}
                             </div>
                         </div>
@@ -1325,6 +1395,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 if (target) requestAnimationFrame(() => jumpToSection(target));
             });
             loadYtdlpVersion();
+            loadAuthStatus();
             document.addEventListener('keydown', (e) => {
                 if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
                     e.preventDefault();
@@ -1463,6 +1534,12 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             $('ntfyPriority').value = conf.ntfy_priority || 'default';
             setChecks('ntfy_log_', conf.ntfy_log_types || []);
 
+            setSecret('appriseUrls', conf.apprise_urls);
+            setChecks('apprise_log_', conf.apprise_log_types || []);
+            $('lidarrTag').value = conf.lidarr_tag || '';
+            $('spotifyClientId').value = conf.spotify_client_id || '';
+            setSecret('spotifyClientSecret', conf.spotify_client_secret);
+
             setSwitch('toggleBtn', !!conf.scheduler_enabled);
             setSwitch('autoDlBtn', !!conf.scheduler_auto_download);
             setSwitch('xmlMetadataBtn', conf.xml_metadata_enabled !== false);
@@ -1500,6 +1577,12 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 ntfy_priority: $('ntfyPriority').value,
                 ntfy_enabled: !!$('ntfyTopic').value,
                 ntfy_log_types: readChecks('ntfy_log_'),
+                apprise_urls: ($('appriseUrls').value || '').trim(),
+                apprise_enabled: !!($('appriseUrls').value || '').trim(),
+                apprise_log_types: readChecks('apprise_log_'),
+                lidarr_tag: ($('lidarrTag').value || '').trim().toLowerCase(),
+                spotify_client_id: ($('spotifyClientId').value || '').trim(),
+                spotify_client_secret: ($('spotifyClientSecret').value || '').trim(),
                 download_path: $('downloadPath').value,
                 lidarr_path: $('lidarrPath').value,
                 forbidden_words: FORBIDDEN_WORD_IDS.map((id) => $(id)).filter((cb) => cb && cb.checked).map((cb) => cb.value),
@@ -1600,6 +1683,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             discordWebhook: checkUrl,
             ntfyUrl: checkUrl,
             ytCookiesFile: checkPath,
+            lidarrTag: (v) => (/^[a-z0-9-]*$/.test(String(v).trim().toLowerCase()) ? '' : 'Use only letters, digits and hyphens.'),
             downloadPath: checkPath,
             lidarrPath: checkPath,
         };
@@ -2303,6 +2387,117 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 token: token,
                 priority: priority,
             }, 'Ntfy', 'topic');
+        }
+
+        async function sendAppriseTest() {
+            const urls = ($('appriseUrls').value || '').trim();
+            if (!urls) {
+                toast('Enter at least one Apprise URL first.', 'error');
+                $('appriseUrls').focus();
+                return;
+            }
+            await sendNotificationTest('appriseTestBtn', '/api/notifications/test/apprise', { urls: urls }, 'Apprise', 'services');
+        }
+
+        let _auth = null;
+
+        function renderAuth(st) {
+            _auth = st;
+            const fromEnv = !!st.from_env;
+            let text = 'Off: anyone who can reach this page can use the app.';
+            if (st.enabled) text = 'On for “' + st.username + '”' + (fromEnv ? ', set by AUTH_USERNAME / AUTH_PASSWORD.' : '.');
+            $('authStatusText').textContent = text;
+            $('authLogoutBtn').hidden = !(st.enabled && st.logged_in);
+            $('authDisableBtn').hidden = !st.enabled || fromEnv;
+            $('authSaveLabel').textContent = st.enabled ? 'Update login' : 'Turn on login';
+            ['authUsername', 'authPassword', 'authPasswordConfirm', 'authSaveBtn'].forEach((id) => { $(id).disabled = fromEnv; });
+            if (!$('authUsername').value) $('authUsername').value = st.username || '';
+            $('authApiKey').value = st.api_key || '';
+            $('authApiKeyBtn').disabled = !st.enabled;
+        }
+
+        async function loadAuthStatus() {
+            try {
+                renderAuth(await UI.fetchJSON('/api/auth/status'));
+            } catch (e) {
+                $('authStatusText').textContent = 'Could not read the login status.';
+            }
+        }
+
+        async function authSave() {
+            const username = $('authUsername').value.trim();
+            const password = $('authPassword').value;
+            const enabled = !!(_auth && _auth.enabled);
+            if (!username) {
+                toast('Enter a username.', 'error');
+                $('authUsername').focus();
+                return;
+            }
+            if ((!enabled || password) && password.length < 8) {
+                toast('The password needs at least 8 characters.', 'error');
+                $('authPassword').focus();
+                return;
+            }
+            if (password !== $('authPasswordConfirm').value) {
+                toast('The two passwords are different.', 'error');
+                $('authPasswordConfirm').focus();
+                return;
+            }
+            await UI.guard($('authSaveBtn'), async () => {
+                try {
+                    await UI.fetchJSON('/api/auth/setup', { method: 'POST', body: { username: username, password: password } });
+                    $('authPassword').value = '';
+                    $('authPasswordConfirm').value = '';
+                    toast(enabled ? 'Login updated.' : 'Login is on. You are signed in on this browser.', 'success');
+                    await loadAuthStatus();
+                } catch (e) {
+                    toast('Login not saved: ' + e.message, 'error');
+                }
+            }, 'Saving…');
+        }
+
+        async function authDisable() {
+            const ok = await UI.confirm({
+                title: 'Turn off login?',
+                message: 'Anyone who can reach this page will be able to use the app again.',
+                confirmLabel: 'Turn off',
+                danger: true,
+            });
+            if (!ok) return;
+            await UI.guard($('authDisableBtn'), async () => {
+                try {
+                    await UI.fetchJSON('/api/auth/disable', { method: 'POST' });
+                    toast('Login is off.', 'success');
+                    await loadAuthStatus();
+                } catch (e) {
+                    toast('Could not turn off login: ' + e.message, 'error');
+                }
+            }, 'Turning off…');
+        }
+
+        async function authLogout() {
+            try {
+                await UI.fetchJSON('/api/auth/logout', { method: 'POST' });
+            } catch (_) {}
+            window.location.href = '/login';
+        }
+
+        async function authRegenerateKey() {
+            const ok = await UI.confirm({
+                title: 'Create a new API key?',
+                message: 'Scripts using the current key will stop working until you give them the new one.',
+                confirmLabel: 'Create key',
+            });
+            if (!ok) return;
+            await UI.guard($('authApiKeyBtn'), async () => {
+                try {
+                    const data = await UI.fetchJSON('/api/auth/api-key', { method: 'POST' });
+                    $('authApiKey').value = data.api_key || '';
+                    toast('New API key created.', 'success');
+                } catch (e) {
+                    toast('Could not create a key: ' + e.message, 'error');
+                }
+            }, 'Creating…');
         }
 
         async function handleConfigImport(event) {

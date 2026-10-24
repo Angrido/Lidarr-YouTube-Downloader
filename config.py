@@ -70,7 +70,16 @@ ALLOWED_CONFIG_KEYS = {
     "explore_country", "explore_language",
     "yt_watch_playlists",
     "ui_accent", "ui_aura_mode",
+    "lidarr_tag",
+    "apprise_enabled", "apprise_urls", "apprise_log_types",
+    "spotify_client_id", "spotify_client_secret",
 }
+
+AUTH_CONFIG_KEYS = (
+    "auth_enabled", "auth_username", "auth_password_hash", "auth_api_key",
+)
+
+_LIDARR_TAG_RE = re.compile(r"^[a-z0-9-]{0,50}$")
 
 # Appearance (Settings > Appearance). The accent is written into every
 # page's <head>, so only a plain #rrggbb ever gets through.
@@ -110,11 +119,12 @@ BOOL_CONFIG_KEYS = frozenset({
     "audio_normalize", "save_lyrics", "apply_replaygain", "discord_enabled",
     "ntfy_enabled", "acoustid_enabled", "lidarr_rename_after_import",
     "save_cover_art_file", "download_client_enabled", "playlist_to_library",
-    "queue_paused",
+    "queue_paused", "apprise_enabled",
 })
 
 LIST_CONFIG_KEYS = frozenset({
     "telegram_log_types", "discord_log_types", "ntfy_log_types",
+    "apprise_log_types",
     "forbidden_words", "forbidden_words_custom", "yt_watch_playlists",
 })
 
@@ -127,7 +137,8 @@ _WATCH_PLAYLIST_RE = re.compile(
 # is left out on purpose: /api/download-client/info shows it for Lidarr.
 SECRET_CONFIG_KEYS = (
     "telegram_bot_token", "discord_webhook_url", "ntfy_token",
-    "acoustid_api_key", "yt_po_token",
+    "acoustid_api_key", "yt_po_token", "apprise_urls",
+    "spotify_client_secret",
 )
 SECRET_MASK = "********"
 
@@ -238,8 +249,17 @@ def _parse_ui_aura_mode(value):
     return value
 
 
+def _parse_lidarr_tag(value):
+    tag = value.strip().lower() if isinstance(value, str) else None
+    if tag is None or not _LIDARR_TAG_RE.match(tag):
+        raise ValueError("use lowercase letters, digits and hyphens")
+    return tag
+
+
 def coerce_config_value(key, value):
     try:
+        if key == "lidarr_tag":
+            return _parse_lidarr_tag(value)
         if key == "ui_accent":
             return _parse_ui_accent(value)
         if key == "ui_aura_mode":
@@ -422,6 +442,21 @@ def _env_config():
         # YouTube playlists checked periodically: every video not yet
         # downloaded is imported as one album (issue #96).
         "yt_watch_playlists": [],
+        "lidarr_tag": os.getenv("LIDARR_TAG", ""),
+        "apprise_enabled": _env_bool("APPRISE_ENABLED", False),
+        "apprise_urls": os.getenv("APPRISE_URLS", ""),
+        "apprise_log_types": [
+            "partial_success",
+            "import_partial",
+            "album_error",
+            "manual_download",
+        ],
+        "spotify_client_id": os.getenv("SPOTIFY_CLIENT_ID", ""),
+        "spotify_client_secret": os.getenv("SPOTIFY_CLIENT_SECRET", ""),
+        "auth_enabled": False,
+        "auth_username": "",
+        "auth_password_hash": "",
+        "auth_api_key": "",
         "path_conflict": False,
     }
 
@@ -519,6 +554,10 @@ def load_config():
         config["ui_accent"] = UI_ACCENT_DEFAULT
     if config.get("ui_aura_mode") not in UI_AURA_MODES:
         config["ui_aura_mode"] = "cover"
+    try:
+        config["lidarr_tag"] = _parse_lidarr_tag(config.get("lidarr_tag") or "")
+    except ValueError:
+        config["lidarr_tag"] = ""
 
     def norm(p):
         return (

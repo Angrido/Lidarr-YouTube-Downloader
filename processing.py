@@ -30,7 +30,12 @@ from downloader import (
     search_youtube_candidates,
 )
 from fingerprint import fingerprint_track, verify_fingerprint
-from lidarr import get_valid_release_id, lidarr_request, lidarr_request_with_retry
+from lidarr import (
+    get_valid_release_id,
+    lidarr_request,
+    lidarr_request_with_retry,
+    tag_artist,
+)
 from metadata import (
     apply_file_extras,
     create_xml_metadata,
@@ -932,6 +937,9 @@ def process_album_download(
         )
         if result is not None:
             return result
+
+        if succeeded_tracks:
+            _tag_artist_quietly(artist_id)
 
         # Lidarr-grabbed albums: leave files in the download folder and
         # let Lidarr's completed-download handling import them. Skip the
@@ -2286,6 +2294,13 @@ def _format_failed_tracks_md2(failed_tracks):
             f"_{md2_escape(reason)}_"
         )
     return lines
+
+
+def _tag_artist_quietly(artist_id):
+    try:
+        tag_artist(artist_id)
+    except Exception as e:
+        logger.warning("Lidarr tag step failed: %s", e)
 
 
 def _format_youtube_links_field(succeeded_tracks, *, limit=1024):

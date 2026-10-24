@@ -27,11 +27,13 @@ from flask import (
     send_from_directory,
 )
 
+import auth
 import db
 import download_client
 import models
 from config import (
     ALLOWED_CONFIG_KEYS,
+    AUTH_CONFIG_KEYS,
     SECRET_CONFIG_KEYS,
     SECRET_MASK,
     coerce_config_value,
@@ -141,6 +143,9 @@ def _reject_cross_site_writes():
     return None
 
 
+auth.init_app(app)
+
+
 def _is_album_id(value):
     return type(value) is int and value > 0
 
@@ -163,6 +168,8 @@ def _coerce_config_updates(incoming):
 
 def _public_config(cfg):
     cfg.pop("lidarr_api_key", None)
+    for key in AUTH_CONFIG_KEYS:
+        cfg.pop(key, None)
     for key in SECRET_CONFIG_KEYS:
         if cfg.get(key):
             cfg[key] = SECRET_MASK
@@ -807,6 +814,34 @@ def api_notifications_test_ntfy():
         "success": result.get("success", False),
         "message": (
             "Test message sent successfully"
+            if result.get("success")
+            else result.get("error", "Unknown error")
+        ),
+    }), status_code
+
+
+@app.route("/api/notifications/test/apprise", methods=["POST"])
+def api_notifications_test_apprise():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"notif_test_apprise:{client_ip}",
+        rate_limit_store,
+        window=10,
+        max_requests=3,
+    ):
+        return jsonify(
+            {"success": False, "message": "Too many test requests"}
+        ), 429
+    urls = _unmasked(_str_field(_json_object(), "urls", nullable=True))
+    if not urls:
+        urls = load_config().get("apprise_urls", "")
+    from notifications import send_apprise_test
+    result = send_apprise_test(urls)
+    status_code = 200 if result.get("success") else 400
+    return jsonify({
+        "success": result.get("success", False),
+        "message": (
+            result.get("error") or "Test message sent successfully"
             if result.get("success")
             else result.get("error", "Unknown error")
         ),
