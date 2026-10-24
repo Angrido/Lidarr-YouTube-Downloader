@@ -3,6 +3,26 @@
 ## 2.0.1
 
 ### Added
+- **Spotify, Deezer, Apple Music and ListenBrainz links** on the YouTube
+  page: paste a playlist or album and every track is searched on YouTube
+  (same scoring as Lidarr albums), tagged with its own artist and saved
+  with an `.m3u8` playlist file. **Add albums to Lidarr** looks up the
+  albums of the selected tracks on MusicBrainz, adds them and queues them
+  instead. Spotify works without a key (first 100 tracks of a playlist);
+  a Spotify app's client ID and secret in Settings reads every track.
+- **Optional login** (Settings → Security, or `AUTH_USERNAME` /
+  `AUTH_PASSWORD`): every page and API asks for a sign-in, with an API key
+  (`X-Api-Key` header or `?apikey=`) for scripts. Lidarr's Newznab /
+  SABnzbd calls and `/api/health` keep working without it. Off by default.
+- **Lidarr tag for downloaded artists** (issue #89): set a tag such as
+  `youtube` in Settings → Library & metadata and every artist this app
+  downloads for is tagged with it in Lidarr. Lidarr tags artists only, not
+  albums or tracks.
+- **Apprise notifications**: one URL per line for any of the 100+
+  services Apprise supports (Gotify, Pushover, Matrix, email, webhooks…),
+  with the same event filters and a test button.
+- **For you** in Explore: artists similar to the ones in your Lidarr
+  library, from YouTube Music's related artists, refreshed every 6 hours.
 - **Request pacing** (Settings → YouTube access, issue #98): the pause
   between yt-dlp's requests and a random pause before each download (min /
   max, 1–5 s by default) can now be set from the page, to avoid YouTube

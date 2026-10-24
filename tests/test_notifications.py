@@ -796,3 +796,53 @@ def test_truncate_md2_never_ends_in_a_dangling_backslash():
     out = notifications._truncate_caption(text, 100, md2_safe=True)
     assert len(out) <= 100
     assert not out[:-1].endswith("\\")
+
+
+class TestApprise:
+    def _cfg(self, **kw):
+        base = {"apprise_enabled": True, "apprise_urls": "json://a.example\njson://b.example",
+                "apprise_log_types": ["album_error"]}
+        base.update(kw)
+        return base
+
+    def test_url_list(self):
+        assert notifications.apprise_url_list(" a://x \n\n b://y, c://z ") == ["a://x", "b://y", "c://z"]
+        assert notifications.apprise_url_list(["a://x", " "]) == ["a://x"]
+
+    @patch("notifications._notify_apprise")
+    @patch("notifications.load_config")
+    def test_send_filters_by_type(self, mock_cfg, mock_notify):
+        mock_cfg.return_value = self._cfg()
+        mock_notify.return_value = {"success": True, "error": ""}
+        notifications.send_apprise("hello", log_type="download_success")
+        mock_notify.assert_not_called()
+        notifications.send_apprise("hello", log_type="album_error", title="T")
+        mock_notify.assert_called_once_with(["json://a.example", "json://b.example"], "T", "hello")
+
+    @patch("notifications._notify_apprise")
+    @patch("notifications.load_config")
+    def test_disabled(self, mock_cfg, mock_notify):
+        mock_cfg.return_value = self._cfg(apprise_enabled=False)
+        notifications.send_apprise("hello", log_type="album_error")
+        mock_notify.assert_not_called()
+
+    def test_notify_reports_bad_urls(self):
+        result = notifications._notify_apprise(["not a url"], "t", "b")
+        assert result["success"] is False
+
+    @patch("apprise.Apprise.notify", return_value=True)
+    def test_notify_ok(self, _notify):
+        result = notifications._notify_apprise(["json://localhost", "nonsense"], "t", "b")
+        assert result["success"] is True
+        assert "1 URL" in result["error"]
+
+    def test_test_needs_url(self):
+        assert notifications.send_apprise_test("")["success"] is False
+
+    @patch("notifications.send_apprise")
+    @patch("notifications.send_ntfy")
+    @patch("notifications.send_discord")
+    @patch("notifications.send_telegram")
+    def test_send_notifications_includes_apprise(self, _t, _d, _n, mock_apprise):
+        notifications.send_notifications("msg", log_type="album_error", embed_data={"title": "Title"})
+        mock_apprise.assert_called_once_with("msg", log_type="album_error", title="Title")

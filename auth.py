@@ -12,6 +12,7 @@ from flask import (
     request,
     session,
 )
+from flask.sessions import SecureCookieSessionInterface
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from config import CONFIG_FILE, load_config, update_config
@@ -151,8 +152,15 @@ def require_login():
     return response, 401
 
 
+class _LazyKeySessionInterface(SecureCookieSessionInterface):
+    def get_signing_serializer(self, app):
+        if not app.secret_key:
+            app.secret_key = _load_secret_key()
+        return super().get_signing_serializer(app)
+
+
 def init_app(app):
-    app.secret_key = _load_secret_key()
+    app.session_interface = _LazyKeySessionInterface()
     app.config.update(
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",

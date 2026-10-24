@@ -101,6 +101,11 @@ def _explore_charts():
     return data
 
 
+@bp.route("/api/explore/for-you")
+def api_explore_for_you():
+    return _explore_json(explore.for_you, bucket="for_you", max_requests=6)
+
+
 @bp.route("/api/explore/charts")
 def api_explore_charts():
     return _explore_json(_explore_charts)

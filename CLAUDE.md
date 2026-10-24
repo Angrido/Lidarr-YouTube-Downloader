@@ -84,7 +84,9 @@ docker run -p 5005:5000 \
 | `library.py` | Lidarr lookup / add API used by Explore: MusicBrainz search through Lidarr, add artists/albums, monitor, queue when the tracklist is ready |
 | `explore.py` | Explore catalog: shared YT Music client, TTL cache, normalizers + raw-shelf fallback parser, YT Music → MusicBrainz/Lidarr mapping, add / YouTube-import actions (`/explore`) |
 | `explore_routes.py` | Explore blueprint: the `/explore` page, every `/api/explore/*` route with its rate-limit bucket (`_explore_json`), and the in-memory artist-import runner (`_artist_imports`, `_run_artist_import`) |
-| `notifications.py` | Telegram/Discord webhooks, Ntfy push |
+| `notifications.py` | Telegram/Discord webhooks, Ntfy push, Apprise |
+| `auth.py` | Optional login: `before_request` guard, `/login`, `/api/auth/*`, API key, session key in `/config/secret_key` |
+| `external_playlists.py` | Spotify / Deezer / Apple Music / ListenBrainz playlist and album readers for the YouTube page, and the "Add albums to Lidarr" job |
 | `config.py` | Config load/save, constants |
 | `scheduler.py` | Scheduled polling/auto-download |
 | `fingerprint.py` | AcoustID fingerprinting via fpcalc/chromaprint |
@@ -422,9 +424,25 @@ captured live. So:
   thumbnails (`--down` simulates YouTube being unreachable). Use it for UI
   work and Playwright checks; it never downloads.
 
+### Optional login (`auth.py`)
+
+Off by default. Turned on from Settings › Security (`POST /api/auth/setup`, which stores `auth_username`, a werkzeug `auth_password_hash` and a generated `auth_api_key` in config.json) or forced by `AUTH_USERNAME` + `AUTH_PASSWORD` env vars. The `AUTH_CONFIG_KEYS` are **not** in `ALLOWED_CONFIG_KEYS` (so `/api/config` and config import can never set them) and `_public_config()` drops them. `require_login()` lets through `PUBLIC_PATHS` / `PUBLIC_PREFIXES` (login, static, manifest, sw, health, Newznab and SABnzbd, which have their own API key), a session cookie, or the `X-Api-Key` header / `?apikey=`; otherwise pages redirect to `/login?next=` and APIs answer 401 with `X-Login-Required: 1`, which `app.js` turns into a redirect. The session key is created lazily (`_LazyKeySessionInterface`) in `/config/secret_key`.
+
+### External playlists (`external_playlists.py`)
+
+`/api/youtube/playlist/info` hands Spotify (embed page `__NEXT_DATA__`, or the Web API with `spotify_client_id`/`spotify_client_secret`), Deezer (public API), Apple Music (iTunes lookup for albums/songs, the page's `serialized-server-data` for playlists, best effort) and ListenBrainz (JSPF API) links to `fetch()`, and returns the YouTube-page shape with `search: true` entries (title, artist, album, duration, no URL). `/api/youtube/playlist/download` keeps such entries, and `_execute_playlist_download` resolves each one with `download_track_youtube("<artist> <title> official audio", …)`, tags it with `track_info["trackArtist"]` (TPE1 / artist / ©ART, album artist stays the playlist name), records `track_artist`, and writes `<name>.m3u8` when any entry was searched. `POST /api/youtube/external/lidarr` starts one in-memory job that matches each (first artist, album) via `library.search` + `explore.decide_album` (an exact title + artist breaks a tie between editions), and `library.add_album(download=True)` for anything not already complete; `GET …/status` reports it. Fetches only go to these fixed hosts; cover art is accepted from `is_cover_url()` hosts.
+
+### Lidarr tags (issue #89)
+
+`lidarr.tag_artist(artist_id)` adds the `lidarr_tag` config value (lowercase letters, digits, hyphens; empty = off) to the artist through `PUT artist/editor` (`applyTags: add`), falling back to `GET`/`PUT artist/{id}`; the tag id is created on first use and cached. Called after any album run with at least one downloaded track (`processing._tag_artist_quietly`) and after a manual download. Lidarr has no album or track tags.
+
+### Explore "For you"
+
+`explore.for_you()` (`/api/explore/for-you`, cached 6 h per locale) picks up to 8 library artists (`pick_seed_artists`: the most recently added half, the rest random), finds each on YT Music (`_artist_channel`, exact folded name) and ranks their `related` artists by how many seeds share them, minus artists already in Lidarr (`rank_recommendations`). The page loads it after the home shelves and inserts it after the hero.
+
 ### Notifications
 
-Telegram, Discord webhooks, and Ntfy push notifications, filtered by `log_type` (e.g., `partial_success`, `album_error`). Ntfy is called with a JSON body on the **server root** (`POST {ntfy_url}/`, topic inside the JSON — ntfy ignores JSON posted to `/<topic>`) and an integer priority (1–5). Exception messages are logged through `_redact()` so bot tokens / webhook tokens never reach the logs.
+Telegram, Discord webhooks, Ntfy push and Apprise (`apprise_urls`, one URL per line, `apprise_log_types`) notifications, filtered by `log_type` (e.g., `partial_success`, `album_error`). Ntfy is called with a JSON body on the **server root** (`POST {ntfy_url}/`, topic inside the JSON — ntfy ignores JSON posted to `/<topic>`) and an integer priority (1–5). Exception messages are logged through `_redact()` so bot tokens / webhook tokens never reach the logs.
 
 ## Templates
 
@@ -595,4 +613,4 @@ Run tests with the venv:
 source .venv/bin/activate && python -m pytest tests/ -v
 ```
 
-Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`, `test_explore.py` (fixtures in `tests/fixtures/ytmusic/`), `test_frontend_js.py` (runs `tests/js/*.test.js` under node; skipped without node).
+Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`, `test_explore.py` (fixtures in `tests/fixtures/ytmusic/`), `test_auth.py`, `test_external_playlists.py`, `test_youtube_external.py`, `test_frontend_js.py` (runs `tests/js/*.test.js` under node; skipped without node).
