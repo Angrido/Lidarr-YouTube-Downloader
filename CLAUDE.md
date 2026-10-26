@@ -509,6 +509,14 @@ variables, theme toggles, navigation or Font Awesome**.
   `UI.countTo(el, value, ms, format)`. `auraPalette` and `tiltAngles` are
   pure and tested under node by `tests/test_frontend_js.py`
   (`tests/js/*.test.js`).
+- Page motion in `components.css`: cross-document View Transitions
+  (`@view-transition`, only without reduced motion) cross-fade the content
+  while `.app-sidebar` / `.app-tabbar` stay put (named, no old snapshot), and
+  `.app-content` cards / groups / shelves rise in on scroll with a `view()`
+  timeline (`ui-reveal`, under `@supports`; anything visible on load is
+  already at rest). It skips `.ui-card-interactive` (its hover transform)
+  and `.is-entering > *` (the stagger). Never put it on `.ui-album`. Explore
+  home shelves, the album tracklist and the Insights tiles are staggered.
 - `static/icons.svg` — SVG symbol sprite (`#i-<name>`), used as
   `<svg class="ico"><use href="/static/icons.svg#i-name"></use></svg>`.
 - `templates/_head.html` (meta, manifest, CSS, pre-paint theme script,

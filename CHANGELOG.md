@@ -39,8 +39,15 @@
   buttons and fields are at least 44 px, and chips and segmented controls
   get a 44 px tap area.
 - Small labels (eyebrows, badges, *Instant*) are 12 px instead of 11 px.
+- **Smoother motion** — moving between pages cross-fades the content while
+  the sidebar and tab bar stay still, cards and shelves rise in gently as
+  you scroll, and Explore shelves, album tracklists and the Insights tiles
+  come in one after another. All of it is off with *reduce motion*.
 
 ### Fixed
+- Logs on phones: the dismiss button no longer takes a row of its own; it
+  sits in the corner of the entry.
+- The tab bar's "downloading" dot no longer covers the Downloads icon.
 - A negative pause value made the download fail; pauses are now at least
   0 s and the maximum is never below the minimum.
 - **Lyrics and ReplayGain on every download** — *Save lyrics* and *Apply
