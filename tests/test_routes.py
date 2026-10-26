@@ -3869,6 +3869,45 @@ class TestExploreArtistImport:
         assert rows and rows[0]["source_format"] == "251 · webm · 160 kbps"
 
 
+class TestPlaylistImportWithoutAlbumTitle:
+    def test_folder_has_no_untitled_subfolder(self, client, monkeypatch, tmp_path):
+        import youtube_import
+        launched = []
+        monkeypatch.setattr(youtube_import, "check_rate_limit", lambda *a, **k: True)
+        monkeypatch.setattr(youtube_import, "_playlist_write_base", lambda cfg: str(tmp_path))
+        monkeypatch.setattr(
+            youtube_import, "_launch_playlist_import",
+            lambda artist, album, entries, target, *a: launched.append(target) or ("", 200),
+        )
+        client.post("/api/youtube/playlist/download", json={
+            "artist_name": "Motivation No Excuses", "album_title": "",
+            "entries": [{"url": "https://www.youtube.com/watch?v=aaaaaaaaaaa", "title": "One"}],
+        })
+        assert launched == [str(tmp_path / "Motivation No Excuses")]
+
+    def test_now_downloading_shows_the_playlist_name(self, monkeypatch, tmp_path):
+        import youtube_import
+        from processing import download_process
+        seen = []
+
+        def fake_dl(candidate, output_path, **kw):
+            seen.append((download_process["album_title"], download_process["artist_name"]))
+            with open(output_path + ".mp3", "wb") as f:
+                f.write(b"AUDIO")
+            return {"success": True, "youtube_title": candidate["title"]}
+
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path))
+        monkeypatch.setattr(youtube_import, "download_youtube_candidate", fake_dl)
+        monkeypatch.setattr(youtube_import, "tag_audio_file", lambda *a, **k: None)
+        monkeypatch.setattr(youtube_import, "send_notifications", lambda *a, **k: None)
+        monkeypatch.setattr(youtube_import, "_ensure_import_artist_image", lambda *a: None)
+        youtube_import._execute_playlist_download(
+            "Motivation No Excuses", "", [{"url": "https://www.youtube.com/watch?v=aaaaaaaaaaa", "title": "One"}],
+            str(tmp_path / "Motivation No Excuses"), {"audio_format": "mp3"},
+        )
+        assert seen == [("Motivation No Excuses", "Motivation No Excuses")]
+
+
 class TestImportArtistImage:
     def test_only_for_artist_folders(self, monkeypatch, tmp_path):
         import youtube_import

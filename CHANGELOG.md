@@ -23,6 +23,11 @@
 ### Fixed
 - A negative pause value made the download fail; pauses are now at least
   0 s and the maximum is never below the minimum.
+- A YouTube playlist imported with only its name (the album field left
+  empty, the default for playlists mixing several channels) was saved in
+  an extra `untitled` subfolder and showed as *Unknown Album* while
+  downloading. It now lands in `<download path>/<playlist name>/` and the
+  now-downloading card shows the playlist name.
 - **Lyrics and ReplayGain on every download** — *Save lyrics* and *Apply
   ReplayGain* only worked for Lidarr albums. Retried failed tracks,
   manual downloads and YouTube / Explore imports now get them too, and
