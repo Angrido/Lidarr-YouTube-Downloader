@@ -711,3 +711,41 @@ class TestArtistImport:
         assert job["entries"] == [{"url": "https://music.youtube.com/watch?v=aaaaaaaaaaa", "title": "Night"}]
         assert job["album_title"] == "Night"
         assert job["thumbnail_url"] == "https://i.ytimg.com/x.jpg"
+
+
+class TestForYou:
+    def _artist(self, name, cid):
+        return {"kind": "artist", "id": cid, "title": name, "subtitle": "", "thumbnail": ""}
+
+    def test_rank_counts_shared_related_and_skips_owned(self):
+        related = [
+            ("Daft Punk", [self._artist("Justice", "UC1aaaaaaaaaaaa"), self._artist("Air", "UC2aaaaaaaaaaaa"), self._artist("Cassius", "UC3aaaaaaaaaaaa")]),
+            ("Phoenix", [self._artist("Air", "UC2aaaaaaaaaaaa"), self._artist("Daft Punk", "UC4aaaaaaaaaaaa")]),
+        ]
+        items = explore.rank_recommendations(related, ["Daft Punk", "phoenix", "Cassius"])
+        assert [i["title"] for i in items] == ["Air", "Justice"]
+        assert items[0]["subtitle"] == "Like Daft Punk & Phoenix"
+        assert items[0]["seeds"] == ["Daft Punk", "Phoenix"]
+
+    def test_pick_seeds_mixes_recent_and_random(self):
+        import random
+        artists = [{"name": f"A{i}", "added": f"2024-01-{i + 1:02d}"} for i in range(20)]
+        seeds = explore.pick_seed_artists(artists, count=6, rng=random.Random(1))
+        assert seeds[:3] == ["A19", "A18", "A17"]
+        assert len(seeds) == 6 and len(set(seeds)) == 6
+
+    def test_for_you_end_to_end(self, monkeypatch):
+        explore.invalidate()
+        monkeypatch.setattr(explore, "_library_artists", lambda: [{"name": "Daft Punk", "added": "2024"}])
+        monkeypatch.setattr(explore, "_artist_channel", lambda name: "UCdaftpunkaaaaaa")
+        monkeypatch.setattr(explore, "artist", lambda cid: {"related": [self._artist("Justice", "UC1aaaaaaaaaaaa")]})
+        data = explore.for_you()
+        assert data["seeds"] == ["Daft Punk"]
+        assert [i["title"] for i in data["items"]] == ["Justice"]
+        explore.invalidate()
+
+    def test_for_you_without_lidarr(self, monkeypatch):
+        explore.invalidate()
+        monkeypatch.setattr(explore, "_library_artists", lambda: None)
+        assert explore.for_you() == {"items": [], "seeds": []}
+        explore.invalidate()

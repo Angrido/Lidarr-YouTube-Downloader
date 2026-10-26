@@ -20,7 +20,7 @@ import models
 from config import load_config
 from downloader import download_youtube_candidate
 from fingerprint import fingerprint_track
-from lidarr import lidarr_request
+from lidarr import lidarr_request, tag_artist
 from metadata import apply_file_extras, create_xml_metadata, tag_audio_file
 from notifications import send_notifications
 from processing import download_process, queue_lock
@@ -858,3 +858,7 @@ def _refresh_lidarr_artist(album_data, track_title):
             track_title,
             result["error"],
         )
+    try:
+        tag_artist(artist_id)
+    except Exception as e:
+        logger.warning("Lidarr tag step failed: %s", e)

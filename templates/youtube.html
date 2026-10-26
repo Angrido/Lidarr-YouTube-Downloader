@@ -144,6 +144,51 @@
             cursor: pointer;
         }
 
+        .yt-lidarr {
+            margin-top: var(--sp-4);
+        }
+
+        .yt-lidarr-list {
+            display: flex;
+            flex-direction: column;
+            gap: var(--sp-1);
+            margin: var(--sp-2) 0 0;
+            padding: 0;
+            list-style: none;
+            font-size: var(--text-footnote);
+        }
+
+        .yt-lidarr-list li {
+            display: flex;
+            gap: var(--sp-2);
+            justify-content: space-between;
+            min-width: 0;
+        }
+
+        .yt-lidarr-list .yt-lidarr-name {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .yt-lidarr-list .yt-lidarr-state {
+            flex: none;
+            color: var(--text-3);
+        }
+
+        .yt-lidarr-list [data-state="queued"] .yt-lidarr-state,
+        .yt-lidarr-list [data-state="complete"] .yt-lidarr-state {
+            color: var(--success);
+        }
+
+        .yt-lidarr-list [data-state="error"] .yt-lidarr-state {
+            color: var(--danger);
+        }
+
+        .yt-lidarr-actions {
+            margin-top: var(--sp-3);
+        }
+
         .yt-entries {
             max-height: 480px;
             overflow-y: auto;
@@ -359,14 +404,14 @@
                     <span class="ui-icon-tile ui-icon-tile-danger" aria-hidden="true"><svg class="ico"><use href="/static/icons.svg#i-youtube"></use></svg></span>
                     <div>
                         <h2 class="t-title3" id="urlHeading">Paste a link</h2>
-                        <p class="t-footnote t-3">A video, a playlist or a YouTube Music album.</p>
+                        <p class="t-footnote t-3">A YouTube video, playlist or YouTube Music album, or a Spotify, Deezer, Apple Music or ListenBrainz playlist or album.</p>
                     </div>
                 </div>
-                <label class="sr-only" for="urlInput">YouTube URL</label>
+                <label class="sr-only" for="urlInput">YouTube, Spotify, Deezer, Apple Music or ListenBrainz URL</label>
                 <div class="ui-input-row yt-url-row">
                     <div class="ui-input-group">
                         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-link"></use></svg>
-                        <input type="url" inputmode="url" id="urlInput" class="ui-input ui-input-lg" placeholder="https://youtube.com/…" autocomplete="off" spellcheck="false" aria-describedby="urlHint">
+                        <input type="url" inputmode="url" id="urlInput" class="ui-input ui-input-lg" placeholder="https://youtube.com/… or https://open.spotify.com/playlist/…" autocomplete="off" spellcheck="false" aria-describedby="urlHint">
                     </div>
                     <button type="button" class="ui-btn ui-btn-primary ui-btn-lg" id="fetchBtn">
                         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-search"></use></svg><span>Fetch</span>
@@ -474,6 +519,19 @@
                         <button type="button" class="ui-btn ui-btn-primary ui-btn-lg" id="downloadBtn" disabled>
                             <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-download"></use></svg><span>Import tracks</span>
                         </button>
+                    </div>
+                    <div class="ui-callout ui-callout-info yt-lidarr" id="lidarrBox" hidden>
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-library"></use></svg>
+                        <div class="ui-callout-body">
+                            <div class="ui-callout-title">Each track is searched on YouTube</div>
+                            <div class="ui-callout-text" id="lidarrBoxText">Import tracks downloads the best YouTube match of every selected track and writes an .m3u8 playlist next to them. You can also add their albums to Lidarr, which downloads them whole, with MusicBrainz tags.</div>
+                            <ul class="yt-lidarr-list" id="lidarrResults" hidden></ul>
+                            <div class="yt-lidarr-actions">
+                                <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" id="lidarrBtn">
+                                    <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-plus"></use></svg><span id="lidarrBtnLabel">Add albums to Lidarr</span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -651,7 +709,7 @@
                     artworkHtml(entry.thumbnail, 'music', 'yt-entry-dim') +
                     '<span class="ui-list-main yt-entry-dim">' +
                     '<span class="ui-list-title bidi" title="' + UI.escape(title) + '">' + UI.escape(title) + '</span>' +
-                    (entry.channel ? '<span class="ui-list-sub bidi">' + UI.escape(entry.channel) + '</span>' : '') +
+                    (entry.channel ? '<span class="ui-list-sub bidi">' + UI.escape(entry.channel + (entry.search && entry.album ? ' · ' + entry.album : '')) + '</span>' : '') +
                     '</span>' +
                     (entry.duration ? '<span class="ui-list-aside num yt-entry-dim">' + UI.formatDuration(entry.duration) + '</span>' : '') +
                     '</label></li>';
@@ -668,7 +726,10 @@
             const isPlaylist = data.type === 'playlist';
             const badge = $('playlistBadge');
             badge.className = 'ui-badge ' + (isPlaylist ? 'ui-badge-accent' : 'ui-badge-info');
-            badge.innerHTML = UI.icon(isPlaylist ? 'list-music' : 'play-circle') + '<span>' + (isPlaylist ? 'Playlist' : 'Video') + '</span>';
+            const kindLabel = data.source
+                ? data.source + ' ' + ({ album: 'album', track: 'track' }[data.kind] || 'playlist')
+                : (isPlaylist ? 'Playlist' : 'Video');
+            badge.innerHTML = UI.icon(isPlaylist ? 'list-music' : 'play-circle') + '<span>' + UI.escape(kindLabel) + '</span>';
             $('playlistTitle').textContent = data.title || (isPlaylist ? 'YouTube playlist' : 'YouTube video');
             $('playlistChannel').textContent = data.channel ? 'by ' + data.channel : '';
             $('playlistChannel').hidden = !data.channel;
@@ -738,6 +799,7 @@
                     $('tracksCountLabel').textContent = plural(entries.length, 'track');
 
                     buildTrackList(entries);
+                    showLidarrBox(entries);
                     $('resultSection').hidden = false;
                     updatePathHint();
                 }, 'Fetching…');
@@ -746,6 +808,77 @@
             } finally {
                 $('resultSkeleton').hidden = true;
             }
+        }
+
+        let lidarrPoll = null;
+
+        function lidarrAlbumCount(entries) {
+            const seen = new Set();
+            entries.forEach((e) => {
+                if (e.search && e.album && e.artist) seen.add((e.artist.split(', ')[0] + '\u0000' + e.album).toLowerCase());
+            });
+            return seen.size;
+        }
+
+        function showLidarrBox(entries) {
+            const external = entries.some((e) => e.search);
+            const albums = lidarrAlbumCount(entries);
+            $('lidarrBox').hidden = !external;
+            $('lidarrBtn').hidden = !albums;
+            $('lidarrBtnLabel').textContent = albums === 1 ? 'Add the album to Lidarr' : 'Add ' + albums + ' albums to Lidarr';
+            $('lidarrResults').hidden = true;
+            $('lidarrResults').innerHTML = '';
+        }
+
+        const LIDARR_STATES = {
+            pending: 'Waiting…',
+            queued: 'Added, downloading',
+            complete: 'Already complete',
+            not_found: 'Not on MusicBrainz',
+            ambiguous: 'Several matches',
+            error: 'Error',
+        };
+
+        function renderLidarrJob(st) {
+            const list = $('lidarrResults');
+            list.hidden = false;
+            list.innerHTML = (st.albums || []).map((a) =>
+                '<li data-state="' + UI.escape(a.state || 'pending') + '">' +
+                '<span class="yt-lidarr-name bidi" title="' + UI.escape(a.artist + ' — ' + a.album) + '">' + UI.escape(a.artist + ' — ' + a.album) + '</span>' +
+                '<span class="yt-lidarr-state" title="' + UI.escape(a.message || '') + '">' + UI.escape(LIDARR_STATES[a.state] || a.state || '') + '</span>' +
+                '</li>'
+            ).join('');
+            $('lidarrBoxText').textContent = st.running
+                ? 'Looking up albums in Lidarr: ' + st.done + ' of ' + st.total + '…'
+                : 'Done. Albums Lidarr added are in the download queue; for the others, import their tracks from YouTube.';
+        }
+
+        async function addAlbumsToLidarr() {
+            const selected = trackCheckboxes()
+                .map((cb) => (cb.checked ? fetchedEntries[Number(cb.dataset.index)] : null))
+                .filter(Boolean);
+            if (!lidarrAlbumCount(selected)) {
+                UI.toast('Select tracks that have an album name.', { type: 'error' });
+                return;
+            }
+            await UI.guard($('lidarrBtn'), async () => {
+                try {
+                    const st = await UI.fetchJSON('/api/youtube/external/lidarr', { method: 'POST', body: { entries: selected } });
+                    renderLidarrJob(st);
+                    if (lidarrPoll) lidarrPoll.stop();
+                    lidarrPoll = UI.poll(async () => {
+                        const next = await UI.fetchJSON('/api/youtube/external/lidarr/status');
+                        renderLidarrJob(next);
+                        if (!next.running && lidarrPoll) {
+                            lidarrPoll.stop();
+                            lidarrPoll = null;
+                            UI.refreshNav();
+                        }
+                    }, 2000);
+                } catch (e) {
+                    UI.toast(e.message || 'Could not reach Lidarr.', { type: 'error' });
+                }
+            }, 'Starting…');
         }
 
         function updatePathHint() {
@@ -1191,6 +1324,7 @@
         $('downloadBtn').addEventListener('click', startDownload);
         $('stopBtn').addEventListener('click', stopDownload);
 
+        $('lidarrBtn').addEventListener('click', addAlbumsToLidarr);
         $('urlInput').addEventListener('keydown', function (e) {
             if (e.key === 'Enter') {
                 e.preventDefault();

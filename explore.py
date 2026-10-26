@@ -1632,3 +1632,96 @@ def artist_image_for_name(name):
         return ""
 
     return cached(("artist_image", target), PAGE_TTL, loader) or ""
+
+
+FOR_YOU_TTL = 6 * 3600
+FOR_YOU_SEEDS = 8
+FOR_YOU_LIMIT = 20
+
+
+def _library_artists():
+    from lidarr import lidarr_request
+
+    rows = lidarr_request("artist")
+    if not isinstance(rows, list):
+        return None
+    out = []
+    for row in rows:
+        if isinstance(row, dict) and _str(row.get("artistName")):
+            out.append({"name": _str(row["artistName"]), "added": _str(row.get("added"))})
+    return out
+
+
+def pick_seed_artists(artists, count=FOR_YOU_SEEDS, rng=None):
+    import random
+
+    rng = rng or random
+    recent = sorted(artists, key=lambda a: a["added"], reverse=True)[: count // 2]
+    names = {a["name"] for a in recent}
+    rest = [a for a in artists if a["name"] not in names]
+    sample = rng.sample(rest, min(len(rest), count - len(recent)))
+    return [a["name"] for a in recent + sample]
+
+
+def _artist_channel(name):
+    target = _fold(name).strip()
+    raws = []
+    for kwargs in ({"filter": "artists", "limit": 5}, {"limit": 10}):
+        try:
+            raws = call("search", name, **kwargs) or []
+        except ExploreError:
+            raise
+        except Exception as e:
+            logger.debug("Explore: artist search for %s failed (%s)", name, e)
+            raws = []
+        for item in normalize_items(raws, kinds=("artist",)):
+            if _fold(item["title"]).strip() == target:
+                return item["id"]
+    return ""
+
+
+def rank_recommendations(related_by_seed, library_names, limit=FOR_YOU_LIMIT):
+    owned = {_fold(n).strip() for n in library_names}
+    scores = {}
+    for seed, related in related_by_seed:
+        for pos, item in enumerate(related):
+            key = _fold(item["title"]).strip()
+            if not key or key in owned:
+                continue
+            entry = scores.setdefault(key, {"item": item, "score": 0.0, "seeds": []})
+            entry["score"] += 1.0 + (len(related) - pos) / (10.0 * max(1, len(related)))
+            if seed not in entry["seeds"]:
+                entry["seeds"].append(seed)
+    ranked = sorted(scores.values(), key=lambda e: e["score"], reverse=True)[:limit]
+    out = []
+    for entry in ranked:
+        seeds = entry["seeds"]
+        reason = "Like " + " & ".join(seeds[:2]) + (f" +{len(seeds) - 2}" if len(seeds) > 2 else "")
+        out.append(dict(entry["item"], subtitle=reason, seeds=seeds))
+    return out
+
+
+def for_you():
+    def loader():
+        artists = _library_artists()
+        if artists is None:
+            return None
+        if not artists:
+            return {"items": [], "seeds": []}
+        seeds = pick_seed_artists(artists)
+        related_by_seed = []
+        for name in seeds:
+            try:
+                channel = _artist_channel(name)
+                if not channel:
+                    continue
+                page = artist(channel)
+            except ExploreError:
+                continue
+            related_by_seed.append((name, page.get("related") or []))
+        if not related_by_seed:
+            return None
+        items = rank_recommendations(related_by_seed, [a["name"] for a in artists])
+        return {"items": items, "seeds": [s for s, _ in related_by_seed]}
+
+    return cached(("for_you",), FOR_YOU_TTL, loader) or {"items": [], "seeds": []}

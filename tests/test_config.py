@@ -557,3 +557,37 @@ def test_appearance_defaults_and_bad_file_values(temp_config):
     cfg = config.load_config()
     assert cfg["ui_accent"] == "#7c5cff"
     assert cfg["ui_aura_mode"] == "cover"
+
+
+class TestNewKeys:
+    @pytest.mark.parametrize("value, expected", [
+        ("YouTube", "youtube"), (" from-yt ", "from-yt"), ("", ""),
+    ])
+    def test_lidarr_tag_valid(self, value, expected):
+        assert config.coerce_config_value("lidarr_tag", value) == expected
+
+    @pytest.mark.parametrize("value", ["you tube", "tag!", 3, "x" * 51])
+    def test_lidarr_tag_invalid(self, value):
+        with pytest.raises(ValueError):
+            config.coerce_config_value("lidarr_tag", value)
+
+    def test_bad_lidarr_tag_in_file_is_dropped(self, temp_config):
+        with open(temp_config, "w") as f:
+            json.dump({"lidarr_tag": "Not Valid"}, f)
+        assert config.load_config()["lidarr_tag"] == ""
+
+    def test_apprise_keys(self):
+        assert "apprise_urls" in config.SECRET_CONFIG_KEYS
+        assert "spotify_client_secret" in config.SECRET_CONFIG_KEYS
+        assert config.coerce_config_value("apprise_enabled", "true") is True
+        assert config.coerce_config_value("apprise_log_types", ["album_error"]) == ["album_error"]
+
+    def test_auth_keys_not_settable_through_api(self):
+        for key in config.AUTH_CONFIG_KEYS:
+            assert key not in config.ALLOWED_CONFIG_KEYS
+
+    def test_auth_keys_persist(self, temp_config):
+        config.update_config(lambda c: c.update(auth_enabled=True, auth_username="u", auth_password_hash="h"))
+        loaded = config.load_config()
+        assert loaded["auth_enabled"] is True
+        assert loaded["auth_username"] == "u"

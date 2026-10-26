@@ -81,13 +81,13 @@
 <td valign="top">
 
 #### Explore
-<sub>Browse new releases, charts and moods, preview any track and add it to Lidarr in two clicks.</sub>
+<sub>Browse new releases, charts and moods, get artists picked from your own library, preview any track and add it to Lidarr in two clicks.</sub>
 
 </td>
 <td valign="top">
 
 #### Hands-off
-<sub>A scheduler fetches new releases on its own, backs off tracks that keep failing and notifies Telegram, Discord or ntfy.</sub>
+<sub>A scheduler fetches new releases on its own, backs off tracks that keep failing and notifies Telegram, Discord, ntfy or any of the 100+ services Apprise supports.</sub>
 
 </td>
 </tr>
@@ -238,8 +238,9 @@ docker compose up -d
 | `DOWNLOAD_PATH` | `/DATA/Downloads` | Where new tracks are saved |
 | `LIDARR_PATH` | `/music` | Your music library, as mounted in the container |
 | `PUID` / `PGID` / `UMASK` | `1000` / `1000` / `002` | File ownership, matching Lidarr |
+| `AUTH_USERNAME` / `AUTH_PASSWORD` | `admin` / `…` | Optional: require this login (otherwise turn it on in Settings › Security) |
 
-Audio format and quality, parallel tracks, match threshold, forbidden words, scheduler, notifications (Telegram, Discord, ntfy), AcoustID and yt-dlp tuning are all set in **Settings**. Explore's default region and language come from `EXPLORE_COUNTRY` (default `IT`) and `EXPLORE_LANGUAGE` (default `en`); the chart country can also be switched right on the Explore page.
+Audio format and quality, parallel tracks, match threshold, forbidden words, scheduler, notifications (Telegram, Discord, ntfy, Apprise), the Lidarr tag for downloaded artists, the optional login, AcoustID and yt-dlp tuning are all set in **Settings**. Explore's default region and language come from `EXPLORE_COUNTRY` (default `IT`) and `EXPLORE_LANGUAGE` (default `en`); the chart country can also be switched right on the Explore page.
 
 <details>
 <summary><b>YouTube cookies</b> — when YouTube asks you to sign in</summary>
@@ -259,6 +260,17 @@ environment:
 ```
 
 Never use your main Google account: cookies expire and accounts can be flagged. The app never modifies your file — every download works on a private copy.
+
+</details>
+
+<details>
+<summary><b>Spotify, Deezer, Apple Music and ListenBrainz playlists</b></summary>
+
+<br>
+
+Paste a playlist or album link on the **YouTube** page. Every track is searched on YouTube with the same scoring used for Lidarr albums, tagged with its own artist and saved with an `.m3u8` playlist file next to it, so the playlist shows up in Jellyfin, Navidrome or Plex. **Add albums to Lidarr** instead looks up the albums of the selected tracks on MusicBrainz, adds them to Lidarr and queues them, so they arrive whole with full tags.
+
+No key is needed. Without one Spotify only shows the first 100 tracks of a playlist; add a Spotify app's client ID and secret in Settings › Library & metadata to read all of them. Apple Music playlists are read from the public page and may break if Apple changes it; Apple Music albums use the iTunes API.
 
 </details>
 

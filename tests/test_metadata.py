@@ -1126,3 +1126,20 @@ class TestApplyFileExtras:
             artist="A", title="T",
         )
         rg.assert_called_once()
+
+
+class TestTrackArtist:
+    @pytest.mark.parametrize("track_extra, expected", [
+        ({}, "Album Artist"),
+        ({"trackArtist": "Guest Singer"}, "Guest Singer"),
+    ])
+    def test_mp3_track_artist(self, tmp_path, track_extra, expected):
+        from mutagen.mp3 import MP3
+
+        mp3_path = _create_minimal_mp3(tmp_path / "t.mp3")
+        track_info = {"title": "Song", "trackNumber": "1", **track_extra}
+        album_info = {"title": "Mix", "artist": {"artistName": "Album Artist"}, "trackCount": 1}
+        assert metadata.tag_mp3(str(mp3_path), track_info, album_info, None) is True
+        audio = MP3(str(mp3_path))
+        assert str(audio.tags["TPE1"]) == expected
+        assert str(audio.tags["TPE2"]) == "Album Artist"

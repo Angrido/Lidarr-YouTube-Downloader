@@ -64,6 +64,10 @@ def _disc_position(track_info, album_info):
     return disc, max(discs)
 
 
+def _track_artist(track_info, album_info):
+    return track_info.get("trackArtist") or album_info["artist"]["artistName"]
+
+
 def tag_mp3(file_path, track_info, album_info, cover_data):
     """Apply ID3 tags to an MP3 file including MusicBrainz metadata.
 
@@ -90,7 +94,7 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
 
         audio.tags.add(TIT2(encoding=3, text=track_info["title"]))
         audio.tags.add(
-            TPE1(encoding=3, text=album_info["artist"]["artistName"])
+            TPE1(encoding=3, text=_track_artist(track_info, album_info))
         )
         audio.tags.add(
             TPE2(encoding=3, text=album_info["artist"]["artistName"])
@@ -151,7 +155,7 @@ def tag_opus(file_path, track_info, album_info, cover_data):
         audio = OggOpus(file_path)
 
         audio["title"] = [track_info["title"]]
-        audio["artist"] = [album_info["artist"]["artistName"]]
+        audio["artist"] = [_track_artist(track_info, album_info)]
         audio["albumartist"] = [album_info["artist"]["artistName"]]
         audio["album"] = [album_info["title"]]
         audio["date"] = [str(album_info.get("releaseDate") or "")[:4]]
@@ -212,7 +216,7 @@ def tag_m4a(file_path, track_info, album_info, cover_data):
         audio = MP4(file_path)
 
         audio["\xa9nam"] = [track_info["title"]]
-        audio["\xa9ART"] = [album_info["artist"]["artistName"]]
+        audio["\xa9ART"] = [_track_artist(track_info, album_info)]
         audio["aART"] = [album_info["artist"]["artistName"]]
         audio["\xa9alb"] = [album_info["title"]]
         audio["\xa9day"] = [str(album_info.get("releaseDate") or "")[:4]]

@@ -6,6 +6,7 @@ fetching missing albums, and resolving release IDs.
 
 import json
 import logging
+import threading
 import time
 
 import requests
@@ -151,6 +152,82 @@ def lidarr_request_with_retry(
                 endpoint, max_attempts, result["error"],
             )
     return result
+
+
+_tag_ids = {}
+_tag_lock = threading.Lock()
+
+
+def _lidarr_tag_id(label):
+    key = label.casefold()
+    with _tag_lock:
+        if key in _tag_ids:
+            return _tag_ids[key]
+        tags = lidarr_request("tag")
+        if not isinstance(tags, list):
+            logger.warning(
+                "Cannot read Lidarr tags: %s", (tags or {}).get("error", "?"),
+            )
+            return None
+        for tag in tags:
+            if isinstance(tag, dict) and str(tag.get("label") or "").casefold() == key:
+                _tag_ids[key] = tag.get("id")
+                return _tag_ids[key]
+        created = lidarr_request("tag", method="POST", data={"label": label})
+        if not isinstance(created, dict) or not created.get("id"):
+            logger.warning(
+                "Cannot create Lidarr tag '%s': %s",
+                label, (created or {}).get("error", "?"),
+            )
+            return None
+        _tag_ids[key] = created["id"]
+        return created["id"]
+
+
+def _forget_lidarr_tags():
+    with _tag_lock:
+        _tag_ids.clear()
+
+
+def _tag_artist_by_put(artist_id, tag_id):
+    artist = lidarr_request(f"artist/{artist_id}")
+    if not isinstance(artist, dict) or "error" in artist:
+        return artist if isinstance(artist, dict) else {"error": "no artist"}
+    tags = [t for t in (artist.get("tags") or []) if isinstance(t, int)]
+    if tag_id in tags:
+        return artist
+    artist["tags"] = tags + [tag_id]
+    return lidarr_request(f"artist/{artist_id}", method="PUT", data=artist)
+
+
+def tag_artist(artist_id, label=None):
+    if label is None:
+        label = load_config().get("lidarr_tag") or ""
+    label = str(label).strip().lower()
+    try:
+        artist_id = int(artist_id)
+    except (TypeError, ValueError):
+        return False
+    if not label or artist_id <= 0:
+        return False
+    tag_id = _lidarr_tag_id(label)
+    if not tag_id:
+        return False
+    result = lidarr_request(
+        "artist/editor", method="PUT",
+        data={"artistIds": [artist_id], "tags": [tag_id], "applyTags": "add"},
+    )
+    if isinstance(result, dict) and "error" in result:
+        result = _tag_artist_by_put(artist_id, tag_id)
+    if isinstance(result, dict) and "error" in result:
+        _forget_lidarr_tags()
+        logger.warning(
+            "Cannot tag Lidarr artist %s with '%s': %s",
+            artist_id, label, result["error"],
+        )
+        return False
+    logger.info("   Tagged the artist in Lidarr with '%s'", label)
+    return True
 
 
 def get_missing_albums():
