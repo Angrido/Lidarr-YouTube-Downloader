@@ -1008,6 +1008,7 @@
                 + buildStuckCard(data.stuck_tracks)
                 + '</div>';
             dailyWidth = 0;
+            if (anim) UI.stagger(body.querySelector('.ui-stats'));
             drawDailyChart(anim);
             wireCharts(data);
             setStatus('Insights for the ' + (rangeLabel(data.window_days)) + ': ' + fmtInt(t.successful) + ' tracks downloaded, ' + t.success_rate + '% success rate');

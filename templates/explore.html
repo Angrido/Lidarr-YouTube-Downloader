@@ -1153,6 +1153,7 @@
             html += moodsHtml(data.moods);
             view.innerHTML = html ? `<div class="ex-shelves">${html}</div>` : emptyHtml("Nothing to show", "YouTube Music returned no music for this region right now.", { retry: true });
             hydrate(view);
+            UI.stagger(view.querySelector(".ex-shelves"));
             setStatus("Explore loaded");
         }
 
@@ -1226,6 +1227,7 @@
                 </section>
                 ${album.otherVersions && album.otherVersions.length ? `<div class="section">${cardsShelf("Other versions", album.otherVersions)}</div>` : ""}`;
             hydrate(view);
+            UI.stagger(view.querySelector(".ex-list"));
             setStatus(`${album.title} loaded`);
             loadMatch(seq, false);
         }
