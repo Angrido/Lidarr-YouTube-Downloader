@@ -469,7 +469,7 @@ def _start_playlist_import(
             {"success": False, "message": "No download path configured"}
         ), 400
 
-    path_parts = [p for p in [sanitize_filename(artist_name), sanitize_filename(album_title)] if p]
+    path_parts = [sanitize_filename(p) for p in (artist_name, album_title) if p]
     target_path = os.path.join(write_base, *path_parts)
 
     return _launch_playlist_import(
@@ -685,8 +685,8 @@ def _execute_playlist_download(
         download_process["active"] = True
         download_process["stop"] = False
         download_process["album_id"] = playlist_album_id
-        download_process["album_title"] = album_title
-        download_process["artist_name"] = artist_name
+        download_process["album_title"] = album_title or artist_name
+        download_process["artist_name"] = artist_name or album_title
         download_process["cover_url"] = ""
         download_process["current_track_index"] = 0
         download_process["tracks"] = [
