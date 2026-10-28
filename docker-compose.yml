@@ -23,6 +23,9 @@ services:
       # override it with another path that is mounted here too.
       - LIDARR_PATH=${LIDARR_PATH:-/music}
       - ACOUSTID_API_KEY=${ACOUSTID_API_KEY:-}
+      # Optional: comma-separated Host names the app answers to (blocks DNS
+      # rebinding). Empty accepts any Host.
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-}
       # Automatic YouTube PO tokens via the bgutil provider sidecar below.
       # Set YT_POT_PROVIDER_URL="" to disable (and drop the sidecar).
       - YT_POT_PROVIDER_URL=${YT_POT_PROVIDER_URL:-http://bgutil-provider:4416}

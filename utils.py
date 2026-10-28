@@ -256,6 +256,75 @@ def _synthetic_album_data(title, artist, track_count=0):
     }
 
 
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+_HOST_FORBIDDEN_CHARS = re.compile(r"[@/\\?#\s]")
+
+
+def _host_of(value):
+    """Lower-case host name of a Host header / allow-list entry, or None.
+
+    A real Host header is ``name[:port]``: anything carrying userinfo, a
+    path, a query, a fragment, a backslash or whitespace is refused rather
+    than interpreted (``user@host`` would otherwise read as ``host``).
+    """
+    value = value.strip()
+    if _HOST_FORBIDDEN_CHARS.search(value):
+        return None
+    try:
+        return urllib.parse.urlsplit("//" + value).hostname or None
+    except ValueError:
+        return None
+
+
+def parse_allowed_hosts(raw):
+    """Parse the comma-separated ``ALLOWED_HOSTS`` setting.
+
+    Entries are host names or addresses (a ``:port`` suffix or a pasted
+    ``http://`` prefix is ignored); ``*.example.com`` matches any sub-domain.
+    Empty means "no restriction". An entry that is not a host is skipped
+    with a warning so a typo does not silently disable the allow-list.
+    """
+    hosts = []
+    for item in (raw or "").split(","):
+        item = re.sub(r"^[a-z][a-z0-9+.-]*://", "", item.strip(), flags=re.I)
+        item = item.rstrip("/")
+        if not item:
+            continue
+        host = _host_of(item)
+        if host:
+            hosts.append(host)
+        else:
+            logger.warning("Ignoring invalid ALLOWED_HOSTS entry %r", item[:100])
+    return tuple(hosts)
+
+
+def host_is_allowed(host_header, allowed):
+    """Whether a request's Host header names a host the operator allows.
+
+    Without this check a DNS-rebinding page (its own name pointed at the
+    app's address) is same-origin as far as the browser, the Origin check
+    and Sec-Fetch-Site are concerned. An empty ``allowed`` allows every
+    host. Loopback names are always allowed: a page cannot reach them on
+    someone else's machine, and the container health check uses them.
+    """
+    if not allowed:
+        return True
+    hostname = _host_of(host_header or "")
+    if hostname is None:
+        return False
+    if hostname in _LOOPBACK_HOSTS:
+        return True
+    for entry in allowed:
+        if entry.startswith("*."):
+            if hostname.endswith(entry[1:]):
+                return True
+        elif hostname == entry:
+            return True
+    return False
+
+
 def _is_safe_stream_url(stream_url):
     if not isinstance(stream_url, str) or not stream_url:
         return False

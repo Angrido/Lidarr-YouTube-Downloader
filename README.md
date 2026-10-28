@@ -238,6 +238,7 @@ docker compose up -d
 | `DOWNLOAD_PATH` | `/DATA/Downloads` | Where new tracks are saved |
 | `LIDARR_PATH` | `/music` | Your music library, as mounted in the container |
 | `PUID` / `PGID` / `UMASK` | `1000` / `1000` / `002` | File ownership, matching Lidarr |
+| `ALLOWED_HOSTS` | `192.168.1.10,music.example.com` | Optional. When set, requests whose `Host` header is not listed get a 400, which blocks DNS-rebinding attacks. List every address you (or Lidarr's download-client bridge) use to reach the app; `localhost` is always allowed and `*.example.com` matches sub-domains. Empty (default) accepts any host. |
 
 Audio format and quality, parallel tracks, match threshold, forbidden words, scheduler, notifications (Telegram, Discord, ntfy), AcoustID and yt-dlp tuning are all set in **Settings**. Explore's default region and language come from `EXPLORE_COUNTRY` (default `IT`) and `EXPLORE_LANGUAGE` (default `en`); the chart country can also be switched right on the Explore page.
 

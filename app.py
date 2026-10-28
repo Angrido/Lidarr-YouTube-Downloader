@@ -78,6 +78,8 @@ from utils import (
     _YtdlpSilentLogger,
     check_rate_limit,
     format_bytes,
+    host_is_allowed,
+    parse_allowed_hosts,
     rate_limit_store,
     sanitize_filename,
 )
@@ -108,6 +110,22 @@ app.register_blueprint(manual_download.bp)
 def _invalid_request_body(exc):
     message = str(exc)
     return jsonify({"success": False, "message": message, "error": message}), 400
+
+
+# Optional Host allow-list (comma-separated), a defence against DNS rebinding:
+# empty keeps the historical behaviour of answering to any Host.
+ALLOWED_HOSTS = parse_allowed_hosts(os.getenv("ALLOWED_HOSTS", ""))
+
+
+@app.before_request
+def _reject_unknown_host():
+    if host_is_allowed(request.host, ALLOWED_HOSTS):
+        return None
+    logger.warning(
+        "Refused a request for host %r; add it to ALLOWED_HOSTS to allow it",
+        request.host[:100],
+    )
+    return _text_error("Host not allowed", 400)
 
 
 @app.before_request

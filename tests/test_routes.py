@@ -4151,3 +4151,55 @@ class TestSchedulerRunRoutes:
             thread.return_value.start.assert_called_once()
             assert client.post("/api/scheduler/run").status_code == 429
             assert thread.call_count == 1
+
+
+class TestHostAllowList:
+    """ALLOWED_HOSTS stops a rebinding page from looking same-origin."""
+
+    @pytest.fixture()
+    def restricted(self, monkeypatch):
+        import app as app_module
+
+        monkeypatch.setattr(
+            app_module, "ALLOWED_HOSTS",
+            app_module.parse_allowed_hosts("lidarr.lan,10.0.4.1"),
+        )
+
+    def test_default_answers_any_host(self, client):
+        resp = client.get("/api/health", base_url="http://attacker.example:5005")
+        assert resp.status_code == 200
+
+    def test_allowed_host_is_served(self, client, restricted):
+        for base in ("http://lidarr.lan:5005", "http://10.0.4.1:5005"):
+            assert client.get("/api/health", base_url=base).status_code == 200
+
+    def test_loopback_health_check_is_served(self, client, restricted):
+        resp = client.get("/api/health", base_url="http://127.0.0.1:5000")
+        assert resp.status_code == 200
+
+    def test_unknown_host_is_refused_for_reads(self, client, restricted):
+        resp = client.get("/api/config", base_url="http://attacker.example:5005")
+        assert resp.status_code == 400
+        assert resp.mimetype == "text/plain"
+        assert b"download_client_api_key" not in resp.data
+
+    def test_rebinding_write_is_refused_even_when_origin_matches(
+        self, client, restricted,
+    ):
+        """Host and Origin agree on the attacker's name, as in a rebinding."""
+        base = "http://attacker.example:5005"
+        resp = client.post(
+            "/api/download/queue/clear",
+            base_url=base, headers={"Origin": base},
+        )
+        assert resp.status_code == 400
+
+    def test_forwarded_host_cannot_vouch_for_an_unknown_host(
+        self, client, restricted,
+    ):
+        base = "http://attacker.example:5005"
+        resp = client.post(
+            "/api/download/queue/clear", base_url=base,
+            headers={"Origin": base, "X-Forwarded-Host": "attacker.example:5005"},
+        )
+        assert resp.status_code == 400
