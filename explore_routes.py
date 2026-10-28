@@ -16,6 +16,7 @@ import explore
 import logutil
 import models
 from config import load_config
+import vpn
 from processing import restart_pending
 from utils import (
     BaseNotMountedError,
@@ -248,7 +249,7 @@ def _run_artist_import(plan, artist_dir, config):
                 continue
             ran = False
             while not _artist_import_state(channel_id).get("stop"):
-                if restart_pending.is_set():  # the yt-dlp update restart would kill it
+                if restart_pending.is_set() or vpn.rotating():  # a restart would kill it
                     time.sleep(10)
                     continue
                 ran = _execute_playlist_download(

@@ -582,6 +582,18 @@
             display: none;
         }
 
+        /* The VPN line is the only feedback while the IP changes (up to a
+           minute): readable, not a faint footnote. */
+        .status-line.vpn-line {
+            font-size: var(--text-callout, 0.9375rem);
+            font-weight: 500;
+            margin-top: var(--sp-2, 8px);
+        }
+
+        .status-line.vpn-line[data-kind="info"] {
+            color: var(--text-1);
+        }
+
         .status-line[data-kind="ok"] {
             color: var(--success);
         }
@@ -1071,6 +1083,34 @@
                             </div>
                         </div>
                         <div class="settings-group">
+                            <p class="ui-group-title">VPN (gluetun)</p>
+                            <div class="ui-group">
+                                {% call stack_row('vpnProxyUrl', 'VPN proxy URL', 'Optional. <a href="https://github.com/qdm12/gluetun-wiki/blob/main/setup/options/http-proxy.md" target="_blank" rel="noopener">Gluetun&#39;s HTTP proxy</a> (<code>HTTPPROXY=on</code>), e.g. <code>http://gluetun:8888</code>. Everything this app asks YouTube goes through it, so YouTube sees the VPN&#39;s address. Lidarr, notifications and Explore browsing keep using the normal network. Add <code>user:password@</code> to the URL if the proxy has a login.', 'shield', 'teal', err=true) %}
+                                <input type="password" class="ui-input t-mono" id="vpnProxyUrl" placeholder="http://gluetun:8888" autocomplete="off" spellcheck="false" aria-describedby="vpnProxyUrl-desc">
+                                {% endcall %}
+                                {% call stack_row('gluetunControlUrl', 'Gluetun control server URL', 'Needed to change the IP: the app stops and starts the VPN through <a href="https://github.com/qdm12/gluetun-wiki/blob/main/setup/advanced/control-server.md" target="_blank" rel="noopener">gluetun&#39;s control server</a> (port 8000), e.g. <code>http://gluetun:8000</code>.', 'plug', 'teal', err=true) %}
+                                <div class="ui-input-row">
+                                    <input type="url" class="ui-input" id="gluetunControlUrl" placeholder="http://gluetun:8000" autocomplete="off" spellcheck="false" aria-describedby="gluetunControlUrl-desc">
+                                    <button type="button" class="ui-btn ui-btn-secondary" id="vpnTestBtn" onclick="testVpn()">{{ ico('plug') }}<span>Test</span></button>
+                                </div>
+                                <p class="status-line" id="vpnTestResult" role="status"></p>
+                                {% endcall %}
+                                {% call stack_row('gluetunApiKey', 'Gluetun API key', 'Sent as <code>X-API-Key</code>. Recent gluetun versions refuse control-server requests without authentication: give it a key (<code>HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE</code>, see the bundled <code>docker-compose.gluetun.yml</code>) and paste the same key here.', 'key', 'gray') %}
+                                <input type="password" class="ui-input t-mono" id="gluetunApiKey" placeholder="API key" autocomplete="off" spellcheck="false" aria-describedby="gluetunApiKey-desc">
+                                {% endcall %}
+                                {% call inline_row('vpnRotateEveryAlbums', 'Change the IP every N albums', 'After this many albums the VPN is restarted for a new address, between two albums and never during a download. 0 turns it off. Needs the control server URL.', 'refresh', 'info', err=true) %}
+                                <input type="number" class="ui-input ui-input-num" id="vpnRotateEveryAlbums" value="0" min="0" max="1000" step="1" inputmode="numeric" aria-describedby="vpnRotateEveryAlbums-desc">
+                                {% endcall %}
+                                {{ switch_row('vpnRotateOnBlockBtn', 'Change the IP when YouTube blocks', 'When YouTube answers &ldquo;Sign in to confirm you&#39;re not a bot&rdquo; or &ldquo;Too many requests&rdquo;, the VPN is restarted before the next album. At most once every 5 minutes. Needs the control server URL.', 'shield', 'warning') }}
+                                {% call stack_row('vpnRotateBtn', 'Current IP', 'The address YouTube sees. Change IP now uses the saved settings and is refused while a download is running; it usually takes a few seconds, occasionally a few minutes.', 'compass', 'info', label_for=false) %}
+                                <div class="ui-input-row">
+                                    <button type="button" class="ui-btn ui-btn-secondary" id="vpnRotateBtn" onclick="rotateVpn()">{{ ico('refresh') }}<span>Change IP now</span></button>
+                                </div>
+                                <p class="status-line vpn-line" id="vpnStatusLine" role="status" aria-live="polite"></p>
+                                {% endcall %}
+                            </div>
+                        </div>
+                        <div class="settings-group">
                             <p class="ui-group-title">Cookies</p>
                             <div class="ui-group">
                                 {% call stack_row('ytCookiesFile', 'Cookies file path', 'Absolute path inside the container to a Netscape-format <code>cookies.txt</code>. Required when YouTube asks for sign-in or returns 403. Uploading below writes it to <code>/config/cookies.txt</code> automatically.', 'cookie', 'orange', err=true) %}
@@ -1520,6 +1560,12 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             setSwitch('saveLyricsBtn', conf.save_lyrics === true);
             setSecret('ytPoToken', conf.yt_po_token);
             $('ytPotProviderUrl').value = conf.yt_pot_provider_url || '';
+            setSecret('vpnProxyUrl', conf.vpn_proxy_url);
+            $('gluetunControlUrl').value = conf.gluetun_control_url || '';
+            setSecret('gluetunApiKey', conf.gluetun_api_key);
+            $('vpnRotateEveryAlbums').value = conf.vpn_rotate_every_albums != null ? conf.vpn_rotate_every_albums : 0;
+            setSwitch('vpnRotateOnBlockBtn', conf.vpn_rotate_on_block !== false);
+            refreshVpnStatus();
             $('ytSleepRequests').value = conf.yt_sleep_requests != null ? conf.yt_sleep_requests : 1;
             $('ytSleepInterval').value = conf.yt_sleep_interval != null ? conf.yt_sleep_interval : 1;
             $('ytMaxSleepInterval').value = conf.yt_max_sleep_interval != null ? conf.yt_max_sleep_interval : 5;
@@ -1601,6 +1647,11 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 save_lyrics: $('saveLyricsBtn').checked,
                 yt_po_token: ($('ytPoToken').value || '').trim(),
                 yt_pot_provider_url: ($('ytPotProviderUrl').value || '').trim(),
+                vpn_proxy_url: ($('vpnProxyUrl').value || '').trim(),
+                gluetun_control_url: ($('gluetunControlUrl').value || '').trim(),
+                gluetun_api_key: ($('gluetunApiKey').value || '').trim(),
+                vpn_rotate_every_albums: parseInt($('vpnRotateEveryAlbums').value, 10) || 0,
+                vpn_rotate_on_block: $('vpnRotateOnBlockBtn').checked,
                 yt_sleep_requests: parseInt($('ytSleepRequests').value, 10) || 0,
                 yt_sleep_interval: parseInt($('ytSleepInterval').value, 10) || 0,
                 yt_max_sleep_interval: parseInt($('ytMaxSleepInterval').value, 10) || 0,
@@ -1680,6 +1731,9 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             durationTolerance: (v) => checkInt(v, 1, 60),
             minMatchScore: (v) => checkNum(v, 0, 1),
             ytPotProviderUrl: checkUrl,
+            vpnProxyUrl: (v) => (String(v).trim() === '********' ? '' : checkUrl(v)),
+            gluetunControlUrl: checkUrl,
+            vpnRotateEveryAlbums: (v) => checkInt(v, 0, 1000),
             discordWebhook: checkUrl,
             ntfyUrl: checkUrl,
             ytCookiesFile: checkPath,
@@ -2092,6 +2146,108 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                     setStatusLine('potProviderTestResult', 'Test failed', 'err');
                 }
             }, 'Testing…');
+        }
+
+        let vpnStatusTimer = null;
+        async function refreshVpnStatus() {
+            const line = $('vpnStatusLine');
+            if (!line) return null;
+            clearTimeout(vpnStatusTimer);
+            try {
+                const res = await fetch('/api/vpn/status');
+                const data = await res.json();
+                $('vpnRotateBtn').disabled = !data.control_configured || data.rotating;
+                // A change started elsewhere (the queue, another tab) or before
+                // this page loaded: keep watching until it is over.
+                if (data.rotating) vpnStatusTimer = setTimeout(refreshVpnStatus, 3000);
+                if (!data.control_configured) {
+                    setStatusLine('vpnStatusLine', data.proxy_configured
+                        ? 'Proxy set. Add the control server URL to change the IP.'
+                        : 'Not configured.', 'info');
+                    return data;
+                }
+                if (data.error) {
+                    setStatusLine('vpnStatusLine', data.error, 'err');
+                    return data;
+                }
+                const last = data.last_rotation;
+                let text = data.rotating ? 'Changing the IP…'
+                    : 'Public IP ' + (data.public_ip || 'unknown') + ' (VPN ' + (data.vpn_status || 'status unknown') + ')';
+                if (last && !data.rotating) {
+                    text += last.success
+                        ? ' — last change: ' + (last.changed ? 'new IP' : (last.changed === false ? 'same IP' : 'new IP not confirmed')) + ' (' + last.reason + ')'
+                        : ' — last change failed: ' + last.message;
+                }
+                if (data.block_seen && !data.rotating) {
+                    text += ' — YouTube blocked a request: the IP changes as soon as nothing is downloading';
+                }
+                setStatusLine('vpnStatusLine', text, data.block_seen ? 'err' : (data.vpn_status === 'running' ? 'ok' : 'info'));
+                return data;
+            } catch (e) {
+                setStatusLine('vpnStatusLine', 'Could not read the VPN status', 'err');
+                return null;
+            }
+        }
+
+        async function testVpn() {
+            await UI.guard($('vpnTestBtn'), async () => {
+                setStatusLine('vpnTestResult', 'Testing…', 'info');
+                try {
+                    const res = await fetch('/api/vpn/test', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            proxy_url: ($('vpnProxyUrl').value || '').trim(),
+                            control_url: ($('gluetunControlUrl').value || '').trim(),
+                            api_key: ($('gluetunApiKey').value || '').trim(),
+                        }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok && !data.proxy && !data.control) {
+                        setStatusLine('vpnTestResult', data.message || 'Test failed', 'err');
+                        return;
+                    }
+                    const parts = [];
+                    if (data.proxy) parts.push('Proxy: ' + data.proxy.message);
+                    if (data.control) parts.push('Control server: ' + data.control.message);
+                    setStatusLine('vpnTestResult', parts.join(' · '), data.success ? 'ok' : 'err');
+                } catch (e) {
+                    setStatusLine('vpnTestResult', 'Test failed', 'err');
+                }
+            }, 'Testing…');
+        }
+
+        async function rotateVpn() {
+            await UI.guard($('vpnRotateBtn'), async () => {
+                setStatusLine('vpnStatusLine', 'Changing the IP…', 'info');
+                try {
+                    const res = await fetch('/api/vpn/rotate', { method: 'POST' });
+                    const data = await res.json();
+                    if (!data.success) {
+                        setStatusLine('vpnStatusLine', data.message || 'Could not change the IP', 'err');
+                        UI.toast(data.message || 'Could not change the IP', { type: 'error' });
+                        return;
+                    }
+                } catch (e) {
+                    setStatusLine('vpnStatusLine', 'Could not change the IP', 'err');
+                    return;
+                }
+                // The change runs in the background: usually a few seconds,
+                // occasionally minutes. Follow it, then report how it ended.
+                let status = null;
+                for (let i = 0; i < 150; i++) {
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                    status = await refreshVpnStatus();
+                    if (status && !status.rotating) break;
+                }
+                const last = status && !status.rotating ? status.last_rotation : null;
+                if (!last) return;
+                if (last.success) {
+                    UI.toast(last.message, { type: last.changed ? 'success' : 'warning' });
+                } else {
+                    UI.toast(last.message || 'Could not change the IP', { type: 'error' });
+                }
+            }, 'Changing…');
         }
 
         let ytdlpFormatsInFlight = false;

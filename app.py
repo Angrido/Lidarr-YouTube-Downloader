@@ -83,6 +83,7 @@ from utils import (
     rate_limit_store,
     sanitize_filename,
 )
+import vpn
 import youtube_import
 from youtube_import import _watch_wakeup
 import logutil
@@ -104,6 +105,7 @@ app.register_blueprint(download_client.bp)
 app.register_blueprint(youtube_import.bp)
 app.register_blueprint(explore_routes.bp)
 app.register_blueprint(manual_download.bp)
+app.register_blueprint(vpn.bp)
 
 
 @app.errorhandler(InvalidRequestBody)
@@ -1011,6 +1013,7 @@ def api_cookies_test():
             "skip_download": True,
             "cookiefile": snapshot,
             "extract_flat": False,
+            **vpn.ytdlp_opts(),
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             # "Me at the zoo" - first YouTube video, never region-locked.
@@ -1839,6 +1842,7 @@ def api_youtube_search():
         ydl_opts["cookiefile"] = cookiefile
     if config.get("yt_force_ipv4", True):
         ydl_opts["source_address"] = "0.0.0.0"
+    ydl_opts.update(vpn.ytdlp_opts(config))
     pc = config.get("yt_player_client", "android")
     if pc:
         ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
@@ -1942,6 +1946,7 @@ def api_youtube_stream():
             ydl_opts["cookiefile"] = cookiefile
         if config.get("yt_force_ipv4", True):
             ydl_opts["source_address"] = "0.0.0.0"
+        ydl_opts.update(vpn.ytdlp_opts(config))
         pc = config.get("yt_player_client", "android")
         if pc:
             ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
@@ -2004,6 +2009,7 @@ def _proxy_audio_stream(sanitized_url, http_headers, range_header):
             headers=proxy_headers,
             stream=True,
             timeout=30,
+            proxies=vpn.requests_proxies(),
         )
         resp_headers = {
             "Content-Type": upstream.headers.get("Content-Type", "audio/webm"),

@@ -17,6 +17,7 @@ import uuid
 
 import logutil
 import models
+import vpn
 from config import (
     load_config, retry_cooldown_seconds, update_config, MIN_MATCH_SCORE_DEFAULT,
 )
@@ -100,8 +101,16 @@ restart_pending = threading.Event()
 
 
 def automatic_downloads_held():
-    """True while nothing automatic may start: queue paused or restart pending."""
-    return restart_pending.is_set() or bool(load_config().get("queue_paused"))
+    """True while nothing automatic may start.
+
+    The queue is paused, a restart is pending, or the VPN is being restarted
+    to get a new IP (a download started now would lose its connection).
+    """
+    return (
+        restart_pending.is_set()
+        or bool(load_config().get("queue_paused"))
+        or vpn.rotating()
+    )
 
 # Every in-flight album download (the foreground one plus any background
 # download-client jobs), keyed by album_id and guarded by queue_lock. Lets
@@ -926,6 +935,7 @@ def process_album_download(
             )
             return {"stopped": True}
 
+        vpn.note_album_finished()  # tracks were attempted: this run used the IP
         result = _handle_post_download(
             failed_tracks, succeeded_tracks,
             tracks_to_download, album_id,
@@ -2860,6 +2870,19 @@ def _dispatch_next_from_queue():
 
     if automatic_downloads_held():
         return
+    # A rotation drops the tunnel, so it waits for every running download to
+    # finish: while one is due nothing new starts (the running ones drain),
+    # then the VPN restarts (the dispatcher is blocked meanwhile). Idle is
+    # fine too, so the next job, a queued album or a playlist import, starts
+    # on the new address. Never let this take the queue down.
+    try:
+        if vpn.due_reason():
+            if not any_download_active():
+                vpn.rotate_if_due()
+            return
+    except Exception:
+        logger.warning("VPN rotation check failed", exc_info=True)
+        vpn.defer()
     try:
         queued = [
             (row["album_id"], bool(row.get("force", 0)))

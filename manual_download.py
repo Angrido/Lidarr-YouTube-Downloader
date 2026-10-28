@@ -23,6 +23,7 @@ from fingerprint import fingerprint_track
 from lidarr import lidarr_request, tag_artist
 from metadata import apply_file_extras, create_xml_metadata, tag_audio_file
 from notifications import send_notifications
+import vpn
 from processing import download_process, queue_lock
 from utils import (
     BaseNotMountedError,
@@ -63,6 +64,11 @@ def api_download_manual():
         f"manual_dl:{client_ip}", rate_limit_store, window=5, max_requests=3
     ):
         return jsonify({"success": False, "message": "Too many requests"}), 429
+    if vpn.rotating():
+        return jsonify({
+            "success": False,
+            "message": "The VPN is changing its IP; try again in a moment",
+        }), 409
 
     data = _json_object()
     youtube_url = _str_field(data, "youtube_url")
@@ -266,6 +272,11 @@ def api_manual_track_download(album_id):
         f"manual_track:{client_ip}", rate_limit_store, window=5, max_requests=3
     ):
         return jsonify({"success": False, "message": "Too many requests"}), 429
+    if vpn.rotating():
+        return jsonify({
+            "success": False,
+            "message": "The VPN is changing its IP; try again in a moment",
+        }), 409
 
     data = _json_object()
     youtube_url = _str_field(data, "youtube_url")

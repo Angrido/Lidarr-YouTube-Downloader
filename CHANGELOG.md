@@ -3,6 +3,14 @@
 ## 2.0.1
 
 ### Added
+- **VPN with gluetun** (Settings → YouTube access → VPN, or `VPN_PROXY_URL`
+  / `GLUETUN_CONTROL_URL` / `GLUETUN_API_KEY`): every request to YouTube
+  goes through gluetun's HTTP proxy, and the app can restart the VPN for a
+  new IP — with **Change IP now**, every N albums, or after YouTube blocked
+  a request (*Sign in to confirm you're not a bot*, *Too many requests*).
+  The IP only changes while nothing is downloading: the queue lets the
+  running albums finish, changes the IP, then carries on. The bgutil
+  PO-token provider uses the same proxy. See `docker-compose.gluetun.yml`.
 - **Spotify, Deezer, Apple Music and ListenBrainz links** on the YouTube
   page: paste a playlist or album and every track is searched on YouTube
   (same scoring as Lidarr albums), tagged with its own artist and saved
