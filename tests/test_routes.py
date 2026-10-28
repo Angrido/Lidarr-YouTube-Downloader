@@ -896,6 +896,11 @@ class TestMiscRoutes:
 
 
 class TestDeleteTrackRoute:
+
+    @pytest.fixture(autouse=True)
+    def _write_base(self, tmp_path, monkeypatch):
+        """Track files are only deleted under the configured write bases."""
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(tmp_path))
     def test_delete_track_marks_deleted(self, client, tmp_path):
         import models
         _add_track(
@@ -1045,6 +1050,109 @@ class TestDeleteTrackRoute:
         assert data["success"] is True
         assert data["file_deleted"] is True
         assert data["url_banned"] is False
+
+
+    def test_delete_track_refuses_folder_outside_write_bases(
+        self, client, tmp_path, monkeypatch,
+    ):
+        import models
+        base = tmp_path / "downloads"
+        base.mkdir()
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(base))
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        victim = elsewhere / "01 - Song.mp3"
+        sidecar = elsewhere / "01 - Song.lrc"
+        victim.write_text("keep me")
+        sidecar.write_text("keep me too")
+        _add_track(
+            models, album_id=1, track_title="Song", track_number=1,
+            album_path=str(elsewhere), lidarr_album_path=str(elsewhere),
+        )
+        track_id = models.get_track_downloads_for_album(1)[0]["id"]
+        resp = client.delete(
+            f"/api/download/track/{track_id}", json={"ban_url": False},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["file_deleted"] is False
+        assert victim.exists()
+        assert sidecar.exists()
+
+    def test_delete_track_refuses_relative_and_empty_folders(
+        self, client, tmp_path, monkeypatch,
+    ):
+        import models
+        base = tmp_path / "downloads"
+        base.mkdir()
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(base))
+        monkeypatch.chdir(tmp_path)
+        victim = tmp_path / "01 - Song.mp3"
+        victim.write_text("keep me")
+        _add_track(
+            models, album_id=-5, track_title="Song", track_number=1,
+            album_path="",
+        )
+        track_id = models.get_track_downloads_for_album(-5)[0]["id"]
+        resp = client.delete(
+            f"/api/download/track/{track_id}", json={"ban_url": False},
+        )
+        assert resp.status_code == 200
+        assert victim.exists()
+
+    def test_delete_track_does_not_follow_symlink_out_of_base(
+        self, client, tmp_path, monkeypatch,
+    ):
+        import models
+        base = tmp_path / "downloads"
+        album = base / "Artist" / "Album"
+        album.mkdir(parents=True)
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(base))
+        outside = tmp_path / "outside.mp3"
+        outside.write_text("keep me")
+        (album / "01 - Song.mp3").symlink_to(outside)
+        _add_track(
+            models, album_id=1, track_title="Song", track_number=1,
+            album_path=str(album),
+        )
+        track_id = models.get_track_downloads_for_album(1)[0]["id"]
+        resp = client.delete(
+            f"/api/download/track/{track_id}", json={"ban_url": False},
+        )
+        assert resp.status_code == 200
+        assert outside.exists()
+
+    def test_delete_track_deletes_inside_library_path(
+        self, client, tmp_path, monkeypatch,
+    ):
+        import models
+        base = tmp_path / "downloads"
+        base.mkdir()
+        library = tmp_path / "music" / "Artist" / "Album"
+        library.mkdir(parents=True)
+        monkeypatch.setattr("utils.DOWNLOAD_DIR", str(base))
+        client.post("/api/config", json={"lidarr_path": str(tmp_path / "music")})
+        track = library / "01 - Song.mp3"
+        track.write_text("mp3")
+        _add_track(
+            models, album_id=1, track_title="Song", track_number=1,
+            album_path=str(base / "gone"), lidarr_album_path=str(library),
+        )
+        track_id = models.get_track_downloads_for_album(1)[0]["id"]
+        resp = client.delete(
+            f"/api/download/track/{track_id}", json={"ban_url": False},
+        )
+        assert resp.get_json()["file_deleted"] is True
+        assert not track.exists()
+
+    @pytest.mark.parametrize("value", [
+        "../../etc/passwd", "mp3/../../x", "mp3\\x", "", "wav", None, 3,
+    ])
+    def test_config_rejects_unsafe_audio_format(self, client, value):
+        from utils import rate_limit_store
+
+        rate_limit_store.clear()
+        resp = client.post("/api/config", json={"audio_format": value})
+        assert resp.status_code == 400
 
 
 class TestBannedUrlsRoutes:

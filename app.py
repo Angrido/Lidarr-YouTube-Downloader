@@ -74,6 +74,7 @@ from utils import (
     _is_safe_stream_url,
     _json_object,
     _str_field,
+    _validate_target_path,
     _validate_youtube_url,
     _YtdlpSilentLogger,
     check_rate_limit,
@@ -1506,12 +1507,29 @@ def api_delete_track(track_id):
     if track_data["album_id"] > 0 and track_data.get("lidarr_album_path"):
         folders.insert(0, track_data["lidarr_album_path"])
 
-    cfg_ext = load_config().get("audio_format", "mp3")
+    cfg = load_config()
+    cfg_ext = cfg.get("audio_format", "mp3")
     audio_exts = [cfg_ext] + [e for e in ["mp3", "opus", "flac", "aac", "ogg", "m4a"] if e != cfg_ext]
+
+    # The stored paths come from the database, which a restored backup can
+    # rewrite: only ever touch files that really live under the configured
+    # download / library folders (symlinks resolved).
+    def contained(folder, name):
+        path = os.path.join(folder, name)
+        return path if folder and _validate_target_path(path, cfg) else None
+
+    for folder in folders:
+        if folder and not _validate_target_path(folder, cfg):
+            logger.warning(
+                "Not deleting track files outside the configured folders: %s",
+                folder,
+            )
     delete_failed = False
     for folder in folders:
         for ext in audio_exts:
-            candidate = os.path.join(folder, f"{base_name}.{ext}")
+            candidate = contained(folder, f"{base_name}.{ext}")
+            if candidate is None:
+                continue
             try:
                 os.remove(candidate)
                 file_deleted = True
@@ -1528,8 +1546,11 @@ def api_delete_track(track_id):
         logger.warning("Track file not found for deletion: %s/%s.*", " | ".join(folders), base_name)
     for folder in folders:
         for sidecar in (".xml", ".lrc"):
+            candidate = contained(folder, base_name + sidecar)
+            if candidate is None:
+                continue
             try:
-                os.remove(os.path.join(folder, base_name + sidecar))
+                os.remove(candidate)
             except OSError:
                 pass
 
