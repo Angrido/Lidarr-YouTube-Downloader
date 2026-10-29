@@ -1391,3 +1391,44 @@ def test_newest_source_first_and_empty_id_finds_nothing():
     db.get_db().commit()
     assert [s["id"] for s in models.get_verified_sources(_REC)] == [b, a]
     assert models.get_verified_sources("") == []
+
+
+def test_recent_library_copies_are_successful_copies_since_the_cutoff():
+    import time as _t
+    now = _t.time()
+
+    def add(album_id, library, success=True, age=0):
+        rid = models.add_track_download(
+            album_id=album_id, album_title="A", artist_name="B",
+            track_title="C", track_number=1, success=success,
+            error_message="", youtube_url="", youtube_title="",
+            match_score=1, duration_seconds=1, album_path="",
+            lidarr_album_path=library, cover_url="")
+        db.get_db().execute(
+            "UPDATE track_downloads SET timestamp = ? WHERE id = ?",
+            (now - age, rid))
+        db.get_db().commit()
+
+    add(1, "/m/a")
+    add(2, "/m/b", age=7200)
+    add(3, "")
+    add(4, "/m/d", success=False)
+    add(-5, "/m/e")  # playlist import
+    assert models.get_recent_library_copy_album_ids(now - 3600) == {1}
+
+
+def test_library_folders_newest_first_without_blanks():
+    import time as _t
+    for album_id, path, age in ((1, "/m/old", 500), (1, "/m/new", 10),
+                                (1, "", 1), (2, "/m/other", 1)):
+        rid = models.add_track_download(
+            album_id=album_id, album_title="A", artist_name="B",
+            track_title="C", track_number=1, success=True,
+            error_message="", youtube_url="", youtube_title="",
+            match_score=1, duration_seconds=1, album_path="",
+            lidarr_album_path=path, cover_url="")
+        db.get_db().execute(
+            "UPDATE track_downloads SET timestamp = ? WHERE id = ?",
+            (_t.time() - age, rid))
+    db.get_db().commit()
+    assert models.get_library_folders(1) == ["/m/new", "/m/old"]

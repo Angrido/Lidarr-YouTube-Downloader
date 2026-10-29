@@ -32,10 +32,12 @@ between unrelated tracks (``[silence]``, ``[data track]``) are never merged.
 import logging
 import os
 import re
+import time
 import unicodedata
 from dataclasses import dataclass, field
 
 import models
+from config import retry_cooldown_seconds
 from utils import sanitize_filename
 
 logger = logging.getLogger(__name__)
@@ -57,6 +59,7 @@ _EDITION_WORDS_RE = re.compile(
     r"tracks?|explicit|clean|special|collectors?|super|standard|"
     r"international|japan(?:ese)?|digital|reissue|extended)\b"
 )
+_AUDIO_SUFFIXES = (".mp3", ".m4a", ".opus", ".flac", ".ogg", ".aac")
 _NAME_NUMBER_RE = re.compile(r"^(?:.*?\s-\s)?\d{1,3}\s-\s(.+)$")
 _DURATION_SLACK_SECONDS = 8
 _DURATION_SLACK_RATIO = 0.05
@@ -287,6 +290,9 @@ class Plan:
     # Every track this run still has to deliver (downloaded, copied or
     # reused), in the order given.
     keep: list = field(default_factory=list)
+    # A Lidarr grab whose missing tracks are all verified in the library:
+    # the folder the job can finish on without downloading anything.
+    library_folder: str = ""
 
     @property
     def acting(self):
@@ -370,6 +376,7 @@ def plan_album(
                     repeat_of[id(m)] = (pending[0], "")
 
     sources_for = {}
+    grab_hits = {}  # id(track) -> (source row, file) held by this album
     for track in tracks_to_download:
         if id(track) in skipped or id(track) in repeat_of:
             continue
@@ -382,12 +389,10 @@ def plan_album(
             except Exception:
                 logger.debug("Dedupe source lookup failed", exc_info=True)
                 sources_for[key] = []
-        same_album_hit = ""
+        same_album_hit = None
         other_hit = None
         for src in sources_for[key]:
             is_same = src.get("album_id") == album_id
-            if is_same and client_grab:
-                continue  # Lidarr needs the file in the job folder
             # Another edition of the same album is never "another album":
             # dedupe_cross_album only decides about singles, compilations…
             if not is_same and not cross_album and not is_edition(
@@ -402,16 +407,44 @@ def plan_album(
             if not path:
                 continue
             if is_same:
-                same_album_hit = path
+                same_album_hit = (src, path)
                 break
             if other_hit is None:
                 other_hit = (src, path)
-        if same_album_hit:
+        if same_album_hit and client_grab:
+            # Lidarr needs the file in the job folder: copy it from the
+            # library, or finish the job on the library folder (below).
+            grab_hits[id(track)] = same_album_hit
+            plan.reuse.append(
+                Reuse(track, same_album_hit[0], same_album_hit[1]),
+            )
+        elif same_album_hit:
             skipped[id(track)] = (
-                f"already downloaded for this album ({same_album_hit})"
+                f"already downloaded for this album ({same_album_hit[1]})"
             )
         elif other_hit is not None:
             plan.reuse.append(Reuse(track, other_hit[0], other_hit[1]))
+
+    if client_grab and library_root:
+        remaining = [t for t in tracks_to_download if id(t) not in skipped]
+        hit_keys = {recording_key(t) for t in remaining if id(t) in grab_hits}
+        if remaining and all(
+            recording_key(t) and recording_key(t) in hit_keys
+            for t in remaining
+        ):
+            folder = next(iter(grab_hits.values()))[0].get(
+                "lidarr_album_path", "",
+            )
+            if (
+                folder and os.path.isdir(folder)
+                and _inside(folder, [library_root])
+            ):
+                plan.library_folder = folder
+                plan.would.append(
+                    f"all {len(remaining)} missing track(s) are already"
+                    f" verified in {folder}: the Lidarr job would finish"
+                    " there without downloading"
+                )
 
     reuse_ids = {id(r.track) for r in plan.reuse}
     for track in tracks_to_download:
@@ -447,6 +480,82 @@ def plan_album(
         plan.repeats = []
         plan.skipped = []
     return plan
+
+
+def _audio_files(folder):
+    try:
+        return [
+            os.path.join(folder, name) for name in os.listdir(folder)
+            if name.lower().endswith(_AUDIO_SUFFIXES)
+        ]
+    except OSError:
+        return []
+
+
+def library_folder_with_audio(album_id, library_root):
+    """The library folder this app copied the album to that still holds
+    audio, newest first; ``""`` if there is none (or no library path).
+
+    Used when Lidarr grabs an album that is complete according to Lidarr
+    (every track ``hasFile``) but that this job has nothing to hand over
+    for: the job can finish there instead of failing and being blocklisted.
+    """
+    if not library_root:
+        return ""
+    try:
+        folders = models.get_library_folders(album_id)
+    except Exception:
+        logger.debug("Library folder lookup failed", exc_info=True)
+        return ""
+    for folder in folders:
+        if _inside(folder, [library_root]) and _audio_files(folder):
+            return folder
+    return ""
+
+
+def folder_size(folder):
+    total = 0
+    for path in _audio_files(folder):
+        try:
+            total += os.path.getsize(path)
+        except OSError:
+            pass
+    return total
+
+
+_logged_hidden = {}
+
+
+def feed_hidden_album_ids(cfg=None):
+    """Albums to keep out of the Lidarr indexer feed because this app has
+    just copied them into the library: until ``RefreshArtist`` has run
+    Lidarr still sees them as missing, grabs them and the job finds nothing
+    to do. Held back for the retry cooldown, like the client's own jobs.
+
+    ``log`` mode hides nothing and logs each album it would have hidden,
+    once per cooldown.
+    """
+    mode = mode_of(cfg)
+    cooldown = retry_cooldown_seconds(cfg)
+    if mode == MODE_OFF or not cooldown:
+        return set()
+    now = time.time()
+    try:
+        ids = models.get_recent_library_copy_album_ids(now - cooldown)
+    except Exception:
+        logger.warning("Dedupe feed lookup failed", exc_info=True)
+        return set()
+    if mode == MODE_REUSE:
+        return ids
+    for album_id in ids:
+        if now - _logged_hidden.get(album_id, 0) >= cooldown:
+            _logged_hidden[album_id] = now
+            logger.info(
+                "Dedupe (log only): would hide album %s from the Lidarr"
+                " feed: this app copied it to the library within the last"
+                " %.0f h", album_id, cooldown / 3600,
+            )
+    return set()
 
 
 def log_plan(plan, album_title=""):

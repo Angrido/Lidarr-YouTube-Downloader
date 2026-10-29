@@ -783,6 +783,11 @@ def process_album_download(
             album_path=album_path,
         )
         tracks_to_download = dedupe_plan.keep
+        if dedupe_plan.acting and dedupe_plan.library_folder:
+            return _finish_in_library(
+                album_id, album_title, artist_name,
+                dedupe_plan.library_folder, len(tracks_to_download),
+            )
 
         if len(tracks_to_download) == 0:
             _log_nothing_to_download(
@@ -795,6 +800,10 @@ def process_album_download(
                     data={"name": "RefreshArtist", "artistId": artist_id},
                 )
             skip_path = album_path if _dir_has_audio(album_path) else ""
+            if client_grab and not skip_path:
+                skip_path = _grab_library_folder(
+                    album_id, album_title, artist_name, tracks, cfg,
+                )
             return {
                 "success": True,
                 "message": "Skipped",
@@ -1323,6 +1332,66 @@ def _local_track_file(track, album_tracks, album_path):
         f"{sanitize_filename(track.get('title', ''))}.{ext}",
     )
     return path if os.path.isfile(path) else ""
+
+
+def _finish_in_library(album_id, album_title, artist_name, folder, count):
+    """End a Lidarr grab on the library folder that already holds every
+    track it was missing (``dedupe_mode=reuse``): the job completes
+    without downloading and Lidarr imports from there."""
+    logger.info(
+        "   Dedupe: %d missing track(s) of %s - %s are already verified in"
+        " %s; finishing the Lidarr job without downloading",
+        count, artist_name, album_title, folder,
+    )
+    try:
+        models.add_log(
+            log_type="download_skipped", album_id=album_id,
+            album_title=album_title, artist_name=artist_name,
+            details=(
+                f"Already in the library ({count} track(s) verified);"
+                " finished without downloading"
+            ),
+        )
+    except Exception:
+        logger.debug("Could not log album %s", album_id, exc_info=True)
+    return {
+        "success": True, "message": "Already in library",
+        "album_path": folder, "total_size": dedupe.folder_size(folder),
+    }
+
+
+def _grab_library_folder(album_id, album_title, artist_name, tracks, cfg):
+    """Where a Lidarr grab with nothing left to download can finish.
+
+    The album is complete in Lidarr (every track ``hasFile``) and an earlier
+    run of this app copied it to the library, so there is nothing in the job
+    folder: without this the job fails with "No files available to import"
+    and Lidarr blocklists the release. Only in ``dedupe_mode=reuse``;
+    ``log`` records what would have happened. Returns ``""`` to fail as
+    before.
+    """
+    mode = dedupe.mode_of(cfg)
+    if mode == dedupe.MODE_OFF or not tracks:
+        return ""
+    if not all(t.get("hasFile") for t in tracks):
+        return ""
+    folder = dedupe.library_folder_with_audio(
+        album_id, cfg.get("lidarr_path", "") or "",
+    )
+    if not folder:
+        return ""
+    if mode == dedupe.MODE_LOG:
+        logger.info(
+            "   Dedupe (log only): the Lidarr job for %s - %s would finish on"
+            " %s instead of failing with 'No files available to import'",
+            artist_name, album_title, folder,
+        )
+        return ""
+    logger.info(
+        "   Dedupe: %s - %s is complete in Lidarr and in %s; finishing the"
+        " Lidarr job there", artist_name, album_title, folder,
+    )
+    return folder
 
 
 def _plan_dedupe(

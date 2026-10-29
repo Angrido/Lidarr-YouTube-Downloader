@@ -311,12 +311,14 @@ class TestPlanAcrossAlbums:
         assert p.download == [] and p.reuse == [] and p.keep == []
         assert "already downloaded" in p.skipped[0][1]
 
-    def test_a_grab_does_not_skip_on_history(self, tmp_path):
+    def test_a_grab_copies_from_history_instead_of_skipping(self, tmp_path):
         folder = tmp_path / "lib/Artist/Album (2020)"
         make_mp3(str(folder / "04 - Song.mp3"), REC)
         store(7, "Song", REC, library=str(folder), album_title="Album")
         p = plan([trk("Song", 4)], tmp=tmp_path / "lib", client_grab=True)
-        assert p.skipped == [] and len(p.download) == 1
+        # Lidarr needs the file in the job folder: copied, never skipped.
+        assert p.skipped == [] and p.download == []
+        assert len(p.reuse) == 1 and p.reuse[0].source["album_id"] == 7
 
     def test_log_mode_only_says_what_it_would_do(self, tmp_path):
         self.lib(tmp_path)
@@ -703,3 +705,277 @@ class TestRecordingIdIsRecorded:
         TestProcessAlbumWiring().wire(monkeypatch, tmp_path, tracks, "off", cap)
         processing.process_album_download(7)
         assert cap["recording_ids"] == {(1, "Song"): REC, (2, "Other"): OTHER}
+
+
+# --- Lidarr and the app asking for the same album ---------------------------
+
+import download_client  # noqa: E402
+
+
+@pytest.fixture
+def clean_registry():
+    download_client._jobs.clear()
+    download_client._album_to_nzo.clear()
+    yield
+    download_client._jobs.clear()
+    download_client._album_to_nzo.clear()
+
+
+def finished_album(tmp_path, tracks=None):
+    """An album this app already copied to the library (album id 7)."""
+    tracks = tracks or [("Song", REC, 1), ("Other", OTHER, 2)]
+    folder = tmp_path / "lib/Artist/Album (2020)"
+    for title, rec, number in tracks:
+        make_mp3(str(folder / f"{number:02d} - {title}.mp3"), rec)
+        store(7, title, rec, library=str(folder), album_title="Album",
+              number=number)
+    return folder
+
+
+class TestGrabPlan:
+    def grab(self, tmp_path, tracks, **kw):
+        return plan(tracks, tmp=tmp_path / "lib", client_grab=True,
+                    artist_name="Artist", album_title="Album", **kw)
+
+    def test_everything_missing_is_already_in_the_library(self, tmp_path):
+        folder = finished_album(tmp_path)
+        p = self.grab(tmp_path, [trk("Song", 1), trk("Other", 2, rec=OTHER)])
+        assert p.library_folder == str(folder)
+        assert len(p.reuse) == 2 and p.download == []
+        assert "without downloading" in p.would[0]
+
+    def test_one_missing_track_means_a_normal_grab(self, tmp_path):
+        finished_album(tmp_path, [("Song", REC, 1)])
+        p = self.grab(tmp_path, [trk("Song", 1), trk("Other", 2, rec=OTHER)])
+        assert p.library_folder == ""
+        assert [r.track["title"] for r in p.reuse] == ["Song"]
+        assert [t["title"] for t in p.download] == ["Other"]
+
+    def test_a_track_without_a_recording_id_is_never_covered(self, tmp_path):
+        finished_album(tmp_path, [("Song", REC, 1)])
+        p = self.grab(tmp_path, [trk("Song", 1), trk("Intro", 2, rec=None)])
+        assert p.library_folder == ""
+
+    def test_no_library_path_means_no_shortcut(self, tmp_path):
+        finished_album(tmp_path)
+        p = plan([trk("Song", 1)], client_grab=True)  # no library root
+        assert p.library_folder == "" and p.reuse == []
+
+    def test_a_deleted_library_file_means_a_normal_grab(self, tmp_path):
+        folder = finished_album(tmp_path)
+        os.remove(folder / "01 - Song.mp3")
+        p = self.grab(tmp_path, [trk("Song", 1), trk("Other", 2, rec=OTHER)])
+        assert p.library_folder == ""
+        assert [t["title"] for t in p.download] == ["Song"]
+
+    def test_log_mode_reports_the_shortcut_without_taking_it(self, tmp_path):
+        finished_album(tmp_path)
+        p = self.grab(tmp_path, [trk("Song", 1), trk("Other", 2, rec=OTHER)],
+                      cfg={"dedupe_mode": "log"})
+        assert p.library_folder and not p.acting
+        assert len(p.download) == 2 and p.reuse == []
+        assert "without downloading" in p.would[0]
+
+
+class TestGrabWiring(TestProcessAlbumWiring):
+    """The three ways the app and Lidarr meet on one album."""
+
+    def tracks(self, **kw):
+        return [trk("Song", 1, **kw), trk("Other", 2, rec=OTHER, **kw)]
+
+    def test_a_grab_for_an_album_the_app_just_copied_ends_on_the_library(
+        self, tmp_path, monkeypatch,
+    ):
+        # app finished and copied, Lidarr's hasFile is still false, it grabs
+        folder = finished_album(tmp_path)
+        cap = {}
+        self.wire(monkeypatch, tmp_path, self.tracks(), "reuse", cap)
+        result = processing.process_album_download(7, client_grab=True)
+        assert result["success"] and result["album_path"] == str(folder)
+        assert result["total_size"] > 0
+        assert "run" not in cap  # nothing downloaded
+        assert not os.path.exists(tmp_path / "dl/Artist/Album (2020)")
+        row = db.get_db().execute(
+            "SELECT type, details FROM download_logs").fetchone()
+        assert row["type"] == "download_skipped"
+        assert "finished without downloading" in row["details"]
+
+    def test_log_mode_only_says_it_would(self, tmp_path, monkeypatch, caplog):
+        import logging
+        folder = finished_album(tmp_path)
+        cap = {}
+        self.wire(monkeypatch, tmp_path, self.tracks(), "log", cap)
+        with caplog.at_level(logging.INFO, logger="dedupe"):
+            processing.process_album_download(7, client_grab=True)
+        assert cap["run"] == ["Song", "Other"]  # still downloads as before
+        assert any("without downloading" in r.getMessage()
+                   and "log only" in r.getMessage() for r in caplog.records)
+        assert str(folder) in " ".join(r.getMessage() for r in caplog.records)
+
+    def test_off_changes_nothing(self, tmp_path, monkeypatch):
+        finished_album(tmp_path)
+        cap = {}
+        self.wire(monkeypatch, tmp_path, self.tracks(), "off", cap)
+        processing.process_album_download(7, client_grab=True)
+        assert cap["run"] == ["Song", "Other"]
+
+    def test_a_partly_finished_album_copies_into_the_job_folder(
+        self, tmp_path, monkeypatch,
+    ):
+        finished_album(tmp_path, [("Song", REC, 1)])
+        cap = {}
+        self.wire(monkeypatch, tmp_path, self.tracks(), "reuse", cap)
+        processing.process_album_download(7, client_grab=True)
+        assert cap["run"] == ["Other"]  # only what is missing is downloaded
+        assert os.path.isfile(tmp_path / "dl/Artist/Album (2020)/01 - Song.mp3")
+        assert sorted(cap["post"][0]) == ["Other", "Song"]
+
+    def test_the_job_that_used_to_fail_with_no_files_now_completes(
+        self, tmp_path, monkeypatch, clean_registry,
+    ):
+        # job 8884 in the real history: the app had copied the album and
+        # cleaned the download folder, every track hasFile, nothing to hand
+        # to Lidarr -> "No files available to import" -> downloadFailed.
+        folder = finished_album(tmp_path)
+        cap = {}
+        self.wire(monkeypatch, tmp_path, self.tracks(hasFile=True), "reuse",
+                  cap)
+        nzo = download_client.register_grab(7, "Artist - Album", "music")
+        download_client.run_album_job(7)
+        job = download_client._jobs[nzo]
+        assert job["status"] == "completed" and job["storage"] == str(folder)
+
+    def test_that_job_still_fails_as_before_in_log_and_off_mode(
+        self, tmp_path, monkeypatch, clean_registry, caplog,
+    ):
+        import logging
+        finished_album(tmp_path)
+        for mode in ("log", "off"):
+            cap = {}
+            self.wire(monkeypatch, tmp_path, self.tracks(hasFile=True), mode,
+                      cap)
+            nzo = download_client.register_grab(7, "Artist - Album", "music")
+            with caplog.at_level(logging.INFO, logger="processing"):
+                download_client.run_album_job(7)
+            job = download_client._jobs[nzo]
+            assert job["status"] == "failed"
+            assert job["error"] == "No files available to import"
+            download_client._jobs.clear()
+            download_client._album_to_nzo.clear()
+        assert "would finish on" in " ".join(
+            r.getMessage() for r in caplog.records)
+
+    def test_an_incomplete_album_never_completes_without_files(
+        self, tmp_path, monkeypatch, clean_registry,
+    ):
+        finished_album(tmp_path)
+        tracks = self.tracks(hasFile=True)
+        tracks[1]["hasFile"] = False  # Lidarr is missing one
+        cap = {}
+        self.wire(monkeypatch, tmp_path, tracks, "reuse", cap)
+        # Lidarr is missing "Other" and the library file is gone too, so
+        # the job must download it like any grab, never end empty-handed.
+        for f in (tmp_path / "lib/Artist/Album (2020)").glob("02 - *"):
+            f.unlink()
+        processing.process_album_download(7, client_grab=True)
+        assert cap["run"] == ["Other"]
+
+    def test_the_grab_waits_while_the_app_runs_then_finishes_on_the_library(
+        self, tmp_path, monkeypatch, clean_registry,
+    ):
+        # Lidarr grabs while the app is downloading the album: the job waits
+        # at the head of the queue instead of downloading in parallel...
+        cap = {}
+        self.wire(monkeypatch, tmp_path, self.tracks(hasFile=True), "reuse",
+                  cap)
+        nzo = download_client.register_grab(7, "Artist - Album", "music")
+        monkeypatch.setitem(processing._active_states, 7, {})
+        download_client.run_album_job(7)
+        assert download_client._jobs[nzo]["status"] == "queued"
+        assert models.get_queue()[0]["album_id"] == 7
+        # ...the app finishes and copies; the next attempt of the job has
+        # nothing to download and ends on what the app left in the library.
+        processing._active_states.pop(7, None)
+        folder = finished_album(tmp_path)
+        download_client.run_album_job(7)
+        job = download_client._jobs[nzo]
+        assert job["status"] == "completed" and job["storage"] == str(folder)
+        assert "run" not in cap
+
+
+class TestGrabLibraryFolder:
+    def test_only_a_complete_album_finishes_on_the_library(self, tmp_path):
+        finished_album(tmp_path)
+        cfg = {"dedupe_mode": "reuse", "lidarr_path": str(tmp_path / "lib")}
+        done = [trk("Song", 1, hasFile=True), trk("Other", 2, hasFile=True)]
+        folder = processing._grab_library_folder(7, "Album", "Artist", done, cfg)
+        assert folder == str(tmp_path / "lib/Artist/Album (2020)")
+        partial = [trk("Song", 1, hasFile=True), trk("Other", 2)]
+        assert processing._grab_library_folder(
+            7, "Album", "Artist", partial, cfg) == ""
+        assert processing._grab_library_folder(
+            7, "Album", "Artist", [], cfg) == ""
+
+    def test_no_audio_in_the_folder_or_no_library_means_failing_as_before(
+        self, tmp_path,
+    ):
+        folder = finished_album(tmp_path)
+        done = [trk("Song", 1, hasFile=True)]
+        cfg = {"dedupe_mode": "reuse", "lidarr_path": str(tmp_path / "lib")}
+        assert processing._grab_library_folder(
+            7, "A", "B", done, dict(cfg, lidarr_path="")) == ""
+        for f in folder.glob("*.mp3"):
+            f.unlink()
+        assert processing._grab_library_folder(7, "A", "B", done, cfg) == ""
+
+
+class TestFeedHiding:
+    def cfg(self, mode):
+        return {"dedupe_mode": mode, "scheduler_retry_after_hours": 24}
+
+    @pytest.fixture(autouse=True)
+    def _reset(self):
+        dedupe._logged_hidden.clear()
+        yield
+        dedupe._logged_hidden.clear()
+
+    def copied(self, album_id, library="/music/A/B", success=True,
+               age_hours=1):
+        rid = models.add_track_download(
+            album_id=album_id, album_title="B", artist_name="A",
+            track_title="T", track_number=1, success=success,
+            error_message="", youtube_url="", youtube_title="",
+            match_score=1, duration_seconds=1, album_path="",
+            lidarr_album_path=library, cover_url="")
+        db.get_db().execute(
+            "UPDATE track_downloads SET timestamp = timestamp - ?"
+            " WHERE id = ?", (age_hours * 3600, rid))
+        db.get_db().commit()
+
+    def test_reuse_hides_albums_the_app_copied_within_the_cooldown(self):
+        self.copied(5)
+        self.copied(6, age_hours=30)             # cooldown over
+        self.copied(7, library="")               # never copied
+        self.copied(8, success=False)            # failed
+        assert dedupe.feed_hidden_album_ids(self.cfg("reuse")) == {5}
+        assert download_client._excluded_album_ids(self.cfg("reuse")) >= {5}
+
+    def test_log_mode_hides_nothing_and_logs_once(self, caplog):
+        import logging
+        self.copied(5)
+        with caplog.at_level(logging.INFO, logger="dedupe"):
+            assert dedupe.feed_hidden_album_ids(self.cfg("log")) == set()
+            assert dedupe.feed_hidden_album_ids(self.cfg("log")) == set()
+        lines = [r.getMessage() for r in caplog.records]
+        assert len(lines) == 1 and "would hide album 5" in lines[0]
+        assert 5 not in download_client._excluded_album_ids(self.cfg("log"))
+
+    def test_off_mode_changes_nothing(self, caplog):
+        self.copied(5)
+        assert dedupe.feed_hidden_album_ids(self.cfg("off")) == set()
+        assert caplog.records == []
+
+    def test_no_cooldown_means_nothing_is_hidden(self):
+        self.copied(5)
+        cfg = dict(self.cfg("reuse"), scheduler_retry_after_hours=0)
+        assert dedupe.feed_hidden_album_ids(cfg) == set()

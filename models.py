@@ -183,6 +183,36 @@ def get_verified_sources(recording_id, limit=8):
     return [dict(r) for r in rows]
 
 
+def get_recent_library_copy_album_ids(since_timestamp):
+    """Album ids this app copied into the library since a time.
+
+    A copy to the library is what ends a normal run; Lidarr can lag behind
+    it for hours (``RefreshArtist`` queued behind a rescan), so for that
+    long the album looks missing to Lidarr although it is not.
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT DISTINCT album_id FROM track_downloads"
+        " WHERE success = 1 AND album_id > 0 AND timestamp >= ?"
+        " AND COALESCE(lidarr_album_path, '') != ''",
+        (since_timestamp,),
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
+def get_library_folders(album_id, limit=3):
+    """Library folders this app copied ``album_id`` to, newest first."""
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT lidarr_album_path FROM track_downloads"
+        " WHERE album_id = ? AND success = 1"
+        " AND COALESCE(lidarr_album_path, '') != ''"
+        " GROUP BY lidarr_album_path ORDER BY MAX(timestamp) DESC LIMIT ?",
+        (album_id, limit),
+    ).fetchall()
+    return [row[0] for row in rows]
+
+
 def set_lidarr_album_path(album_id, since_ts, path):
     """Point this run's track rows at the library copy of the album.
 
