@@ -60,6 +60,15 @@
   `gosu`. Debian's `gosu` is a Go binary built with Go 1.24.4, which image
   scanners flag with dozens of Go standard-library CVEs; nothing in the
   image is written in Go any more.
+- **No pip in the image**: the urllib3 2.7.0, msgpack 1.1.2 and setuptools
+  70.3.0 that scanners reported were pip's own bundled copies (the app's
+  urllib3 is current). pip is removed once the image is built, and yt-dlp
+  updates without it: at startup and from Settings the app downloads the
+  latest yt-dlp wheel (and the yt-dlp-ejs version it pins) from PyPI,
+  checks its SHA-256 and unpacks it into `/config/ytdlp`, which is used
+  from the next start on. That also works when the container runs as
+  `PUID`, where pip could not write to the system packages. A newer image
+  makes the saved copy obsolete and it is deleted.
 - Logs on phones: the dismiss button no longer takes a row of its own; it
   sits in the corner of the entry.
 - The tab bar's "downloading" dot no longer covers the Downloads icon.

@@ -4257,8 +4257,8 @@ class TestStartupYtdlpUpdate:
         monkeypatch.setattr(app_module, "get_ytdlp_version", lambda: "2025.01.01")
         monkeypatch.setattr(app_module, "_get_ytdlp_pypi_version", lambda: "2025.02.02")
         monkeypatch.setattr(
-            app_module, "_pip_update_ytdlp",
-            lambda: ("2025.01.01", "2025.02.02", pip_error),
+            app_module, "_update_ytdlp",
+            lambda latest=None: ("2025.01.01", "2025.02.02", pip_error),
         )
         monkeypatch.setattr(app_module, "any_download_active", fake_active)
         monkeypatch.setattr(app_module, "_exec_restart", lambda: calls.append("restart"))
