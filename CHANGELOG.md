@@ -55,6 +55,11 @@
   disappearing after four seconds. Long playlists scroll faster.
 
 ### Fixed
+- **Fewer vulnerabilities in the image**: the container drops to `PUID` /
+  `PGID` with `setpriv` (util-linux, already in the base image) instead of
+  `gosu`. Debian's `gosu` is a Go binary built with Go 1.24.4, which image
+  scanners flag with dozens of Go standard-library CVEs; nothing in the
+  image is written in Go any more.
 - Logs on phones: the dismiss button no longer takes a row of its own; it
   sits in the corner of the entry.
 - The tab bar's "downloading" dot no longer covers the Downloads icon.
