@@ -372,8 +372,10 @@ class TestEditions:
 
 
 def album_dict(tracks):
+    """An album the way Lidarr serves it: no top-level ``trackCount``."""
     return {
-        "title": "Album", "releaseDate": "2020-01-01", "trackCount": 3,
+        "title": "Album", "releaseDate": "2020-01-01",
+        "statistics": {"trackCount": len(tracks)},
         "artist": {"artistName": "Artist", "foreignArtistId": "ar"},
         "releases": [], "tracks": tracks,
     }
@@ -431,6 +433,32 @@ class TestReuseEffect:
         assert row["source_format"] == "reused"
         assert row["recording_id"] == REC and row["acoustid_recording_id"] == REC
         assert row["file_path"] == dest and row["video_id"] == "abcdefghijk"
+
+    def test_a_single_is_tagged_one_of_one(self, tmp_path, quiet_extras):
+        # NAS test: the reused copy of a single had TRCK "1/0"
+        self.setup_source(tmp_path)
+        album_path, _p, _run, _res = self.run_reuse(tmp_path, [trk("Song", 1)])
+        tags = ID3(os.path.join(album_path, "01 - Song.mp3"))
+        assert str(tags["TRCK"]) == "1/1"
+
+    def test_a_multi_disc_copy_gets_the_disc_and_the_total_on_that_disc(
+        self, tmp_path, quiet_extras,
+    ):
+        src_file, _sid = self.setup_source(tmp_path)
+        tracks = [trk("A", 1, rec=OTHER, medium=1, abs_number=1),
+                  trk("B", 2, rec="33333333-3333-3333-3333-333333333333",
+                      medium=1, abs_number=2),
+                  trk("Song", 1, medium=2, abs_number=3)]
+        album_path = str(tmp_path / "dl/Artist/Album (2020)")
+        os.makedirs(album_path)
+        done = processing._copy_track_for_album(
+            tracks[2], src_file, {"id": 1}, album_tracks=tracks,
+            album=album_dict(tracks), album_path=album_path,
+            album_ctx=ctx(album_path))
+        assert done is not None
+        tags = ID3(os.path.join(album_path, "03 - Song.mp3"))
+        assert str(tags["TPOS"]) == "2/2"
+        assert str(tags["TRCK"]) == "1/1"  # one track on disc 2
 
     def test_the_original_is_left_untouched(self, tmp_path, quiet_extras):
         src_file, _sid = self.setup_source(tmp_path)

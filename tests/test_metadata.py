@@ -1143,3 +1143,102 @@ class TestTrackArtist:
         audio = MP3(str(mp3_path))
         assert str(audio.tags["TPE1"]) == expected
         assert str(audio.tags["TPE2"]) == "Album Artist"
+
+
+
+class TestTrackTotalFromLidarrAlbum:
+    """Lidarr's album resource has no ``trackCount`` (it is in ``statistics``
+    and on the releases), so the track total used to be written as 0:
+    "1/0" in TRCK, (1, 0) in trkn, "1/0" in tracknumber."""
+
+    @staticmethod
+    def _album(media, **extra):
+        album = {
+            "title": "A", "artist": {"artistName": "Art"},
+            "releaseDate": "2020-01-01",
+            "statistics": {"trackCount": len(media)},
+            "tracks": [{"mediumNumber": m} for m in media],
+        }
+        album.update(extra)
+        return album
+
+    @staticmethod
+    def _track(**kw):
+        return dict({"title": "T", "trackNumber": "1", "mediumNumber": 1}, **kw)
+
+    @staticmethod
+    def _store(mock_cls):
+        store = {}
+        mock_audio = MagicMock()
+        mock_audio.__setitem__ = lambda self, k, v: store.update({k: v})
+        mock_audio.__getitem__ = lambda self, k: store[k]
+        mock_cls.return_value = mock_audio
+        return store
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    def test_single_is_one_of_one(self, _rel, tmp_path):
+        from mutagen.mp3 import MP3
+        path = _create_minimal_mp3(tmp_path / "t.mp3")
+        assert metadata.tag_mp3(str(path), self._track(), self._album([1]), None)
+        assert str(MP3(str(path)).tags["TRCK"]) == "1/1"
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    def test_multi_disc_counts_the_tracks_on_that_disc(self, _rel, tmp_path):
+        from mutagen.mp3 import MP3
+        path = _create_minimal_mp3(tmp_path / "t.mp3")
+        album = self._album([1, 1, 1, 2, 2])
+        track = self._track(mediumNumber=2, trackNumber="2")
+        assert metadata.tag_mp3(str(path), track, album, None)
+        tags = MP3(str(path)).tags
+        assert str(tags["TRCK"]) == "2/2"
+        assert str(tags["TPOS"]) == "2/2"
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    @patch("metadata.MP4")
+    def test_m4a_writes_the_real_total(self, mock_mp4, _rel):
+        store = self._store(mock_mp4)
+        metadata.tag_m4a("/f.m4a", self._track(), self._album([1, 1, 1]), None)
+        assert store["trkn"] == [(1, 3)]
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    @patch("metadata.OggOpus")
+    def test_opus_writes_the_real_total(self, mock_opus, _rel):
+        store = self._store(mock_opus)
+        metadata.tag_opus("/f.opus", self._track(), self._album([1, 1, 1]), None)
+        assert store["tracknumber"] == ["1/3"]
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    @patch("metadata.OggOpus")
+    def test_opus_multi_disc_total_is_per_disc(self, mock_opus, _rel):
+        store = self._store(mock_opus)
+        track = self._track(mediumNumber=2, trackNumber="1")
+        metadata.tag_opus("/f.opus", track, self._album([1, 1, 1, 2]), None)
+        assert store["tracknumber"] == ["1/1"]
+        assert store["discnumber"] == ["2"] and store["disctotal"] == ["2"]
+
+    @patch("metadata.get_monitored_release", return_value={"trackCount": 9})
+    def test_without_a_tracklist_the_monitored_release_gives_the_total(
+        self, _rel, tmp_path,
+    ):
+        from mutagen.mp3 import MP3
+        path = _create_minimal_mp3(tmp_path / "t.mp3")
+        album = {"title": "A", "artist": {"artistName": "Art"}}
+        assert metadata.tag_mp3(str(path), self._track(), album, None)
+        assert str(MP3(str(path)).tags["TRCK"]) == "1/9"
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    def test_statistics_are_the_last_resort(self, _rel, tmp_path):
+        from mutagen.mp3 import MP3
+        path = _create_minimal_mp3(tmp_path / "t.mp3")
+        album = {"title": "A", "artist": {"artistName": "Art"},
+                 "statistics": {"trackCount": 7}}
+        assert metadata.tag_mp3(str(path), self._track(), album, None)
+        assert str(MP3(str(path)).tags["TRCK"]) == "1/7"
+
+    @patch("metadata.get_monitored_release", return_value=None)
+    def test_an_explicit_track_count_still_wins(self, _rel, tmp_path):
+        from mutagen.mp3 import MP3
+        path = _create_minimal_mp3(tmp_path / "t.mp3")
+        album = self._album([1, 1], trackCount=12)
+        assert metadata.tag_mp3(str(path), self._track(), album, None)
+        assert str(MP3(str(path)).tags["TRCK"]) == "1/12"
