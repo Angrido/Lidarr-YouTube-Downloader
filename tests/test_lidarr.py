@@ -320,3 +320,64 @@ def test_lidarr_validation_errors_are_readable(mock_post, mock_cfg):
         "Lidarr rejected the request: Path is already configured"
     )
     assert result["retryable"] is False
+
+
+class TestTagArtist:
+    @pytest.fixture(autouse=True)
+    def _clear(self):
+        lidarr._forget_lidarr_tags()
+        yield
+        lidarr._forget_lidarr_tags()
+
+    def test_off_without_tag(self):
+        with patch("lidarr.lidarr_request") as req:
+            assert lidarr.tag_artist(5, label="") is False
+            req.assert_not_called()
+
+    def test_creates_tag_and_uses_editor(self):
+        calls = []
+
+        def fake(endpoint, method="GET", data=None, params=None):
+            calls.append((endpoint, method, data))
+            if endpoint == "tag" and method == "GET":
+                return [{"id": 1, "label": "other"}]
+            if endpoint == "tag" and method == "POST":
+                return {"id": 7, "label": data["label"]}
+            return [{"id": 5}]
+
+        with patch("lidarr.lidarr_request", side_effect=fake):
+            assert lidarr.tag_artist(5, label="YouTube") is True
+            assert lidarr.tag_artist("5", label="youtube") is True
+        assert calls[1] == ("tag", "POST", {"label": "youtube"})
+        editor = [c for c in calls if c[0] == "artist/editor"]
+        assert editor[0] == ("artist/editor", "PUT", {"artistIds": [5], "tags": [7], "applyTags": "add"})
+        assert sum(1 for c in calls if c[0] == "tag") == 2
+
+    def test_falls_back_to_artist_put(self):
+        calls = []
+
+        def fake(endpoint, method="GET", data=None, params=None):
+            calls.append((endpoint, method))
+            if endpoint == "tag":
+                return [{"id": 3, "label": "youtube"}]
+            if endpoint == "artist/editor":
+                return {"error": "Lidarr endpoint not found (404): artist/editor"}
+            if endpoint == "artist/9" and method == "GET":
+                return {"id": 9, "tags": [1]}
+            if endpoint == "artist/9" and method == "PUT":
+                assert data["tags"] == [1, 3]
+                return {"id": 9, "tags": [1, 3]}
+            raise AssertionError(endpoint)
+
+        with patch("lidarr.lidarr_request", side_effect=fake):
+            assert lidarr.tag_artist(9, label="youtube") is True
+        assert ("artist/9", "PUT") in calls
+
+    def test_tag_failure_is_quiet(self):
+        with patch("lidarr.lidarr_request", return_value={"error": "down"}):
+            assert lidarr.tag_artist(9, label="youtube") is False
+
+    def test_uses_config_label(self):
+        with patch("lidarr.load_config", return_value={"lidarr_tag": ""}), patch("lidarr.lidarr_request") as req:
+            assert lidarr.tag_artist(9) is False
+            req.assert_not_called()

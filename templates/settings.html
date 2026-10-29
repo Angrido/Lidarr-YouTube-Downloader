@@ -582,6 +582,18 @@
             display: none;
         }
 
+        /* The VPN line is the only feedback while the IP changes (up to a
+           minute): readable, not a faint footnote. */
+        .status-line.vpn-line {
+            font-size: var(--text-callout, 0.9375rem);
+            font-weight: 500;
+            margin-top: var(--sp-2, 8px);
+        }
+
+        .status-line.vpn-line[data-kind="info"] {
+            color: var(--text-1);
+        }
+
         .status-line[data-kind="ok"] {
             color: var(--success);
         }
@@ -765,6 +777,7 @@
                         <li><a class="settings-nav-link" href="#sec-notifications">{{ ico('bell') }}<span>Notifications</span></a></li>
                         <li><a class="settings-nav-link" href="#sec-client">{{ ico('plug') }}<span>Download client</span></a></li>
                         <li><a class="settings-nav-link" href="#sec-paths">{{ ico('folder') }}<span>Paths</span></a></li>
+                        <li><a class="settings-nav-link" href="#sec-security">{{ ico('shield') }}<span>Security</span></a></li>
                         <li><a class="settings-nav-link" href="#sec-backup">{{ ico('database') }}<span>Backup &amp; restore</span></a></li>
                     </ul>
                 </nav>
@@ -932,6 +945,20 @@
                             <p class="ui-group-title">Lidarr</p>
                             <div class="ui-group">
                                 {{ switch_row('lidarrRenameBtn', 'Trigger Lidarr rename after import', 'After files are imported into Lidarr, send a RenameFiles command so Lidarr applies its configured naming convention (also fires Lidarr&#39;s “on rename” connections).', 'tag', '', '/api/lidarr_rename/toggle', 'lidarr_rename_after_import') }}
+                                {% call stack_row('lidarrTag', 'Tag artists in Lidarr', 'After a download, add this Lidarr tag to the artist (e.g. <code>youtube</code>), so you can filter in Lidarr what came from YouTube. Lidarr tags artists, not single tracks or albums. Lowercase letters, digits and hyphens; empty turns it off.', 'tag', 'info', err=true) %}
+                                <input type="text" class="ui-input t-mono" id="lidarrTag" placeholder="youtube" maxlength="50" autocomplete="off" spellcheck="false" aria-describedby="lidarrTag-desc">
+                                {% endcall %}
+                            </div>
+                        </div>
+                        <div class="settings-group">
+                            <p class="ui-group-title">Spotify playlists</p>
+                            <div class="ui-group">
+                                {% call stack_row('spotifyClientId', 'Spotify client ID (optional)', 'Spotify, Deezer, Apple Music and ListenBrainz links work on the YouTube page without keys. Without a key Spotify shows at most the first 100 tracks of a playlist; with an app from <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com</a> every track is read.', 'list-music', 'success') %}
+                                <input type="text" class="ui-input t-mono" id="spotifyClientId" placeholder="Client ID" autocomplete="off" spellcheck="false" aria-describedby="spotifyClientId-desc">
+                                {% endcall %}
+                                {% call stack_row('spotifyClientSecret', 'Spotify client secret', 'The secret of the same Spotify app.', 'key', 'gray') %}
+                                <input type="password" class="ui-input t-mono" id="spotifyClientSecret" placeholder="Client secret" autocomplete="off" aria-describedby="spotifyClientSecret-desc">
+                                {% endcall %}
                             </div>
                         </div>
                         <div class="settings-group">
@@ -1056,6 +1083,34 @@
                             </div>
                         </div>
                         <div class="settings-group">
+                            <p class="ui-group-title">VPN (gluetun)</p>
+                            <div class="ui-group">
+                                {% call stack_row('vpnProxyUrl', 'VPN proxy URL', 'Optional. <a href="https://github.com/qdm12/gluetun-wiki/blob/main/setup/options/http-proxy.md" target="_blank" rel="noopener">Gluetun&#39;s HTTP proxy</a> (<code>HTTPPROXY=on</code>), e.g. <code>http://gluetun:8888</code>. Everything this app asks YouTube goes through it, so YouTube sees the VPN&#39;s address. Lidarr, notifications and Explore browsing keep using the normal network. Add <code>user:password@</code> to the URL if the proxy has a login.', 'shield', 'teal', err=true) %}
+                                <input type="password" class="ui-input t-mono" id="vpnProxyUrl" placeholder="http://gluetun:8888" autocomplete="off" spellcheck="false" aria-describedby="vpnProxyUrl-desc">
+                                {% endcall %}
+                                {% call stack_row('gluetunControlUrl', 'Gluetun control server URL', 'Needed to change the IP: the app stops and starts the VPN through <a href="https://github.com/qdm12/gluetun-wiki/blob/main/setup/advanced/control-server.md" target="_blank" rel="noopener">gluetun&#39;s control server</a> (port 8000), e.g. <code>http://gluetun:8000</code>.', 'plug', 'teal', err=true) %}
+                                <div class="ui-input-row">
+                                    <input type="url" class="ui-input" id="gluetunControlUrl" placeholder="http://gluetun:8000" autocomplete="off" spellcheck="false" aria-describedby="gluetunControlUrl-desc">
+                                    <button type="button" class="ui-btn ui-btn-secondary" id="vpnTestBtn" onclick="testVpn()">{{ ico('plug') }}<span>Test</span></button>
+                                </div>
+                                <p class="status-line" id="vpnTestResult" role="status"></p>
+                                {% endcall %}
+                                {% call stack_row('gluetunApiKey', 'Gluetun API key', 'Sent as <code>X-API-Key</code>. Recent gluetun versions refuse control-server requests without authentication: give it a key (<code>HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE</code>, see the bundled <code>docker-compose.gluetun.yml</code>) and paste the same key here.', 'key', 'gray') %}
+                                <input type="password" class="ui-input t-mono" id="gluetunApiKey" placeholder="API key" autocomplete="off" spellcheck="false" aria-describedby="gluetunApiKey-desc">
+                                {% endcall %}
+                                {% call inline_row('vpnRotateEveryAlbums', 'Change the IP every N albums', 'After this many albums the VPN is restarted for a new address, between two albums and never during a download. 0 turns it off. Needs the control server URL.', 'refresh', 'info', err=true) %}
+                                <input type="number" class="ui-input ui-input-num" id="vpnRotateEveryAlbums" value="0" min="0" max="1000" step="1" inputmode="numeric" aria-describedby="vpnRotateEveryAlbums-desc">
+                                {% endcall %}
+                                {{ switch_row('vpnRotateOnBlockBtn', 'Change the IP when YouTube blocks', 'When YouTube answers &ldquo;Sign in to confirm you&#39;re not a bot&rdquo; or &ldquo;Too many requests&rdquo;, the tracks of that album not started yet wait, and the VPN is restarted once nothing is downloading; the album then carries on with the new address. A track that failed because of the block is not held against it. At most once every 5 minutes. Needs the control server URL.', 'shield', 'warning') }}
+                                {% call stack_row('vpnRotateBtn', 'Current IP', 'The address YouTube sees. Change IP now uses the saved settings and is refused while a download is running; it usually takes a few seconds, occasionally a few minutes.', 'compass', 'info', label_for=false) %}
+                                <div class="ui-input-row">
+                                    <button type="button" class="ui-btn ui-btn-secondary" id="vpnRotateBtn" onclick="rotateVpn()">{{ ico('refresh') }}<span>Change IP now</span></button>
+                                </div>
+                                <p class="status-line vpn-line" id="vpnStatusLine" role="status" aria-live="polite"></p>
+                                {% endcall %}
+                            </div>
+                        </div>
+                        <div class="settings-group">
                             <p class="ui-group-title">Cookies</p>
                             <div class="ui-group">
                                 {% call stack_row('ytCookiesFile', 'Cookies file path', 'Absolute path inside the container to a Netscape-format <code>cookies.txt</code>. Required when YouTube asks for sign-in or returns 403. Uploading below writes it to <code>/config/cookies.txt</code> automatically.', 'cookie', 'orange', err=true) %}
@@ -1083,7 +1138,7 @@
                     <section class="settings-section" id="sec-notifications" aria-labelledby="sec-notifications-title" data-section>
                         <div class="settings-section-head">
                             <h2 class="settings-section-title" id="sec-notifications-title" tabindex="-1">Notifications</h2>
-                            <p class="section-desc">Get told about downloads on Telegram, Discord or Ntfy. A channel is enabled once its token, webhook or topic is filled in.</p>
+                            <p class="section-desc">Get told about downloads on Telegram, Discord, Ntfy or any service Apprise supports. A channel is enabled once its token, webhook, topic or URL is filled in.</p>
                         </div>
                         <div class="settings-group">
                             <p class="ui-group-title">Telegram</p>
@@ -1142,6 +1197,20 @@
                                 {% endcall %}
                                 {% call inline_row('ntfyTest', 'Send test message', 'Verify your Ntfy setup by sending a test notification right now.', 'send', 'gray', label_for=false, wrap=true) %}
                                 <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" id="ntfyTestBtn" onclick="sendNtfyTest()">{{ ico('send') }}<span>Send Ntfy test</span></button>
+                                {% endcall %}
+                            </div>
+                        </div>
+                        <div class="settings-group">
+                            <p class="ui-group-title">Apprise</p>
+                            <div class="ui-group">
+                                {% call stack_row('appriseUrls', 'Apprise URLs', 'One URL per line, for any of the 100+ services <a href="https://github.com/caronc/apprise/wiki" target="_blank" rel="noopener">Apprise</a> supports: Gotify, Pushover, Matrix, Slack, email, Home Assistant, a generic webhook… e.g. <code>gotify://host/token</code> or <code>mailto://user:pass@gmail.com</code>.', 'bell', '') %}
+                                <textarea class="ui-textarea t-mono" id="appriseUrls" rows="3" placeholder="gotify://gotify.lan/AbCdEf123" autocomplete="off" spellcheck="false" aria-describedby="appriseUrls-desc"></textarea>
+                                {% endcall %}
+                                {% call stack_row('appriseFilters', 'Notify me about', 'Choose which events to receive via Apprise.', 'filter', 'gray', label_for=false) %}
+                                {{ event_chips('apprise_log_', 'appriseFilters-label') }}
+                                {% endcall %}
+                                {% call inline_row('appriseTest', 'Send test message', 'Send a test notification to every URL above right now.', 'send', 'gray', label_for=false, wrap=true) %}
+                                <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" id="appriseTestBtn" onclick="sendAppriseTest()">{{ ico('send') }}<span>Send Apprise test</span></button>
                                 {% endcall %}
                             </div>
                         </div>
@@ -1217,6 +1286,47 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                                 {% endcall %}
                                 {% call stack_row('lidarrPath', 'Lidarr music path', 'Lidarr&#39;s music library folder — leave empty to use the download path (e.g. /music).', 'library', 'success', err=true) %}
                                 <input type="text" class="ui-input t-mono" id="lidarrPath" placeholder="/music" autocomplete="off" spellcheck="false" aria-describedby="lidarrPath-desc">
+                                {% endcall %}
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="settings-section" id="sec-security" aria-labelledby="sec-security-title" data-section>
+                        <div class="settings-section-head">
+                            <h2 class="settings-section-title" id="sec-security-title" tabindex="-1">Security</h2>
+                            <p class="section-desc">Optional sign-in, for when the app can be reached by people other than you. These changes apply right away.</p>
+                        </div>
+                        <div class="settings-group">
+                            <p class="ui-group-title">Login</p>
+                            <div class="ui-group">
+                                <div class="ui-group-row" data-search-unit>
+                                    {{ tile('shield', 'success') }}
+                                    <div class="ui-group-row-text">
+                                        <div class="row-title-line"><span class="ui-group-row-title">Status</span></div>
+                                        <p class="ui-group-row-desc" id="authStatusText">Checking…</p>
+                                    </div>
+                                    <div class="ui-group-row-control">
+                                        <button type="button" class="ui-btn ui-btn-secondary ui-btn-sm" id="authLogoutBtn" onclick="authLogout()" hidden>{{ ico('power') }}<span>Sign out</span></button>
+                                    </div>
+                                </div>
+                                {% call stack_row('authUsername', 'Username', 'The name to sign in with.', 'user', 'info') %}
+                                <input type="text" class="ui-input" id="authUsername" maxlength="64" autocomplete="username" autocapitalize="none" spellcheck="false" aria-describedby="authUsername-desc">
+                                {% endcall %}
+                                {% call stack_row('authPassword', 'Password', 'At least 8 characters. When login is already on, leave it empty to keep the current password.', 'key', 'gray') %}
+                                <input type="password" class="ui-input" id="authPassword" autocomplete="new-password" aria-describedby="authPassword-desc">
+                                {% endcall %}
+                                {% call stack_row('authPasswordConfirm', 'Repeat password', '', 'key', 'gray') %}
+                                <input type="password" class="ui-input" id="authPasswordConfirm" autocomplete="new-password">
+                                {% endcall %}
+                                {% call inline_row('authActions', 'Apply', 'Lidarr&#39;s Newznab / SABnzbd calls and <code>/api/health</code> keep working without a login.', 'unlock', 'gray', label_for=false, wrap=true) %}
+                                <button type="button" class="ui-btn ui-btn-primary ui-btn-sm" id="authSaveBtn" onclick="authSave()">{{ ico('check') }}<span id="authSaveLabel">Turn on login</span></button>
+                                <button type="button" class="ui-btn ui-btn-danger ui-btn-sm" id="authDisableBtn" onclick="authDisable()" hidden>{{ ico('x') }}<span>Turn off login</span></button>
+                                {% endcall %}
+                                {% call stack_row('authApiKey', 'API key', 'For scripts and dashboards while login is on: send it as the <code>X-Api-Key</code> header (or <code>?apikey=</code>).', 'key', 'orange') %}
+                                <div class="ui-input-row">
+                                    <input type="text" class="ui-input t-mono" id="authApiKey" readonly placeholder="Created when login is turned on" aria-describedby="authApiKey-desc">
+                                    <button type="button" class="ui-btn ui-btn-secondary" id="authApiKeyBtn" onclick="authRegenerateKey()">{{ ico('refresh') }}<span>New key</span></button>
+                                </div>
                                 {% endcall %}
                             </div>
                         </div>
@@ -1325,6 +1435,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 if (target) requestAnimationFrame(() => jumpToSection(target));
             });
             loadYtdlpVersion();
+            loadAuthStatus();
             document.addEventListener('keydown', (e) => {
                 if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 's') {
                     e.preventDefault();
@@ -1449,6 +1560,12 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             setSwitch('saveLyricsBtn', conf.save_lyrics === true);
             setSecret('ytPoToken', conf.yt_po_token);
             $('ytPotProviderUrl').value = conf.yt_pot_provider_url || '';
+            setSecret('vpnProxyUrl', conf.vpn_proxy_url);
+            $('gluetunControlUrl').value = conf.gluetun_control_url || '';
+            setSecret('gluetunApiKey', conf.gluetun_api_key);
+            $('vpnRotateEveryAlbums').value = conf.vpn_rotate_every_albums != null ? conf.vpn_rotate_every_albums : 0;
+            setSwitch('vpnRotateOnBlockBtn', conf.vpn_rotate_on_block !== false);
+            refreshVpnStatus();
             $('ytSleepRequests').value = conf.yt_sleep_requests != null ? conf.yt_sleep_requests : 1;
             $('ytSleepInterval').value = conf.yt_sleep_interval != null ? conf.yt_sleep_interval : 1;
             $('ytMaxSleepInterval').value = conf.yt_max_sleep_interval != null ? conf.yt_max_sleep_interval : 5;
@@ -1462,6 +1579,12 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             setSecret('ntfyToken', conf.ntfy_token);
             $('ntfyPriority').value = conf.ntfy_priority || 'default';
             setChecks('ntfy_log_', conf.ntfy_log_types || []);
+
+            setSecret('appriseUrls', conf.apprise_urls);
+            setChecks('apprise_log_', conf.apprise_log_types || []);
+            $('lidarrTag').value = conf.lidarr_tag || '';
+            $('spotifyClientId').value = conf.spotify_client_id || '';
+            setSecret('spotifyClientSecret', conf.spotify_client_secret);
 
             setSwitch('toggleBtn', !!conf.scheduler_enabled);
             setSwitch('autoDlBtn', !!conf.scheduler_auto_download);
@@ -1500,6 +1623,12 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 ntfy_priority: $('ntfyPriority').value,
                 ntfy_enabled: !!$('ntfyTopic').value,
                 ntfy_log_types: readChecks('ntfy_log_'),
+                apprise_urls: ($('appriseUrls').value || '').trim(),
+                apprise_enabled: !!($('appriseUrls').value || '').trim(),
+                apprise_log_types: readChecks('apprise_log_'),
+                lidarr_tag: ($('lidarrTag').value || '').trim().toLowerCase(),
+                spotify_client_id: ($('spotifyClientId').value || '').trim(),
+                spotify_client_secret: ($('spotifyClientSecret').value || '').trim(),
                 download_path: $('downloadPath').value,
                 lidarr_path: $('lidarrPath').value,
                 forbidden_words: FORBIDDEN_WORD_IDS.map((id) => $(id)).filter((cb) => cb && cb.checked).map((cb) => cb.value),
@@ -1518,6 +1647,11 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 save_lyrics: $('saveLyricsBtn').checked,
                 yt_po_token: ($('ytPoToken').value || '').trim(),
                 yt_pot_provider_url: ($('ytPotProviderUrl').value || '').trim(),
+                vpn_proxy_url: ($('vpnProxyUrl').value || '').trim(),
+                gluetun_control_url: ($('gluetunControlUrl').value || '').trim(),
+                gluetun_api_key: ($('gluetunApiKey').value || '').trim(),
+                vpn_rotate_every_albums: parseInt($('vpnRotateEveryAlbums').value, 10) || 0,
+                vpn_rotate_on_block: $('vpnRotateOnBlockBtn').checked,
                 yt_sleep_requests: parseInt($('ytSleepRequests').value, 10) || 0,
                 yt_sleep_interval: parseInt($('ytSleepInterval').value, 10) || 0,
                 yt_max_sleep_interval: parseInt($('ytMaxSleepInterval').value, 10) || 0,
@@ -1597,9 +1731,13 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             durationTolerance: (v) => checkInt(v, 1, 60),
             minMatchScore: (v) => checkNum(v, 0, 1),
             ytPotProviderUrl: checkUrl,
+            vpnProxyUrl: (v) => (String(v).trim() === '********' ? '' : checkUrl(v)),
+            gluetunControlUrl: checkUrl,
+            vpnRotateEveryAlbums: (v) => checkInt(v, 0, 1000),
             discordWebhook: checkUrl,
             ntfyUrl: checkUrl,
             ytCookiesFile: checkPath,
+            lidarrTag: (v) => (/^[a-z0-9-]*$/.test(String(v).trim().toLowerCase()) ? '' : 'Use only letters, digits and hyphens.'),
             downloadPath: checkPath,
             lidarrPath: checkPath,
         };
@@ -2010,6 +2148,108 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             }, 'Testing…');
         }
 
+        let vpnStatusTimer = null;
+        async function refreshVpnStatus() {
+            const line = $('vpnStatusLine');
+            if (!line) return null;
+            clearTimeout(vpnStatusTimer);
+            try {
+                const res = await fetch('/api/vpn/status');
+                const data = await res.json();
+                $('vpnRotateBtn').disabled = !data.control_configured || data.rotating;
+                // A change started elsewhere (the queue, another tab) or before
+                // this page loaded: keep watching until it is over.
+                if (data.rotating) vpnStatusTimer = setTimeout(refreshVpnStatus, 3000);
+                if (!data.control_configured) {
+                    setStatusLine('vpnStatusLine', data.proxy_configured
+                        ? 'Proxy set. Add the control server URL to change the IP.'
+                        : 'Not configured.', 'info');
+                    return data;
+                }
+                if (data.error) {
+                    setStatusLine('vpnStatusLine', data.error, 'err');
+                    return data;
+                }
+                const last = data.last_rotation;
+                let text = data.rotating ? 'Changing the IP…'
+                    : 'Public IP ' + (data.public_ip || 'unknown') + ' (VPN ' + (data.vpn_status || 'status unknown') + ')';
+                if (last && !data.rotating) {
+                    text += last.success
+                        ? ' — last change: ' + (last.changed ? 'new IP' : (last.changed === false ? 'same IP' : 'new IP not confirmed')) + ' (' + last.reason + ')'
+                        : ' — last change failed: ' + last.message;
+                }
+                if (data.block_seen && !data.rotating) {
+                    text += ' — YouTube blocked a request: the IP changes as soon as nothing is downloading';
+                }
+                setStatusLine('vpnStatusLine', text, data.block_seen ? 'err' : (data.vpn_status === 'running' ? 'ok' : 'info'));
+                return data;
+            } catch (e) {
+                setStatusLine('vpnStatusLine', 'Could not read the VPN status', 'err');
+                return null;
+            }
+        }
+
+        async function testVpn() {
+            await UI.guard($('vpnTestBtn'), async () => {
+                setStatusLine('vpnTestResult', 'Testing…', 'info');
+                try {
+                    const res = await fetch('/api/vpn/test', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            proxy_url: ($('vpnProxyUrl').value || '').trim(),
+                            control_url: ($('gluetunControlUrl').value || '').trim(),
+                            api_key: ($('gluetunApiKey').value || '').trim(),
+                        }),
+                    });
+                    const data = await res.json();
+                    if (!res.ok && !data.proxy && !data.control) {
+                        setStatusLine('vpnTestResult', data.message || 'Test failed', 'err');
+                        return;
+                    }
+                    const parts = [];
+                    if (data.proxy) parts.push('Proxy: ' + data.proxy.message);
+                    if (data.control) parts.push('Control server: ' + data.control.message);
+                    setStatusLine('vpnTestResult', parts.join(' · '), data.success ? 'ok' : 'err');
+                } catch (e) {
+                    setStatusLine('vpnTestResult', 'Test failed', 'err');
+                }
+            }, 'Testing…');
+        }
+
+        async function rotateVpn() {
+            await UI.guard($('vpnRotateBtn'), async () => {
+                setStatusLine('vpnStatusLine', 'Changing the IP…', 'info');
+                try {
+                    const res = await fetch('/api/vpn/rotate', { method: 'POST' });
+                    const data = await res.json();
+                    if (!data.success) {
+                        setStatusLine('vpnStatusLine', data.message || 'Could not change the IP', 'err');
+                        UI.toast(data.message || 'Could not change the IP', { type: 'error' });
+                        return;
+                    }
+                } catch (e) {
+                    setStatusLine('vpnStatusLine', 'Could not change the IP', 'err');
+                    return;
+                }
+                // The change runs in the background: usually a few seconds,
+                // occasionally minutes. Follow it, then report how it ended.
+                let status = null;
+                for (let i = 0; i < 150; i++) {
+                    await new Promise((resolve) => setTimeout(resolve, 2000));
+                    status = await refreshVpnStatus();
+                    if (status && !status.rotating) break;
+                }
+                const last = status && !status.rotating ? status.last_rotation : null;
+                if (!last) return;
+                if (last.success) {
+                    UI.toast(last.message, { type: last.changed ? 'success' : 'warning' });
+                } else {
+                    UI.toast(last.message || 'Could not change the IP', { type: 'error' });
+                }
+            }, 'Changing…');
+        }
+
         let ytdlpFormatsInFlight = false;
         async function testYtdlpFormats() {
             if (ytdlpFormatsInFlight) return;
@@ -2303,6 +2543,117 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 token: token,
                 priority: priority,
             }, 'Ntfy', 'topic');
+        }
+
+        async function sendAppriseTest() {
+            const urls = ($('appriseUrls').value || '').trim();
+            if (!urls) {
+                toast('Enter at least one Apprise URL first.', 'error');
+                $('appriseUrls').focus();
+                return;
+            }
+            await sendNotificationTest('appriseTestBtn', '/api/notifications/test/apprise', { urls: urls }, 'Apprise', 'services');
+        }
+
+        let _auth = null;
+
+        function renderAuth(st) {
+            _auth = st;
+            const fromEnv = !!st.from_env;
+            let text = 'Off: anyone who can reach this page can use the app.';
+            if (st.enabled) text = 'On for “' + st.username + '”' + (fromEnv ? ', set by AUTH_USERNAME / AUTH_PASSWORD.' : '.');
+            $('authStatusText').textContent = text;
+            $('authLogoutBtn').hidden = !(st.enabled && st.logged_in);
+            $('authDisableBtn').hidden = !st.enabled || fromEnv;
+            $('authSaveLabel').textContent = st.enabled ? 'Update login' : 'Turn on login';
+            ['authUsername', 'authPassword', 'authPasswordConfirm', 'authSaveBtn'].forEach((id) => { $(id).disabled = fromEnv; });
+            if (!$('authUsername').value) $('authUsername').value = st.username || '';
+            $('authApiKey').value = st.api_key || '';
+            $('authApiKeyBtn').disabled = !st.enabled;
+        }
+
+        async function loadAuthStatus() {
+            try {
+                renderAuth(await UI.fetchJSON('/api/auth/status'));
+            } catch (e) {
+                $('authStatusText').textContent = 'Could not read the login status.';
+            }
+        }
+
+        async function authSave() {
+            const username = $('authUsername').value.trim();
+            const password = $('authPassword').value;
+            const enabled = !!(_auth && _auth.enabled);
+            if (!username) {
+                toast('Enter a username.', 'error');
+                $('authUsername').focus();
+                return;
+            }
+            if ((!enabled || password) && password.length < 8) {
+                toast('The password needs at least 8 characters.', 'error');
+                $('authPassword').focus();
+                return;
+            }
+            if (password !== $('authPasswordConfirm').value) {
+                toast('The two passwords are different.', 'error');
+                $('authPasswordConfirm').focus();
+                return;
+            }
+            await UI.guard($('authSaveBtn'), async () => {
+                try {
+                    await UI.fetchJSON('/api/auth/setup', { method: 'POST', body: { username: username, password: password } });
+                    $('authPassword').value = '';
+                    $('authPasswordConfirm').value = '';
+                    toast(enabled ? 'Login updated.' : 'Login is on. You are signed in on this browser.', 'success');
+                    await loadAuthStatus();
+                } catch (e) {
+                    toast('Login not saved: ' + e.message, 'error');
+                }
+            }, 'Saving…');
+        }
+
+        async function authDisable() {
+            const ok = await UI.confirm({
+                title: 'Turn off login?',
+                message: 'Anyone who can reach this page will be able to use the app again.',
+                confirmLabel: 'Turn off',
+                danger: true,
+            });
+            if (!ok) return;
+            await UI.guard($('authDisableBtn'), async () => {
+                try {
+                    await UI.fetchJSON('/api/auth/disable', { method: 'POST' });
+                    toast('Login is off.', 'success');
+                    await loadAuthStatus();
+                } catch (e) {
+                    toast('Could not turn off login: ' + e.message, 'error');
+                }
+            }, 'Turning off…');
+        }
+
+        async function authLogout() {
+            try {
+                await UI.fetchJSON('/api/auth/logout', { method: 'POST' });
+            } catch (_) {}
+            window.location.href = '/login';
+        }
+
+        async function authRegenerateKey() {
+            const ok = await UI.confirm({
+                title: 'Create a new API key?',
+                message: 'Scripts using the current key will stop working until you give them the new one.',
+                confirmLabel: 'Create key',
+            });
+            if (!ok) return;
+            await UI.guard($('authApiKeyBtn'), async () => {
+                try {
+                    const data = await UI.fetchJSON('/api/auth/api-key', { method: 'POST' });
+                    $('authApiKey').value = data.api_key || '';
+                    toast('New API key created.', 'success');
+                } catch (e) {
+                    toast('Could not create a key: ' + e.message, 'error');
+                }
+            }, 'Creating…');
         }
 
         async function handleConfigImport(event) {

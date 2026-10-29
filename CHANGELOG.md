@@ -1,13 +1,71 @@
 # Changelog
 
-## 2.0.1
+## 2.0.2
 
 ### Added
+- **VPN with gluetun** (Settings → YouTube access → VPN, or `VPN_PROXY_URL`
+  / `GLUETUN_CONTROL_URL` / `GLUETUN_API_KEY`): every request to YouTube
+  goes through gluetun's HTTP proxy, and the app can restart the VPN for a
+  new IP — with **Change IP now**, every N albums, or after YouTube blocked
+  a request (*Sign in to confirm you're not a bot*, *Too many requests*).
+  The IP only changes while nothing is downloading: the queue lets the
+  running albums finish, changes the IP, then carries on (a manual retry
+  of a failed track counts as a running download, so it is never cut off).
+  A track that fails while YouTube is blocking is not held against it: it
+  does not count toward its retry backoff, and the rest of that album waits
+  for the new IP instead of failing the same way: the album goes back to the
+  head of the queue and carries on as soon as the IP has changed. The bgutil PO-token
+  provider uses the same proxy. See `docker-compose.gluetun.yml`.
+- **Spotify, Deezer, Apple Music and ListenBrainz links** on the YouTube
+  page: paste a playlist or album and every track is searched on YouTube
+  (same scoring as Lidarr albums), tagged with its own artist and saved
+  with an `.m3u8` playlist file. **Add albums to Lidarr** looks up the
+  albums of the selected tracks on MusicBrainz, adds them and queues them
+  instead. Spotify works without a key (first 100 tracks of a playlist);
+  a Spotify app's client ID and secret in Settings reads every track.
+- **Optional login** (Settings → Security, or `AUTH_USERNAME` /
+  `AUTH_PASSWORD`): every page and API asks for a sign-in, with an API key
+  (`X-Api-Key` header or `?apikey=`) for scripts. Lidarr's Newznab /
+  SABnzbd calls and `/api/health` keep working without it. Off by default.
+- **Lidarr tag for downloaded artists** (issue #89): set a tag such as
+  `youtube` in Settings → Library & metadata and every artist this app
+  downloads for is tagged with it in Lidarr. Lidarr tags artists only, not
+  albums or tracks.
+- **Apprise notifications**: one URL per line for any of the 100+
+  services Apprise supports (Gotify, Pushover, Matrix, email, webhooks…),
+  with the same event filters and a test button.
+- **For you** in Explore: artists similar to the ones in your Lidarr
+  library, from YouTube Music's related artists, refreshed every 6 hours.
 - **Host allow-list** (`ALLOWED_HOSTS`, optional) — comma-separated host
   names or addresses the app answers to; any other `Host` header gets a
   400. It stops a web page that points its own name at your server
   (DNS rebinding) from being treated as same-origin. Off by default;
   `localhost` is always allowed and `*.example.com` matches sub-domains.
+
+### Changed
+- **Smoother motion** — moving between pages cross-fades the content while
+  the sidebar and tab bar stay still, cards and shelves rise in gently as
+  you scroll, and Explore shelves, album tracklists and the Insights tiles
+  come in one after another. All of it is off with *reduce motion*.
+
+### Fixed
+- Logs on phones: the dismiss button no longer takes a row of its own; it
+  sits in the corner of the entry.
+- The tab bar's "downloading" dot no longer covers the Downloads icon.
+- A YouTube playlist imported with only its name (the album field left
+  empty, the default for playlists mixing several channels) was saved in
+  an extra `untitled` subfolder and showed as *Unknown Album* while
+  downloading. It now lands in `<download path>/<playlist name>/` and the
+  now-downloading card shows the playlist name.
+- **Track deletion stays inside your folders** — deleting a track from the
+  history only removes files under the configured download and library
+  folders (symlinks resolved), and `audio_format` is limited to the formats
+  the app can write (`mp3`, `m4a`, `opus`, `flac`, `aac`, `ogg`); a stored
+  value outside that list falls back to `mp3`.
+
+## 2.0.1
+
+### Added
 - **Request pacing** (Settings → YouTube access, issue #98): the pause
   between yt-dlp's requests and a random pause before each download (min /
   max, 1–5 s by default) can now be set from the page, to avoid YouTube
@@ -26,11 +84,6 @@
 - Small labels (eyebrows, badges, *Instant*) are 12 px instead of 11 px.
 
 ### Fixed
-- **Track deletion stays inside your folders** — deleting a track from the
-  history only removes files under the configured download and library
-  folders (symlinks resolved), and `audio_format` is limited to the formats
-  the app can write (`mp3`, `m4a`, `opus`, `flac`, `aac`, `ogg`); a stored
-  value outside that list falls back to `mp3`.
 - A negative pause value made the download fail; pauses are now at least
   0 s and the maximum is never below the minimum.
 - **Lyrics and ReplayGain on every download** — *Save lyrics* and *Apply

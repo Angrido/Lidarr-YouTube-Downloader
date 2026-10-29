@@ -11,6 +11,7 @@ import math
 import os
 import re
 import threading
+import urllib.parse
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -65,12 +66,23 @@ ALLOWED_CONFIG_KEYS = {
     "download_client_category", "download_client_concurrent_albums",
     "yt_po_token", "audio_normalize", "yt_pot_provider_url",
     "playlist_to_library", "queue_paused",
+    "vpn_proxy_url", "gluetun_control_url", "gluetun_api_key",
+    "vpn_rotate_every_albums", "vpn_rotate_on_block",
     "search_artist_source",
     "save_lyrics", "apply_replaygain",
     "explore_country", "explore_language",
     "yt_watch_playlists",
     "ui_accent", "ui_aura_mode",
+    "lidarr_tag",
+    "apprise_enabled", "apprise_urls", "apprise_log_types",
+    "spotify_client_id", "spotify_client_secret",
 }
+
+AUTH_CONFIG_KEYS = (
+    "auth_enabled", "auth_username", "auth_password_hash", "auth_api_key",
+)
+
+_LIDARR_TAG_RE = re.compile(r"^[a-z0-9-]{0,50}$")
 
 # Appearance (Settings > Appearance). The accent is written into every
 # page's <head>, so only a plain #rrggbb ever gets through.
@@ -103,6 +115,7 @@ INT_CONFIG_KEYS = frozenset({
     "concurrent_tracks", "yt_retries", "yt_fragment_retries",
     "yt_sleep_requests", "yt_sleep_interval", "yt_max_sleep_interval",
     "download_client_concurrent_albums", "max_track_retries",
+    "vpn_rotate_every_albums",
 })
 
 FLOAT_CONFIG_KEYS = frozenset({
@@ -115,11 +128,12 @@ BOOL_CONFIG_KEYS = frozenset({
     "audio_normalize", "save_lyrics", "apply_replaygain", "discord_enabled",
     "ntfy_enabled", "acoustid_enabled", "lidarr_rename_after_import",
     "save_cover_art_file", "download_client_enabled", "playlist_to_library",
-    "queue_paused",
+    "queue_paused", "apprise_enabled", "vpn_rotate_on_block",
 })
 
 LIST_CONFIG_KEYS = frozenset({
     "telegram_log_types", "discord_log_types", "ntfy_log_types",
+    "apprise_log_types",
     "forbidden_words", "forbidden_words_custom", "yt_watch_playlists",
 })
 
@@ -132,7 +146,8 @@ _WATCH_PLAYLIST_RE = re.compile(
 # is left out on purpose: /api/download-client/info shows it for Lidarr.
 SECRET_CONFIG_KEYS = (
     "telegram_bot_token", "discord_webhook_url", "ntfy_token",
-    "acoustid_api_key", "yt_po_token",
+    "acoustid_api_key", "yt_po_token", "apprise_urls",
+    "spotify_client_secret", "vpn_proxy_url", "gluetun_api_key",
 )
 SECRET_MASK = "********"
 
@@ -194,6 +209,64 @@ def _parse_bool(value):
     raise ValueError(f"expected a boolean, got {value!r}")
 
 
+def parse_http_url(value, allow_userinfo=True):
+    """Validate an ``http(s)://host[:port]`` URL; "" is allowed (= unset).
+
+    Raises ValueError otherwise. Only http(s) is accepted because one value
+    serves both yt-dlp and ``requests`` (vpn_proxy_url, gluetun_control_url).
+    ``allow_userinfo=False`` also refuses ``user:pass@``: a value that is not
+    a masked secret must not carry credentials.
+    """
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError("expected a URL")
+    value = value.strip()
+    if not value:
+        return ""
+    if any(ch.isspace() or ord(ch) < 32 for ch in value):
+        raise ValueError("a URL cannot contain spaces")
+    parsed = urllib.parse.urlsplit(value)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("expected an http:// or https:// URL")
+    try:
+        parsed.port
+    except ValueError:
+        raise ValueError("invalid port") from None
+    if parsed.query or parsed.fragment:
+        raise ValueError("a URL cannot have a query or fragment")
+    if not allow_userinfo and (parsed.username or parsed.password or "@" in parsed.netloc):
+        raise ValueError("put credentials in the API key field, not in the URL")
+    return value
+
+
+def _parse_control_url(value):
+    return parse_http_url(value, allow_userinfo=False)
+
+
+def _parse_gluetun_api_key(value):
+    """The key travels in an HTTP header: plain printable ASCII, no spaces."""
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise ValueError("expected a string")
+    value = value.strip()
+    if value and (len(value) > 256 or not all(33 <= ord(ch) <= 126 for ch in value)):
+        raise ValueError("the API key must be plain ASCII without spaces")
+    return value
+
+
+VPN_ROTATE_EVERY_MAX = 1000
+_warned_invalid = set()
+
+
+def _parse_vpn_rotate_every(value):
+    number = _parse_int(value)
+    if not 0 <= number <= VPN_ROTATE_EVERY_MAX:
+        raise ValueError(f"expected 0 to {VPN_ROTATE_EVERY_MAX}")
+    return number
+
+
 def _parse_int(value):
     if isinstance(value, bool):
         raise ValueError(f"expected an integer, got {value!r}")
@@ -250,10 +323,27 @@ def _parse_audio_format(value):
     return fmt
 
 
+def _parse_lidarr_tag(value):
+    tag = value.strip().lower() if isinstance(value, str) else None
+    if tag is None or not _LIDARR_TAG_RE.match(tag):
+        raise ValueError("use lowercase letters, digits and hyphens")
+    return tag
+
+
 def coerce_config_value(key, value):
     try:
         if key == "audio_format":
             return _parse_audio_format(value)
+        if key == "lidarr_tag":
+            return _parse_lidarr_tag(value)
+        if key == "vpn_proxy_url":
+            return parse_http_url(value)
+        if key == "gluetun_control_url":
+            return _parse_control_url(value)
+        if key == "gluetun_api_key":
+            return _parse_gluetun_api_key(value)
+        if key == "vpn_rotate_every_albums":
+            return _parse_vpn_rotate_every(value)
         if key == "ui_accent":
             return _parse_ui_accent(value)
         if key == "ui_aura_mode":
@@ -363,6 +453,11 @@ def _env_config():
         "yt_player_client": os.getenv("YT_PLAYER_CLIENT", "android"),
         "yt_po_token": os.getenv("YT_PO_TOKEN", ""),
         "yt_pot_provider_url": os.getenv("YT_POT_PROVIDER_URL", ""),
+        "vpn_proxy_url": os.getenv("VPN_PROXY_URL", ""),
+        "gluetun_control_url": os.getenv("GLUETUN_CONTROL_URL", ""),
+        "gluetun_api_key": os.getenv("GLUETUN_API_KEY", ""),
+        "vpn_rotate_every_albums": 0,
+        "vpn_rotate_on_block": True,
         "audio_normalize": _env_bool("AUDIO_NORMALIZE", False),
         # Write a synced .lrc lyrics sidecar (fetched from LRCLIB) next to
         # each downloaded track.
@@ -436,6 +531,21 @@ def _env_config():
         # YouTube playlists checked periodically: every video not yet
         # downloaded is imported as one album (issue #96).
         "yt_watch_playlists": [],
+        "lidarr_tag": os.getenv("LIDARR_TAG", ""),
+        "apprise_enabled": _env_bool("APPRISE_ENABLED", False),
+        "apprise_urls": os.getenv("APPRISE_URLS", ""),
+        "apprise_log_types": [
+            "partial_success",
+            "import_partial",
+            "album_error",
+            "manual_download",
+        ],
+        "spotify_client_id": os.getenv("SPOTIFY_CLIENT_ID", ""),
+        "spotify_client_secret": os.getenv("SPOTIFY_CLIENT_SECRET", ""),
+        "auth_enabled": False,
+        "auth_username": "",
+        "auth_password_hash": "",
+        "auth_api_key": "",
         "path_conflict": False,
     }
 
@@ -521,6 +631,25 @@ def load_config():
     except ValueError:
         config["audio_format"] = AUDIO_FORMAT_DEFAULT
 
+    for vpn_key, parser in (
+        ("vpn_proxy_url", parse_http_url),
+        ("gluetun_control_url", _parse_control_url),
+        ("gluetun_api_key", _parse_gluetun_api_key),
+    ):
+        try:
+            config[vpn_key] = parser(config.get(vpn_key))
+        except ValueError:
+            if vpn_key not in _warned_invalid:  # without a config file this runs every call
+                _warned_invalid.add(vpn_key)
+                logger.warning("Ignoring invalid %s in the configuration", vpn_key)
+            config[vpn_key] = ""
+    try:
+        config["vpn_rotate_every_albums"] = _parse_vpn_rotate_every(
+            config.get("vpn_rotate_every_albums", 0),
+        )
+    except (TypeError, ValueError):
+        config["vpn_rotate_every_albums"] = 0
+
     if config.get("search_artist_source") not in SEARCH_ARTIST_SOURCES:
         config["search_artist_source"] = "album"
 
@@ -538,6 +667,10 @@ def load_config():
         config["ui_accent"] = UI_ACCENT_DEFAULT
     if config.get("ui_aura_mode") not in UI_AURA_MODES:
         config["ui_aura_mode"] = "cover"
+    try:
+        config["lidarr_tag"] = _parse_lidarr_tag(config.get("lidarr_tag") or "")
+    except ValueError:
+        config["lidarr_tag"] = ""
 
     def norm(p):
         return (

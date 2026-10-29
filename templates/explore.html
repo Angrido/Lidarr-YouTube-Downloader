@@ -1151,9 +1151,29 @@
                 else html += cardsShelf(s.title, s.items);
             }
             html += moodsHtml(data.moods);
-            view.innerHTML = html ? `<div class="ex-shelves">${html}</div>` : emptyHtml("Nothing to show", "YouTube Music returned no music for this region right now.", { retry: true });
+            view.innerHTML = html ? `<div class="ex-shelves">${html}<div data-section="for_you" hidden></div></div>` : emptyHtml("Nothing to show", "YouTube Music returned no music for this region right now.", { retry: true });
             hydrate(view);
+            UI.stagger(view.querySelector(".ex-shelves"));
             setStatus("Explore loaded");
+            loadForYou(seq);
+        }
+
+        async function loadForYou(seq) {
+            const slot = document.querySelector('[data-section="for_you"]');
+            if (!slot) return;
+            let data;
+            try {
+                data = await api("/api/explore/for-you");
+            } catch (_) {
+                return;
+            }
+            if (seq !== viewSeq || !data.items || !data.items.length) return;
+            const hero = slot.parentElement.querySelector(".ui-shelf-wide");
+            if (hero) hero.after(slot);
+            else slot.parentElement.prepend(slot);
+            slot.innerHTML = cardsShelf("For you · based on your library", data.items, { cls: "ui-shelf-round" });
+            slot.hidden = false;
+            hydrate(slot);
         }
 
         async function changeCountry(code) {
@@ -1226,6 +1246,7 @@
                 </section>
                 ${album.otherVersions && album.otherVersions.length ? `<div class="section">${cardsShelf("Other versions", album.otherVersions)}</div>` : ""}`;
             hydrate(view);
+            UI.stagger(view.querySelector(".ex-list"));
             setStatus(`${album.title} loaded`);
             loadMatch(seq, false);
         }

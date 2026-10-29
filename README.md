@@ -81,13 +81,13 @@
 <td valign="top">
 
 #### Explore
-<sub>Browse new releases, charts and moods, preview any track and add it to Lidarr in two clicks.</sub>
+<sub>Browse new releases, charts and moods, get artists picked from your own library, preview any track and add it to Lidarr in two clicks.</sub>
 
 </td>
 <td valign="top">
 
 #### Hands-off
-<sub>A scheduler fetches new releases on its own, backs off tracks that keep failing and notifies Telegram, Discord or ntfy.</sub>
+<sub>A scheduler fetches new releases on its own, backs off tracks that keep failing and notifies Telegram, Discord, ntfy or any of the 100+ services Apprise supports.</sub>
 
 </td>
 </tr>
@@ -239,8 +239,9 @@ docker compose up -d
 | `LIDARR_PATH` | `/music` | Your music library, as mounted in the container |
 | `PUID` / `PGID` / `UMASK` | `1000` / `1000` / `002` | File ownership, matching Lidarr |
 | `ALLOWED_HOSTS` | `192.168.1.10,music.example.com` | Optional. When set, requests whose `Host` header is not listed get a 400, which blocks DNS-rebinding attacks. List every address you (or Lidarr's download-client bridge) use to reach the app; `localhost` is always allowed and `*.example.com` matches sub-domains. Empty (default) accepts any host. |
+| `AUTH_USERNAME` / `AUTH_PASSWORD` | `admin` / `…` | Optional: require this login (otherwise turn it on in Settings › Security) |
 
-Audio format and quality, parallel tracks, match threshold, forbidden words, scheduler, notifications (Telegram, Discord, ntfy), AcoustID and yt-dlp tuning are all set in **Settings**. Explore's default region and language come from `EXPLORE_COUNTRY` (default `IT`) and `EXPLORE_LANGUAGE` (default `en`); the chart country can also be switched right on the Explore page.
+Audio format and quality, parallel tracks, match threshold, forbidden words, scheduler, notifications (Telegram, Discord, ntfy, Apprise), the Lidarr tag for downloaded artists, the optional login, AcoustID and yt-dlp tuning are all set in **Settings**. Explore's default region and language come from `EXPLORE_COUNTRY` (default `IT`) and `EXPLORE_LANGUAGE` (default `en`); the chart country can also be switched right on the Explore page.
 
 <details>
 <summary><b>YouTube cookies</b> — when YouTube asks you to sign in</summary>
@@ -260,6 +261,49 @@ environment:
 ```
 
 Never use your main Google account: cookies expire and accounts can be flagged. The app never modifies your file — every download works on a private copy.
+
+</details>
+
+<details>
+<summary><b>VPN with gluetun</b> — change the IP YouTube sees</summary>
+
+<br>
+
+When YouTube starts answering *"Sign in to confirm you're not a bot"* or *"Too many requests"*, the address is the problem. Run [gluetun](https://github.com/qdm12/gluetun) next to the app and it can send every request it makes to YouTube through your VPN, and **change the IP** by restarting the tunnel — on a button, every N albums, or automatically after YouTube blocked a request.
+
+1. Start gluetun with its HTTP proxy and an API key for the control server, using the bundled [`docker-compose.gluetun.yml`](docker-compose.gluetun.yml) (see the comments inside for the `.env` values):
+
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose.gluetun.yml up -d --build
+   ```
+
+2. The compose file sets `VPN_PROXY_URL`, `GLUETUN_CONTROL_URL` and `GLUETUN_API_KEY` for the app. They can also be filled in under **Settings → YouTube access → VPN (gluetun)**, where **Test** checks both and **Change IP now** restarts the VPN.
+
+| Variable | Example | Description |
+|---|---|---|
+| `VPN_PROXY_URL` | `http://gluetun:8888` | Gluetun's HTTP proxy (`HTTPPROXY=on`). Everything asked of YouTube goes through it |
+| `GLUETUN_CONTROL_URL` | `http://gluetun:8000` | Gluetun's control server; needed to change the IP |
+| `GLUETUN_API_KEY` | `…` | Sent as `X-API-Key`; recent gluetun versions refuse unauthenticated control requests |
+
+Good to know:
+
+- **The PO token provider uses the same proxy.** yt-dlp's bgutil plugin hands the proxy to the sidecar, which uses it for its own requests, so the token is generated from the same address as the download. The proxy URL must therefore be reachable from the sidecar's container too: `http://gluetun:8888` works when both are on the same compose network.
+- **Only YouTube traffic uses the VPN**: searches, downloads, the YT Music album lookups a download makes, cover scraping and preview streams. Lidarr, notifications, the web UI and Explore browsing keep the normal network, so nothing else changes.
+- **The IP only changes when nothing is downloading.** When an automatic change is due, the queue starts nothing new until the running albums have finished, then restarts the tunnel and carries on. **Change IP now** is refused while a download is running and otherwise works in the background. A restart usually takes a few seconds, occasionally a few minutes if the VPN has to retry. Automatic changes are at most once every 5 minutes.
+- **YouTube often refuses VPN addresses** (*"Sign in to confirm you're not a bot"*), datacenter ranges especially. That is what the automatic change is for: the next album starts on another address. Cookies or the PO token provider above still help on top of it.
+- **List several locations** in gluetun's server filter (`SERVER_REGIONS`, `SERVER_COUNTRIES`… depending on the provider). With a single server a restart can bring back the same address; the app tells you when that happens.
+- Never publish gluetun's port 8000 on your LAN: the control server can stop your VPN.
+
+</details>
+
+<details>
+<summary><b>Spotify, Deezer, Apple Music and ListenBrainz playlists</b></summary>
+
+<br>
+
+Paste a playlist or album link on the **YouTube** page. Every track is searched on YouTube with the same scoring used for Lidarr albums, tagged with its own artist and saved with an `.m3u8` playlist file next to it, so the playlist shows up in Jellyfin, Navidrome or Plex. **Add albums to Lidarr** instead looks up the albums of the selected tracks on MusicBrainz, adds them to Lidarr and queues them, so they arrive whole with full tags.
+
+No key is needed. Without one Spotify only shows the first 100 tracks of a playlist; add a Spotify app's client ID and secret in Settings › Library & metadata to read all of them. Apple Music playlists are read from the public page and may break if Apple changes it; Apple Music albums use the iTunes API.
 
 </details>
 

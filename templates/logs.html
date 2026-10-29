@@ -313,6 +313,17 @@
             .log-actions:empty {
                 display: none;
             }
+            .log-actions:has(> [data-action="dismiss"]:only-child) {
+                display: contents;
+            }
+            .log-actions [data-action="dismiss"] {
+                position: absolute;
+                top: var(--sp-2);
+                right: var(--sp-2);
+            }
+            .log-head {
+                padding-right: var(--sp-10);
+            }
         }
     </style>
 </head>

@@ -16,6 +16,7 @@ import explore
 import logutil
 import models
 from config import load_config
+import vpn
 from processing import restart_pending
 from utils import (
     BaseNotMountedError,
@@ -99,6 +100,11 @@ def _explore_charts():
     if not data:
         raise explore.ExploreError("Charts are not available right now.", 502)
     return data
+
+
+@bp.route("/api/explore/for-you")
+def api_explore_for_you():
+    return _explore_json(explore.for_you, bucket="for_you", max_requests=6)
 
 
 @bp.route("/api/explore/charts")
@@ -243,7 +249,7 @@ def _run_artist_import(plan, artist_dir, config):
                 continue
             ran = False
             while not _artist_import_state(channel_id).get("stop"):
-                if restart_pending.is_set():  # the yt-dlp update restart would kill it
+                if restart_pending.is_set() or vpn.rotating():  # a restart would kill it
                     time.sleep(10)
                     continue
                 ran = _execute_playlist_download(

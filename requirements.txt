@@ -5,3 +5,4 @@ bgutil-ytdlp-pot-provider
 ytmusicapi
 mutagen
 schedule
+apprise

@@ -24,6 +24,7 @@ from difflib import SequenceMatcher
 
 import yt_dlp
 
+import vpn
 from config import DEFAULT_FORBIDDEN_WORDS, load_config
 
 logger = logging.getLogger(__name__)
@@ -483,6 +484,8 @@ def _build_common_opts(player_client=None):
         extractor_args["youtubepot-bgutilhttp"] = {"base_url": [pot_url]}
     if extractor_args:
         opts["extractor_args"] = extractor_args
+    # Optional VPN (gluetun): every YouTube request goes through its proxy.
+    opts.update(vpn.ytdlp_opts(cfg))
     return opts
 
 
@@ -884,8 +887,12 @@ def _extract_ytm_album_entries(playlist_url, player_client):
     return out
 
 
-def _ytmusicapi_client(language=None, location=None):
-    """Lazy-import ytmusicapi; return YTMusic instance or None."""
+def _ytmusicapi_client(language=None, location=None, via_vpn=False):
+    """Lazy-import ytmusicapi; return YTMusic instance or None.
+
+    ``via_vpn`` sends its requests through the VPN proxy (the album lookups a
+    download makes); Explore keeps browsing directly.
+    """
     try:
         from ytmusicapi import YTMusic
     except Exception as exc:
@@ -896,6 +903,9 @@ def _ytmusicapi_client(language=None, location=None):
         kwargs["language"] = language
     if location:
         kwargs["location"] = location
+    proxies = vpn.requests_proxies() if via_vpn else None
+    if proxies:
+        kwargs["proxies"] = proxies
     try:
         return YTMusic(**kwargs)
     except Exception as exc:
@@ -995,7 +1005,7 @@ def _find_album_via_ytmusicapi(artist, album, skip_check=None):
     issue yt-dlp/yt-dlp#16241), but ytmusicapi returns the playlistId
     and full track list directly from the InnerTube API.
     """
-    yt = _ytmusicapi_client()
+    yt = _ytmusicapi_client(via_vpn=True)
     if yt is None:
         return None
     queries = [f"{artist} {album}", album]
@@ -1092,7 +1102,7 @@ def album_from_ytmusic_hint(playlist_id, browse_id="", artist=""):
         return None
     album_details = {}
     if browse_id and _HINT_BROWSE_RE.match(browse_id):
-        yt = _ytmusicapi_client()
+        yt = _ytmusicapi_client(via_vpn=True)
         if yt is not None:
             try:
                 album_details = yt.get_album(browse_id) or {}
@@ -1681,6 +1691,7 @@ def search_youtube_candidates(
                     f" -> {len(candidates) - accepted_before} accepted"
                 )
             except Exception as e:
+                vpn.note_block(e)
                 logger.error(f'   Search failed for "{sq}": {e}')
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
@@ -1787,6 +1798,7 @@ def list_video_formats(url):
                 info = ydl.extract_info(target, download=False) or {}
         except Exception as exc:
             last_err = exc
+            vpn.note_block(exc)
             info = {}
             continue
         if info.get("entries"):  # playlist/search: use the first real entry
@@ -2120,6 +2132,7 @@ def download_youtube_candidate(
                     last_err = e
                     msg = str(e)
                     msg_low = msg.lower()
+                    vpn.note_block(msg)
                     if "403" in msg:
                         any_403 = True
                         logger.debug(

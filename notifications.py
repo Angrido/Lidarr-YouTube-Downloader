@@ -1,4 +1,4 @@
-"""Telegram, Discord, and Ntfy notifications."""
+"""Telegram, Discord, Ntfy and Apprise notifications."""
 
 import logging
 
@@ -295,6 +295,68 @@ def send_ntfy(
         logger.warning("Ntfy notification failed: %s", _redact(e, token))
 
 
+def apprise_url_list(value):
+    if isinstance(value, (list, tuple)):
+        items = value
+    else:
+        items = str(value or "").replace(",", "\n").splitlines()
+    return [u.strip() for u in items if u and u.strip()]
+
+
+def _notify_apprise(urls, title, body):
+    try:
+        import apprise
+    except ImportError:
+        return {"success": False, "error": "Apprise is not installed"}
+    client = apprise.Apprise()
+    rejected = [u for u in urls if not client.add(u)]
+    if not len(client):
+        return {"success": False, "error": "No valid Apprise URL"}
+    try:
+        ok = client.notify(body=body, title=title)
+    except Exception as e:
+        return {"success": False, "error": _redact(e, *urls)}
+    if not ok:
+        return {
+            "success": False,
+            "error": "At least one Apprise service refused the message",
+        }
+    if rejected:
+        return {
+            "success": True,
+            "error": f"{len(rejected)} URL(s) not recognised by Apprise",
+        }
+    return {"success": True, "error": ""}
+
+
+def send_apprise(message, log_type=None, *, title=None):
+    config = load_config()
+    if not config.get("apprise_enabled"):
+        return
+    urls = apprise_url_list(config.get("apprise_urls"))
+    if not urls:
+        return
+    if log_type is not None and log_type not in config.get("apprise_log_types", []):
+        return
+    result = _notify_apprise(
+        urls, title or "Lidarr YouTube Downloader", str(message or ""),
+    )
+    if not result["success"] or result["error"]:
+        logger.warning("Apprise notification: %s", result["error"])
+
+
+def send_apprise_test(urls, message=None):
+    urls = apprise_url_list(urls)
+    if not urls:
+        return {"success": False, "error": "Missing Apprise URL"}
+    body = message or (
+        "If you can see this, Apprise is configured correctly."
+    )
+    return _notify_apprise(
+        urls, "✅ Lidarr YouTube Downloader — test notification", body,
+    )
+
+
 def send_notifications(
     message, log_type=None, embed_data=None, *,
     telegram_message=None, telegram_parse_mode=None,
@@ -339,6 +401,7 @@ def send_notifications(
         click_url=ntfy_click,
         attach_url=ntfy_attach,
     )
+    send_apprise(message, log_type=log_type, title=ntfy_title)
 
 
 

@@ -27,11 +27,13 @@ from flask import (
     send_from_directory,
 )
 
+import auth
 import db
 import download_client
 import models
 from config import (
     ALLOWED_CONFIG_KEYS,
+    AUTH_CONFIG_KEYS,
     SECRET_CONFIG_KEYS,
     SECRET_MASK,
     coerce_config_value,
@@ -84,6 +86,7 @@ from utils import (
     rate_limit_store,
     sanitize_filename,
 )
+import vpn
 import youtube_import
 from youtube_import import _watch_wakeup
 import logutil
@@ -105,6 +108,7 @@ app.register_blueprint(download_client.bp)
 app.register_blueprint(youtube_import.bp)
 app.register_blueprint(explore_routes.bp)
 app.register_blueprint(manual_download.bp)
+app.register_blueprint(vpn.bp)
 
 
 @app.errorhandler(InvalidRequestBody)
@@ -160,6 +164,9 @@ def _reject_cross_site_writes():
     return None
 
 
+auth.init_app(app)
+
+
 def _is_album_id(value):
     return type(value) is int and value > 0
 
@@ -182,6 +189,8 @@ def _coerce_config_updates(incoming):
 
 def _public_config(cfg):
     cfg.pop("lidarr_api_key", None)
+    for key in AUTH_CONFIG_KEYS:
+        cfg.pop(key, None)
     for key in SECRET_CONFIG_KEYS:
         if cfg.get(key):
             cfg[key] = SECRET_MASK
@@ -832,6 +841,34 @@ def api_notifications_test_ntfy():
     }), status_code
 
 
+@app.route("/api/notifications/test/apprise", methods=["POST"])
+def api_notifications_test_apprise():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"notif_test_apprise:{client_ip}",
+        rate_limit_store,
+        window=10,
+        max_requests=3,
+    ):
+        return jsonify(
+            {"success": False, "message": "Too many test requests"}
+        ), 429
+    urls = _unmasked(_str_field(_json_object(), "urls", nullable=True))
+    if not urls:
+        urls = load_config().get("apprise_urls", "")
+    from notifications import send_apprise_test
+    result = send_apprise_test(urls)
+    status_code = 200 if result.get("success") else 400
+    return jsonify({
+        "success": result.get("success", False),
+        "message": (
+            result.get("error") or "Test message sent successfully"
+            if result.get("success")
+            else result.get("error", "Unknown error")
+        ),
+    }), status_code
+
+
 @app.route("/api/missing-albums")
 def api_missing_albums():
     return jsonify(get_missing_albums())
@@ -995,6 +1032,7 @@ def api_cookies_test():
             "skip_download": True,
             "cookiefile": snapshot,
             "extract_flat": False,
+            **vpn.ytdlp_opts(),
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             # "Me at the zoo" - first YouTube video, never region-locked.
@@ -1843,6 +1881,7 @@ def api_youtube_search():
         ydl_opts["cookiefile"] = cookiefile
     if config.get("yt_force_ipv4", True):
         ydl_opts["source_address"] = "0.0.0.0"
+    ydl_opts.update(vpn.ytdlp_opts(config))
     pc = config.get("yt_player_client", "android")
     if pc:
         ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
@@ -1946,6 +1985,7 @@ def api_youtube_stream():
             ydl_opts["cookiefile"] = cookiefile
         if config.get("yt_force_ipv4", True):
             ydl_opts["source_address"] = "0.0.0.0"
+        ydl_opts.update(vpn.ytdlp_opts(config))
         pc = config.get("yt_player_client", "android")
         if pc:
             ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
@@ -2008,6 +2048,7 @@ def _proxy_audio_stream(sanitized_url, http_headers, range_header):
             headers=proxy_headers,
             stream=True,
             timeout=30,
+            proxies=vpn.requests_proxies(),
         )
         resp_headers = {
             "Content-Type": upstream.headers.get("Content-Type", "audio/webm"),

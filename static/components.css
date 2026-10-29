@@ -629,6 +629,47 @@ code, kbd, pre, samp {
     from { opacity: 0; transform: translateY(8px); }
 }
 
+@media (prefers-reduced-motion: no-preference) {
+    @view-transition {
+        navigation: auto;
+    }
+}
+
+.app-sidebar { view-transition-name: app-sidebar; }
+.app-tabbar { view-transition-name: app-tabbar; }
+
+::view-transition-old(app-sidebar),
+::view-transition-old(app-tabbar) {
+    display: none;
+}
+
+::view-transition-new(app-sidebar),
+::view-transition-new(app-tabbar) {
+    animation: none;
+}
+
+::view-transition-old(root) {
+    animation: ui-fade-out var(--dur-fast) var(--ease) both;
+}
+
+::view-transition-new(root) {
+    animation: ui-fade-in var(--dur-slow) var(--ease-out) both;
+}
+
+@supports (animation-timeline: view()) {
+    @media (prefers-reduced-motion: no-preference) {
+        .app-content :is(.ui-card, .ui-group, .ui-shelf):not(.ui-card-interactive, .is-entering > *) {
+            animation: ui-reveal linear both;
+            animation-timeline: view();
+            animation-range: entry 0% entry 160px;
+        }
+    }
+}
+
+@keyframes ui-reveal {
+    from { opacity: 0; transform: translateY(24px) scale(0.98); }
+}
+
 .app-content-narrow {
     max-width: 920px;
 }
@@ -786,6 +827,7 @@ code, kbd, pre, samp {
     .app-tab .ico { width: 24px; height: 24px; transition: transform var(--dur) var(--ease); }
     .app-tab[aria-current="page"] { color: var(--accent-text); }
     .app-tab[aria-current="page"] .ico { transform: translateY(-1px) scale(1.06); }
+    .app-tab:active .ico { transform: scale(0.9); transition-duration: 90ms; }
     .app-tab-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .app-tab .app-nav-badge {
         position: absolute;
@@ -801,8 +843,8 @@ code, kbd, pre, samp {
     }
     .app-tab .app-nav-live {
         position: absolute;
-        top: 21px;
-        left: calc(50% - 15px);
+        top: 2px;
+        left: calc(50% - 18px);
         width: 9px;
         height: 9px;
         margin: 0;

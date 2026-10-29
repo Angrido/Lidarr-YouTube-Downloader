@@ -20,10 +20,11 @@ import models
 from config import load_config
 from downloader import download_youtube_candidate
 from fingerprint import fingerprint_track
-from lidarr import lidarr_request
+from lidarr import lidarr_request, tag_artist
 from metadata import apply_file_extras, create_xml_metadata, tag_audio_file
 from notifications import send_notifications
-from processing import download_process, queue_lock
+import vpn
+from processing import download_process, inline_download, queue_lock
 from utils import (
     BaseNotMountedError,
     _cleanup_temp_files,
@@ -56,6 +57,13 @@ def _parse_track_number(raw):
         return 0
 
 
+def _vpn_rotating_response():
+    return jsonify({
+        "success": False,
+        "message": "The VPN is changing its IP; try again in a moment",
+    }), 409
+
+
 @bp.route("/api/download/manual", methods=["POST"])
 def api_download_manual():
     client_ip = request.remote_addr or "unknown"
@@ -63,6 +71,8 @@ def api_download_manual():
         f"manual_dl:{client_ip}", rate_limit_store, window=5, max_requests=3
     ):
         return jsonify({"success": False, "message": "Too many requests"}), 429
+    if vpn.rotating():
+        return _vpn_rotating_response()
 
     data = _json_object()
     youtube_url = _str_field(data, "youtube_url")
@@ -164,17 +174,23 @@ def api_download_manual():
             "message": f"Permission denied creating {target_path}: {exc}",
         }), 500
 
-    return _execute_manual_download(
-        youtube_url,
-        track_title,
-        track_num,
-        target_path,
-        album_data,
-        album_id_ctx,
-        failed_ctx,
-        config,
-        lidarr_album_path=lidarr_import_path,
-    )
+    # This download runs in the request and holds no slot, so count it as
+    # active (a VPN rotation or a restart waits for it), and only then look at
+    # the rotation again: the check at the top may be stale by now.
+    with inline_download():
+        if vpn.rotating():
+            return _vpn_rotating_response()
+        return _execute_manual_download(
+            youtube_url,
+            track_title,
+            track_num,
+            target_path,
+            album_data,
+            album_id_ctx,
+            failed_ctx,
+            config,
+            lidarr_album_path=lidarr_import_path,
+        )
 
 
 def _get_album_cached(album_id):
@@ -266,6 +282,8 @@ def api_manual_track_download(album_id):
         f"manual_track:{client_ip}", rate_limit_store, window=5, max_requests=3
     ):
         return jsonify({"success": False, "message": "Too many requests"}), 429
+    if vpn.rotating():
+        return _vpn_rotating_response()
 
     data = _json_object()
     youtube_url = _str_field(data, "youtube_url")
@@ -858,3 +876,7 @@ def _refresh_lidarr_artist(album_data, track_title):
             track_title,
             result["error"],
         )
+    try:
+        tag_artist(artist_id)
+    except Exception as e:
+        logger.warning("Lidarr tag step failed: %s", e)

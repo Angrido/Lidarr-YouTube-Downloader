@@ -17,9 +17,15 @@ from flask import Blueprint, jsonify, render_template, request
 
 import db
 import explore
+import external_playlists
+import vpn
 import models
 from config import load_config
-from downloader import cookiefile_for_ytdlp, download_youtube_candidate
+from downloader import (
+    cookiefile_for_ytdlp,
+    download_track_youtube,
+    download_youtube_candidate,
+)
 from lidarr import lidarr_request
 from metadata import apply_file_extras, ensure_artist_image, tag_audio_file
 from notifications import send_notifications
@@ -76,6 +82,7 @@ def _flat_youtube_info(url, config):
         ydl_opts["cookiefile"] = cookiefile
     if config.get("yt_force_ipv4", True):
         ydl_opts["source_address"] = "0.0.0.0"
+    ydl_opts.update(vpn.ytdlp_opts(config))
     pc = config.get("yt_player_client", "android")
     if pc:
         ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
@@ -94,6 +101,16 @@ def api_youtube_playlist_info():
     url = _str_field(_json_object(), "url")
     if not url:
         return jsonify({"error": "Missing URL"}), 400
+
+    if external_playlists.is_external_url(url):
+        try:
+            result = external_playlists.fetch(url)
+        except external_playlists.ExternalPlaylistError as e:
+            return jsonify({"error": e.message}), e.status
+        except Exception as e:
+            logger.warning("External playlist read failed: %s", e)
+            return jsonify({"error": "Could not read that link"}), 502
+        return jsonify(external_playlists.info_response(result))
 
     if not _validate_youtube_url_for_playlist(url):
         return jsonify({"error": "Invalid YouTube URL"}), 400
@@ -202,6 +219,7 @@ def _scrape_ytmusic_art(ytmusic_url, label=""):
         resp = http_requests.get(
             ytmusic_url,
             timeout=15,
+            proxies=vpn.requests_proxies(),
             headers={
                 "User-Agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -399,6 +417,14 @@ def api_youtube_playlist_download():
             ), 400
         _str_field(entry, "url")
         _str_field(entry, "title", nullable=True)
+        if not entry.get("url") and entry.get("search"):
+            searched = _search_entry(entry)
+            if searched is None:
+                return jsonify(
+                    {"success": False, "message": "Each track needs a title and an artist"}
+                ), 400
+            validated_entries.append(searched)
+            continue
         v_url = _validate_youtube_url(entry.get("url") or "")
         if not v_url:
             return jsonify(
@@ -411,10 +437,28 @@ def api_youtube_playlist_download():
     )
 
 
+def _search_entry(entry):
+    title = _str_field(entry, "title")[:300]
+    artist = _str_field(entry, "artist")[:300]
+    album = _str_field(entry, "album", nullable=True)[:300]
+    if not title or not artist:
+        return None
+    try:
+        duration = max(0, int(entry.get("duration") or 0))
+    except (TypeError, ValueError):
+        duration = 0
+    return {"title": title, "artist": artist, "album": album, "duration": duration}
+
+
 def _start_playlist_import(
     artist_name, album_title, validated_entries, thumbnail_url, source_url,
     release_year="", target_path=None,
 ):
+    if vpn.rotating():
+        return jsonify({
+            "success": False,
+            "message": "The VPN is changing its IP; try again in a moment",
+        }), 409
     with queue_lock:
         if download_process.get("active"):
             return jsonify(
@@ -433,7 +477,7 @@ def _start_playlist_import(
             {"success": False, "message": "No download path configured"}
         ), 400
 
-    path_parts = [p for p in [sanitize_filename(artist_name), sanitize_filename(album_title)] if p]
+    path_parts = [sanitize_filename(p) for p in (artist_name, album_title) if p]
     target_path = os.path.join(write_base, *path_parts)
 
     return _launch_playlist_import(
@@ -516,7 +560,7 @@ def _watch_playlists_once(config):
                 if held or download_process.get("active"):
                     if held and not logged:
                         logger.info(
-                            "Playlist watch: queue paused or restart pending, "
+                            "Playlist watch: queue paused, restart pending or VPN changing its IP, "
                             "waiting to import %s — %s", artist, album,
                         )
                         logged = True
@@ -620,6 +664,8 @@ def _execute_playlist_download(
     artist_name, album_title, entries, target_path, config, thumbnail_url="",
     source_url="", release_year="",
 ):
+    has_search = any(not e.get("url") for e in entries)
+    written_files = []
     for _ in range(300):
         if not download_process["active"]:
             break
@@ -647,8 +693,8 @@ def _execute_playlist_download(
         download_process["active"] = True
         download_process["stop"] = False
         download_process["album_id"] = playlist_album_id
-        download_process["album_title"] = album_title
-        download_process["artist_name"] = artist_name
+        download_process["album_title"] = album_title or artist_name
+        download_process["artist_name"] = artist_name or album_title
         download_process["cover_url"] = ""
         download_process["current_track_index"] = 0
         download_process["tracks"] = [
@@ -688,7 +734,10 @@ def _execute_playlist_download(
                 ts["error_message"] = str(exc)
             return
 
-        if thumbnail_url and _is_safe_stream_url(thumbnail_url):
+        if thumbnail_url and (
+            _is_safe_stream_url(thumbnail_url)
+            or external_playlists.is_cover_url(thumbnail_url)
+        ):
             try:
                 import requests as req_lib
                 resp = req_lib.get(
@@ -758,6 +807,7 @@ def _execute_playlist_download(
 
             def _progress_hook(d, state=track_state):
                 if d["status"] == "downloading":
+                    state["status"] = "downloading"
                     state["progress_percent"] = d.get("_percent_str", "0%").strip()
                     state["progress_speed"] = d.get("_speed_str", "N/A").strip()
 
@@ -772,15 +822,30 @@ def _execute_playlist_download(
                 "duration": 0, "score": 1.0, "source": "manual",
             }
             youtube_title = ""
+            track_artist = entry.get("artist") or ""
+
+            def _skip_check(state=track_state):
+                return state.get("skip") or download_process.get("stop")
+
             try:
-                dl_result = download_youtube_candidate(
-                    candidate, temp_file,
-                    progress_hook=_progress_hook,
-                    skip_check=lambda: (
-                        track_state.get("skip")
-                        or download_process.get("stop")
-                    ),
-                )
+                if youtube_url:
+                    dl_result = download_youtube_candidate(
+                        candidate, temp_file,
+                        progress_hook=_progress_hook,
+                        skip_check=_skip_check,
+                    )
+                else:
+                    track_state["status"] = "searching"
+                    dl_result = download_track_youtube(
+                        f"{track_artist} {track_title} official audio",
+                        temp_file, track_title,
+                        expected_duration_ms=(entry.get("duration") or 0) * 1000 or None,
+                        progress_hook=_progress_hook,
+                        skip_check=_skip_check,
+                    )
+                    if dl_result.get("youtube_url"):
+                        youtube_url = dl_result["youtube_url"]
+                        track_state["youtube_url"] = youtube_url
             except Exception as e:
                 dl_result = {"success": False, "error_message": str(e)}
             if dl_result.get("skipped"):
@@ -801,7 +866,7 @@ def _execute_playlist_download(
                     album_title=display_album, artist_name=display_artist,
                     track_title=track_title, track_num=track_num,
                     youtube_url=youtube_url, youtube_title=youtube_title,
-                    target_path=target_path, success=False,
+                    target_path=target_path, track_artist=track_artist, success=False,
                     error_message=msg, file_size=0,
                     cover_url=thumbnail_url, source_url=source_url,
                 )
@@ -820,7 +885,7 @@ def _execute_playlist_download(
                     album_title=display_album, artist_name=display_artist,
                     track_title=track_title, track_num=track_num,
                     youtube_url=youtube_url, youtube_title=youtube_title,
-                    target_path=target_path, success=False,
+                    target_path=target_path, track_artist=track_artist, success=False,
                     error_message="Download failed — file not created", file_size=0,
                     cover_url=thumbnail_url,
                 )
@@ -851,6 +916,7 @@ def _execute_playlist_download(
                 "title": track_title,
                 "trackNumber": track_num,
                 "foreignRecordingId": "",
+                "trackArtist": track_artist,
             }
 
             try:
@@ -858,8 +924,8 @@ def _execute_playlist_download(
                 file_size = os.path.getsize(actual_file)
                 shutil.move(actual_file, final_file)
                 apply_file_extras(
-                    final_file, config, artist=artist_name, title=track_title,
-                    album=album_title,
+                    final_file, config, artist=track_artist or artist_name,
+                    title=track_title, album=entry.get("album") or album_title,
                     duration=dl_result.get("duration_seconds", 0),
                 )
                 set_permissions(final_file)
@@ -877,7 +943,7 @@ def _execute_playlist_download(
                     album_title=display_album, artist_name=display_artist,
                     track_title=track_title, track_num=track_num,
                     youtube_url=youtube_url, youtube_title=youtube_title,
-                    target_path=target_path, success=False,
+                    target_path=target_path, track_artist=track_artist, success=False,
                     error_message=str(e)[:200], file_size=0,
                     cover_url=thumbnail_url, source_url=source_url,
                 )
@@ -887,6 +953,7 @@ def _execute_playlist_download(
             track_state["youtube_url"] = youtube_url
             track_state["youtube_title"] = youtube_title
             success_count += 1
+            written_files.append((final_file, track_title, track_artist, dl_result))
             logger.info(
                 "YouTube import [%d/%d] done: %s",
                 i + 1, len(entries), track_title,
@@ -897,13 +964,17 @@ def _execute_playlist_download(
                 album_title=album_title, artist_name=artist_name,
                 track_title=track_title, track_num=track_num,
                 youtube_url=youtube_url, youtube_title=youtube_title,
-                target_path=target_path, success=True,
+                target_path=target_path, track_artist=track_artist, success=True,
                 error_message="", file_size=file_size,
                 cover_url=thumbnail_url, source_url=source_url,
                 source_format=dl_result.get("source_format", ""),
             )
 
+        if has_search and written_files:
+            _write_m3u(target_path, display_album, written_files)
         set_permissions(target_path)
+        if not download_process.get("stop"):
+            vpn.note_album_finished()  # an import counts as one album
         if success_count > 0:
             _ensure_import_artist_image(target_path, artist_name, album_title)
         _maybe_scan_playlist_into_library(config, target_path, success_count)
@@ -1012,7 +1083,7 @@ def _record_playlist_track(
     *, album_id, album_title, artist_name, track_title, track_num,
     youtube_url, youtube_title, target_path,
     success, error_message, file_size, cover_url="", source_url="",
-    source_format="",
+    source_format="", track_artist="",
 ):
     track_download_id = None
     try:
@@ -1032,6 +1103,7 @@ def _record_playlist_track(
             lidarr_album_path=source_url,
             cover_url=cover_url,
             source_format=source_format,
+            track_artist=track_artist,
         )
     except Exception as db_err:
         logger.error(
@@ -1067,6 +1139,28 @@ def _record_playlist_track(
         )
 
 
+@bp.route("/api/youtube/external/lidarr", methods=["POST"])
+def api_external_to_lidarr():
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"external_lidarr:{client_ip}", rate_limit_store, window=10, max_requests=2
+    ):
+        return jsonify({"success": False, "message": "Too many requests"}), 429
+    entries = _json_object().get("entries")
+    if not isinstance(entries, list):
+        return jsonify({"success": False, "message": "entries must be a list"}), 400
+    try:
+        status = external_playlists.start_lidarr_job(entries)
+    except external_playlists.ExternalPlaylistError as e:
+        return jsonify({"success": False, "message": e.message}), e.status
+    return jsonify({"success": True, **status})
+
+
+@bp.route("/api/youtube/external/lidarr/status")
+def api_external_to_lidarr_status():
+    return jsonify(external_playlists.lidarr_job_status())
+
+
 @bp.route("/api/youtube/recent")
 def api_youtube_recent():
     conn = db.get_db()
@@ -1088,6 +1182,25 @@ def api_youtube_recent():
         """
     ).fetchall()
     return jsonify([dict(r) for r in rows])
+
+
+def _write_m3u(target_path, name, written_files):
+    lines = ["#EXTM3U"]
+    for path, title, artist, dl_result in written_files:
+        seconds = int(dl_result.get("duration_seconds") or -1)
+        label = f"{artist} - {title}" if artist else title
+        lines.append(f"#EXTINF:{seconds},{label}")
+        lines.append(os.path.basename(path))
+    m3u_path = os.path.join(
+        target_path, (sanitize_filename(name) or "playlist") + ".m3u8",
+    )
+    try:
+        with open(m3u_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        set_permissions(m3u_path)
+        logger.info("Playlist file written: %s", m3u_path)
+    except OSError as e:
+        logger.warning("Cannot write the playlist file %s: %s", m3u_path, e)
 
 
 def _release_folder(title, year):
