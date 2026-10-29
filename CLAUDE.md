@@ -90,6 +90,7 @@ docker run -p 5005:5000 \
 | `config.py` | Config load/save, constants |
 | `scheduler.py` | Scheduled polling/auto-download |
 | `fingerprint.py` | AcoustID fingerprinting via fpcalc/chromaprint |
+| `vpn.py` | Optional gluetun integration: `vpn_proxy_url` → yt-dlp / `requests` proxy for YouTube traffic, control-server client (public IP, status, restart), rotation triggers and the `/api/vpn/{status,test,rotate}` blueprint |
 | `youtube_import.py` | YouTube import blueprint: `/youtube` page, `/api/youtube/playlist/info`, `/api/youtube/playlist/download`, `/api/youtube/recent`, the playlist download runner (`_execute_playlist_download`, shared with Explore imports) and the watched-playlist loop |
 | `manual_download.py` | Manual-download blueprint: `POST /api/download/manual` (retry a failed track, incl. negative-id playlist imports) and `POST /api/album/<id>/track/manual-download` (with live progress), the shared `_manual_dl_core` (download, tag, AcoustID, record, notify, `RefreshArtist`), album path builders and the Lidarr album cache (`_get_album_cached`, also used by the queue routes) |
 | `download_client.py` | Lidarr download-client bridge: Newznab indexer + SABnzbd client emulation (Flask blueprint) |
@@ -139,7 +140,79 @@ Schema is versioned via `schema_version` table. **When changing the DB schema:**
 
 ### Config
 
-Loaded from env vars + `/config/config.json`. File config overrides env vars, except `lidarr_url`, `lidarr_api_key` and `download_path` (`ENV_PREFERRED_KEYS`), where a non-empty env var wins. Saved via `save_config()`, which writes atomically (temp file + `os.replace`) and persists only `ALLOWED_CONFIG_KEYS` plus values that differ from the env; handlers that read-modify-write use `update_config(mutator)` so concurrent toggles don't lose updates. API input goes through `coerce_config_value()` (typed int/float/bool/list keys; invalid → HTTP 400). `GET /api/config` and the export never include `lidarr_api_key`; the `SECRET_CONFIG_KEYS` (notification tokens/webhook, AcoustID key, PO token — not `download_client_api_key`) are shown as `SECRET_MASK` by `GET /api/config`, dropped from the export, and a POSTed or test-route value equal to the mask keeps/uses the saved one (`""` still clears it) — except that the Ntfy test sends the saved `ntfy_token` only when the target is the saved `ntfy_url`, so a masked token can't carry it to a caller-chosen server. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API. Notable config keys beyond the basics: `concurrent_tracks`, `yt_cookies_file`, `yt_force_ipv4`, `yt_player_client`, `yt_retries`, `yt_fragment_retries`, `yt_sleep_requests`, `yt_sleep_interval`, `yt_max_sleep_interval` (Settings › YouTube access › Request pacing; yt-dlp sleeps a random min–max before each download; `_build_common_opts` clamps them to ≥ 0 and max ≥ min), `discord_enabled`, `discord_webhook_url`, `discord_log_types`, `acoustid_enabled`, `acoustid_api_key`, `download_client_enabled`, `download_client_api_key`, `download_client_category`, `yt_po_token` (manual yt-dlp PO token(s), comma-separated), `audio_normalize` (EBU R128 loudnorm, forces re-encode), `yt_pot_provider_url` (URL of a bgutil PO-token provider sidecar for automatic PO tokens; `bgutil-ytdlp-pot-provider` plugin is in requirements and a sidecar is wired in docker-compose), `search_artist_source` (per-track YouTube search artist: `album` default, or `mb_itunes`/`itunes_mb`/`mb`/`itunes` to resolve the real artist for compilations), `save_lyrics` (write a `.lrc` synced-lyrics sidecar per track, fetched from LRCLIB), `apply_replaygain` (measure loudness with ffmpeg and write ReplayGain track tags — non-destructive volume normalization; both run through `metadata.apply_file_extras()` on the final file, which every download path — Lidarr album, manual / retry, YouTube import — must call, and each path records `dl_result["source_format"]`), `track_retry_backoff` (default on; a track that keeps failing waits `scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days, instead of being retried every cycle forever — issue #90), `max_track_retries` (0 = never give up; otherwise drop a track after this many consecutive failures), `queue_paused` (default off; while on, `processing._dispatch_next_from_queue()` starts nothing — manual, scheduler and download-client entries all wait, as does the playlist watch (`processing.automatic_downloads_held()`, also true while a restart is pending) — and an album already downloading finishes; toggled by `POST /api/download/queue/pause`, exposed in `/api/stats`; also set automatically by `processing._pause_queue_for_full_disk()` when a track fails with "no space left on device", with one `album_error` notification, so the next albums don't each fail the same way — the user resumes it after freeing space), `ui_accent` (`#rrggbb`, default `#7c5cff`) and `ui_aura_mode` (`cover` | `accent` | `off`) — Settings › Appearance, saved instantly; validated in `coerce_config_value()` (anything but a plain hex is rejected, because `inject_version()` writes the accent into every page's `<head>` as `--accent-base` and the mode as `data-aura`) and normalised in `load_config()`, `explore_country` (two-letter code, default `IT`; charts and YT Music `location`) and `explore_language` (one of ytmusicapi's languages, default `en`); both are validated in `coerce_config_value()` and normalised in `load_config()`. `yt_watch_playlists` (list of YouTube playlist URLs, validated in `coerce_config_value()`; issue #96): `youtube_import._playlist_watch_loop` checks them hourly (and right after a save) and imports every video without a `track_downloads` row as one album via `_execute_playlist_download`, artist/album/year parsed by `explore.album_from_video_title()`, into `<playlist write base>/<Artist>/<Album (Year)>/`. Before each import it waits (quietly, 10 s steps) for the download slot and while the queue is paused or a restart is pending; the Explore artist import likewise starts no release while a restart is pending. A failed video is not retried automatically — the failed-tracks view retries it.
+Loaded from env vars + `/config/config.json`. File config overrides env vars, except `lidarr_url`, `lidarr_api_key` and `download_path` (`ENV_PREFERRED_KEYS`), where a non-empty env var wins. Saved via `save_config()`, which writes atomically (temp file + `os.replace`) and persists only `ALLOWED_CONFIG_KEYS` plus values that differ from the env; handlers that read-modify-write use `update_config(mutator)` so concurrent toggles don't lose updates. API input goes through `coerce_config_value()` (typed int/float/bool/list keys; invalid → HTTP 400). `GET /api/config` and the export never include `lidarr_api_key`; the `SECRET_CONFIG_KEYS` (notification tokens/webhook, AcoustID key, PO token, Apprise URLs, Spotify secret, VPN proxy URL and gluetun API key — not `download_client_api_key`) are shown as `SECRET_MASK` by `GET /api/config`, dropped from the export, and a POSTed or test-route value equal to the mask keeps/uses the saved one (`""` still clears it) — except that the Ntfy test sends the saved `ntfy_token` only when the target is the saved `ntfy_url`, so a masked token can't carry it to a caller-chosen server. `ALLOWED_CONFIG_KEYS` whitelist controls what can be set via the API. Notable config keys beyond the basics: `concurrent_tracks`, `yt_cookies_file`, `yt_force_ipv4`, `yt_player_client`, `yt_retries`, `yt_fragment_retries`, `yt_sleep_requests`, `yt_sleep_interval`, `yt_max_sleep_interval` (Settings › YouTube access › Request pacing; yt-dlp sleeps a random min–max before each download; `_build_common_opts` clamps them to ≥ 0 and max ≥ min), `discord_enabled`, `discord_webhook_url`, `discord_log_types`, `acoustid_enabled`, `acoustid_api_key`, `download_client_enabled`, `download_client_api_key`, `download_client_category`, `yt_po_token` (manual yt-dlp PO token(s), comma-separated), `audio_normalize` (EBU R128 loudnorm, forces re-encode), `yt_pot_provider_url` (URL of a bgutil PO-token provider sidecar for automatic PO tokens; `bgutil-ytdlp-pot-provider` plugin is in requirements and a sidecar is wired in docker-compose), `search_artist_source` (per-track YouTube search artist: `album` default, or `mb_itunes`/`itunes_mb`/`mb`/`itunes` to resolve the real artist for compilations), `save_lyrics` (write a `.lrc` synced-lyrics sidecar per track, fetched from LRCLIB), `apply_replaygain` (measure loudness with ffmpeg and write ReplayGain track tags — non-destructive volume normalization; both run through `metadata.apply_file_extras()` on the final file, which every download path — Lidarr album, manual / retry, YouTube import — must call, and each path records `dl_result["source_format"]`), `track_retry_backoff` (default on; a track that keeps failing waits `scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days, instead of being retried every cycle forever — issue #90), `max_track_retries` (0 = never give up; otherwise drop a track after this many consecutive failures), `queue_paused` (default off; while on, `processing._dispatch_next_from_queue()` starts nothing — manual, scheduler and download-client entries all wait, as does the playlist watch (`processing.automatic_downloads_held()`, also true while a restart is pending) — and an album already downloading finishes; toggled by `POST /api/download/queue/pause`, exposed in `/api/stats`; also set automatically by `processing._pause_queue_for_full_disk()` when a track fails with "no space left on device", with one `album_error` notification, so the next albums don't each fail the same way — the user resumes it after freeing space), `ui_accent` (`#rrggbb`, default `#7c5cff`) and `ui_aura_mode` (`cover` | `accent` | `off`) — Settings › Appearance, saved instantly; validated in `coerce_config_value()` (anything but a plain hex is rejected, because `inject_version()` writes the accent into every page's `<head>` as `--accent-base` and the mode as `data-aura`) and normalised in `load_config()`, `explore_country` (two-letter code, default `IT`; charts and YT Music `location`) and `explore_language` (one of ytmusicapi's languages, default `en`); both are validated in `coerce_config_value()` and normalised in `load_config()`. `yt_watch_playlists` (list of YouTube playlist URLs, validated in `coerce_config_value()`; issue #96): `youtube_import._playlist_watch_loop` checks them hourly (and right after a save) and imports every video without a `track_downloads` row as one album via `_execute_playlist_download`, artist/album/year parsed by `explore.album_from_video_title()`, into `<playlist write base>/<Artist>/<Album (Year)>/`. Before each import it waits (quietly, 10 s steps) for the download slot and while the queue is paused or a restart is pending; the Explore artist import likewise starts no release while a restart is pending. A failed video is not retried automatically — the failed-tracks view retries it.
+
+### VPN with gluetun (`vpn.py`)
+
+Two independent halves, both off until configured. `vpn_proxy_url` (gluetun's
+HTTP proxy) is added to **every** yt-dlp option dict and `requests` call that
+talks to YouTube on behalf of a download or a preview, via `vpn.ytdlp_opts()` /
+`vpn.requests_proxies()` — `_build_common_opts` covers search, album browsing
+and downloads; the YouTube search, the preview stream (googlevideo URLs are
+bound to the IP that resolved them, so its fetch must use the same proxy), the
+cookies test, the playlist info and the YT Music cover page add it themselves,
+and the ytmusicapi album lookups a download makes ask for
+`_ytmusicapi_client(via_vpn=True)`. A new yt-dlp call site must do the same.
+Lidarr, notifications, Explore browsing (`_ytmusicapi_client` without
+`via_vpn`) and thumbnails stay direct. Each call site has its own test in
+`tests/test_vpn.py` (`TestProxyCallSites`). The bgutil PO-token sidecar needs no code here: yt-dlp's plugin passes
+the `proxy` option to it and it makes its own requests through it (seen in
+its log), so `vpn_proxy_url` must be reachable from the sidecar's container
+too (the compose service name is). `gluetun_control_url` + `gluetun_api_key` (`X-API-Key`) let
+`vpn.rotate()` do `PUT /v1/vpn/status` stopped → running, poll until the tunnel
+is back and compare `GET /v1/publicip/ip` before/after; a restart that keeps
+the same IP is a success with `changed: false`. Gluetun's responses are never
+echoed to the browser: IPs go through `ipaddress`, the status through an enum.
+
+Automatic rotation: `vpn.note_block()` (called at the three downloader sites
+that see a yt-dlp error — download, format listing, search — and matching
+"not a bot" / HTTP 429 only) and `vpn.note_album_finished()` (once per album
+that actually attempted its tracks: in `process_album_download` just before
+`_handle_post_download`, which covers Lidarr albums and download-client grabs,
+and in `youtube_import._execute_playlist_download` after the loop unless
+stopped) feed `vpn.due_reason()` (`vpn_rotate_on_block`,
+`vpn_rotate_every_albums`, at most one attempt per `AUTO_ROTATE_COOLDOWN`,
+failures included; the triggers reset only after a successful rotation).
+`_dispatch_next_from_queue()` rotates only when nothing is downloading, and
+while a rotation is due but downloads are still active it starts nothing new,
+so the running albums drain and the rotation is not postponed forever by a
+busy queue; `vpn.defer()` backs off if the check itself raises. It calls
+`vpn.rotate_if_due(busy=any_download_active)`, which asks again once
+`_rotate_lock` is held (every download entry point refuses while it is), so a
+download that started after the first look is seen.
+
+A block is also the IP's fault, not the track's: `vpn.blocks_seen()` is a
+monotonic counter (not the `block_seen` flag, which stays set until a
+rotation succeeds) that `processing._download_tracks` compares before and
+after each track. When `vpn.rotates_on_block()` (control URL set and
+`vpn_rotate_on_block`) and a track fails with the counter higher, the reason
+gets `models.BLOCKED_PREFIX` ("YouTube blocked this IP"), which — like the
+host and disk-full prefixes — is left out of `get_track_failure_counts` /
+`get_stuck_tracks`, and the tracks of that run not started yet are skipped
+(no row, so the next run downloads them on the new IP). A block that a track
+survives (another player client worked) stops nothing; without a rotation to
+come nothing changes at all. A foreground run that stopped this way is
+remembered (`processing._blocked_albums`, set by `_label_block`, dropped on a
+user stop and at the start of the next run; download-client jobs are never
+marked, Lidarr retries its own grabs), and `_run_queued_album` puts the album
+back at the head of the queue (`_requeue_after_block`, keeping its `force`)
+only while `vpn.due_reason()` says a rotation is due — inside the cooldown
+the IP would not change and the album would stop again at once — and at most
+`MAX_BLOCK_REQUEUES` times in a row; after that the scheduler's retry window
+takes over. The failed-tracks retry
+(`POST /api/download/manual`) downloads inside its request and holds no slot,
+so it runs inside `processing.inline_download()`, which
+`any_download_active()` counts; it enters it *before* re-checking
+`vpn.rotating()`, the counterpart of the check-after-lock above.
+`automatic_downloads_held()` is true while `vpn.rotating()`, and the manual
+downloads (409), playlist imports (409) and the Explore artist import wait
+while it is. `POST /api/vpn/rotate` takes `_rotate_lock` first, refuses (409)
+while a download is active or another rotation runs, and answers 202 after
+starting `rotate()` in a thread; the caller follows `GET /api/vpn/status`
+(`rotating`, then `last_rotation`). `vpn_proxy_url` and `gluetun_api_key` are
+in `SECRET_CONFIG_KEYS` (the proxy URL may carry `user:pass@`); the test route
+sends the saved key only to the saved control URL. `tests/test_vpn.py` runs
+rotation against a fake gluetun HTTP server.
 
 ### Lidarr download-client bridge (`download_client.py`)
 
@@ -153,7 +226,7 @@ A foreground album's `download_queue` row is not deleted when it starts: `_dispa
 
 ### Scheduler
 
-Optional `schedule` library job polls for missing albums and auto-downloads at configured intervals. Albums attempted within `scheduler_retry_after_hours` are skipped (`models.get_attempted_album_ids_since`, which keys off **any** `download_logs` row for the album, or any `track_downloads` row so clearing logs doesn't reset the window — so every early exit in `process_album_download` must still write a log, or the album is re-queued every cycle; use `processing._log_album_error()`). Failures recorded as host problems (`error_message` starting with `models.HOST_FAILURE_PREFIX`, "Audio postprocessing failed", or `models.DISK_FULL_PREFIX`, "Download disk is full", which `_process_track_body` prepends when the last download error says "no space left") are not counted toward a track's consecutive failures. `scheduled_check()` and the scheduler loop catch and log exceptions so one bad cycle can't kill the thread. `processing.any_download_active()` (foreground **or** any download-client job) gates `/api/restart` and `/api/backup/import`.
+Optional `schedule` library job polls for missing albums and auto-downloads at configured intervals. Albums attempted within `scheduler_retry_after_hours` are skipped (`models.get_attempted_album_ids_since`, which keys off **any** `download_logs` row for the album, or any `track_downloads` row so clearing logs doesn't reset the window — so every early exit in `process_album_download` must still write a log, or the album is re-queued every cycle; use `processing._log_album_error()`). Failures recorded as host problems (`error_message` starting with `models.HOST_FAILURE_PREFIX`, "Audio postprocessing failed", `models.DISK_FULL_PREFIX`, "Download disk is full", which `_process_track_body` prepends when the last download error says "no space left", or `models.BLOCKED_PREFIX`, "YouTube blocked this IP", prepended when a VPN rotation is set to answer the block, see the gluetun section) are not counted toward a track's consecutive failures. `scheduled_check()` and the scheduler loop catch and log exceptions so one bad cycle can't kill the thread. `processing.any_download_active()` (foreground, any download-client job **or** a retry running inside its request, `inline_download()`) gates `/api/restart` and `/api/backup/import`.
 
 **Retry backoff (issue #90):** `process_album_download` decides what to download *before* any network work — it computes `album_path`, calls `_compute_deferred_tracks()` + `_filter_tracks()`, and returns "Skipped" early if nothing is left. Tracks that keep failing back off exponentially (`scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days) from their consecutive-failure count in `track_downloads` (`models.get_track_failure_counts`), so a song that simply isn't on YouTube stops costing a cover-art fetch, per-track artist lookups and a YT Music resolution every cycle. Manual queue adds (`download_queue.force`) and Lidarr grabs (`client_grab`) bypass the backoff.
 
@@ -621,4 +694,4 @@ Run tests with the venv:
 source .venv/bin/activate && python -m pytest tests/ -v
 ```
 
-Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`, `test_explore.py` (fixtures in `tests/fixtures/ytmusic/`), `test_auth.py`, `test_external_playlists.py`, `test_youtube_external.py`, `test_frontend_js.py` (runs `tests/js/*.test.js` under node; skipped without node).
+Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`, `test_explore.py` (fixtures in `tests/fixtures/ytmusic/`), `test_vpn.py` (against a fake gluetun HTTP server), `test_auth.py`, `test_external_playlists.py`, `test_youtube_external.py`, `test_frontend_js.py` (runs `tests/js/*.test.js` under node; skipped without node).

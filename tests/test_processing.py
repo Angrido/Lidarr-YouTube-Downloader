@@ -3094,6 +3094,250 @@ class TestPostprocessFailureReason:
         assert models.get_track_failure_counts(42) == {}
 
 
+class TestBlockedIpFailures:
+    """With a VPN that answers a block with a new IP, a track that fails
+    while YouTube refuses requests failed because of the IP (not charged to
+    the track), and the tracks not started yet wait for the new one."""
+
+    CFG = {
+        **_PLAIN_CFG, "concurrent_tracks": 1,
+        "gluetun_control_url": "http://gluetun:8000",
+    }
+    BLOCK = "ERROR: [youtube] x: Sign in to confirm you\u2019re not a bot"
+
+    @staticmethod
+    def _fail(error_message="Download failed after all attempts: ERROR: [yo", **extra):
+        # Truncated like the real message: the label cannot rely on its text.
+        return {"success": False, "error_message": error_message, **extra}
+
+    def _run(
+        self, monkeypatch, tmp_path, titles, download, *,
+        cfg=None, control_url="http://gluetun:8000", search=None,
+        is_client=False,
+    ):
+        import processing
+        import vpn
+        album_path = str(tmp_path / "album")
+        os.makedirs(album_path)
+        cfg = cfg or self.CFG
+        monkeypatch.setattr(processing, "load_config", lambda: cfg)
+        monkeypatch.setattr(vpn, "control_url", lambda cfg=None: control_url)
+        calls = {"search": 0, "download": 0}
+
+        def _search(*a, **k):
+            calls["search"] += 1
+            if search:
+                return search()
+            return [{"url": "https://www.youtube.com/watch?v=abcdefghijk",
+                     "title": "t", "duration": 1, "score": 0.99}]
+
+        def _download(candidate, output_path, **kwargs):
+            calls["download"] += 1
+            return download(candidate, output_path, **kwargs)
+
+        monkeypatch.setattr(processing, "search_youtube_candidates", _search)
+        monkeypatch.setattr(processing, "download_youtube_candidate", _download)
+        monkeypatch.setattr(processing, "tag_audio_file", lambda *a, **k: None)
+        tracks = [
+            {"title": t, "trackNumber": i + 1, "duration": 1000}
+            for i, t in enumerate(titles)
+        ]
+        state = processing._make_download_state()
+        state["is_client"] = is_client
+        state["tracks"] = [_state_track(t, i + 1) for i, t in enumerate(titles)]
+        failed, succeeded, _size, _stats = processing._download_tracks(
+            tracks, album_path, {"tracks": tracks}, _make_album_ctx(), state,
+        )
+        return failed, succeeded, state, calls
+
+    def _blocked_download(self, candidate, output_path, **kwargs):
+        import vpn
+        vpn.note_block(self.BLOCK)
+        return self._fail()
+
+    def test_a_block_is_not_charged_to_the_track(self, tmp_path, monkeypatch):
+        failed, _ok, _state, _calls = self._run(
+            monkeypatch, tmp_path, ["Boom"], self._blocked_download,
+        )
+        assert failed[0]["reason"].startswith(models.BLOCKED_PREFIX)
+        assert models.get_track_failure_counts(42) == {}
+
+    def test_the_same_failure_without_a_block_still_counts(
+        self, tmp_path, monkeypatch,
+    ):
+        failed, _ok, _state, _calls = self._run(
+            monkeypatch, tmp_path, ["Boom"], lambda *a, **k: self._fail(),
+        )
+        assert not failed[0]["reason"].startswith(models.BLOCKED_PREFIX)
+        assert models.get_track_failure_counts(42)["Boom"]["failures"] == 1
+
+    @pytest.mark.parametrize("cfg,control_url", [
+        ({**CFG, "vpn_rotate_on_block": False}, "http://gluetun:8000"),
+        (_PLAIN_CFG, ""),
+    ], ids=["rotation-on-block-off", "no-vpn"])
+    def test_without_a_rotation_to_come_nothing_changes(
+        self, tmp_path, monkeypatch, cfg, control_url,
+    ):
+        failed, _ok, _state, _calls = self._run(
+            monkeypatch, tmp_path, ["Boom", "Next"], self._blocked_download,
+            cfg=cfg, control_url=control_url,
+        )
+        assert len(failed) == 2  # the album carries on, as it always did
+        assert not any(
+            f["reason"].startswith(models.BLOCKED_PREFIX) for f in failed
+        )
+        assert models.get_track_failure_counts(42)["Boom"]["failures"] == 1
+
+    def test_the_tracks_not_started_yet_wait_for_the_new_ip(
+        self, tmp_path, monkeypatch,
+    ):
+        failed, succeeded, state, calls = self._run(
+            monkeypatch, tmp_path, ["A", "B", "C", "D"], self._blocked_download,
+        )
+        assert [f["title"] for f in failed] == ["A"]
+        assert succeeded == []
+        assert [t["status"] for t in state["tracks"]] == [
+            "failed", "skipped", "skipped", "skipped",
+        ]
+        assert calls == {"search": 1, "download": 1}  # no more hammering
+        assert models.get_track_failure_counts(42) == {}  # skipped: no row
+
+    def test_a_block_that_a_track_survives_does_not_stop_the_album(
+        self, tmp_path, monkeypatch,
+    ):
+        import vpn
+
+        def survives(candidate, output_path, **kwargs):
+            vpn.note_block(self.BLOCK)  # one client refused, another worked
+            return _ok_download(candidate, output_path)
+
+        failed, succeeded, state, calls = self._run(
+            monkeypatch, tmp_path, ["A", "B"], survives,
+        )
+        assert failed == [] and len(succeeded) == 2
+        assert calls["download"] == 2
+
+    def test_a_blocked_search_is_the_ips_fault_too(self, tmp_path, monkeypatch):
+        import vpn
+
+        def blocked_search():
+            vpn.note_block("HTTP Error 429: Too Many Requests")
+            return []
+
+        failed, _ok, _state, calls = self._run(
+            monkeypatch, tmp_path, ["A", "B"], lambda *a, **k: self._fail(),
+            search=blocked_search,
+        )
+        assert [f["title"] for f in failed] == ["A"]
+        assert failed[0]["reason"].startswith(models.BLOCKED_PREFIX)
+        assert calls["search"] == 1
+        assert models.get_track_failure_counts(42) == {}
+
+    def test_a_host_failure_keeps_its_own_label(self, tmp_path, monkeypatch):
+        import vpn
+
+        def host_failure(candidate, output_path, **kwargs):
+            vpn.note_block(self.BLOCK)
+            return self._fail("ffmpeg exploded", postprocess_error=True)
+
+        failed, _ok, state, _calls = self._run(
+            monkeypatch, tmp_path, ["A", "B"], host_failure,
+        )
+        assert failed[0]["reason"].startswith(models.HOST_FAILURE_PREFIX)
+        assert [t["status"] for t in state["tracks"]] == ["failed", "failed"]
+
+
+class TestBlockedAlbumMark:
+    """A foreground run that stopped on a block is remembered, so the queue
+    runner can put the album back once the VPN has a new IP."""
+
+    @pytest.fixture(autouse=True)
+    def _clean(self):
+        import processing
+        processing._blocked_albums.clear()
+        processing._block_requeues.clear()
+        yield
+        processing._blocked_albums.clear()
+        processing._block_requeues.clear()
+
+    def _blocked_run(self, monkeypatch, tmp_path, **kwargs):
+        run = TestBlockedIpFailures()
+        return run._run(
+            monkeypatch, tmp_path, ["A", "B"], run._blocked_download, **kwargs,
+        )
+
+    def test_a_blocked_run_marks_the_album(self, tmp_path, monkeypatch):
+        import processing
+        self._blocked_run(monkeypatch, tmp_path)
+        assert processing._blocked_albums == {42}
+
+    def test_a_download_client_job_is_not_marked(self, tmp_path, monkeypatch):
+        """Lidarr retries its own grabs."""
+        import processing
+        self._blocked_run(monkeypatch, tmp_path, is_client=True)
+        assert processing._blocked_albums == set()
+
+    def test_a_run_without_a_block_is_not_marked(self, tmp_path, monkeypatch):
+        import processing
+        run = TestBlockedIpFailures()
+        run._run(monkeypatch, tmp_path, ["A"], lambda *a, **k: run._fail())
+        assert processing._blocked_albums == set()
+
+    @staticmethod
+    def _album_run(monkeypatch, tmp_path, fake_download_tracks):
+        import processing
+        album = TestEarlyExitsWriteLog._album()
+        TestEarlyExitsWriteLog._wire(monkeypatch, tmp_path, album, [])
+        for name in (
+            "get_itunes_artwork", "get_cover_art_archive_artwork",
+            "get_deezer_artwork", "find_album_on_ytmusic",
+        ):
+            monkeypatch.setattr(processing, name, lambda *a, **k: None)
+        monkeypatch.setattr(
+            processing, "_resolve_track_artists", lambda *a, **k: None,
+        )
+        monkeypatch.setattr(processing, "set_permissions", lambda *a, **k: None)
+        monkeypatch.setattr(processing, "_download_tracks", fake_download_tracks)
+        monkeypatch.setattr(
+            processing, "_handle_post_download", lambda *a, **k: {"ok": 1},
+        )
+        processing._active_states.clear()
+        processing.download_process.update(processing._make_download_state())
+        return processing.process_album_download(88)
+
+    def test_a_user_stop_drops_the_mark(self, tmp_path, monkeypatch):
+        """The user stopped it: it must not come back on its own."""
+        import processing
+
+        def stopped(tracks, album_path, album_, ctx, state):
+            processing._blocked_albums.add(88)
+            state["stop"] = True
+            return [], [{"title": "Song", "track_num": 1}], 0, {}
+
+        self._album_run(monkeypatch, tmp_path, stopped)
+        assert processing._blocked_albums == set()
+
+    def test_a_blocked_run_keeps_the_mark_until_the_runner_reads_it(
+        self, tmp_path, monkeypatch,
+    ):
+        import processing
+
+        def blocked(tracks, album_path, album_, ctx, state):
+            processing._blocked_albums.add(88)
+            return [], [], 0, {}
+
+        self._album_run(monkeypatch, tmp_path, blocked)
+        assert processing._blocked_albums == {88}
+
+    def test_a_new_run_forgets_an_old_mark(self, tmp_path, monkeypatch):
+        import processing
+        processing._blocked_albums.add(88)
+        self._album_run(
+            monkeypatch, tmp_path, lambda *a, **k: ([], [], 0, {}),
+        )
+        assert processing._blocked_albums == set()
+
+
 class TestEarlyExitsWriteLog:
     @pytest.fixture(autouse=True)
     def reset_state(self):

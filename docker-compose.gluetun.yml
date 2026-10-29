@@ -1,0 +1,66 @@
+# Optional: send everything this app asks YouTube through a VPN (gluetun) and
+# change the IP on demand, every N albums, or when YouTube blocks a request.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.gluetun.yml up -d --build
+#
+# Add to your .env (see https://github.com/qdm12/gluetun-wiki for your provider):
+#
+#   VPN_SERVICE_PROVIDER=private internet access   # or mullvad, nordvpn, protonvpn…
+#   OPENVPN_USER=...                               # your provider credentials
+#   OPENVPN_PASSWORD=...
+#   VPN_SERVER_REGIONS=Netherlands,Switzerland,DE Frankfurt   # several, so a change gives a different IP
+#   GLUETUN_API_KEY=...                            # any long random string
+#
+# Only YouTube traffic uses the VPN. Lidarr, notifications and the web UI keep
+# the normal network, so ports and LAN access stay exactly as they were.
+#
+# WireGuard providers: set VPN_TYPE=wireguard and WIREGUARD_PRIVATE_KEY (and
+# WIREGUARD_ADDRESSES where the provider needs it) instead of the OpenVPN
+# credentials. Filter servers with SERVER_COUNTRIES / SERVER_CITIES instead of
+# VPN_SERVER_REGIONS where your provider uses those. All of these are passed on
+# to gluetun below; anything else it supports goes into its `environment:`.
+#
+# The app starts once gluetun reports healthy (its tunnel is up), so a first
+# request never leaves through your own connection. If the VPN cannot connect
+# (wrong credentials, no server), the app waits too: fix .env and run
+# `docker compose ... up -d` again.
+services:
+  lidarr-downloader:
+    environment:
+      # gluetun's HTTP proxy: where yt-dlp and the other YouTube requests go.
+      - VPN_PROXY_URL=http://gluetun:8888
+      # gluetun's control server: how the app restarts the VPN for a new IP.
+      - GLUETUN_CONTROL_URL=http://gluetun:8000
+      - GLUETUN_API_KEY=${GLUETUN_API_KEY:?err}
+    depends_on:
+      gluetun:
+        condition: service_healthy
+
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    restart: unless-stopped
+    pull_policy: always
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ${HOST_CONFIG:?err}/gluetun:/gluetun
+    environment:
+      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER:?err}
+      - VPN_TYPE=${VPN_TYPE:-openvpn}
+      - OPENVPN_USER=${OPENVPN_USER:-}
+      - OPENVPN_PASSWORD=${OPENVPN_PASSWORD:-}
+      - SERVER_REGIONS=${VPN_SERVER_REGIONS:-}
+      - SERVER_COUNTRIES=${SERVER_COUNTRIES:-}
+      - SERVER_CITIES=${SERVER_CITIES:-}
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY:-}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES:-}
+      - HTTPPROXY=on
+      # Recent gluetun versions refuse unauthenticated control-server requests:
+      # this role requires the API key below (sent as X-API-Key).
+      - 'HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE={"auth":"apikey","apikey":"${GLUETUN_API_KEY:?err}"}'
+    # No ports are published: the app reaches 8888 (proxy) and 8000 (control
+    # server) over the compose network. Do not publish them on the LAN, the
+    # control server can stop your VPN.

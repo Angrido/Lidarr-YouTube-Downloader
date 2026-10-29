@@ -1204,6 +1204,21 @@ def test_get_stuck_tracks_groups_and_filters(monkeypatch):
     assert len(models.get_stuck_tracks(limit=1)) == 1
 
 
+def test_blocked_ip_failures_do_not_count_toward_the_backoff():
+    _add_dl(album_id=1, track_title="Song", success=False,
+            error_message="No match")
+    for _ in range(3):
+        _add_dl(album_id=1, track_title="Song", success=False,
+                error_message=models.BLOCKED_PREFIX + ": All candidate"
+                " downloads failed (tried 3 candidates)")
+    assert models.get_track_failure_counts(1)["Song"]["failures"] == 1
+    assert models.get_stuck_tracks(min_failures=2) == []
+    # Only blocked attempts: nothing to back off from at all.
+    _add_dl(album_id=2, track_title="Other", success=False,
+            error_message=models.BLOCKED_PREFIX + ": No suitable match")
+    assert models.get_track_failure_counts(2) == {}
+
+
 def test_album_source_hint_roundtrip_and_upsert():
     assert models.get_album_source_hint(7) is None
     assert models.set_album_source_hint(7, "OLAK5uy_first", "MPREb_one")

@@ -18,6 +18,7 @@ from flask import Blueprint, jsonify, render_template, request
 import db
 import explore
 import external_playlists
+import vpn
 import models
 from config import load_config
 from downloader import (
@@ -81,6 +82,7 @@ def _flat_youtube_info(url, config):
         ydl_opts["cookiefile"] = cookiefile
     if config.get("yt_force_ipv4", True):
         ydl_opts["source_address"] = "0.0.0.0"
+    ydl_opts.update(vpn.ytdlp_opts(config))
     pc = config.get("yt_player_client", "android")
     if pc:
         ydl_opts["extractor_args"] = {"youtube": {"player_client": [pc]}}
@@ -217,6 +219,7 @@ def _scrape_ytmusic_art(ytmusic_url, label=""):
         resp = http_requests.get(
             ytmusic_url,
             timeout=15,
+            proxies=vpn.requests_proxies(),
             headers={
                 "User-Agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -451,6 +454,11 @@ def _start_playlist_import(
     artist_name, album_title, validated_entries, thumbnail_url, source_url,
     release_year="", target_path=None,
 ):
+    if vpn.rotating():
+        return jsonify({
+            "success": False,
+            "message": "The VPN is changing its IP; try again in a moment",
+        }), 409
     with queue_lock:
         if download_process.get("active"):
             return jsonify(
@@ -552,7 +560,7 @@ def _watch_playlists_once(config):
                 if held or download_process.get("active"):
                     if held and not logged:
                         logger.info(
-                            "Playlist watch: queue paused or restart pending, "
+                            "Playlist watch: queue paused, restart pending or VPN changing its IP, "
                             "waiting to import %s — %s", artist, album,
                         )
                         logged = True
@@ -965,6 +973,8 @@ def _execute_playlist_download(
         if has_search and written_files:
             _write_m3u(target_path, display_album, written_files)
         set_permissions(target_path)
+        if not download_process.get("stop"):
+            vpn.note_album_finished()  # an import counts as one album
         if success_count > 0:
             _ensure_import_artist_image(target_path, artist_name, album_title)
         _maybe_scan_playlist_into_library(config, target_path, success_count)

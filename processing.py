@@ -5,6 +5,7 @@ downloads (search, download, tag, import to Lidarr), and processes
 the download queue.
 """
 
+import contextlib
 import contextvars
 import copy
 import logging
@@ -17,6 +18,7 @@ import uuid
 
 import logutil
 import models
+import vpn
 from config import (
     load_config, retry_cooldown_seconds, update_config, MIN_MATCH_SCORE_DEFAULT,
 )
@@ -100,14 +102,33 @@ restart_pending = threading.Event()
 
 
 def automatic_downloads_held():
-    """True while nothing automatic may start: queue paused or restart pending."""
-    return restart_pending.is_set() or bool(load_config().get("queue_paused"))
+    """True while nothing automatic may start.
+
+    The queue is paused, a restart is pending, or the VPN is being restarted
+    to get a new IP (a download started now would lose its connection).
+    """
+    return (
+        restart_pending.is_set()
+        or bool(load_config().get("queue_paused"))
+        or vpn.rotating()
+    )
 
 # Every in-flight album download (the foreground one plus any background
 # download-client jobs), keyed by album_id and guarded by queue_lock. Lets
 # the SABnzbd queue report per-album progress and stop_download() reach
 # every running download.
 _active_states = {}
+
+# Downloads that run inside an HTTP request (the failed-tracks retry) and so
+# hold no slot above. Guarded by queue_lock; any_download_active() counts them.
+_inline_downloads = 0
+
+# Foreground albums whose last run stopped because YouTube blocked the IP
+# (see _download_tracks), and how many times in a row each was put back in
+# the queue for it. Guarded by queue_lock.
+_blocked_albums = set()
+_block_requeues = {}
+MAX_BLOCK_REQUEUES = 3
 
 
 def _new_verify_stats():
@@ -355,9 +376,31 @@ def _active_state_is_client(album_id):
 
 def any_download_active():
     with queue_lock:
-        return bool(download_process["active"]) or any(
-            s.get("active") for s in _active_states.values()
+        return (
+            bool(download_process["active"])
+            or _inline_downloads > 0
+            or any(s.get("active") for s in _active_states.values())
         )
+
+
+@contextlib.contextmanager
+def inline_download():
+    """Count a download that runs inside an HTTP request as active.
+
+    The failed-tracks retry downloads in the request thread and takes no
+    slot, so without this a VPN rotation or a restart would cut it off.
+    Enter it *before* looking at ``vpn.rotating()``: a rotation that starts
+    afterwards then sees the download and refuses, one that started before is
+    seen by the caller, so the two can never both go ahead.
+    """
+    global _inline_downloads
+    with queue_lock:
+        _inline_downloads += 1
+    try:
+        yield
+    finally:
+        with queue_lock:
+            _inline_downloads -= 1
 
 
 def active_client_album_count():
@@ -589,6 +632,7 @@ def process_album_download(
         state["album_id"] = album_id
         state["is_client"] = bool(client_grab)
         _active_states[album_id] = state
+        _blocked_albums.discard(album_id)
 
     failed_tracks = []
     album = {}
@@ -910,6 +954,9 @@ def process_album_download(
         ) = _download_tracks(
             tracks_to_download, album_path, album, album_ctx, state,
         )
+        if state.get("stop"):
+            with queue_lock:  # stopped by the user: it must not come back
+                _blocked_albums.discard(album_id)
 
         set_permissions(artist_path)
 
@@ -926,6 +973,7 @@ def process_album_download(
             )
             return {"stopped": True}
 
+        vpn.note_album_finished()  # tracks were attempted: this run used the IP
         result = _handle_post_download(
             failed_tracks, succeeded_tracks,
             tracks_to_download, album_id,
@@ -1568,6 +1616,33 @@ def _download_tracks(
     concurrent_tracks = max(
         1, min(5, config.get("concurrent_tracks", 2)),
     )
+    # With a VPN that gets a new IP after a block, a track that fails while
+    # YouTube is refusing requests failed because of the IP, not the track:
+    # it is tagged so it does not count toward its retry backoff, and the
+    # tracks not yet started wait for the new IP instead of failing the same
+    # way. Without one nothing changes.
+    rotates_on_block = vpn.rotates_on_block(config)
+    blocked_run = threading.Event()
+
+    def _label_block(fail_reason, blocks_before):
+        if (
+            not rotates_on_block
+            or vpn.blocks_seen() <= blocks_before
+            or fail_reason.startswith(
+                (models.HOST_FAILURE_PREFIX, models.DISK_FULL_PREFIX)
+            )
+        ):
+            return fail_reason
+        if not blocked_run.is_set():
+            blocked_run.set()
+            if not state.get("is_client"):  # Lidarr retries its own grabs
+                with queue_lock:
+                    _blocked_albums.add(album_id)
+            logger.warning(
+                "   YouTube blocked this IP: the tracks not started yet wait"
+                " for the VPN to get a new one",
+            )
+        return f"{models.BLOCKED_PREFIX}: {fail_reason}"
 
     def _process_single_track(idx, track):
         label = f"{_track_number(track, album.get('tracks'), idx + 1):02d}"
@@ -1595,6 +1670,10 @@ def _download_tracks(
         if _skip_check():
             track_state["status"] = "skipped"
             return
+        if blocked_run.is_set():
+            track_state["status"] = "skipped"
+            return
+        blocks_before = vpn.blocks_seen()
 
         progress_hook = _make_progress_hook(idx, state)
         track_state["status"] = "searching"
@@ -1719,8 +1798,11 @@ def _download_tracks(
                 track_state["status"] = "skipped"
                 return
             _record_track_failure(
-                "No suitable YouTube match found"
-                " (filtered by duration/forbidden words)",
+                _label_block(
+                    "No suitable YouTube match found"
+                    " (filtered by duration/forbidden words)",
+                    blocks_before,
+                ),
                 track_state, track_title, track_num,
                 album_path=album_path, album_ctx=album_ctx,
                 failed_tracks=failed_tracks,
@@ -2224,6 +2306,7 @@ def _download_tracks(
             if "no space left" in last_error.lower():
                 fail_reason = f"{models.DISK_FULL_PREFIX}: {fail_reason}"
                 _pause_queue_for_full_disk(album_ctx)
+            fail_reason = _label_block(fail_reason, blocks_before)
             _record_track_failure(
                 fail_reason,
                 track_state, track_title, track_num,
@@ -2821,6 +2904,36 @@ def _client_concurrency_limit():
     return max(1, min(5, n))
 
 
+def _requeue_after_block(album_id, forced):
+    """Put an album whose run stopped on a YouTube block back at the head of
+    the queue, so it carries on right after the VPN gets a new IP instead of
+    waiting for the next scheduler run.
+
+    Only while that rotation is due now (inside its cooldown nothing would
+    change the IP, and the album would stop on the block again at once), and
+    at most ``MAX_BLOCK_REQUEUES`` times in a row. Returns True if requeued.
+    """
+    with queue_lock:
+        blocked = album_id in _blocked_albums
+        _blocked_albums.discard(album_id)
+        if not blocked:
+            _block_requeues.pop(album_id, None)
+            return False
+        tries = _block_requeues.get(album_id, 0)
+        if tries >= MAX_BLOCK_REQUEUES:
+            _block_requeues.pop(album_id, None)  # the scheduler takes over
+            return False
+    try:
+        if not vpn.due_reason():
+            return False
+    except Exception:
+        logger.warning("VPN rotation check failed", exc_info=True)
+        return False
+    with queue_lock:
+        _block_requeues[album_id] = tries + 1
+    return models.enqueue_album(album_id, force=forced, front=True)
+
+
 def _run_queued_album(album_id, state=None, ignore_backoff=False):
     import download_client
 
@@ -2842,6 +2955,11 @@ def _run_queued_album(album_id, state=None, ignore_backoff=False):
             models.set_queue_status(album_id, models.QUEUE_STATUS_QUEUED)
         else:
             models.dequeue_album(album_id)
+            if _requeue_after_block(album_id, ignore_backoff):
+                logger.info(
+                    "Album %s stopped on a YouTube block; it goes first in"
+                    " the queue once the VPN has a new IP", album_id,
+                )
     return result
 
 
@@ -2860,6 +2978,19 @@ def _dispatch_next_from_queue():
 
     if automatic_downloads_held():
         return
+    # A rotation drops the tunnel, so it waits for every running download to
+    # finish: while one is due nothing new starts (the running ones drain),
+    # then the VPN restarts (the dispatcher is blocked meanwhile). Idle is
+    # fine too, so the next job, a queued album or a playlist import, starts
+    # on the new address. Never let this take the queue down.
+    try:
+        if vpn.due_reason():
+            if not any_download_active():
+                vpn.rotate_if_due(busy=any_download_active)
+            return
+    except Exception:
+        logger.warning("VPN rotation check failed", exc_info=True)
+        vpn.defer()
     try:
         queued = [
             (row["album_id"], bool(row.get("force", 0)))
