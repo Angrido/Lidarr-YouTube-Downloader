@@ -9,7 +9,7 @@ import time
 logger = logging.getLogger(__name__)
 
 DB_PATH = "/config/lidarr-downloader.db"
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 # Tables a database must already hold at a given schema version (table →
 # version that introduced it). Migrations ALTER them and startup reads them,
@@ -533,6 +533,60 @@ def _migrate_v11_to_v12(conn):
     conn.execute(_ALBUM_SOURCE_HINTS_DDL)
 
 
+_V13_COLUMNS = (
+    ("recording_id", "TEXT DEFAULT ''"),
+    ("video_id", "TEXT DEFAULT ''"),
+    ("file_path", "TEXT DEFAULT ''"),
+    ("file_size", "INTEGER DEFAULT 0"),
+    ("reused_from", "INTEGER DEFAULT 0"),
+)
+
+
+def _migrate_v12_to_v13(conn):
+    """Identify each stored track so the same one is never fetched twice.
+
+    ``recording_id`` is the MusicBrainz recording the row stands for,
+    ``video_id`` the YouTube video it came from, ``file_path`` /
+    ``file_size`` the file that was written and ``reused_from`` the
+    ``track_downloads.id`` it was copied from instead of downloaded
+    (0 = downloaded). Existing successes are backfilled from what they
+    already carry: the AcoustID recording id and the video id inside the
+    URL. Safe to run twice (columns are added only when missing and the
+    backfill only fills empty values).
+    """
+    from utils import video_id_from_url
+
+    have = {row[1] for row in conn.execute("PRAGMA table_info(track_downloads)")}
+    for name, ddl in _V13_COLUMNS:
+        if name not in have:
+            conn.execute(f"ALTER TABLE track_downloads ADD COLUMN {name} {ddl}")
+    conn.execute(
+        "UPDATE track_downloads SET recording_id = acoustid_recording_id"
+        " WHERE success = 1 AND COALESCE(recording_id, '') = ''"
+        " AND COALESCE(acoustid_recording_id, '') != ''"
+    )
+    rows = conn.execute(
+        "SELECT id, youtube_url FROM track_downloads"
+        " WHERE success = 1 AND COALESCE(video_id, '') = ''"
+        " AND COALESCE(youtube_url, '') != ''"
+    ).fetchall()
+    updates = [
+        (vid, row[0]) for row in rows
+        if (vid := video_id_from_url(row[1]))
+    ]
+    conn.executemany(
+        "UPDATE track_downloads SET video_id = ? WHERE id = ?", updates,
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_track_dl_recording_id"
+        " ON track_downloads(recording_id) WHERE recording_id != ''"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_track_dl_video_id"
+        " ON track_downloads(video_id) WHERE video_id != ''"
+    )
+
+
 def _run_migrations(conn, current_version):
     """Run any pending schema migrations sequentially."""
     migrations = {
@@ -547,6 +601,7 @@ def _run_migrations(conn, current_version):
         10: _migrate_v9_to_v10,
         11: _migrate_v10_to_v11,
         12: _migrate_v11_to_v12,
+        13: _migrate_v12_to_v13,
     }
     pending = [v for v in sorted(migrations) if current_version < v]
     if pending:

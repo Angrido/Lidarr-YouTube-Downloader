@@ -1322,3 +1322,72 @@ def test_cached_missing_albums_summary_has_library_fields():
             "images": [],
         },
     ]
+
+
+# --- Recording identity (schema 13) ---
+
+_REC = "11111111-1111-1111-1111-111111111111"
+_OTHER_REC = "22222222-2222-2222-2222-222222222222"
+
+
+def _store(album_id, rec, *, verified=True):
+    return models.add_track_download(
+        album_id=album_id, album_title="A", artist_name="B", track_title="C",
+        track_number=1, success=True, error_message="", youtube_url="",
+        youtube_title="", match_score=1, duration_seconds=1, album_path="",
+        lidarr_album_path="", cover_url="", recording_id=rec,
+        acoustid_recording_id=rec if verified else "",
+    )
+
+
+def test_add_track_download_stores_identity_columns():
+    rid = models.add_track_download(
+        album_id=1, album_title="A", artist_name="B", track_title="C",
+        track_number=1, success=True, error_message="",
+        youtube_url="https://music.youtube.com/watch?v=abcdefghijk&x=1",
+        youtube_title="", match_score=1, duration_seconds=1,
+        album_path="", lidarr_album_path="", cover_url="",
+        recording_id=f" {_REC.upper()} ", file_path="/d/01 - C.mp3",
+        file_size=1234, reused_from=9)
+    row = db.get_db().execute(
+        "SELECT recording_id, video_id, file_path, file_size, reused_from"
+        " FROM track_downloads WHERE id = ?", (rid,)).fetchone()
+    assert tuple(row) == (_REC, "abcdefghijk", "/d/01 - C.mp3", 1234, 9)
+
+
+def test_identity_columns_default_to_empty_for_old_callers():
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="B", track_title="C",
+        track_number=1, success=False, error_message="x", youtube_url="",
+        youtube_title="", match_score=0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="")
+    row = db.get_db().execute(
+        "SELECT recording_id, video_id, file_path, file_size, reused_from"
+        " FROM track_downloads").fetchone()
+    assert tuple(row) == ("", "", "", 0, 0)
+
+
+def test_verified_sources_need_the_fingerprint_to_match():
+    ok = _store(1, _REC)
+    _store(2, _REC, verified=False)
+    _store(3, _OTHER_REC)
+    assert [s["id"] for s in models.get_verified_sources(_REC)] == [ok]
+
+
+def test_verified_sources_ignore_failures():
+    rid = _store(1, _REC)
+    db.get_db().execute(
+        "UPDATE track_downloads SET success = 0 WHERE id = ?", (rid,))
+    db.get_db().commit()
+    assert models.get_verified_sources(_REC) == []
+
+
+def test_newest_source_first_and_empty_id_finds_nothing():
+    a = _store(1, _REC)
+    b = _store(2, _REC)
+    db.get_db().execute(
+        "UPDATE track_downloads SET timestamp = timestamp + 100"
+        " WHERE id = ?", (b,))
+    db.get_db().commit()
+    assert [s["id"] for s in models.get_verified_sources(_REC)] == [b, a]
+    assert models.get_verified_sources("") == []
