@@ -172,12 +172,20 @@ that actually attempted its tracks: in `process_album_download` just before
 `_handle_post_download`, which covers Lidarr albums and download-client grabs,
 and in `youtube_import._execute_playlist_download` after the loop unless
 stopped) feed `vpn.due_reason()` (`vpn_rotate_on_block`,
-`vpn_rotate_every_albums`, at most one attempt per `AUTO_ROTATE_COOLDOWN`,
-failures included; the triggers reset only after a successful rotation).
+`vpn_rotate_every_albums`, at most one attempt per `AUTO_ROTATE_COOLDOWN`
+(300 s; a block waits only `BLOCK_ROTATE_COOLDOWN`, 60 s: the address is
+useless meanwhile), failures included; the triggers reset only after a
+successful rotation, and a block also survives a restart that came back on
+the very same IP).
 `_dispatch_next_from_queue()` rotates only when nothing is downloading, and
 while a rotation is due but downloads are still active it starts nothing new,
 so the running albums drain and the rotation is not postponed forever by a
-busy queue; `vpn.defer()` backs off if the check itself raises. It calls
+busy queue; `vpn.defer()` backs off if the check itself raises. While a block waits for
+its rotation (`vpn.block_pending()`, which ignores the cooldown) the
+dispatcher starts nothing either: an album started on a refused address would
+fail at once, leave the queue and sit out the scheduler's retry window. The
+hold ends by itself after `MAX_HOLD_FAILURES` failed rotations in a row, so a
+broken VPN cannot freeze the queue. It calls
 `vpn.rotate_if_due(busy=any_download_active)`, which asks again once
 `_rotate_lock` is held (every download entry point refuses while it is), so a
 download that started after the first look is seen.
@@ -206,8 +214,8 @@ remembered (`processing._blocked_albums`, set by `_label_block`, dropped on a
 user stop and at the start of the next run; download-client jobs are never
 marked, Lidarr retries its own grabs), and `_run_queued_album` puts the album
 back at the head of the queue (`_requeue_after_block`, keeping its `force`)
-only while `vpn.due_reason()` says a rotation is due — inside the cooldown
-the IP would not change and the album would stop again at once — and at most
+only while `vpn.block_pending()` (the dispatcher holds the queue until the
+rotation has run, so it does not stop on the same block again) and at most
 `MAX_BLOCK_REQUEUES` times in a row; after that the scheduler's retry window
 takes over. The failed-tracks retry
 (`POST /api/download/manual`) downloads inside its request and holds no slot,
