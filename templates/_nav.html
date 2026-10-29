@@ -2,7 +2,7 @@
     ('home', '/', 'home', 'Library'),
     ('explore', '/explore', 'compass', 'Explore'),
     ('downloads', '/downloads', 'download', 'Downloads'),
-    ('youtube', '/youtube', 'youtube', 'YouTube'),
+    ('import', '/import', 'file-import', 'Import'),
     ('insights', '/insights', 'chart', 'Insights'),
     ('logs', '/logs', 'list', 'Logs'),
     ('settings', '/settings', 'settings', 'Settings'),
@@ -29,8 +29,8 @@
     </div>
 </aside>
 <nav class="app-tabbar" aria-label="Main">
-    {% for key, href, ico, label in nav_items if key != 'youtube' %}
-    <a class="app-tab" href="{{ href }}"{% if active_page == key or (key == 'explore' and active_page == 'youtube') %} aria-current="page"{% endif %}>
+    {% for key, href, ico, label in nav_items if key != 'import' %}
+    <a class="app-tab" href="{{ href }}"{% if active_page == key or (key == 'explore' and active_page == 'import') %} aria-current="page"{% endif %}>
         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-{{ ico }}"></use></svg>
         <span class="app-tab-label">{{ label }}</span>
         {% if key == 'downloads' %}<span class="app-nav-live" data-nav-live hidden></span><span class="app-nav-badge" data-nav-queue data-count="0"></span>{% endif %}

@@ -91,7 +91,7 @@ docker run -p 5005:5000 \
 | `scheduler.py` | Scheduled polling/auto-download |
 | `fingerprint.py` | AcoustID fingerprinting via fpcalc/chromaprint |
 | `vpn.py` | Optional gluetun integration: `vpn_proxy_url` → yt-dlp / `requests` proxy for YouTube traffic, control-server client (public IP, status, restart), rotation triggers and the `/api/vpn/{status,test,rotate}` blueprint |
-| `youtube_import.py` | YouTube import blueprint: `/youtube` page, `/api/youtube/playlist/info`, `/api/youtube/playlist/download`, `/api/youtube/recent`, the playlist download runner (`_execute_playlist_download`, shared with Explore imports) and the watched-playlist loop |
+| `youtube_import.py` | Import blueprint: `/import` page (`/youtube` 301-redirects there, keeping the query), `/api/youtube/playlist/info`, `/api/youtube/playlist/download`, `/api/youtube/recent`, the playlist download runner (`_execute_playlist_download`, shared with Explore imports) and the watched-playlist loop |
 | `manual_download.py` | Manual-download blueprint: `POST /api/download/manual` (retry a failed track, incl. negative-id playlist imports) and `POST /api/album/<id>/track/manual-download` (with live progress), the shared `_manual_dl_core` (download, tag, AcoustID, record, notify, `RefreshArtist`), album path builders and the Lidarr album cache (`_get_album_cached`, also used by the queue routes) |
 | `download_client.py` | Lidarr download-client bridge: Newznab indexer + SABnzbd client emulation (Flask blueprint) |
 | `logutil.py` | Console log formatting: timestamp + level icon, consecutive-duplicate collapsing |
@@ -615,7 +615,7 @@ variables, theme toggles, navigation or Font Awesome**.
   **Backup & Restore** (`/api/backup/export` streams a `sqlite3`-consistent
   copy of the DB; `/api/backup/import` validates the upload, atomically
   replaces the DB, and restarts — refused while any download is active).
-- `templates/youtube.html` — manual YouTube URL / playlist import.
+- `templates/import.html` — **Import** (`/import`): paste a YouTube, YouTube Music, Spotify, Deezer, Apple Music or ListenBrainz link (pasting a URL fetches it; `?url=` deep-links and is kept in the address bar), pick tracks, import; a finished import stays on screen with *Import another link*. The API stays under `/api/youtube/*`.
 - The Library accepts `/?q=` to pre-fill its search; its header and empty
   state link to Explore.
 - `templates/explore.html` — **Explore** (`/explore`), a client-routed
@@ -632,7 +632,7 @@ variables, theme toggles, navigation or Font Awesome**.
   (volume in `localStorage.explorePlayerVolume`, Media Session handlers) and
   lives as long as the page. Search suggests as you type (combobox, arrow
   keys, `/` focuses it). On phones Explore takes YouTube's tab-bar slot;
-  `_nav.html` skips `youtube` there and highlights Explore on `/youtube`.
+  `_nav.html` skips `import` there and highlights Explore on `/import`.
 - `templates/setup.html` — first-run setup wizard (`/setup`, no nav); the
   dashboard redirects unconfigured instances here (client-side, skippable).
 - `static/favicon.svg` + PNG icons (`apple-touch-icon.png`, `icon-192.png`,

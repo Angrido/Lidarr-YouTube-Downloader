@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     {% include "_head.html" %}
-    <title>YouTube import — Lidarr YouTube Downloader</title>
+    <title>Import — Lidarr YouTube Downloader</title>
     <style>
         .yt-hero-head {
             display: flex;
@@ -42,6 +42,15 @@
 
         .yt-hint {
             margin-top: var(--sp-2);
+        }
+
+        .yt-sources {
+            display: flex;
+            flex-wrap: wrap;
+            gap: var(--sp-2);
+            margin: 0 0 var(--sp-4);
+            padding: 0;
+            list-style: none;
         }
 
         .yt-skel-list {
@@ -198,6 +207,12 @@
         .yt-entry,
         .yt-recent {
             padding: 0;
+        }
+
+        .yt-entry,
+        .yt-prog-tracks > .ui-track {
+            content-visibility: auto;
+            contain-intrinsic-size: auto 60px;
         }
 
         .yt-entry-row,
@@ -386,7 +401,7 @@
     </style>
 </head>
 <body class="app">
-    {% set active_page = 'youtube' %}
+    {% set active_page = 'import' %}
     {% include "_nav.html" %}
     <main class="app-main" id="main">
         <div class="app-content app-content-narrow">
@@ -394,31 +409,39 @@
             <header class="page-header">
                 <div class="page-header-text">
                     <p class="t-eyebrow">Import</p>
-                    <h1 class="page-title">YouTube import</h1>
-                    <p class="page-subtitle">Download a YouTube video or playlist directly, without needing an artist defined in Lidarr.</p>
+                    <h1 class="page-title">Import a link</h1>
+                    <p class="page-subtitle">Turn a playlist, album or video link into tagged files, without needing the artist in Lidarr.</p>
                 </div>
             </header>
 
             <section class="ui-card ui-card-lg" aria-labelledby="urlHeading">
                 <div class="yt-hero-head">
-                    <span class="ui-icon-tile ui-icon-tile-danger" aria-hidden="true"><svg class="ico"><use href="/static/icons.svg#i-youtube"></use></svg></span>
+                    <span class="ui-icon-tile" aria-hidden="true"><svg class="ico"><use href="/static/icons.svg#i-link"></use></svg></span>
                     <div>
                         <h2 class="t-title3" id="urlHeading">Paste a link</h2>
-                        <p class="t-footnote t-3">A YouTube video, playlist or YouTube Music album, or a Spotify, Deezer, Apple Music or ListenBrainz playlist or album.</p>
+                        <p class="t-footnote t-3">Playlists, albums and tracks from any of these. Tracks from other services are found on YouTube.</p>
                     </div>
                 </div>
-                <label class="sr-only" for="urlInput">YouTube, Spotify, Deezer, Apple Music or ListenBrainz URL</label>
+                <ul class="yt-sources" aria-label="Supported sources">
+                    <li class="ui-badge">YouTube</li>
+                    <li class="ui-badge">YouTube Music</li>
+                    <li class="ui-badge">Spotify</li>
+                    <li class="ui-badge">Deezer</li>
+                    <li class="ui-badge">Apple Music</li>
+                    <li class="ui-badge">ListenBrainz</li>
+                </ul>
+                <label class="sr-only" for="urlInput">Playlist, album or video link</label>
                 <div class="ui-input-row yt-url-row">
                     <div class="ui-input-group">
                         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-link"></use></svg>
-                        <input type="url" inputmode="url" id="urlInput" class="ui-input ui-input-lg" placeholder="https://youtube.com/… or https://open.spotify.com/playlist/…" autocomplete="off" spellcheck="false" aria-describedby="urlHint">
+                        <input type="url" inputmode="url" id="urlInput" class="ui-input ui-input-lg" placeholder="https://open.spotify.com/playlist/…" autocomplete="off" spellcheck="false" aria-describedby="urlHint">
                     </div>
                     <button type="button" class="ui-btn ui-btn-primary ui-btn-lg" id="fetchBtn">
                         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-search"></use></svg><span>Fetch</span>
                     </button>
                 </div>
                 <p class="ui-error-text yt-hint" id="urlError" hidden></p>
-                <p class="ui-hint yt-hint" id="urlHint">Press Enter to fetch. Nothing is downloaded until you choose the tracks.</p>
+                <p class="ui-hint yt-hint" id="urlHint">Paste or press Enter to fetch. Nothing is downloaded until you choose the tracks.</p>
                 <div class="ui-callout ui-callout-danger yt-prog-error" id="fetchError" role="alert" hidden>
                     <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-x-circle"></use></svg>
                     <div class="ui-callout-body">
@@ -439,6 +462,9 @@
                         </div>
                         <button type="button" class="ui-btn ui-btn-danger ui-btn-sm" id="stopBtn">
                             <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-stop"></use></svg><span>Stop</span>
+                        </button>
+                        <button type="button" class="ui-btn ui-btn-tinted ui-btn-sm" id="againBtn" hidden>
+                            <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-link"></use></svg><span>Import another link</span>
                         </button>
                     </div>
                     <div class="ui-progress ui-progress-lg yt-prog-bar" role="progressbar" aria-labelledby="progHeading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="progBarWrap">
@@ -476,7 +502,7 @@
             <section class="section" id="resultSection" aria-labelledby="playlistTitle" hidden>
                 <div class="ui-card ui-card-lg">
                     <div class="yt-preview-head" id="playlistInfoBar">
-                        <span class="ui-artwork ui-artwork-lg" id="playlistThumbWrap" data-fallback="youtube"></span>
+                        <span class="ui-artwork ui-artwork-lg" id="playlistThumbWrap" data-fallback="list-music"></span>
                         <div class="yt-preview-text">
                             <div class="ui-row ui-row-wrap">
                                 <span class="ui-badge" id="playlistBadge">Playlist</span>
@@ -540,7 +566,7 @@
                 <div class="section-head">
                     <div>
                         <h2 class="section-title" id="recentHeading">Recent imports</h2>
-                        <p class="section-desc">Your last YouTube imports. Open one to revisit its source.</p>
+                        <p class="section-desc">Your last imports. Open one to revisit its source.</p>
                     </div>
                 </div>
                 <div id="recentBody">
@@ -563,7 +589,6 @@
         let statusPoller = null;
         let statusPollErrors = 0;
         let importRunning = false;
-        let finishTimer = null;
         const fieldsEdited = { artist: false, album: false };
 
         const $ = (id) => document.getElementById(id);
@@ -722,7 +747,7 @@
             const safeT = thumbUrl(fetchedThumbnail);
             wrap.innerHTML = safeT
                 ? '<img src="' + UI.escape(safeT) + '" alt="" decoding="async">'
-                : UI.icon('youtube');
+                : UI.icon('list-music');
             const isPlaylist = data.type === 'playlist';
             const badge = $('playlistBadge');
             badge.className = 'ui-badge ' + (isPlaylist ? 'ui-badge-accent' : 'ui-badge-info');
@@ -730,7 +755,7 @@
                 ? data.source + ' ' + ({ album: 'album', track: 'track' }[data.kind] || 'playlist')
                 : (isPlaylist ? 'Playlist' : 'Video');
             badge.innerHTML = UI.icon(isPlaylist ? 'list-music' : 'play-circle') + '<span>' + UI.escape(kindLabel) + '</span>';
-            $('playlistTitle').textContent = data.title || (isPlaylist ? 'YouTube playlist' : 'YouTube video');
+            $('playlistTitle').textContent = data.title || (isPlaylist ? 'Playlist' : 'Video');
             $('playlistChannel').textContent = data.channel ? 'by ' + data.channel : '';
             $('playlistChannel').hidden = !data.channel;
             const total = entries.reduce((sum, e) => sum + (Number(e.duration) || 0), 0);
@@ -742,13 +767,14 @@
             if (btn.getAttribute('aria-busy') === 'true') return;
             const url = $('urlInput').value.trim();
             if (!url) {
-                setUrlError('Paste a YouTube video or playlist link first.');
+                setUrlError('Paste a playlist, album or video link first.');
                 $('urlInput').focus();
                 return;
             }
             setUrlError('');
             hideFetchError();
             fetchedSourceUrl = url;
+            rememberUrl(url);
             $('resultSection').hidden = true;
             $('resultSkeleton').hidden = false;
 
@@ -986,8 +1012,6 @@
         }
 
         function initProgressPanel(entries) {
-            clearTimeout(finishTimer);
-            finishTimer = null;
             const list = $('trackProgList');
             list.innerHTML = entries.map((entry, i) => {
                 const title = entry.title || ('Track ' + (i + 1));
@@ -1003,6 +1027,8 @@
             $('progLabel').textContent = 'Downloading…';
             $('progError').hidden = true;
             resetStopButton();
+            $('stopBtn').hidden = false;
+            $('againBtn').hidden = true;
             setProgIcon('running');
         }
 
@@ -1095,18 +1121,28 @@
             setProgIcon('done');
             restoreDownloadButton();
             resetStopButton();
-            $('stopBtn').disabled = true;
-            UI.toast('Download complete! ' + done + '/' + total + ' tracks. Returning to import page…', { type: 'success' });
+            $('stopBtn').hidden = true;
+            $('againBtn').hidden = false;
+            UI.toast('Import complete: ' + done + '/' + total + ' tracks.', { type: 'success' });
             UI.refreshNav();
             loadRecentImports();
-            finishTimer = setTimeout(() => {
-                $('progressSection').hidden = true;
-                $('resultSection').hidden = true;
-                window.scrollTo({ top: 0, behavior: scrollBehavior() });
-                setTimeout(() => {
-                    $('recentSection').scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
-                }, 400);
-            }, 4000);
+        }
+
+        function rememberUrl(url) {
+            const params = new URLSearchParams(location.search);
+            if (url) params.set('url', url);
+            else params.delete('url');
+            const query = params.toString();
+            history.replaceState(null, '', location.pathname + (query ? '?' + query : ''));
+        }
+
+        function importAnother() {
+            $('progressSection').hidden = true;
+            $('resultSection').hidden = true;
+            $('urlInput').value = '';
+            rememberUrl('');
+            window.scrollTo({ top: 0, behavior: scrollBehavior() });
+            $('urlInput').focus({ preventScroll: true });
         }
 
         function applyStatus(st) {
@@ -1255,7 +1291,7 @@
         function renderRecent(items) {
             $('recentBody').innerHTML = '<ul class="ui-list">' + items.map((item) => {
                 const link = sanitizeUrl(item.source_url || item.youtube_url || '');
-                const title = item.album_title || item.artist_name || 'YouTube import';
+                const title = item.album_title || item.artist_name || 'Import';
                 const ok = Number(item.success_count) || 0;
                 const total = Number(item.track_count) || 0;
                 const count = total && total !== ok ? ok + ' of ' + plural(total, 'track') : plural(ok, 'track');
@@ -1265,12 +1301,12 @@
                 const ts = Number(item.latest_timestamp) || 0;
                 const when = ts ? '<span class="yt-recent-time" title="' + UI.escape(new Date(ts * 1000).toLocaleString()) + '">' + UI.escape(UI.relativeTime(ts)) + '</span>' : '';
                 const inner =
-                    artworkHtml(item.cover_url, 'youtube') +
+                    artworkHtml(item.cover_url, 'list-music') +
                     '<span class="ui-list-main">' +
                     '<span class="ui-list-title bidi" title="' + UI.escape(title) + '">' + UI.escape(title) + '</span>' +
                     '<span class="ui-list-sub" title="' + UI.escape(subTitle) + '">' + sub + '</span>' +
                     '</span>' +
-                    '<span class="ui-list-aside">' + when + (link ? UI.icon('external') + '<span class="sr-only">(opens YouTube in a new tab)</span>' : '') + '</span>';
+                    '<span class="ui-list-aside">' + when + (link ? UI.icon('external') + '<span class="sr-only">(opens the source in a new tab)</span>' : '') + '</span>';
                 const row = link
                     ? '<a class="yt-recent-row" href="' + UI.escape(link) + '" target="_blank" rel="noopener noreferrer">' + inner + '</a>'
                     : '<div class="yt-recent-row">' + inner + '</div>';
@@ -1323,6 +1359,7 @@
         $('fetchRetryBtn').addEventListener('click', fetchInfo);
         $('downloadBtn').addEventListener('click', startDownload);
         $('stopBtn').addEventListener('click', stopDownload);
+        $('againBtn').addEventListener('click', importAnother);
 
         $('lidarrBtn').addEventListener('click', addAlbumsToLidarr);
         $('urlInput').addEventListener('keydown', function (e) {
@@ -1333,6 +1370,11 @@
         });
         $('urlInput').addEventListener('input', function () {
             if (this.hasAttribute('aria-invalid')) setUrlError('');
+        });
+        $('urlInput').addEventListener('paste', function () {
+            setTimeout(() => {
+                if (sanitizeUrl(this.value.trim())) fetchInfo();
+            });
         });
 
         $('artistInput').addEventListener('input', function () {
@@ -1372,6 +1414,11 @@
         document.addEventListener('DOMContentLoaded', function () {
             loadRecentImports();
             checkResumeProgress();
+            const linked = new URLSearchParams(location.search).get('url');
+            if (linked) {
+                $('urlInput').value = linked;
+                fetchInfo();
+            }
         });
     </script>
 </body>

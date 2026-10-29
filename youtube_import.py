@@ -13,7 +13,7 @@ import time
 import urllib.parse
 import uuid
 
-from flask import Blueprint, jsonify, render_template, request
+from flask import Blueprint, jsonify, redirect, render_template, request
 
 import db
 import explore
@@ -59,9 +59,15 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("youtube_import", __name__)
 
 
+@bp.route("/import")
+def import_page():
+    return render_template("import.html")
+
+
 @bp.route("/youtube")
-def youtube_import():
-    return render_template("youtube.html")
+def youtube_page_moved():
+    query = request.query_string.decode()
+    return redirect("/import" + (f"?{query}" if query else ""), code=301)
 
 
 def _flat_youtube_info(url, config):
