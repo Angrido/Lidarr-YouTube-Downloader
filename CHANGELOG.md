@@ -3,6 +3,26 @@
 ## 2.0.2
 
 ### Added
+- **No more downloading the same track twice** (issue #112). 7 % of the successes in a
+  real database (4 112 of 58 344, ≈ 41 GB) were a recording the app already
+  had: box releases that list the album on every medium (*Appetite for
+  Destruction*: 280 tracks, 62 recordings), the same song on the single,
+  the album and a compilation, an album queued again once its download
+  folder had been cleaned up. Tracks are now identified by their
+  MusicBrainz recording id (schema 13 adds `recording_id`, `video_id`,
+  `file_path`, `file_size`, `reused_from` to the history and backfills the
+  existing rows in about a second). `dedupe_mode` (Settings › Duplicate
+  tracks) is `log` by default: it only logs what it would have done
+  (`Dedupe (log only): …`). With `reuse` a recording that repeats inside a
+  release is downloaded once (`dedupe_same_album`: `skip` the other
+  positions, or `copy` the file to each), and a recording that already has a
+  fingerprint-verified file in the library is copied and re-tagged for the
+  new album instead of searched and downloaded (another edition of the
+  same album always; singles and compilations with `dedupe_cross_album`). Never
+  reused: files whose audio was not identified as that recording, anything
+  from the download folder when a library path is set, `[silence]` /
+  `[data track]`, and anything on a forced re-download. A Lidarr grab
+  always gets a file for every position.
 - **VPN with gluetun** (Settings → YouTube access → VPN, or `VPN_PROXY_URL`
   / `GLUETUN_CONTROL_URL` / `GLUETUN_API_KEY`): every request to YouTube
   goes through gluetun's HTTP proxy, and the app can restart the VPN for a
