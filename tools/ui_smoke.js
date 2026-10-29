@@ -13,7 +13,7 @@ const BASE = process.env.PREVIEW_URL || "http://127.0.0.1:5099";
 const PAGES = [
   "/", "/explore", "/explore?album=MPREb_statusMiss1",
   "/explore?artist=UCUDVBtnOQi4c7E8jebpjc9Q", "/downloads", "/insights",
-  "/logs", "/settings", "/youtube", "/setup",
+  "/logs", "/settings", "/import", "/setup",
 ];
 // null = nothing stored (first visit).
 const STATES = [

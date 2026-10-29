@@ -3524,13 +3524,21 @@ class TestExploreRoutes:
         assert 'href="/add"' not in html
         tabbar = html.split('class="app-tabbar"', 1)[1].split("</nav>", 1)[0]
         assert 'href="/explore"' in tabbar
-        assert 'href="/youtube"' not in tabbar
+        assert 'href="/import"' not in tabbar
         assert tabbar.count('class="app-tab"') == 6
 
-    def test_youtube_page_highlights_explore_tab(self, client):
-        html = client.get("/youtube").get_data(as_text=True)
+    def test_import_page_highlights_explore_tab(self, client):
+        html = client.get("/import").get_data(as_text=True)
+        assert "<title>Import" in html
+        assert 'href="/import" data-nav="import" aria-current="page"' in html
         tabbar = html.split('class="app-tabbar"', 1)[1].split("</nav>", 1)[0]
         assert 'href="/explore" aria-current="page"' in tabbar
+
+    def test_old_youtube_page_redirects_to_import(self, client):
+        resp = client.get("/youtube?url=https%3A%2F%2Fyoutu.be%2Fabc")
+        assert resp.status_code == 301
+        assert resp.headers["Location"].endswith("/import?url=https%3A%2F%2Fyoutu.be%2Fabc")
+        assert client.get("/youtube").headers["Location"].endswith("/import")
 
     def test_home_ok(self, client, monkeypatch):
         import explore

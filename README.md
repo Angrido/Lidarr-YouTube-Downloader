@@ -301,7 +301,7 @@ Good to know:
 
 <br>
 
-Paste a playlist or album link on the **YouTube** page. Every track is searched on YouTube with the same scoring used for Lidarr albums, tagged with its own artist and saved with an `.m3u8` playlist file next to it, so the playlist shows up in Jellyfin, Navidrome or Plex. **Add albums to Lidarr** instead looks up the albums of the selected tracks on MusicBrainz, adds them to Lidarr and queues them, so they arrive whole with full tags.
+Paste a playlist or album link from YouTube, Spotify, Deezer, Apple Music or ListenBrainz on the **Import** page. Every track is searched on YouTube with the same scoring used for Lidarr albums, tagged with its own artist and saved with an `.m3u8` playlist file next to it, so the playlist shows up in Jellyfin, Navidrome or Plex. **Add albums to Lidarr** instead looks up the albums of the selected tracks on MusicBrainz, adds them to Lidarr and queues them, so they arrive whole with full tags.
 
 No key is needed. Without one Spotify only shows the first 100 tracks of a playlist; add a Spotify app's client ID and secret in Settings › Library & metadata to read all of them. Apple Music playlists are read from the public page and may break if Apple changes it; Apple Music albums use the iTunes API.
 
@@ -375,7 +375,7 @@ MP3 (up to 320 kbps), M4A and Opus, selectable in Settings. M4A keeps YouTube's 
 <details>
 <summary><b>Can I download a playlist or a single video?</b></summary>
 <br>
-Yes. Paste any YouTube or YouTube Music link on the <b>YouTube</b> page, or open a playlist in Explore and pick the tracks.
+Yes. Paste any YouTube or YouTube Music link on the <b>Import</b> page, or open a playlist in Explore and pick the tracks.
 </details>
 
 <details>

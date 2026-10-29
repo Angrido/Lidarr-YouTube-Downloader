@@ -16,7 +16,7 @@
   for the new IP instead of failing the same way: the album goes back to the
   head of the queue and carries on as soon as the IP has changed. The bgutil PO-token
   provider uses the same proxy. See `docker-compose.gluetun.yml`.
-- **Spotify, Deezer, Apple Music and ListenBrainz links** on the YouTube
+- **Spotify, Deezer, Apple Music and ListenBrainz links** on the Import
   page: paste a playlist or album and every track is searched on YouTube
   (same scoring as Lidarr albums), tagged with its own artist and saved
   with an `.m3u8` playlist file. **Add albums to Lidarr** looks up the
@@ -47,8 +47,19 @@
   the sidebar and tab bar stay still, cards and shelves rise in gently as
   you scroll, and Explore shelves, album tracklists and the Insights tiles
   come in one after another. All of it is off with *reduce motion*.
+- **The YouTube page is now Import** (`/import`; old `/youtube` links
+  redirect), since it takes Spotify, Deezer, Apple Music and ListenBrainz
+  links too. Pasting a link fetches it straight away, the link stays in the
+  address bar so a reload or a shared `?url=` opens the same tracks, and a
+  finished import stays on screen with *Import another link* instead of
+  disappearing after four seconds. Long playlists scroll faster.
 
 ### Fixed
+- **Fewer vulnerabilities in the image**: the container drops to `PUID` /
+  `PGID` with `setpriv` (util-linux, already in the base image) instead of
+  `gosu`. Debian's `gosu` is a Go binary built with Go 1.24.4, which image
+  scanners flag with dozens of Go standard-library CVEs; nothing in the
+  image is written in Go any more.
 - Logs on phones: the dismiss button no longer takes a row of its own; it
   sits in the corner of the entry.
 - The tab bar's "downloading" dot no longer covers the Downloads icon.

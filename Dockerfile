@@ -25,7 +25,7 @@ FROM ${PYTHON_IMAGE}
 
 RUN apt-get update && apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-        ffmpeg gosu tini ca-certificates libchromaprint-tools curl unzip && \
+        ffmpeg tini ca-certificates libchromaprint-tools curl unzip && \
     curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh && \
     apt-get purge -y curl unzip && apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*

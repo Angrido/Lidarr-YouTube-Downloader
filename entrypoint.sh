@@ -35,7 +35,9 @@ if [ "$PUID" != "0" ] && [ "$PGID" != "0" ]; then
         fi
     done
 
-    exec gosu "$PUID:$PGID" python app.py
+    HOME="$(getent passwd "$PUID" | cut -d: -f6)"
+    export HOME="${HOME:-/}"
+    exec setpriv --reuid="$PUID" --regid="$PGID" --clear-groups python app.py
 else
     echo "Starting as root (PUID/PGID not set), UMASK=$UMASK"
     exec python app.py
