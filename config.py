@@ -82,6 +82,11 @@ EXPLORE_LANGUAGES = frozenset({
     "ar", "cs", "de", "en", "es", "fr", "hi", "it", "ja", "ko", "nl", "pt",
     "ru", "tr", "ur", "zh_CN", "zh_TW",
 })
+# Audio containers the app can write. audio_format ends up in file names
+# (``<name>.<audio_format>``), so only a value from this list is accepted.
+AUDIO_FORMATS = ("mp3", "m4a", "opus", "flac", "aac", "ogg")
+AUDIO_FORMAT_DEFAULT = "mp3"
+
 EXPLORE_COUNTRY_DEFAULT = "IT"
 EXPLORE_LANGUAGE_DEFAULT = "en"
 _COUNTRY_RE = re.compile(r"^[A-Z]{2}$")
@@ -238,8 +243,17 @@ def _parse_ui_aura_mode(value):
     return value
 
 
+def _parse_audio_format(value):
+    fmt = value.strip().lower() if isinstance(value, str) else ""
+    if fmt not in AUDIO_FORMATS:
+        raise ValueError(f"expected one of {', '.join(AUDIO_FORMATS)}")
+    return fmt
+
+
 def coerce_config_value(key, value):
     try:
+        if key == "audio_format":
+            return _parse_audio_format(value)
         if key == "ui_accent":
             return _parse_ui_accent(value)
         if key == "ui_aura_mode":
@@ -501,6 +515,11 @@ def load_config():
     except (TypeError, ValueError):
         _cca = 1
     config["download_client_concurrent_albums"] = max(1, min(5, _cca))
+
+    try:
+        config["audio_format"] = _parse_audio_format(config.get("audio_format"))
+    except ValueError:
+        config["audio_format"] = AUDIO_FORMAT_DEFAULT
 
     if config.get("search_artist_source") not in SEARCH_ARTIST_SOURCES:
         config["search_artist_source"] = "album"

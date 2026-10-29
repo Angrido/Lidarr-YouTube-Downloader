@@ -21,6 +21,11 @@
 - Small labels (eyebrows, badges, *Instant*) are 12 px instead of 11 px.
 
 ### Fixed
+- **Track deletion stays inside your folders** — deleting a track from the
+  history only removes files under the configured download and library
+  folders (symlinks resolved), and `audio_format` is limited to the formats
+  the app can write (`mp3`, `m4a`, `opus`, `flac`, `aac`, `ogg`); a stored
+  value outside that list falls back to `mp3`.
 - A negative pause value made the download fail; pauses are now at least
   0 s and the maximum is never below the minimum.
 - **Lyrics and ReplayGain on every download** — *Save lyrics* and *Apply

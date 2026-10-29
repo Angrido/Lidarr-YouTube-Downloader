@@ -493,6 +493,8 @@ def test_file_bool_strings_coerced(temp_config):
     ("telegram_enabled", 1, True),
     ("telegram_chat_id", 12345, "12345"),
     ("forbidden_words", ["a"], ["a"]),
+    ("audio_format", "m4a", "m4a"),
+    ("audio_format", " Opus ", "opus"),
 ])
 def test_coerce_config_value_valid(key, raw, expected):
     assert config.coerce_config_value(key, raw) == expected
@@ -512,6 +514,11 @@ def test_coerce_config_value_valid(key, raw, expected):
     ("telegram_chat_id", {"a": 1}),
     ("forbidden_words", "remix"),
     ("forbidden_words", [1]),
+    ("audio_format", "../x"),
+    ("audio_format", "mp3/../../x"),
+    ("audio_format", "wav"),
+    ("audio_format", ""),
+    ("audio_format", None),
 ])
 def test_coerce_config_value_invalid(key, raw):
     with pytest.raises(ValueError):
@@ -557,3 +564,22 @@ def test_appearance_defaults_and_bad_file_values(temp_config):
     cfg = config.load_config()
     assert cfg["ui_accent"] == "#7c5cff"
     assert cfg["ui_aura_mode"] == "cover"
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("m4a", "m4a"),
+    ("OPUS", "opus"),
+    ("x/../../etc/shadow", "mp3"),
+    ("", "mp3"),
+    (7, "mp3"),
+])
+def test_load_config_normalizes_audio_format(temp_config, raw, expected):
+    """audio_format is part of file names, so a bad stored value falls back."""
+    with open(temp_config, "w") as f:
+        json.dump({"audio_format": raw}, f)
+    assert config.load_config()["audio_format"] == expected
+
+
+def test_audio_format_env_is_normalized(temp_config, monkeypatch):
+    monkeypatch.setenv("AUDIO_FORMAT", "../../x")
+    assert config.load_config()["audio_format"] == "mp3"
