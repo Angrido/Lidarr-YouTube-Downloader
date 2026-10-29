@@ -13,7 +13,8 @@
   of a failed track counts as a running download, so it is never cut off).
   A track that fails while YouTube is blocking is not held against it: it
   does not count toward its retry backoff, and the rest of that album waits
-  for the new IP instead of failing the same way. The bgutil PO-token
+  for the new IP instead of failing the same way: the album goes back to the
+  head of the queue and carries on as soon as the IP has changed. The bgutil PO-token
   provider uses the same proxy. See `docker-compose.gluetun.yml`.
 - **Spotify, Deezer, Apple Music and ListenBrainz links** on the YouTube
   page: paste a playlist or album and every track is searched on YouTube

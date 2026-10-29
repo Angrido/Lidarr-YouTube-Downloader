@@ -191,7 +191,15 @@ host and disk-full prefixes — is left out of `get_track_failure_counts` /
 `get_stuck_tracks`, and the tracks of that run not started yet are skipped
 (no row, so the next run downloads them on the new IP). A block that a track
 survives (another player client worked) stops nothing; without a rotation to
-come nothing changes at all. The failed-tracks retry
+come nothing changes at all. A foreground run that stopped this way is
+remembered (`processing._blocked_albums`, set by `_label_block`, dropped on a
+user stop and at the start of the next run; download-client jobs are never
+marked, Lidarr retries its own grabs), and `_run_queued_album` puts the album
+back at the head of the queue (`_requeue_after_block`, keeping its `force`)
+only while `vpn.due_reason()` says a rotation is due — inside the cooldown
+the IP would not change and the album would stop again at once — and at most
+`MAX_BLOCK_REQUEUES` times in a row; after that the scheduler's retry window
+takes over. The failed-tracks retry
 (`POST /api/download/manual`) downloads inside its request and holds no slot,
 so it runs inside `processing.inline_download()`, which
 `any_download_active()` counts; it enters it *before* re-checking

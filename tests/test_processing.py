@@ -3113,6 +3113,7 @@ class TestBlockedIpFailures:
     def _run(
         self, monkeypatch, tmp_path, titles, download, *,
         cfg=None, control_url="http://gluetun:8000", search=None,
+        is_client=False,
     ):
         import processing
         import vpn
@@ -3142,6 +3143,7 @@ class TestBlockedIpFailures:
             for i, t in enumerate(titles)
         ]
         state = processing._make_download_state()
+        state["is_client"] = is_client
         state["tracks"] = [_state_track(t, i + 1) for i, t in enumerate(titles)]
         failed, succeeded, _size, _stats = processing._download_tracks(
             tracks, album_path, {"tracks": tracks}, _make_album_ctx(), state,
@@ -3243,6 +3245,97 @@ class TestBlockedIpFailures:
         )
         assert failed[0]["reason"].startswith(models.HOST_FAILURE_PREFIX)
         assert [t["status"] for t in state["tracks"]] == ["failed", "failed"]
+
+
+class TestBlockedAlbumMark:
+    """A foreground run that stopped on a block is remembered, so the queue
+    runner can put the album back once the VPN has a new IP."""
+
+    @pytest.fixture(autouse=True)
+    def _clean(self):
+        import processing
+        processing._blocked_albums.clear()
+        processing._block_requeues.clear()
+        yield
+        processing._blocked_albums.clear()
+        processing._block_requeues.clear()
+
+    def _blocked_run(self, monkeypatch, tmp_path, **kwargs):
+        run = TestBlockedIpFailures()
+        return run._run(
+            monkeypatch, tmp_path, ["A", "B"], run._blocked_download, **kwargs,
+        )
+
+    def test_a_blocked_run_marks_the_album(self, tmp_path, monkeypatch):
+        import processing
+        self._blocked_run(monkeypatch, tmp_path)
+        assert processing._blocked_albums == {42}
+
+    def test_a_download_client_job_is_not_marked(self, tmp_path, monkeypatch):
+        """Lidarr retries its own grabs."""
+        import processing
+        self._blocked_run(monkeypatch, tmp_path, is_client=True)
+        assert processing._blocked_albums == set()
+
+    def test_a_run_without_a_block_is_not_marked(self, tmp_path, monkeypatch):
+        import processing
+        run = TestBlockedIpFailures()
+        run._run(monkeypatch, tmp_path, ["A"], lambda *a, **k: run._fail())
+        assert processing._blocked_albums == set()
+
+    @staticmethod
+    def _album_run(monkeypatch, tmp_path, fake_download_tracks):
+        import processing
+        album = TestEarlyExitsWriteLog._album()
+        TestEarlyExitsWriteLog._wire(monkeypatch, tmp_path, album, [])
+        for name in (
+            "get_itunes_artwork", "get_cover_art_archive_artwork",
+            "get_deezer_artwork", "find_album_on_ytmusic",
+        ):
+            monkeypatch.setattr(processing, name, lambda *a, **k: None)
+        monkeypatch.setattr(
+            processing, "_resolve_track_artists", lambda *a, **k: None,
+        )
+        monkeypatch.setattr(processing, "set_permissions", lambda *a, **k: None)
+        monkeypatch.setattr(processing, "_download_tracks", fake_download_tracks)
+        monkeypatch.setattr(
+            processing, "_handle_post_download", lambda *a, **k: {"ok": 1},
+        )
+        processing._active_states.clear()
+        processing.download_process.update(processing._make_download_state())
+        return processing.process_album_download(88)
+
+    def test_a_user_stop_drops_the_mark(self, tmp_path, monkeypatch):
+        """The user stopped it: it must not come back on its own."""
+        import processing
+
+        def stopped(tracks, album_path, album_, ctx, state):
+            processing._blocked_albums.add(88)
+            state["stop"] = True
+            return [], [{"title": "Song", "track_num": 1}], 0, {}
+
+        self._album_run(monkeypatch, tmp_path, stopped)
+        assert processing._blocked_albums == set()
+
+    def test_a_blocked_run_keeps_the_mark_until_the_runner_reads_it(
+        self, tmp_path, monkeypatch,
+    ):
+        import processing
+
+        def blocked(tracks, album_path, album_, ctx, state):
+            processing._blocked_albums.add(88)
+            return [], [], 0, {}
+
+        self._album_run(monkeypatch, tmp_path, blocked)
+        assert processing._blocked_albums == {88}
+
+    def test_a_new_run_forgets_an_old_mark(self, tmp_path, monkeypatch):
+        import processing
+        processing._blocked_albums.add(88)
+        self._album_run(
+            monkeypatch, tmp_path, lambda *a, **k: ([], [], 0, {}),
+        )
+        assert processing._blocked_albums == set()
 
 
 class TestEarlyExitsWriteLog:

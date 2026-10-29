@@ -885,6 +885,103 @@ class TestManualRetryIsAnActiveDownload:
         assert processing.any_download_active() is False
 
 
+class TestRequeueAfterBlock:
+    """A run that stopped on a block goes back to the head of the queue, but
+    only when a rotation is due to give it a new IP."""
+
+    @pytest.fixture(autouse=True)
+    def _clean(self):
+        import processing
+
+        processing._blocked_albums.clear()
+        processing._block_requeues.clear()
+        yield
+        processing._blocked_albums.clear()
+        processing._block_requeues.clear()
+
+    @pytest.fixture()
+    def processing(self, monkeypatch):
+        import processing
+
+        monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: "x")
+        return processing
+
+    @staticmethod
+    def _run(processing, monkeypatch, *, blocked=True, forced=False, album_id=5):
+        """Dispatch ``album_id`` and run it; returns the queue afterwards."""
+        import models
+
+        models.enqueue_album(album_id, force=forced)
+        models.set_queue_status(album_id, models.QUEUE_STATUS_DOWNLOADING)
+
+        def fake_process(album_id_, **kwargs):
+            if blocked:
+                processing._blocked_albums.add(album_id_)
+            return {"error": "All tracks failed"}
+
+        monkeypatch.setattr(processing, "process_album_download", fake_process)
+        processing._run_queued_album(album_id, ignore_backoff=forced)
+        return [(r["album_id"], r["status"], r["force"]) for r in models.get_queue()]
+
+    def test_goes_back_to_the_head_of_the_queue(self, processing, monkeypatch):
+        import models
+
+        models.enqueue_album(9)
+        assert self._run(processing, monkeypatch) == [
+            (5, "queued", 0), (9, "queued", 0),
+        ]
+
+    def test_a_manual_request_stays_manual(self, processing, monkeypatch):
+        """Still bypasses the retry backoff when it comes back."""
+        assert self._run(processing, monkeypatch, forced=True) == [(5, "queued", 1)]
+
+    def test_nothing_comes_back_without_a_block(self, processing, monkeypatch):
+        assert self._run(processing, monkeypatch, blocked=False) == []
+
+    def test_nothing_comes_back_when_no_rotation_is_due(self, processing, monkeypatch):
+        """Inside the cooldown the IP would not change: the scheduler decides."""
+        monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: None)
+        assert self._run(processing, monkeypatch) == []
+
+    def test_a_crashing_rotation_check_leaves_it_to_the_scheduler(self, processing, monkeypatch):
+        def crash(cfg=None):
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(processing.vpn, "due_reason", crash)
+        assert self._run(processing, monkeypatch) == []
+
+    def test_gives_up_after_a_few_rounds_and_then_starts_over(self, processing, monkeypatch):
+        for _ in range(processing.MAX_BLOCK_REQUEUES):
+            assert self._run(processing, monkeypatch) == [(5, "queued", 0)]
+            import models
+
+            models.dequeue_album(5)  # the dispatcher would start it again
+        assert self._run(processing, monkeypatch) == []  # the scheduler takes over
+        assert self._run(processing, monkeypatch) == [(5, "queued", 0)]  # fresh count
+
+    def test_a_clean_run_resets_the_count(self, processing, monkeypatch):
+        import models
+
+        for _ in range(processing.MAX_BLOCK_REQUEUES - 1):
+            self._run(processing, monkeypatch)
+            models.dequeue_album(5)
+        assert self._run(processing, monkeypatch, blocked=False) == []
+        assert processing._block_requeues == {}
+
+    def test_follows_the_real_rotation_trigger_and_its_cooldown(self, monkeypatch):
+        import time
+
+        import models
+        import processing
+
+        _set(gluetun_control_url="http://gluetun:8000")
+        vpn.note_block("HTTP Error 429: Too Many Requests")
+        assert self._run(processing, monkeypatch) == [(5, "queued", 0)]
+        models.dequeue_album(5)
+        vpn._state["last_attempt"] = time.time()  # a rotation was just tried
+        assert self._run(processing, monkeypatch) == []
+
+
 class TestAlbumCounting:
     """The counter advances where tracks were really attempted, once."""
 
