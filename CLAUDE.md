@@ -192,7 +192,16 @@ host and disk-full prefixes — is left out of `get_track_failure_counts` /
 `get_stuck_tracks`, and the tracks of that run not started yet are skipped
 (no row, so the next run downloads them on the new IP). A block that a track
 survives (another player client worked) stops nothing; without a rotation to
-come nothing changes at all. A foreground run that stopped this way is
+come nothing changes at all. A burnt IP must not hold the album either:
+`download_youtube_candidate()` counts the blocks it sees (`vpn.note_block()`
+returns whether the message was one) and, once there are as many as clients
+in its chain, returns `ip_blocked: True` instead of going on through every
+selector × client combination (that took 13+ minutes per track on a refused
+IP, and the rotation only runs when nothing is downloading);
+`_download_candidate_threaded` copies the flag to `track_state["ip_blocked"]`
+and the candidate loop stops. Only with `vpn.rotates_on_block()`; `vpn.is_block()`
+is the side-effect-free matcher (markers include YouTube's session
+rate-limit message). A foreground run that stopped this way is
 remembered (`processing._blocked_albums`, set by `_label_block`, dropped on a
 user stop and at the start of the next run; download-client jobs are never
 marked, Lidarr retries its own grabs), and `_run_queued_album` puts the album

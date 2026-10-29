@@ -532,6 +532,8 @@ class TestTriggers:
         "Sign in to confirm you’re not a bot",
         "HTTP Error 429: Too Many Requests",
         "unable to download: too many requests",
+        "This content isn't available, try again later. The current session"
+        " has been rate-limited by YouTube for up to an hour.",
     ])
     def test_block_messages(self, message):
         _set(gluetun_control_url="http://gluetun:8000")
@@ -1335,6 +1337,68 @@ def _ydl_returning(info):
 
 def _opts_of(ydl):
     return ydl.call_args.args[0]
+
+
+class TestFailFastOnBlock:
+    """A candidate stops once a whole pass of clients was refused (when a
+    rotation will answer), instead of trying every selector x client."""
+
+    BLOCK = "ERROR: [youtube] x: Sign in to confirm you're not a bot"
+    CANDIDATE = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+
+    @staticmethod
+    def _run(side_effect):
+        import downloader
+
+        with patch("downloader.yt_dlp.YoutubeDL") as ydl_class:
+            ydl = ydl_class.return_value.__enter__.return_value
+            ydl.download.side_effect = side_effect
+            result = downloader.download_youtube_candidate(
+                dict(TestFailFastOnBlock.CANDIDATE), "/tmp/output",
+            )
+        return result, ydl.download.call_count
+
+    def test_stops_after_one_refused_pass_when_a_rotation_will_follow(self):
+        import downloader
+
+        _set(gluetun_control_url="http://gluetun:8000")
+        clients = downloader._client_fallback_chain(config.load_config(), False) + [None]
+        result, calls = self._run(Exception(self.BLOCK))
+        assert result["success"] is False
+        assert result["ip_blocked"] is True
+        assert "refused requests from this IP" in result["error_message"]
+        assert calls == max(2, len(clients))
+
+    def test_without_a_rotation_it_keeps_trying_as_before(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        _result, armed_calls = self._run(Exception(self.BLOCK))
+        _set(gluetun_control_url="")
+        result, calls = self._run(Exception(self.BLOCK))
+        assert "ip_blocked" not in result
+        assert calls > armed_calls
+
+    def test_rotation_on_block_off_keeps_trying_as_before(self):
+        _set(gluetun_control_url="http://gluetun:8000", vpn_rotate_on_block=False)
+        result, _calls = self._run(Exception(self.BLOCK))
+        assert "ip_blocked" not in result
+
+    def test_a_block_another_client_survives_stops_nothing(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        result, calls = self._run([Exception(self.BLOCK), None])
+        assert result["success"] is True
+        assert calls == 2
+
+    def test_other_errors_never_count_as_the_ip(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        result, _calls = self._run(Exception("HTTP Error 403: Forbidden"))
+        assert "ip_blocked" not in result
+
+    def test_a_refused_pass_still_counts_toward_the_rotation(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        before = vpn.blocks_seen()
+        self._run(Exception(self.BLOCK))
+        assert vpn.blocks_seen() > before
+        assert vpn.due_reason() == "YouTube blocked a request"
 
 
 class TestProxyCallSites:

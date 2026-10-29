@@ -14,7 +14,11 @@
   A track that fails while YouTube is blocking is not held against it: it
   does not count toward its retry backoff, and the rest of that album waits
   for the new IP instead of failing the same way: the album goes back to the
-  head of the queue and carries on as soon as the IP has changed. The bgutil PO-token
+  head of the queue and carries on as soon as the IP has changed. A track
+  stops trying as soon as every player client was refused (*not a bot*,
+  *Too many requests*, *rate-limited by YouTube*) instead of spending
+  minutes on attempts the same IP would refuse, so the change of IP is not
+  held back by it. The bgutil PO-token
   provider uses the same proxy. See `docker-compose.gluetun.yml`.
 - **Spotify, Deezer, Apple Music and ListenBrainz links** on the Import
   page: paste a playlist or album and every track is searched on YouTube

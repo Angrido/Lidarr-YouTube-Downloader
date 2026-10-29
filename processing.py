@@ -1382,6 +1382,8 @@ def _download_candidate_threaded(
 
     if not dl_result.get("success"):
         track_state["last_download_error"] = dl_result.get("error_message", "")
+        if dl_result.get("ip_blocked"):
+            track_state["ip_blocked"] = True
         if dl_result.get("postprocess_error"):
             track_state["postprocess_error"] = True
             track_state["error_message"] = dl_result.get("error_message", "")
@@ -1907,6 +1909,12 @@ def _download_tracks(
                 if track_state["status"] == "skipped":
                     _drop_held_unverified()
                     return
+                if track_state.get("ip_blocked"):
+                    logger.warning(
+                        "   Aborting remaining candidates for '%s': YouTube is"
+                        " refusing this IP", track_title,
+                    )
+                    break
                 if track_state.get("postprocess_error"):
                     logger.error(
                         "   Aborting remaining candidates for '%s': %s",

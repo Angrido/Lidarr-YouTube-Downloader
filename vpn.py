@@ -54,6 +54,8 @@ _BLOCK_MARKERS = (
     "confirm you're not a bot",  # not "sign in to confirm": age gates say that too
     "http error 429",
     "too many requests",
+    # What yt-dlp reports once YouTube has throttled the whole session.
+    "rate-limited by youtube",
 )
 
 _state_lock = threading.Lock()
@@ -354,10 +356,15 @@ def _record(result, reason, started):
 
 # -- automatic triggers ----------------------------------------------------
 
+def is_block(message):
+    """True when ``message`` is YouTube refusing the address (no side effects)."""
+    low = str(message or "").lower().replace("’", "'")
+    return any(marker in low for marker in _BLOCK_MARKERS)
+
+
 def note_block(message):
     """Remember that YouTube refused a request (called from the downloader)."""
-    low = str(message or "").lower().replace("’", "'")
-    if any(marker in low for marker in _BLOCK_MARKERS):
+    if is_block(message):
         if not control_url():
             return False  # nothing to rotate with: do not keep a stale flag
         with _state_lock:
