@@ -16,6 +16,7 @@ import threading
 import time
 import uuid
 
+import dedupe
 import logutil
 import models
 import vpn
@@ -776,6 +777,17 @@ def process_album_download(
         tracks_to_download = _filter_tracks(
             tracks, force, album_path, deferred,
         )
+        dedupe_plan = _plan_dedupe(
+            album_id, artist_name, album_title, tracks, tracks_to_download, cfg,
+            force=force, client_grab=client_grab, deferred=deferred,
+            album_path=album_path,
+        )
+        tracks_to_download = dedupe_plan.keep
+        if dedupe_plan.acting and dedupe_plan.library_folder:
+            return _finish_in_library(
+                album_id, album_title, artist_name,
+                dedupe_plan.library_folder, len(tracks_to_download),
+            )
 
         if len(tracks_to_download) == 0:
             _log_nothing_to_download(
@@ -788,6 +800,10 @@ def process_album_download(
                     data={"name": "RefreshArtist", "artistId": artist_id},
                 )
             skip_path = album_path if _dir_has_audio(album_path) else ""
+            if client_grab and not skip_path:
+                skip_path = _grab_library_folder(
+                    album_id, album_title, artist_name, tracks, cfg,
+                )
             return {
                 "success": True,
                 "message": "Skipped",
@@ -837,7 +853,7 @@ def process_album_download(
 
         search_artist_source = cfg.get("search_artist_source", "album")
         _resolve_track_artists(
-            tracks_to_download, artist_name, album_title,
+            dedupe_plan.download, artist_name, album_title,
             search_artist_source,
         )
 
@@ -933,7 +949,15 @@ def process_album_download(
             "cover_url": state.get("cover_url", ""),
             "lidarr_album_path": lidarr_album_path,
             "ytmusic_album": ytmusic_album,
+            "recording_ids": {
+                (_track_number(t, tracks), t.get("title", "")):
+                    str(t.get("foreignRecordingId") or "")
+                for t in tracks
+            },
         }
+        run_tracks, reused = _apply_dedupe_reuse(
+            dedupe_plan, tracks, album, album_path, album_ctx,
+        )
         state["tracks"] = [
             {
                 "track_title": t["title"],
@@ -946,14 +970,28 @@ def process_album_download(
                 "error_message": "",
                 "skip": False,
             }
-            for i, t in enumerate(tracks_to_download)
+            for i, t in enumerate(run_tracks)
         ]
+        state["tracks"].extend(reused["states"])
         (
             failed_tracks, succeeded_tracks, total_downloaded_size,
             verify_stats,
         ) = _download_tracks(
-            tracks_to_download, album_path, album, album_ctx, state,
+            run_tracks, album_path, album, album_ctx, state,
         )
+        copies = _copy_repeat_positions(
+            dedupe_plan, tracks, album, album_path, album_ctx,
+            succeeded_tracks, state,
+        )
+        succeeded_tracks.extend(reused["succeeded"] + copies["succeeded"])
+        total_downloaded_size += reused["size"] + copies["size"]
+        state["tracks"].extend(copies["states"])
+        if reused["succeeded"] and isinstance(verify_stats, dict):
+            # a reused file is as verified as the one it was copied from
+            verify_stats["verified_count"] = (
+                verify_stats.get("verified_count", 0)
+                + len(reused["succeeded"])
+            )
         if state.get("stop"):
             with queue_lock:  # stopped by the user: it must not come back
                 _blocked_albums.discard(album_id)
@@ -1285,6 +1323,241 @@ def _filter_tracks(tracks, force, album_path, deferred=None):
     return tracks_to_download
 
 
+def _local_track_file(track, album_tracks, album_path):
+    """The finished file of ``track`` in the download folder, or ``""``."""
+    ext = load_config().get("audio_format", "mp3")
+    path = os.path.join(
+        album_path,
+        f"{_track_number(track, album_tracks):02d} - "
+        f"{sanitize_filename(track.get('title', ''))}.{ext}",
+    )
+    return path if os.path.isfile(path) else ""
+
+
+def _finish_in_library(album_id, album_title, artist_name, folder, count):
+    """End a Lidarr grab on the library folder that already holds every
+    track it was missing (``dedupe_mode=reuse``): the job completes
+    without downloading and Lidarr imports from there."""
+    logger.info(
+        "   Dedupe: %d missing track(s) of %s - %s are already verified in"
+        " %s; finishing the Lidarr job without downloading",
+        count, artist_name, album_title, folder,
+    )
+    try:
+        models.add_log(
+            log_type="download_skipped", album_id=album_id,
+            album_title=album_title, artist_name=artist_name,
+            details=(
+                f"Already in the library ({count} track(s) verified);"
+                " finished without downloading"
+            ),
+        )
+    except Exception:
+        logger.debug("Could not log album %s", album_id, exc_info=True)
+    return {
+        "success": True, "message": "Already in library",
+        "album_path": folder, "total_size": dedupe.folder_size(folder),
+    }
+
+
+def _grab_library_folder(album_id, album_title, artist_name, tracks, cfg):
+    """Where a Lidarr grab with nothing left to download can finish.
+
+    The album is complete in Lidarr (every track ``hasFile``) and an earlier
+    run of this app copied it to the library, so there is nothing in the job
+    folder: without this the job fails with "No files available to import"
+    and Lidarr blocklists the release. Only in ``dedupe_mode=reuse``;
+    ``log`` records what would have happened. Returns ``""`` to fail as
+    before.
+    """
+    mode = dedupe.mode_of(cfg)
+    if mode == dedupe.MODE_OFF or not tracks:
+        return ""
+    if not all(t.get("hasFile") for t in tracks):
+        return ""
+    folder = dedupe.library_folder_with_audio(
+        album_id, cfg.get("lidarr_path", "") or "",
+    )
+    if not folder:
+        return ""
+    if mode == dedupe.MODE_LOG:
+        logger.info(
+            "   Dedupe (log only): the Lidarr job for %s - %s would finish on"
+            " %s instead of failing with 'No files available to import'",
+            artist_name, album_title, folder,
+        )
+        return ""
+    logger.info(
+        "   Dedupe: %s - %s is complete in Lidarr and in %s; finishing the"
+        " Lidarr job there", artist_name, album_title, folder,
+    )
+    return folder
+
+
+def _plan_dedupe(
+    album_id, artist_name, album_title, album_tracks, tracks_to_download,
+    cfg, *, force, client_grab, deferred, album_path,
+):
+    """``dedupe.plan_album`` that can never stop an album from downloading:
+    on any error the plan is "download everything", as before."""
+    try:
+        plan = dedupe.plan_album(
+            album_id, album_tracks, tracks_to_download, cfg,
+            force=force, client_grab=client_grab, deferred=deferred,
+            local_file=lambda t: _local_track_file(t, album_tracks, album_path),
+            library_root=cfg.get("lidarr_path", "") or "",
+            download_dir=DOWNLOAD_DIR,
+            audio_ext=cfg.get("audio_format", "mp3"),
+            artist_name=artist_name, album_title=album_title,
+        )
+    except Exception:
+        logger.warning(
+            "Dedupe planning failed for album %s; downloading everything",
+            album_id, exc_info=True,
+        )
+        plan = dedupe.Plan(
+            download=list(tracks_to_download), keep=list(tracks_to_download),
+        )
+    dedupe.log_plan(plan, album_title)
+    return plan
+
+
+def _copy_track_for_album(
+    track, source_path, source, *, album_tracks, album, album_path,
+    album_ctx,
+):
+    """Write ``track`` into this album from an existing file of the same
+    recording: copy, tag for this album, then the normal accept step (XML,
+    extras, history row). Returns ``(succeeded_entry, size, state_entry)``,
+    or ``None`` if anything fails (the track is then downloaded normally).
+    """
+    cfg = load_config()
+    audio_ext = cfg.get("audio_format", "mp3")
+    title = track.get("title", "")
+    track_num = _track_number(track, album_tracks)
+    sanitized = sanitize_filename(title)
+    temp = os.path.join(album_path, f"temp_{track_num:02d}_reuse.{audio_ext}")
+    track_state = {
+        "track_title": title, "track_number": track_num, "status": "tagging",
+        "youtube_url": source.get("youtube_url", ""),
+        "youtube_title": source.get("youtube_title", ""),
+        "progress_percent": "", "progress_speed": "", "error_message": "",
+        "skip": False,
+    }
+    try:
+        shutil.copyfile(source_path, temp)
+        dedupe.strip_tags(temp)
+        if tag_audio_file(temp, track, album, album_ctx["cover_data"]) is False:
+            raise RuntimeError("could not tag the copy")
+        duration = int((track.get("duration") or 0) / 1000)
+        size, td_id = _accept_track_file(
+            temp, track_num, sanitized,
+            {
+                "youtube_url": source.get("youtube_url", ""),
+                "youtube_title": source.get("youtube_title", ""),
+                "match_score": source.get("match_score", 0.0),
+                "duration_seconds": duration,
+                "source_format": "reused",
+            },
+            {
+                "acoustid_fingerprint_id": source.get(
+                    "acoustid_fingerprint_id", "",
+                ),
+                "acoustid_score": source.get("acoustid_score", 0.0),
+                "acoustid_recording_id": source.get(
+                    "acoustid_recording_id", "",
+                ),
+                "acoustid_recording_title": source.get(
+                    "acoustid_recording_title", "",
+                ),
+            },
+            track_state=track_state, track_title=title,
+            album_path=album_path, album_ctx=album_ctx,
+            track_artist=track.get("artist") or album_ctx["artist_name"],
+            recording_id=dedupe.recording_key(track),
+            reused_from=source.get("id") or 0,
+        )
+    except Exception as exc:
+        logger.warning(
+            "   Could not reuse the file of '%s' (%s); it will be downloaded"
+            " instead", title, exc,
+        )
+        _cleanup_temp_files(os.path.splitext(temp)[0])
+        return None
+    entry = {
+        "title": title, "track_num": track_num, "track_download_id": td_id,
+        "youtube_url": source.get("youtube_url", ""),
+        "youtube_title": source.get("youtube_title", ""),
+    }
+    return entry, size, track_state
+
+
+def _apply_dedupe_reuse(plan, album_tracks, album, album_path, album_ctx):
+    """Copy the tracks the plan found in other albums (``dedupe_mode=reuse``).
+
+    Returns ``(tracks_still_to_download, result)``; a track whose copy
+    fails stays in the list.
+    """
+    result = {"succeeded": [], "size": 0, "states": []}
+    run_tracks = list(plan.download)
+    for reuse in plan.reuse:
+        done = _copy_track_for_album(
+            reuse.track, reuse.path, reuse.source,
+            album_tracks=album_tracks, album=album, album_path=album_path,
+            album_ctx=album_ctx,
+        )
+        if done is None:
+            run_tracks.append(reuse.track)
+            continue
+        entry, size, track_state = done
+        result["succeeded"].append(entry)
+        result["size"] += size
+        track_state["status"] = "done"
+        result["states"].append(track_state)
+        logger.info(
+            "   Reused '%s' from %s - %s (no download)",
+            entry["title"], reuse.source.get("artist_name", ""),
+            reuse.source.get("album_title", ""),
+        )
+    return run_tracks, result
+
+
+def _copy_repeat_positions(
+    plan, album_tracks, album, album_path, album_ctx, succeeded_tracks,
+    state,
+):
+    """Write the other positions of a recording that repeats in this
+    release (``dedupe_same_album=copy``) once the first one has its file."""
+    result = {"succeeded": [], "size": 0, "states": []}
+    if state.get("stop"):
+        return result
+    ids = {s["title"]: s.get("track_download_id") for s in succeeded_tracks}
+    for track, leader, path in plan.repeats:
+        source_path = path or _local_track_file(
+            leader, album_tracks, album_path,
+        )
+        if not source_path:
+            logger.debug(
+                "   '%s' repeats '%s', which has no file yet; left for the"
+                " next run", track.get("title", ""), leader.get("title", ""),
+            )
+            continue
+        done = _copy_track_for_album(
+            track, source_path,
+            {"id": ids.get(leader.get("title", "")) or 0},
+            album_tracks=album_tracks, album=album, album_path=album_path,
+            album_ctx=album_ctx,
+        )
+        if done is None:
+            continue
+        entry, size, track_state = done
+        result["succeeded"].append(entry)
+        result["size"] += size
+        track_state["status"] = "done"
+        result["states"].append(track_state)
+    return result
+
+
 def _cleanup_temp_files(temp_file):
     """Remove temp download files for all common extensions."""
     for ext in [".mp3", ".opus", ".flac", ".aac", ".ogg", ".webm", ".m4a", ".part", ""]:
@@ -1429,13 +1702,22 @@ def _accept_track_file(
     src_file, track_num, sanitized_track, dl_result, fp_data,
     *, track_state, track_title, album_path, album_ctx,
     candidate_attempts=None, track_artist=None,
+    recording_id="", reused_from=0,
 ):
     """Accept a downloaded file: XML metadata, move, record in DB.
+
+    ``recording_id`` (the MusicBrainz recording Lidarr expects; by default
+    looked up in ``album_ctx["recording_ids"]``) and ``reused_from`` (the
+    history row a copied file came from) feed the "never fetch the same
+    recording twice" lookup, see ``dedupe``.
 
     Returns:
         Tuple of (file_size_bytes, track_download_id or None).
     """
     cfg = load_config()
+    recording_id = recording_id or album_ctx.get("recording_ids", {}).get(
+        (track_num, track_title), "",
+    )
     if cfg.get("xml_metadata_enabled", True):
         logger.info("Creating XML metadata file...")
         create_xml_metadata(
@@ -1492,6 +1774,8 @@ def _accept_track_file(
                 "acoustid_recording_title", "",
             ),
             source_format=dl_result.get("source_format", ""),
+            recording_id=recording_id, file_path=final_file,
+            file_size=file_size, reused_from=reused_from,
         )
     except Exception:
         logger.error(

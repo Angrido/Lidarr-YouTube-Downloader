@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 
 import db
+from utils import video_id_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -113,8 +114,15 @@ def add_track_download(
     acoustid_fingerprint_id="", acoustid_score=0.0,
     acoustid_recording_id="", acoustid_recording_title="",
     track_artist="", source_format="",
+    recording_id="", file_path="", file_size=0, reused_from=0,
 ):
-    """Record a single track download attempt."""
+    """Record a single track download attempt.
+
+    ``recording_id`` is the MusicBrainz recording the track stands for,
+    ``file_path`` / ``file_size`` the file written and ``reused_from`` the
+    id of the row it was copied from (0 = downloaded). The video id is
+    taken from ``youtube_url``.
+    """
     conn = db.get_db()
     cursor = conn.execute(
         """INSERT INTO track_downloads
@@ -124,9 +132,10 @@ def add_track_download(
             album_path, lidarr_album_path, cover_url,
             acoustid_fingerprint_id, acoustid_score,
             acoustid_recording_id, acoustid_recording_title,
-            track_artist, source_format, timestamp)
+            track_artist, source_format, timestamp,
+            recording_id, video_id, file_path, file_size, reused_from)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                   ?, ?, ?, ?, ?, ?, ?)""",
+                   ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             album_id, album_title, artist_name, track_title,
             track_number, int(success), error_message, youtube_url,
@@ -135,10 +144,73 @@ def add_track_download(
             acoustid_fingerprint_id, acoustid_score,
             acoustid_recording_id, acoustid_recording_title,
             track_artist, source_format, time.time(),
+            (recording_id or "").strip().lower(), video_id_from_url(youtube_url),
+            file_path or "", int(file_size or 0), int(reused_from or 0),
         ),
     )
     conn.commit()
     return cursor.lastrowid
+
+
+def get_verified_sources(recording_id, limit=8):
+    """Stored successes of ``recording_id`` whose fingerprint matched it.
+
+    Only rows whose AcoustID result is that very recording qualify (the
+    audio was identified, not just accepted), newest first. Rows from a
+    playlist import (negative ``album_id``) and from earlier reuse are fine:
+    a copy of a verified file is as verified as the file.
+    """
+    if not recording_id:
+        return []
+    conn = db.get_db()
+    rows = conn.execute(
+        """
+        SELECT id, album_id, album_title, artist_name, track_title,
+               track_number, album_path, lidarr_album_path, file_path,
+               duration_seconds, youtube_url, youtube_title, video_id,
+               match_score, source_format, acoustid_fingerprint_id,
+               acoustid_score, acoustid_recording_id,
+               acoustid_recording_title, timestamp
+        FROM track_downloads
+        WHERE success = 1
+          AND recording_id = ? AND recording_id != ''
+          AND acoustid_recording_id = ?
+        ORDER BY timestamp DESC
+        LIMIT ?
+        """,
+        (recording_id, recording_id, limit),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_recent_library_copy_album_ids(since_timestamp):
+    """Album ids this app copied into the library since a time.
+
+    A copy to the library is what ends a normal run; Lidarr can lag behind
+    it for hours (``RefreshArtist`` queued behind a rescan), so for that
+    long the album looks missing to Lidarr although it is not.
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT DISTINCT album_id FROM track_downloads"
+        " WHERE success = 1 AND album_id > 0 AND timestamp >= ?"
+        " AND COALESCE(lidarr_album_path, '') != ''",
+        (since_timestamp,),
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
+def get_library_folders(album_id, limit=3):
+    """Library folders this app copied ``album_id`` to, newest first."""
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT lidarr_album_path FROM track_downloads"
+        " WHERE album_id = ? AND success = 1"
+        " AND COALESCE(lidarr_album_path, '') != ''"
+        " GROUP BY lidarr_album_path ORDER BY MAX(timestamp) DESC LIMIT ?",
+        (album_id, limit),
+    ).fetchall()
+    return [row[0] for row in rows]
 
 
 def set_lidarr_album_path(album_id, since_ts, path):

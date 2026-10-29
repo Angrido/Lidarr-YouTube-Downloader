@@ -80,6 +80,7 @@ docker run -p 5005:5000 \
 | `processing.py` | Album processing, queue processor, per-track state, skip handling |
 | `metadata.py` | ID3 tagging, XML sidecar, iTunes API |
 | `lidarr.py` | Lidarr API wrapper |
+| `dedupe.py` | Never fetch the same recording twice: `plan_album()` decides, per track still pending, whether it is a repeat of another position of the same release, already downloaded for this album, or reusable from a verified file of another album; `processing` does the copying (`_apply_dedupe_reuse`, `_copy_repeat_positions`, `_copy_track_for_album`). See *Never fetch the same recording twice* |
 | `lidarr_sync.py` | Background paginated sync of Lidarr's missing albums into `missing_albums_cache` |
 | `library.py` | Lidarr lookup / add API used by Explore: MusicBrainz search through Lidarr, add artists/albums, monitor, queue when the tracklist is ready |
 | `explore.py` | Explore catalog: shared YT Music client, TTL cache, normalizers + raw-shelf fallback parser, YT Music → MusicBrainz/Lidarr mapping, add / YouTube-import actions (`/explore`) |
@@ -113,7 +114,7 @@ State is stored in SQLite at `/config/lidarr-downloader.db`. Tables: `schema_ver
 
 **`album_id` id space:** a positive `album_id` is a real Lidarr album id. YouTube playlist imports have no Lidarr album, so each import is assigned a **unique negative `album_id`** (`models.next_playlist_album_id()`), keeping its tracks distinct in the history / failed-track retry views. This negative space is disjoint from Lidarr's and must never be joined to Lidarr or sent to the Lidarr API (e.g. `download_client.py` assumes positive ids). Retry resolves a negative id's context from the stored `track_downloads` row instead of Lidarr.
 
-Current schema version: **12**. Migrations:
+Current schema version: **13**. Migrations:
 - V1→V2: Replaced `download_history` + `failed_tracks` with `track_downloads` (per-track download records with YouTube URL, match score, duration, album/track metadata).
 - V2→V3: Added AcoustID fingerprint columns to `track_downloads` (`acoustid_fingerprint_id`, `acoustid_score`, `acoustid_recording_id`, `acoustid_recording_title`).
 - V3→V4: Added `banned_urls` table for tracking banned YouTube URLs per album/track.
@@ -125,6 +126,8 @@ Current schema version: **12**. Migrations:
 - V9→V10: Added `source_format` to `track_downloads`, a human-readable summary of the YouTube source stream actually downloaded (format id · container · bitrate, e.g. `140 · m4a · 128 kbps`), for the per-track audio-quality report in the download history.
 - V10→V11: Added `force` to `download_queue`, marking an entry as an explicit user request (manual "Add to Queue"). A forced entry bypasses the per-track retry backoff; the scheduler enqueues without it.
 - V11→V12: Added `album_source_hints` (`album_id` → YT Music `playlist_id` + `browse_id`), written when Explore adds an album so `process_album_download` downloads from that album playlist instead of searching for it. Positive `album_id`s only.
+
+- V12→V13: Added `recording_id`, `video_id`, `file_path`, `file_size`, `reused_from` to `track_downloads` plus partial indexes on `recording_id` / `video_id`, and backfilled the successes (`recording_id` from `acoustid_recording_id`, `video_id` from the URL; ~1.2 s on a 58 k-success database, safe to run twice). `recording_id` is the MusicBrainz recording the track stands for (what Lidarr expects for new rows), `reused_from` the `track_downloads.id` a copied file came from (0 = downloaded).
 
 **Retention:** after each successful Lidarr sync, `lidarr_sync._prune_old_history()` calls `models.prune_old_records()` with a cutoff of `HISTORY_RETENTION_DAYS` (90), or the retry cooldown if longer. `download_logs` and `candidate_attempts` go by age; a `track_downloads` row goes only when it is a failure a later success of the same track superseded — the remaining rows drive the backoff, and successes are how playlist watch and artist import know what is already imported, so never prune those by age.
 
@@ -338,6 +341,19 @@ Intro, Outro, Interlude, Skit, [untitled]…) require the artist's channel,
 YT Music artist credit or name in the title, and phase 2 reuses phase 1's
 fetched results.
 
+### Never fetch the same recording twice (`dedupe.py`)
+
+A Lidarr release can list one recording at several positions (box releases that repeat the album on every medium: *Appetite for Destruction* is one release with 280 tracks and 62 recordings) and the same recording sits on the single, the album and the compilations. Identity is the track's `foreignRecordingId` (never title alone; `[silence]` / `[data track]` are never matched). `process_album_download` calls `_plan_dedupe()` right after `_filter_tracks()`; the plan never blocks an album (any error → download everything).
+
+- `dedupe_mode`: `off` | `log` (default: decide and log `Dedupe (log only): …`, change nothing) | `reuse`.
+- **Repeats in one release** (`dedupe_same_album`): the first position (medium, then number) downloads; the others are `skip`ped (default; Lidarr keeps showing them as missing, the app treats them as done and the album logs "Nothing to download" instead of looping) or `copy`-ed from its file after the run. A sibling already in Lidarr (`hasFile`), already on disk, or backing off covers the rest. A Lidarr download-client grab always uses `copy`: Lidarr imports what is in the job folder and a missing position would fail the import.
+- **Across albums** (`dedupe_cross_album`; another *edition* of the same album — same artist, same title once "Deluxe", "Expanded Edition"… are dropped, `dedupe.is_edition()` — is always eligible, whatever this switch says): `models.get_verified_sources()` returns stored successes whose AcoustID result *is* that recording (`acoustid_recording_id = recording_id`; unverified rows never qualify). `find_source_file()` looks for the file in the row's library folder or, since Lidarr's rename moves files to the artist folder, in its parent by name; the tag's recording id (or, untagged, the duration) must agree. With `lidarr_path` set only the library counts — `/downloads` folders are deleted by the sweeper. The file is copied (never moved, never hardlinked), tags are stripped and rewritten for the new album, then `_accept_track_file` records it (`source_format='reused'`, `reused_from`, the source's AcoustID fields so it can be a source in turn). If anything fails the track is downloaded normally.
+- A verified file already downloaded for *this* album (history survives the download-folder cleanup and Lidarr not having mapped it yet) counts as done — this stops the periodic re-download of albums Lidarr never marked as having files. Not for grabs (they need the file in the job folder).
+- **Lidarr and the app on the same album** (all behind `dedupe_mode`): the app's path (queue / scheduler / Explore → copy to `/music`, `RefreshArtist`) and Lidarr's (grab through the bridge) cannot see each other's state, and Lidarr's `hasFile` lags behind a copy. (1) A grab whose missing tracks all have a verified file of *this* album in the library (`plan.library_folder`), or whose album is complete in Lidarr with nothing in the job folder (`_grab_library_folder`: every track `hasFile`, and `models.get_library_folders()` has a folder in `lidarr_path` that still holds audio), finishes on that library folder through `_finish_in_library()` — `run_album_job` marks it completed with that `storage`, instead of failing with "No files available to import" and getting the release blocklisted. If only some are there, they are copied into the job folder and the rest is downloaded. (2) `download_client._excluded_album_ids()` also holds back, for the retry cooldown, the albums this app copied to the library (`dedupe.feed_hidden_album_ids()`, `models.get_recent_library_copy_album_ids()`); a grab that arrives while the app is downloading the album already waits at the head of the queue (`Busy`). `log` mode hides and completes nothing and logs what it would (`would hide album N from the Lidarr feed`, `the Lidarr job … would finish on …`). `orphan_import.py` is untouched: it still imports what was grabbed and left in `/downloads`.
+- `force=True` (re-download) bypasses all of it; the manual retry endpoints never reach it.
+- `recording_id` reaches `_accept_track_file` through `album_ctx["recording_ids"]` (`{(track_number, title): foreignRecordingId}`, built in `process_album_download`), so the per-track download code is untouched. Settings › *Duplicate tracks* edits the three keys.
+- Left out on purpose: no waiting for the same recording being downloaded by another album at that very moment, no reuse for YouTube playlist imports, no reuse of files Lidarr imported from a grab (the app cannot find them).
+
 ### Multi-disc albums
 
 Lidarr's `trackNumber` restarts on every disc. On an album whose tracks span
@@ -349,6 +365,8 @@ name from, and the number `/api/download/queue/<id>/tracks` hands the manual
 download. Tags keep the per-disc number and add the disc
 (`metadata._disc_position()`: TPOS / `discnumber`+`disctotal` / `disk`).
 Single-disc albums are unchanged.
+
+The track total in `TRCK` / `trkn` / `tracknumber` comes from `metadata._track_total()`: an explicit `trackCount` in the album dict (the manual / playlist paths set one), else the number of tracks on that track's disc, else the monitored release's `trackCount`, else `statistics.trackCount`. Lidarr's album resource has **no top-level `trackCount`**, so reading only that key tagged every Lidarr download `N/0`.
 
 ### MusicBrainz id frames
 
@@ -698,4 +716,4 @@ Run tests with the venv:
 source .venv/bin/activate && python -m pytest tests/ -v
 ```
 
-Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`, `test_explore.py` (fixtures in `tests/fixtures/ytmusic/`), `test_vpn.py` (against a fake gluetun HTTP server), `test_auth.py`, `test_external_playlists.py`, `test_youtube_external.py`, `test_ytdlp_update.py`, `test_frontend_js.py` (runs `tests/js/*.test.js` under node; skipped without node).
+Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`, `test_explore.py` (fixtures in `tests/fixtures/ytmusic/`), `test_vpn.py` (against a fake gluetun HTTP server), `test_auth.py`, `test_external_playlists.py`, `test_youtube_external.py`, `test_ytdlp_update.py`, `test_dedupe.py` (real tiny MP3s, a temp DB and a fake Lidarr album), `test_frontend_js.py` (runs `tests/js/*.test.js` under node; skipped without node).

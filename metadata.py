@@ -64,6 +64,42 @@ def _disc_position(track_info, album_info):
     return disc, max(discs)
 
 
+def _positive_int(value):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return number if number > 0 else 0
+
+
+def _track_total(track_info, album_info):
+    """The track total for the TRCK / trkn / tracknumber tag.
+
+    Lidarr's album resource has no ``trackCount`` of its own (the count is
+    in ``statistics`` and on each release), so reading only that key wrote
+    "N/0" on every file taken from a Lidarr album. An explicit
+    ``trackCount`` (the other download paths set one) still wins; otherwise
+    it is the number of tracks on this track's disc, then the monitored
+    release's count, then ``statistics``.
+    """
+    explicit = _positive_int(album_info.get("trackCount"))
+    if explicit:
+        return explicit
+    tracks = album_info.get("tracks") or ()
+    disc = _positive_int(track_info.get("mediumNumber"))
+    on_disc = [
+        t for t in tracks
+        if not disc or _positive_int(t.get("mediumNumber")) in (0, disc)
+    ]
+    if on_disc:
+        return len(on_disc)
+    release = get_monitored_release(album_info)
+    if isinstance(release, dict) and _positive_int(release.get("trackCount")):
+        return _positive_int(release.get("trackCount"))
+    stats = album_info.get("statistics")
+    return _positive_int(stats.get("trackCount")) if isinstance(stats, dict) else 0
+
+
 def _track_artist(track_info, album_info):
     return track_info.get("trackArtist") or album_info["artist"]["artistName"]
 
@@ -112,7 +148,7 @@ def tag_mp3(file_path, track_info, album_info, cover_data):
             audio.tags.add(
                 TRCK(
                     encoding=3,
-                    text=f"{t_num}/{album_info.get('trackCount') or 0}",
+                    text=f"{t_num}/{_track_total(track_info, album_info)}",
                 )
             )
         except (ValueError, KeyError):
@@ -162,7 +198,7 @@ def tag_opus(file_path, track_info, album_info, cover_data):
 
         try:
             t_num = int(track_info["trackNumber"])
-            total = album_info.get("trackCount") or 0
+            total = _track_total(track_info, album_info)
             audio["tracknumber"] = [f"{t_num}/{total}"]
         except (ValueError, KeyError):
             pass
@@ -223,7 +259,7 @@ def tag_m4a(file_path, track_info, album_info, cover_data):
 
         try:
             t_num = int(track_info["trackNumber"])
-            total = album_info.get("trackCount") or 0
+            total = _track_total(track_info, album_info)
             audio["trkn"] = [(t_num, total)]
         except (ValueError, KeyError):
             pass

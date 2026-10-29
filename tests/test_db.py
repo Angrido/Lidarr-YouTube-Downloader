@@ -593,7 +593,7 @@ def test_v11_to_v12_adds_album_source_hints(temp_db):
     assert {"album_id", "playlist_id", "browse_id", "source", "created_at"} <= cols
 
 
-def test_fresh_install_reaches_v12_with_hints_table(temp_db):
+def test_fresh_install_reaches_current_schema_with_hints_table(temp_db):
     init_db()
     conn = get_db()
     tables = {r[0] for r in conn.execute(
@@ -603,8 +603,9 @@ def test_fresh_install_reaches_v12_with_hints_table(temp_db):
     versions = [r[0] for r in conn.execute(
         "SELECT version FROM schema_version ORDER BY version"
     )]
-    assert versions[-1] == SCHEMA_VERSION == 12
+    assert versions[-1] == SCHEMA_VERSION == 13
     assert 12 in versions
+    assert 13 in versions
 
 
 def test_ensure_current_tables_recreates_missing_hints_table(temp_db):
@@ -617,3 +618,101 @@ def test_ensure_current_tables_recreates_missing_hints_table(temp_db):
         "SELECT name FROM sqlite_master WHERE type='table'"
     )}
     assert "album_source_hints" in tables
+
+
+def _v12_track_downloads(temp_db):
+    """A schema-12 database holding a few rows to backfill."""
+    init_db()
+    conn = get_db()
+    conn.execute("DELETE FROM schema_version WHERE version = 13")
+    conn.execute("DROP INDEX IF EXISTS idx_track_dl_recording_id")
+    conn.execute("DROP INDEX IF EXISTS idx_track_dl_video_id")
+    for col in ("recording_id", "video_id", "file_path", "file_size",
+                "reused_from"):
+        conn.execute(f"ALTER TABLE track_downloads DROP COLUMN {col}")
+    rows = [
+        # (album, title, success, url, acoustid recording)
+        (1, "A", 1, "https://music.youtube.com/watch?v=abcdefghijk", "rec-1"),
+        (1, "B", 1, "https://www.youtube.com/watch?v=lmnopqrstuv&t=3", ""),
+        (2, "C", 0, "https://www.youtube.com/watch?v=zzzzzzzzzzz", "rec-9"),
+        (2, "D", 1, "", "rec-2"),
+        (2, "E", 1, "not a url", ""),
+    ]
+    for album_id, title, ok, url, rec in rows:
+        conn.execute(
+            "INSERT INTO track_downloads (album_id, album_title, artist_name,"
+            " track_title, success, youtube_url, acoustid_recording_id,"
+            " timestamp) VALUES (?, 'Alb', 'Art', ?, ?, ?, ?, 1.0)",
+            (album_id, title, ok, url, rec),
+        )
+    conn.commit()
+    return conn
+
+
+def test_v12_to_v13_adds_columns_and_backfills(temp_db):
+    conn = _v12_track_downloads(temp_db)
+    import db as db_mod
+    db_mod._migrate_v12_to_v13(conn)
+    conn.commit()
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(track_downloads)")}
+    assert {"recording_id", "video_id", "file_path", "file_size",
+            "reused_from"} <= cols
+    got = {
+        r["track_title"]: (r["recording_id"], r["video_id"])
+        for r in conn.execute(
+            "SELECT track_title, recording_id, video_id FROM track_downloads"
+        )
+    }
+    assert got["A"] == ("rec-1", "abcdefghijk")
+    assert got["B"] == ("", "lmnopqrstuv")
+    # Failures are not backfilled: only a stored success can be reused.
+    assert got["C"] == ("", "")
+    assert got["D"] == ("rec-2", "")
+    assert got["E"] == ("", "")
+
+
+def test_v12_to_v13_is_idempotent_and_keeps_existing_values(temp_db):
+    conn = _v12_track_downloads(temp_db)
+    import db as db_mod
+    db_mod._migrate_v12_to_v13(conn)
+    conn.execute(
+        "UPDATE track_downloads SET recording_id = 'kept', file_size = 7"
+        " WHERE track_title = 'A'"
+    )
+    conn.commit()
+    db_mod._migrate_v12_to_v13(conn)  # second run must not fail or clobber
+    conn.commit()
+    row = conn.execute(
+        "SELECT recording_id, file_size FROM track_downloads"
+        " WHERE track_title = 'A'"
+    ).fetchone()
+    assert (row["recording_id"], row["file_size"]) == ("kept", 7)
+
+
+def test_v13_indexes_exist_and_are_used(temp_db):
+    init_db()
+    conn = get_db()
+    names = {r[1] for r in conn.execute("PRAGMA index_list(track_downloads)")}
+    assert {"idx_track_dl_recording_id", "idx_track_dl_video_id"} <= names
+    plan = " ".join(
+        r[3] for r in conn.execute(
+            "EXPLAIN QUERY PLAN SELECT id FROM track_downloads"
+            " WHERE recording_id = 'x' AND recording_id != ''"
+        )
+    )
+    assert "idx_track_dl_recording_id" in plan
+
+
+def test_upgrade_from_v12_runs_the_migration_on_init(temp_db):
+    _v12_track_downloads(temp_db)
+    close_db()
+    init_db()
+    conn = get_db()
+    assert conn.execute(
+        "SELECT MAX(version) FROM schema_version"
+    ).fetchone()[0] == SCHEMA_VERSION
+    row = conn.execute(
+        "SELECT recording_id, video_id FROM track_downloads"
+        " WHERE track_title = 'A'"
+    ).fetchone()
+    assert (row["recording_id"], row["video_id"]) == ("rec-1", "abcdefghijk")
