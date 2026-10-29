@@ -25,3 +25,7 @@ def test_aura_palette():
 
 def test_motion_helpers():
     _run_node("motion.test.js")
+
+
+def test_queue_eta_wording():
+    _run_node("queue-eta.test.js")

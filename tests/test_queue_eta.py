@@ -367,3 +367,11 @@ class TestRoute:
         data = client.get("/api/stats").get_json()
         assert set(data) == {"in_queue", "queued", "active",
                              "downloaded_today", "queue_paused"}
+
+    def test_pages_carry_the_eta_markup(self, client):
+        downloads = client.get("/downloads").get_data(as_text=True)
+        assert 'id="queueEta"' in downloads
+        assert "/static/queue-eta.js" in downloads
+        library = client.get("/").get_data(as_text=True)
+        assert 'id="queueEtaMeta"' in library
+        assert "/static/queue-eta.js" in library
