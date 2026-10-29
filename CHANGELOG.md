@@ -81,6 +81,12 @@
   disappearing after four seconds. Long playlists scroll faster.
 
 ### Fixed
+- **Track total in the tags**: files taken from a Lidarr album were tagged
+  with a total of 0 (`TRCK` `1/0`, `trkn` `(1, 0)`, `tracknumber` `1/0`)
+  because Lidarr's album has no `trackCount` of its own. The total is now
+  the number of tracks on that disc (falling back to the release's count),
+  for MP3, M4A and Opus; a copy made by the duplicate-track reuse gets it
+  too.
 - **Fewer vulnerabilities in the image**: the container drops to `PUID` /
   `PGID` with `setpriv` (util-linux, already in the base image) instead of
   `gosu`. Debian's `gosu` is a Go binary built with Go 1.24.4, which image

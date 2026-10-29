@@ -366,6 +366,8 @@ download. Tags keep the per-disc number and add the disc
 (`metadata._disc_position()`: TPOS / `discnumber`+`disctotal` / `disk`).
 Single-disc albums are unchanged.
 
+The track total in `TRCK` / `trkn` / `tracknumber` comes from `metadata._track_total()`: an explicit `trackCount` in the album dict (the manual / playlist paths set one), else the number of tracks on that track's disc, else the monitored release's `trackCount`, else `statistics.trackCount`. Lidarr's album resource has **no top-level `trackCount`**, so reading only that key tagged every Lidarr download `N/0`.
+
 ### MusicBrainz id frames
 
 Lidarr's track resource carries **two different** MusicBrainz ids, and they are
