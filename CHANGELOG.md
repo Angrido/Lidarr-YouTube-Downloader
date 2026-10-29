@@ -9,8 +9,12 @@
   new IP — with **Change IP now**, every N albums, or after YouTube blocked
   a request (*Sign in to confirm you're not a bot*, *Too many requests*).
   The IP only changes while nothing is downloading: the queue lets the
-  running albums finish, changes the IP, then carries on. The bgutil
-  PO-token provider uses the same proxy. See `docker-compose.gluetun.yml`.
+  running albums finish, changes the IP, then carries on (a manual retry
+  of a failed track counts as a running download, so it is never cut off).
+  A track that fails while YouTube is blocking is not held against it: it
+  does not count toward its retry backoff, and the rest of that album waits
+  for the new IP instead of failing the same way. The bgutil PO-token
+  provider uses the same proxy. See `docker-compose.gluetun.yml`.
 - **Spotify, Deezer, Apple Music and ListenBrainz links** on the YouTube
   page: paste a playlist or album and every track is searched on YouTube
   (same scoring as Lidarr albums), tagged with its own artist and saved

@@ -176,7 +176,26 @@ failures included; the triggers reset only after a successful rotation).
 `_dispatch_next_from_queue()` rotates only when nothing is downloading, and
 while a rotation is due but downloads are still active it starts nothing new,
 so the running albums drain and the rotation is not postponed forever by a
-busy queue; `vpn.defer()` backs off if the check itself raises.
+busy queue; `vpn.defer()` backs off if the check itself raises. It calls
+`vpn.rotate_if_due(busy=any_download_active)`, which asks again once
+`_rotate_lock` is held (every download entry point refuses while it is), so a
+download that started after the first look is seen.
+
+A block is also the IP's fault, not the track's: `vpn.blocks_seen()` is a
+monotonic counter (not the `block_seen` flag, which stays set until a
+rotation succeeds) that `processing._download_tracks` compares before and
+after each track. When `vpn.rotates_on_block()` (control URL set and
+`vpn_rotate_on_block`) and a track fails with the counter higher, the reason
+gets `models.BLOCKED_PREFIX` ("YouTube blocked this IP"), which — like the
+host and disk-full prefixes — is left out of `get_track_failure_counts` /
+`get_stuck_tracks`, and the tracks of that run not started yet are skipped
+(no row, so the next run downloads them on the new IP). A block that a track
+survives (another player client worked) stops nothing; without a rotation to
+come nothing changes at all. The failed-tracks retry
+(`POST /api/download/manual`) downloads inside its request and holds no slot,
+so it runs inside `processing.inline_download()`, which
+`any_download_active()` counts; it enters it *before* re-checking
+`vpn.rotating()`, the counterpart of the check-after-lock above.
 `automatic_downloads_held()` is true while `vpn.rotating()`, and the manual
 downloads (409), playlist imports (409) and the Explore artist import wait
 while it is. `POST /api/vpn/rotate` takes `_rotate_lock` first, refuses (409)
@@ -199,7 +218,7 @@ A foreground album's `download_queue` row is not deleted when it starts: `_dispa
 
 ### Scheduler
 
-Optional `schedule` library job polls for missing albums and auto-downloads at configured intervals. Albums attempted within `scheduler_retry_after_hours` are skipped (`models.get_attempted_album_ids_since`, which keys off **any** `download_logs` row for the album, or any `track_downloads` row so clearing logs doesn't reset the window — so every early exit in `process_album_download` must still write a log, or the album is re-queued every cycle; use `processing._log_album_error()`). Failures recorded as host problems (`error_message` starting with `models.HOST_FAILURE_PREFIX`, "Audio postprocessing failed", or `models.DISK_FULL_PREFIX`, "Download disk is full", which `_process_track_body` prepends when the last download error says "no space left") are not counted toward a track's consecutive failures. `scheduled_check()` and the scheduler loop catch and log exceptions so one bad cycle can't kill the thread. `processing.any_download_active()` (foreground **or** any download-client job) gates `/api/restart` and `/api/backup/import`.
+Optional `schedule` library job polls for missing albums and auto-downloads at configured intervals. Albums attempted within `scheduler_retry_after_hours` are skipped (`models.get_attempted_album_ids_since`, which keys off **any** `download_logs` row for the album, or any `track_downloads` row so clearing logs doesn't reset the window — so every early exit in `process_album_download` must still write a log, or the album is re-queued every cycle; use `processing._log_album_error()`). Failures recorded as host problems (`error_message` starting with `models.HOST_FAILURE_PREFIX`, "Audio postprocessing failed", `models.DISK_FULL_PREFIX`, "Download disk is full", which `_process_track_body` prepends when the last download error says "no space left", or `models.BLOCKED_PREFIX`, "YouTube blocked this IP", prepended when a VPN rotation is set to answer the block, see the gluetun section) are not counted toward a track's consecutive failures. `scheduled_check()` and the scheduler loop catch and log exceptions so one bad cycle can't kill the thread. `processing.any_download_active()` (foreground, any download-client job **or** a retry running inside its request, `inline_download()`) gates `/api/restart` and `/api/backup/import`.
 
 **Retry backoff (issue #90):** `process_album_download` decides what to download *before* any network work — it computes `album_path`, calls `_compute_deferred_tracks()` + `_filter_tracks()`, and returns "Skipped" early if nothing is left. Tracks that keep failing back off exponentially (`scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days) from their consecutive-failure count in `track_downloads` (`models.get_track_failure_counts`), so a song that simply isn't on YouTube stops costing a cover-art fetch, per-track artist lookups and a YT Music resolution every cycle. Manual queue adds (`download_queue.force`) and Lidarr grabs (`client_grab`) bypass the backoff.
 

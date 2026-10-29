@@ -37,6 +37,9 @@ MAX_PER_PAGE = 500
 HOST_FAILURE_PREFIX = "Audio postprocessing failed"
 # Also a host problem, not the track's: not counted toward its backoff.
 DISK_FULL_PREFIX = "Download disk is full"
+# Also not the track's fault: YouTube refused this IP and the VPN is about to
+# change it (see processing._download_tracks and vpn.rotates_on_block).
+BLOCKED_PREFIX = "YouTube blocked this IP"
 
 
 def _paginate(query_with_limit, count_query, params, page, per_page):
@@ -280,6 +283,7 @@ def get_track_failure_counts(album_id):
           AND f.success = 0
           AND COALESCE(f.error_message, '') NOT LIKE ?
           AND COALESCE(f.error_message, '') NOT LIKE ?
+          AND COALESCE(f.error_message, '') NOT LIKE ?
           AND f.timestamp > COALESCE((
                 SELECT MAX(s.timestamp) FROM track_downloads AS s
                 WHERE s.album_id = f.album_id
@@ -288,7 +292,8 @@ def get_track_failure_counts(album_id):
               ), 0)
         GROUP BY f.track_title
         """,
-        (album_id, HOST_FAILURE_PREFIX + "%", DISK_FULL_PREFIX + "%"),
+        (album_id, HOST_FAILURE_PREFIX + "%", DISK_FULL_PREFIX + "%",
+         BLOCKED_PREFIX + "%"),
     ).fetchall()
     return {
         row["track_title"]: {
@@ -302,8 +307,8 @@ def get_track_failure_counts(album_id):
 def get_stuck_tracks(min_failures=3, limit=50):
     """Tracks with the most consecutive failures across all Lidarr albums.
 
-    Same counting rules as ``get_track_failure_counts`` (host and disk-full
-    failures ignored, only failures after the track's last success),
+    Same counting rules as ``get_track_failure_counts`` (host, disk-full and
+    blocked-IP failures ignored, only failures after the track's last success),
     grouped by ``(album_id, track_title)``. Playlist imports
     (``album_id <= 0``) are left out: they are never retried automatically.
     """
@@ -321,6 +326,7 @@ def get_stuck_tracks(min_failures=3, limit=50):
           AND f.success = 0
           AND COALESCE(f.error_message, '') NOT LIKE ?
           AND COALESCE(f.error_message, '') NOT LIKE ?
+          AND COALESCE(f.error_message, '') NOT LIKE ?
           AND f.timestamp > COALESCE((
                 SELECT MAX(s.timestamp) FROM track_downloads AS s
                 WHERE s.album_id = f.album_id
@@ -333,7 +339,7 @@ def get_stuck_tracks(min_failures=3, limit=50):
         LIMIT ?
         """,
         (HOST_FAILURE_PREFIX + "%", DISK_FULL_PREFIX + "%",
-         min_failures, limit),
+         BLOCKED_PREFIX + "%", min_failures, limit),
     ).fetchall()
     return [
         {

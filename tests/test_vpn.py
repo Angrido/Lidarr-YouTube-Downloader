@@ -608,6 +608,80 @@ class TestTriggers:
         assert vpn.due_reason() is None
 
 
+    def test_each_block_is_counted(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        before = vpn.blocks_seen()
+        vpn.note_block("HTTP Error 429: Too Many Requests")
+        vpn.note_block("Sign in to confirm you\u2019re not a bot")
+        vpn.note_block("Video unavailable")  # not a block
+        assert vpn.blocks_seen() == before + 2
+
+    def test_blocks_are_not_counted_without_a_control_server(self):
+        before = vpn.blocks_seen()
+        vpn.note_block("HTTP Error 429: Too Many Requests")
+        assert vpn.blocks_seen() == before
+
+    def test_the_count_survives_a_reset(self):
+        """A run compares it before and after: it only ever goes up."""
+        _set(gluetun_control_url="http://gluetun:8000")
+        vpn.note_block("HTTP Error 429: Too Many Requests")
+        before = vpn.blocks_seen()
+        vpn.reset_state()
+        assert vpn.blocks_seen() == before
+
+    @pytest.mark.parametrize("values,expected", [
+        ({}, False),
+        ({"gluetun_control_url": "http://gluetun:8000"}, True),
+        ({"gluetun_control_url": "http://gluetun:8000", "vpn_rotate_on_block": False}, False),
+        ({"vpn_rotate_on_block": True}, False),
+    ])
+    def test_a_block_is_answered_with_a_new_ip_only_when_configured(self, values, expected):
+        _set(**values)
+        assert vpn.rotates_on_block() is expected
+
+
+class TestRotateIfDueBusyCheck:
+    """The dispatcher looked, then took the lock: a download may have started."""
+
+    def test_busy_is_asked_with_the_lock_held(self, gluetun):
+        _configure(gluetun, vpn_rotate_every_albums=1)
+        vpn.note_album_finished()
+        seen = []
+
+        def busy():
+            seen.append(vpn.rotating())  # downloads refuse to start from here
+            return True
+
+        assert vpn.rotate_if_due(busy=busy) is None
+        assert seen == [True]
+        assert not vpn.rotating()
+        assert not [r for r in gluetun.requests if r[0] == "PUT"]
+        assert vpn.due_reason() == "every 1 album(s)"  # still due next time
+
+    def test_rotates_when_nothing_is_running(self, gluetun):
+        _configure(gluetun, vpn_rotate_every_albums=1)
+        vpn.note_album_finished()
+        result = vpn.rotate_if_due(busy=lambda: False)
+        assert result["success"] and result["changed"]
+        assert not vpn.rotating()
+
+    def test_a_rotation_already_running_is_left_alone(self, gluetun):
+        _configure(gluetun, vpn_rotate_every_albums=1)
+        vpn.note_album_finished()
+        assert vpn._rotate_lock.acquire(blocking=False)
+        try:
+            assert vpn.rotate_if_due(busy=lambda: False) is None
+        finally:
+            vpn._rotate_lock.release()
+        assert not [r for r in gluetun.requests if r[0] == "PUT"]
+
+    def test_nothing_due_asks_nothing(self):
+        def busy():
+            raise AssertionError("asked although no rotation is due")
+
+        assert vpn.rotate_if_due(busy=busy) is None
+
+
 # -- the queue -------------------------------------------------------------------------
 
 class TestQueueIntegration:
@@ -621,7 +695,7 @@ class TestQueueIntegration:
     def test_rotates_before_the_next_album_when_idle(self, processing, monkeypatch):
         calls = []
         monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: "x")
-        monkeypatch.setattr(processing.vpn, "rotate_if_due", lambda cfg=None: calls.append(1))
+        monkeypatch.setattr(processing.vpn, "rotate_if_due", lambda cfg=None, busy=None: calls.append(1))
         monkeypatch.setattr(processing, "any_download_active", lambda: False)
 
         def boom():
@@ -634,7 +708,7 @@ class TestQueueIntegration:
     def test_never_rotates_during_a_download(self, processing, monkeypatch):
         calls = []
         monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: "x")
-        monkeypatch.setattr(processing.vpn, "rotate_if_due", lambda cfg=None: calls.append(1))
+        monkeypatch.setattr(processing.vpn, "rotate_if_due", lambda cfg=None, busy=None: calls.append(1))
         monkeypatch.setattr(processing, "any_download_active", lambda: True)
         monkeypatch.setattr(processing.models, "get_queue", lambda: [])
         processing._dispatch_next_from_queue()
@@ -644,7 +718,7 @@ class TestQueueIntegration:
         """A playlist import after a block does not go through the queue."""
         calls = []
         monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: "x")
-        monkeypatch.setattr(processing.vpn, "rotate_if_due", lambda cfg=None: calls.append(1))
+        monkeypatch.setattr(processing.vpn, "rotate_if_due", lambda cfg=None, busy=None: calls.append(1))
         monkeypatch.setattr(processing, "any_download_active", lambda: False)
         monkeypatch.setattr(processing.models, "get_queue", lambda: [])
         processing._dispatch_next_from_queue()
@@ -653,7 +727,7 @@ class TestQueueIntegration:
     def test_nothing_due_means_no_rotation(self, processing, monkeypatch):
         calls = []
         monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: None)
-        monkeypatch.setattr(processing.vpn, "rotate_if_due", lambda cfg=None: calls.append(1))
+        monkeypatch.setattr(processing.vpn, "rotate_if_due", lambda cfg=None, busy=None: calls.append(1))
         monkeypatch.setattr(processing, "any_download_active", lambda: False)
         monkeypatch.setattr(processing.models, "get_queue", lambda: [])
         processing._dispatch_next_from_queue()
@@ -673,7 +747,7 @@ class TestQueueIntegration:
         """With several jobs running, nothing new may start while one is due."""
         calls = []
         monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: "x")
-        monkeypatch.setattr(processing.vpn, "rotate_if_due", lambda cfg=None: calls.append(1))
+        monkeypatch.setattr(processing.vpn, "rotate_if_due", lambda cfg=None, busy=None: calls.append(1))
         monkeypatch.setattr(processing, "any_download_active", lambda: True)
 
         def boom():
@@ -687,12 +761,128 @@ class TestQueueIntegration:
         monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: "x")
         monkeypatch.setattr(processing, "any_download_active", lambda: False)
 
-        def crash(cfg=None):
+        def crash(cfg=None, busy=None):
             raise RuntimeError("boom")
 
         monkeypatch.setattr(processing.vpn, "rotate_if_due", crash)
         processing._dispatch_next_from_queue()  # must not raise
         assert vpn._state["last_attempt"] > 0  # and must not retry every tick
+
+
+class TestInlineDownload:
+    """The failed-tracks retry downloads inside its request and holds no
+    slot: a rotation or a restart must still wait for it."""
+
+    @pytest.fixture()
+    def processing(self):
+        import processing
+
+        return processing
+
+    def test_counts_as_active_and_is_released(self, processing):
+        assert processing.any_download_active() is False
+        with processing.inline_download():
+            assert processing.any_download_active() is True
+            with processing.inline_download():  # two retries at once
+                pass
+            assert processing.any_download_active() is True
+        assert processing.any_download_active() is False
+
+    def test_is_released_when_the_download_raises(self, processing):
+        with pytest.raises(RuntimeError):
+            with processing.inline_download():
+                raise RuntimeError("boom")
+        assert processing.any_download_active() is False
+
+    def test_the_dispatcher_hands_over_the_busy_check(self, processing, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(processing, "automatic_downloads_held", lambda: False)
+        monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: "x")
+        monkeypatch.setattr(
+            processing.vpn, "rotate_if_due",
+            lambda cfg=None, busy=None: seen.update(busy=busy),
+        )
+        monkeypatch.setattr(processing.models, "get_queue", lambda: [])
+        processing._dispatch_next_from_queue()
+        assert seen["busy"] is processing.any_download_active
+
+    def test_a_due_rotation_waits_for_it(self, processing, monkeypatch):
+        calls = []
+        monkeypatch.setattr(processing, "automatic_downloads_held", lambda: False)
+        monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: "x")
+        monkeypatch.setattr(
+            processing.vpn, "rotate_if_due",
+            lambda cfg=None, busy=None: calls.append(1),
+        )
+        monkeypatch.setattr(processing.models, "get_queue", lambda: [])
+        with processing.inline_download():
+            processing._dispatch_next_from_queue()
+        assert calls == []
+        processing._dispatch_next_from_queue()
+        assert calls == [1]
+
+    def test_the_manual_rotation_is_refused(self, client, gluetun, processing):
+        _configure(gluetun)
+        with processing.inline_download():
+            resp = client.post("/api/vpn/rotate")
+        assert resp.status_code == 409
+        assert not vpn.rotating()
+        assert not [r for r in gluetun.requests if r[0] == "PUT"]
+
+
+class TestManualRetryIsAnActiveDownload:
+    URL = "https://www.youtube.com/watch?v=abcdefghijk"
+
+    @pytest.fixture()
+    def retry(self, client, monkeypatch, tmp_path):
+        """POST a retry of a failed playlist track; returns what the download saw."""
+        import manual_download
+        import models
+        import processing
+
+        models.add_track_download(
+            album_id=-1, album_title="P", artist_name="Various",
+            track_title="Song", track_number=1, success=False,
+            error_message="x", youtube_url="", youtube_title="",
+            match_score=0.0, duration_seconds=0,
+            album_path=str(tmp_path / "P"), lidarr_album_path="", cover_url="",
+        )
+        monkeypatch.setattr(manual_download, "_validate_target_path", lambda *a, **k: True)
+        monkeypatch.setattr(manual_download, "makedirs_safe", lambda *a, **k: None)
+        seen = {"downloads": 0, "active": []}
+
+        def download(*args, **kwargs):
+            seen["downloads"] += 1
+            seen["active"].append(processing.any_download_active())
+            return {"success": False, "error_message": "stop here"}
+
+        monkeypatch.setattr(manual_download, "download_youtube_candidate", download)
+
+        def post():
+            return client.post("/api/download/manual", json={
+                "youtube_url": self.URL, "track_title": "Song",
+                "track_num": 1, "album_id": -1,
+            })
+
+        return post, seen, processing
+
+    def test_it_counts_as_active_while_it_downloads(self, retry):
+        post, seen, processing = retry
+        assert processing.any_download_active() is False
+        assert post().status_code == 500  # the fake download failed
+        assert seen == {"downloads": 1, "active": [True]}
+        assert processing.any_download_active() is False
+
+    def test_a_rotation_that_started_meanwhile_is_honoured(self, retry, monkeypatch):
+        """The check at the top of the route can be stale by the time it downloads."""
+        post, seen, processing = retry
+        answers = iter([False, True])
+        monkeypatch.setattr(vpn, "rotating", lambda: next(answers, True))
+        resp = post()
+        assert resp.status_code == 409
+        assert "changing its IP" in resp.get_json()["message"]
+        assert seen["downloads"] == 0
+        assert processing.any_download_active() is False
 
 
 class TestAlbumCounting:

@@ -61,6 +61,7 @@ _rotate_lock = threading.Lock()
 _state = {
     "albums_since_rotation": 0,
     "block_seen": False,
+    "blocks": 0,  # every block ever noted; never reset, only compared
     "last_attempt": 0.0,
     "last_rotation": None,
 }
@@ -361,8 +362,29 @@ def note_block(message):
             return False  # nothing to rotate with: do not keep a stale flag
         with _state_lock:
             _state["block_seen"] = True
+            _state["blocks"] += 1
         return True
     return False
+
+
+def blocks_seen():
+    """How many blocks ``note_block`` has recorded.
+
+    Take it before a piece of work and again after: a bigger number means
+    YouTube refused a request in between. It is a counter rather than the
+    ``block_seen`` flag, which stays set until a rotation succeeds.
+    """
+    with _state_lock:
+        return _state["blocks"]
+
+
+def rotates_on_block(cfg=None):
+    """True when a block will be answered with a new IP.
+
+    Only then is a failed track the IP's fault rather than the track's.
+    """
+    cfg = cfg if cfg is not None else load_config()
+    return bool(control_url(cfg)) and bool(cfg.get("vpn_rotate_on_block", True))
 
 
 def note_album_finished():
@@ -387,13 +409,26 @@ def due_reason(cfg=None, now=None):
     return None
 
 
-def rotate_if_due(cfg=None):
-    """Rotate when a trigger fired. Call only while no download is running."""
+def rotate_if_due(cfg=None, busy=None):
+    """Rotate when a trigger fired. Call only while no download is running.
+
+    ``busy`` is asked again once the rotation lock is held (and so
+    ``rotating()`` is true, which makes every download entry point refuse): a
+    download that started after the caller last looked is seen here, and the
+    rotation is left for the next check.
+    """
     cfg = cfg if cfg is not None else load_config()
     reason = due_reason(cfg)
     if not reason:
         return None
-    return rotate(reason, cfg)
+    if busy is None:
+        return rotate(reason, cfg)
+    if not _rotate_lock.acquire(blocking=False):
+        return None
+    if busy():
+        _rotate_lock.release()
+        return None
+    return rotate(reason, cfg, True)
 
 
 def defer():
