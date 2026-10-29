@@ -22,7 +22,13 @@
   reused: files whose audio was not identified as that recording, anything
   from the download folder when a library path is set, `[silence]` /
   `[data track]`, and anything on a forced re-download. A Lidarr grab
-  always gets a file for every position.
+  always gets a file for every position. The app's own downloads and
+  Lidarr's grabs of the same album no longer fight: a grab for an album the
+  app has already copied to the library finishes on that folder (instead of
+  failing with *No files available to import* and getting the release
+  blocklisted), and albums the app has just copied are kept out of the
+  indexer feed for the retry window. Both only in `reuse`; `log` records what
+  it would have done.
 - **VPN with gluetun** (Settings → YouTube access → VPN, or `VPN_PROXY_URL`
   / `GLUETUN_CONTROL_URL` / `GLUETUN_API_KEY`): every request to YouTube
   goes through gluetun's HTTP proxy, and the app can restart the VPN for a
