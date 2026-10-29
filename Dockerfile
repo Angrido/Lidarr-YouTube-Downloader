@@ -38,7 +38,9 @@ COPY --from=wheels /wheels /wheels
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir --no-index --find-links /wheels -r requirements.txt && \
     rm -rf /wheels && \
-    pip check
+    pip check && \
+    pip uninstall -y pip && \
+    rm -rf /usr/local/lib/python3*/ensurepip/_bundled
 
 COPY . .
 

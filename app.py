@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import threading
@@ -26,6 +25,10 @@ from flask import (
     send_file,
     send_from_directory,
 )
+
+import ytdlp_update
+
+ytdlp_update.activate()
 
 import auth
 import db
@@ -1142,23 +1145,18 @@ def api_ytdlp_version():
     return jsonify({"version": get_ytdlp_version()})
 
 
-def _pip_update_ytdlp():
+def _update_ytdlp(latest=None):
     old_version = get_ytdlp_version()
+    latest = latest or _get_ytdlp_pypi_version()
+    if not latest:
+        return None, None, "Could not reach PyPI"
+    if latest == old_version:
+        return old_version, old_version, None
     try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-U", "yt-dlp[default]"],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        if result.returncode != 0:
-            return None, None, result.stderr[-500:] if result.stderr else "pip failed"
-        new_version = get_ytdlp_version()
-        return old_version, new_version, None
-    except subprocess.TimeoutExpired:
-        return None, None, "Update timed out (120s)"
+        ytdlp_update.install(latest)
     except Exception as e:
-        return None, None, str(e)
+        return None, None, str(e)[:500]
+    return old_version, latest, None
 
 
 @app.route("/api/ytdlp/update", methods=["POST"])
@@ -1173,7 +1171,7 @@ def api_ytdlp_update():
                 "message": "Update already in progress or rate limited",
             }
         ), 429
-    old_version, new_version, error = _pip_update_ytdlp()
+    old_version, new_version, error = _update_ytdlp()
     if error:
         return jsonify({"success": False, "message": error})
     updated = old_version != new_version
@@ -2155,12 +2153,12 @@ def _startup_ytdlp_update():
         logger.info("yt-dlp %s is up to date", current)
         return
     logger.info("Updating yt-dlp %s -> %s...", current, latest)
-    _, new_version, error = _pip_update_ytdlp()
+    _, new_version, error = _update_ytdlp(latest)
     if error:
         logger.warning("yt-dlp update failed: %s", error)
         return
     logger.info("yt-dlp updated %s -> %s, restarting...", current, new_version)
-    # Hold the queue, then let a download that started during pip finish:
+    # Hold the queue, then let a download that started during the update finish:
     # os.execv would kill it, and its queue entry is already gone.
     restart_pending.set()
     if any_download_active():

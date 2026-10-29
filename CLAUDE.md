@@ -95,6 +95,7 @@ docker run -p 5005:5000 \
 | `manual_download.py` | Manual-download blueprint: `POST /api/download/manual` (retry a failed track, incl. negative-id playlist imports) and `POST /api/album/<id>/track/manual-download` (with live progress), the shared `_manual_dl_core` (download, tag, AcoustID, record, notify, `RefreshArtist`), album path builders and the Lidarr album cache (`_get_album_cached`, also used by the queue routes) |
 | `download_client.py` | Lidarr download-client bridge: Newznab indexer + SABnzbd client emulation (Flask blueprint) |
 | `logutil.py` | Console log formatting: timestamp + level icon, consecutive-duplicate collapsing |
+| `ytdlp_update.py` | yt-dlp updates without pip (the image has none): `install()` unpacks the PyPI wheels of yt-dlp and its pinned yt-dlp-ejs (SHA-256 checked, paths kept inside) into `/config/ytdlp`; `activate()`, called at the top of `app.py` before anything imports `yt_dlp`, puts that folder first on `sys.path` when it is newer than the image's copy and deletes it otherwise. Used by the startup update and `POST /api/ytdlp/update` (`app._update_ytdlp`) |
 | `utils.py` | Shared utilities |
 
 ### Key data flows
@@ -667,6 +668,9 @@ bgutil plugin pip installs). Build with `--pull --no-cache` (compose sets
 both), or cached layers keep the old versions. What keeps "latest" safe:
 - a `wheels` build stage with a compiler builds wheels a brand-new Python
   does not have yet (Python 3.15: brotli), so the slim runtime needs no gcc;
+- pip is uninstalled (with ensurepip's bundled wheel) at the end of the
+  install step: scanners flag the urllib3 / msgpack / setuptools it vendors,
+  and nothing at runtime needs it (`ytdlp_update.py` replaces it);
 - the image build fails on `pip check` conflicts, on `python -c "import app"`
   or on a missing `deno`/`ffmpeg`/`fpcalc`, instead of shipping a broken image;
 - CI tests on Python 3.12 and the newest 3.x with freshly resolved
@@ -694,4 +698,4 @@ Run tests with the venv:
 source .venv/bin/activate && python -m pytest tests/ -v
 ```
 
-Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`, `test_explore.py` (fixtures in `tests/fixtures/ytmusic/`), `test_vpn.py` (against a fake gluetun HTTP server), `test_auth.py`, `test_external_playlists.py`, `test_youtube_external.py`, `test_frontend_js.py` (runs `tests/js/*.test.js` under node; skipped without node).
+Tests are in `tests/` directory mirroring module structure: `test_db.py`, `test_models.py`, `test_config.py`, `test_utils.py`, `test_notifications.py`, `test_lidarr.py`, `test_metadata.py`, `test_downloader.py`, `test_routes.py`, `test_processing.py`, `test_fingerprint.py`, `test_migrate_tool.py`, `test_download_client.py`, `test_scheduler.py`, `test_lidarr_sync.py`, `test_logutil.py`, `test_app_paths.py`, `test_fix_metadata_tool.py`, `test_library.py`, `test_explore.py` (fixtures in `tests/fixtures/ytmusic/`), `test_vpn.py` (against a fake gluetun HTTP server), `test_auth.py`, `test_external_playlists.py`, `test_youtube_external.py`, `test_ytdlp_update.py`, `test_frontend_js.py` (runs `tests/js/*.test.js` under node; skipped without node).
