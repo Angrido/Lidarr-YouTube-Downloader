@@ -14,8 +14,16 @@
   A track that fails while YouTube is blocking is not held against it: it
   does not count toward its retry backoff, and the rest of that album waits
   for the new IP instead of failing the same way: the album goes back to the
-  head of the queue and carries on as soon as the IP has changed. The bgutil PO-token
-  provider uses the same proxy. See `docker-compose.gluetun.yml`.
+  head of the queue and carries on as soon as the IP has changed. A track
+  stops trying as soon as every player client was refused (*not a bot*,
+  *Too many requests*, *rate-limited by YouTube*) instead of spending
+  minutes on attempts the same IP would refuse, so the change of IP is not
+  held back by it. While a block waits for its rotation the queue starts
+  no new album (it would only fail on the refused address and be lost to the
+  retry window), the wait after a block is 60 s instead of 5 minutes, and a
+  restart that came back on the same IP does not count as an answer. The
+  bgutil PO-token provider uses the same proxy. See
+  `docker-compose.gluetun.yml`.
 - **Spotify, Deezer, Apple Music and ListenBrainz links** on the Import
   page: paste a playlist or album and every track is searched on YouTube
   (same scoring as Lidarr albums), tagged with its own artist and saved

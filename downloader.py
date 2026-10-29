@@ -2055,6 +2055,15 @@ def download_youtube_candidate(
     blocked_msg = ""
     cookies_used = False
     abort_unavailable = False
+    # With a VPN that answers a block with a new IP, retrying on this one is
+    # pointless: a whole pass of clients refused means the address is burnt.
+    # Give up on the candidate at once instead of spending every selector x
+    # client combination (many minutes) on attempts it will refuse, so the
+    # rotation is not held back by a track that cannot finish.
+    stop_on_block = vpn.rotates_on_block(config)
+    ip_block_hits = 0
+    abort_blocked = False
+    blocked_line = ""
     extract_pp = [
         {
             "key": "FFmpegExtractAudio",
@@ -2063,7 +2072,7 @@ def download_youtube_candidate(
         }
     ]
     for sel_idx, selector in enumerate(format_selectors):
-        if abort_conversion or abort_unavailable:
+        if abort_conversion or abort_unavailable or abort_blocked:
             break
         if not _ffmpeg_postprocess_works(probe_dir):
             break
@@ -2071,7 +2080,7 @@ def download_youtube_candidate(
         if sel_idx >= len(format_selectors) - 2:
             pp_variants.append(None)
         for postprocessors in pp_variants:
-            if abort_conversion or abort_unavailable:
+            if abort_conversion or abort_unavailable or abort_blocked:
                 break
             for pc in clients_to_try:
                 if pc in blocked_clients:
@@ -2132,7 +2141,12 @@ def download_youtube_candidate(
                     last_err = e
                     msg = str(e)
                     msg_low = msg.lower()
-                    vpn.note_block(msg)
+                    if vpn.note_block(msg) and stop_on_block:
+                        ip_block_hits += 1
+                        blocked_line = (msg.strip().splitlines() or [msg])[-1]
+                        if ip_block_hits >= max(2, len(clients_to_try)):
+                            abort_blocked = True
+                            break
                     if "403" in msg:
                         any_403 = True
                         logger.debug(
@@ -2185,6 +2199,20 @@ def download_youtube_candidate(
                         f" selector='{selector}'; {msg[:180]}"
                     )
                     continue
+
+    if abort_blocked:
+        logger.warning(
+            "   YouTube is refusing requests from this IP (%s): giving up on"
+            " '%s' until the VPN has a new one.",
+            blocked_line[:140], candidate["title"],
+        )
+        return {
+            "success": False,
+            "ip_blocked": True,
+            "error_message": (
+                f"YouTube refused requests from this IP: {blocked_line[:140]}"
+            ),
+        }
 
     if conversion_errors and not _conversion_failure_is_host_wide(
         conversion_msg, probe_dir,

@@ -532,6 +532,8 @@ class TestTriggers:
         "Sign in to confirm you’re not a bot",
         "HTTP Error 429: Too Many Requests",
         "unable to download: too many requests",
+        "This content isn't available, try again later. The current session"
+        " has been rate-limited by YouTube for up to an hour.",
     ])
     def test_block_messages(self, message):
         _set(gluetun_control_url="http://gluetun:8000")
@@ -597,8 +599,23 @@ class TestTriggers:
         vpn.note_album_finished()
         vpn.note_block("HTTP Error 429: Too Many Requests")
         assert vpn.due_reason() is None  # still cooling down
-        assert vpn.due_reason(now=vpn._state["last_attempt"] + vpn.AUTO_ROTATE_COOLDOWN + 1) \
+        assert vpn.due_reason(now=vpn._state["last_attempt"] + vpn.BLOCK_ROTATE_COOLDOWN + 1) \
             == "YouTube blocked a request"
+
+    def test_a_block_does_not_wait_as_long_as_the_every_n_trigger(self):
+        """A refused address is useless now; "every N albums" can wait."""
+        _set(gluetun_control_url="http://gluetun:8000", vpn_rotate_every_albums=1)
+        vpn._state["last_attempt"] = 1000.0
+        vpn.note_album_finished()
+        assert vpn.due_reason(now=1000.0 + vpn.BLOCK_ROTATE_COOLDOWN + 1) is None
+        vpn.note_block("HTTP Error 429: Too Many Requests")
+        assert vpn.due_reason(now=1000.0 + vpn.BLOCK_ROTATE_COOLDOWN - 1) is None
+        assert vpn.due_reason(now=1000.0 + vpn.BLOCK_ROTATE_COOLDOWN + 1) \
+            == "YouTube blocked a request"
+        vpn.reset_state()
+        vpn._state["last_attempt"] = 1000.0
+        vpn.note_album_finished()
+        assert vpn.due_reason(now=1000.0 + vpn.AUTO_ROTATE_COOLDOWN + 1) == "every 1 album(s)"
 
     def test_a_failed_rotation_also_cools_down(self):
         _set(gluetun_control_url="http://127.0.0.1:9", vpn_rotate_every_albums=1)
@@ -684,6 +701,68 @@ class TestRotateIfDueBusyCheck:
 
 # -- the queue -------------------------------------------------------------------------
 
+class TestBlockPending:
+    """A block waits for its rotation even while the cooldown is running."""
+
+    BLOCK = "HTTP Error 429: Too Many Requests"
+
+    def test_pending_inside_the_cooldown_where_nothing_is_due_yet(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        vpn.note_block(self.BLOCK)
+        vpn._state["last_attempt"] = __import__("time").time()
+        assert vpn.due_reason() is None
+        assert vpn.block_pending() is True
+
+    def test_nothing_pending_without_a_block(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        assert vpn.block_pending() is False
+
+    @pytest.mark.parametrize("values", [
+        {"gluetun_control_url": ""},
+        {"gluetun_control_url": "http://gluetun:8000", "vpn_rotate_on_block": False},
+    ], ids=["no-control-server", "rotation-on-block-off"])
+    def test_nothing_pending_without_a_rotation_to_come(self, values):
+        _set(gluetun_control_url="http://gluetun:8000")
+        vpn.note_block(self.BLOCK)
+        _set(**values)
+        assert vpn.block_pending() is False
+
+    def test_a_broken_vpn_does_not_freeze_the_queue(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        vpn.note_block(self.BLOCK)
+        vpn._state["failed_rotations"] = vpn.MAX_HOLD_FAILURES - 1
+        assert vpn.block_pending() is True
+        vpn._state["failed_rotations"] = vpn.MAX_HOLD_FAILURES
+        assert vpn.block_pending() is False
+
+    def test_failed_rotations_are_counted_and_a_success_resets_them(self, gluetun):
+        _configure(gluetun)
+        vpn.note_block(self.BLOCK)
+        gluetun.ips = ["10.0.0.1", "10.0.0.2"]
+        broken = vpn._record(vpn._result(False, message="x"), "test", 0.0)
+        assert broken["success"] is False
+        assert vpn._state["failed_rotations"] == 1
+        assert vpn._state["block_seen"] is True  # a failure keeps the block
+        vpn._record(vpn._result(True, changed=True, old_ip="a", new_ip="b"), "test", 0.0)
+        assert vpn._state["failed_rotations"] == 0
+        assert vpn._state["block_seen"] is False
+
+    def test_a_restart_on_the_same_ip_does_not_answer_the_block(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        vpn.note_block(self.BLOCK)
+        vpn._record(
+            vpn._result(True, old_ip="1.2.3.4", new_ip="1.2.3.4"), "x", 0.0,
+        )
+        assert vpn._state["block_seen"] is True
+        assert vpn._state["failed_rotations"] == 0
+
+    def test_an_unknown_ip_is_taken_as_a_new_one(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        vpn.note_block(self.BLOCK)
+        vpn._record(vpn._result(True, old_ip=None, new_ip=None), "x", 0.0)
+        assert vpn._state["block_seen"] is False
+
+
 class TestQueueIntegration:
     @pytest.fixture()
     def processing(self, monkeypatch):
@@ -723,6 +802,27 @@ class TestQueueIntegration:
         monkeypatch.setattr(processing.models, "get_queue", lambda: [])
         processing._dispatch_next_from_queue()
         assert calls == [1]
+
+    def test_a_block_in_its_cooldown_holds_every_album(self, processing, monkeypatch):
+        """Albums started on a refused IP only fail and leave the queue."""
+        calls = []
+        monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: None)
+        monkeypatch.setattr(processing.vpn, "block_pending", lambda cfg=None: True)
+        monkeypatch.setattr(processing.vpn, "rotate_if_due", lambda cfg=None, busy=None: calls.append(1))
+        monkeypatch.setattr(processing, "any_download_active", lambda: False)
+        looked = []  # an exception would be swallowed by the dispatcher
+        monkeypatch.setattr(processing.models, "get_queue", lambda: looked.append(1) or [])
+        processing._dispatch_next_from_queue()
+        assert calls == []
+        assert looked == []  # the queue was not even read
+
+    def test_no_pending_block_means_the_queue_runs(self, processing, monkeypatch):
+        looked = []
+        monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: None)
+        monkeypatch.setattr(processing.vpn, "block_pending", lambda cfg=None: False)
+        monkeypatch.setattr(processing.models, "get_queue", lambda: looked.append(1) or [])
+        processing._dispatch_next_from_queue()
+        assert looked == [1]
 
     def test_nothing_due_means_no_rotation(self, processing, monkeypatch):
         calls = []
@@ -887,7 +987,7 @@ class TestManualRetryIsAnActiveDownload:
 
 class TestRequeueAfterBlock:
     """A run that stopped on a block goes back to the head of the queue, but
-    only when a rotation is due to give it a new IP."""
+    only while that block still waits for the rotation that gives a new IP."""
 
     @pytest.fixture(autouse=True)
     def _clean(self):
@@ -903,7 +1003,7 @@ class TestRequeueAfterBlock:
     def processing(self, monkeypatch):
         import processing
 
-        monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: "x")
+        monkeypatch.setattr(processing.vpn, "block_pending", lambda cfg=None: True)
         return processing
 
     @staticmethod
@@ -938,16 +1038,16 @@ class TestRequeueAfterBlock:
     def test_nothing_comes_back_without_a_block(self, processing, monkeypatch):
         assert self._run(processing, monkeypatch, blocked=False) == []
 
-    def test_nothing_comes_back_when_no_rotation_is_due(self, processing, monkeypatch):
-        """Inside the cooldown the IP would not change: the scheduler decides."""
-        monkeypatch.setattr(processing.vpn, "due_reason", lambda cfg=None: None)
+    def test_nothing_comes_back_when_no_block_is_waiting_for_a_rotation(self, processing, monkeypatch):
+        """No rotation will change the IP (off, or the VPN keeps failing)."""
+        monkeypatch.setattr(processing.vpn, "block_pending", lambda cfg=None: False)
         assert self._run(processing, monkeypatch) == []
 
     def test_a_crashing_rotation_check_leaves_it_to_the_scheduler(self, processing, monkeypatch):
         def crash(cfg=None):
             raise RuntimeError("boom")
 
-        monkeypatch.setattr(processing.vpn, "due_reason", crash)
+        monkeypatch.setattr(processing.vpn, "block_pending", crash)
         assert self._run(processing, monkeypatch) == []
 
     def test_gives_up_after_a_few_rounds_and_then_starts_over(self, processing, monkeypatch):
@@ -968,7 +1068,7 @@ class TestRequeueAfterBlock:
         assert self._run(processing, monkeypatch, blocked=False) == []
         assert processing._block_requeues == {}
 
-    def test_follows_the_real_rotation_trigger_and_its_cooldown(self, monkeypatch):
+    def test_follows_the_real_pending_block_even_inside_the_cooldown(self, monkeypatch):
         import time
 
         import models
@@ -976,9 +1076,12 @@ class TestRequeueAfterBlock:
 
         _set(gluetun_control_url="http://gluetun:8000")
         vpn.note_block("HTTP Error 429: Too Many Requests")
+        vpn._state["last_attempt"] = time.time()  # a rotation was just tried
+        assert vpn.due_reason() is None
+        # the album must not be lost: the queue holds until the rotation runs
         assert self._run(processing, monkeypatch) == [(5, "queued", 0)]
         models.dequeue_album(5)
-        vpn._state["last_attempt"] = time.time()  # a rotation was just tried
+        vpn._state["failed_rotations"] = vpn.MAX_HOLD_FAILURES  # the VPN is broken
         assert self._run(processing, monkeypatch) == []
 
 
@@ -1335,6 +1438,68 @@ def _ydl_returning(info):
 
 def _opts_of(ydl):
     return ydl.call_args.args[0]
+
+
+class TestFailFastOnBlock:
+    """A candidate stops once a whole pass of clients was refused (when a
+    rotation will answer), instead of trying every selector x client."""
+
+    BLOCK = "ERROR: [youtube] x: Sign in to confirm you're not a bot"
+    CANDIDATE = {"url": "u", "title": "t", "duration": 200, "score": 0.9}
+
+    @staticmethod
+    def _run(side_effect):
+        import downloader
+
+        with patch("downloader.yt_dlp.YoutubeDL") as ydl_class:
+            ydl = ydl_class.return_value.__enter__.return_value
+            ydl.download.side_effect = side_effect
+            result = downloader.download_youtube_candidate(
+                dict(TestFailFastOnBlock.CANDIDATE), "/tmp/output",
+            )
+        return result, ydl.download.call_count
+
+    def test_stops_after_one_refused_pass_when_a_rotation_will_follow(self):
+        import downloader
+
+        _set(gluetun_control_url="http://gluetun:8000")
+        clients = downloader._client_fallback_chain(config.load_config(), False) + [None]
+        result, calls = self._run(Exception(self.BLOCK))
+        assert result["success"] is False
+        assert result["ip_blocked"] is True
+        assert "refused requests from this IP" in result["error_message"]
+        assert calls == max(2, len(clients))
+
+    def test_without_a_rotation_it_keeps_trying_as_before(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        _result, armed_calls = self._run(Exception(self.BLOCK))
+        _set(gluetun_control_url="")
+        result, calls = self._run(Exception(self.BLOCK))
+        assert "ip_blocked" not in result
+        assert calls > armed_calls
+
+    def test_rotation_on_block_off_keeps_trying_as_before(self):
+        _set(gluetun_control_url="http://gluetun:8000", vpn_rotate_on_block=False)
+        result, _calls = self._run(Exception(self.BLOCK))
+        assert "ip_blocked" not in result
+
+    def test_a_block_another_client_survives_stops_nothing(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        result, calls = self._run([Exception(self.BLOCK), None])
+        assert result["success"] is True
+        assert calls == 2
+
+    def test_other_errors_never_count_as_the_ip(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        result, _calls = self._run(Exception("HTTP Error 403: Forbidden"))
+        assert "ip_blocked" not in result
+
+    def test_a_refused_pass_still_counts_toward_the_rotation(self):
+        _set(gluetun_control_url="http://gluetun:8000")
+        before = vpn.blocks_seen()
+        self._run(Exception(self.BLOCK))
+        assert vpn.blocks_seen() > before
+        assert vpn.due_reason() == "YouTube blocked a request"
 
 
 class TestProxyCallSites:

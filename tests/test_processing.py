@@ -3162,6 +3162,44 @@ class TestBlockedIpFailures:
         assert failed[0]["reason"].startswith(models.BLOCKED_PREFIX)
         assert models.get_track_failure_counts(42) == {}
 
+    @staticmethod
+    def _three_candidates():
+        return [
+            {"url": f"https://www.youtube.com/watch?v=abcdefghij{c}",
+             "title": "t", "duration": 1, "score": score}
+            for c, score in (("a", 0.99), ("b", 0.98), ("c", 0.97))
+        ]
+
+    def test_an_ip_youtube_refuses_stops_the_remaining_candidates(
+        self, tmp_path, monkeypatch,
+    ):
+        """Every other candidate would be refused on the same address, and a
+        track that keeps trying holds the album, so the VPN cannot rotate."""
+        def _refused(candidate, output_path, **kwargs):
+            import vpn
+            vpn.note_block(self.BLOCK)
+            return self._fail(
+                "YouTube refused requests from this IP: x", ip_blocked=True,
+            )
+
+        failed, _ok, _state, calls = self._run(
+            monkeypatch, tmp_path, ["Boom"], _refused,
+            search=self._three_candidates,
+        )
+        assert calls["download"] == 1
+        assert failed[0]["reason"].startswith(models.BLOCKED_PREFIX)
+        assert models.get_track_failure_counts(42) == {}
+
+    def test_a_failure_not_flagged_as_the_ip_still_tries_every_candidate(
+        self, tmp_path, monkeypatch,
+    ):
+        failed, _ok, _state, calls = self._run(
+            monkeypatch, tmp_path, ["Boom"], self._blocked_download,
+            search=self._three_candidates,
+        )
+        assert calls["download"] == 3
+        assert failed[0]["reason"].startswith(models.BLOCKED_PREFIX)
+
     def test_the_same_failure_without_a_block_still_counts(
         self, tmp_path, monkeypatch,
     ):

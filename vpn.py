@@ -38,7 +38,13 @@ bp = Blueprint("vpn", __name__)
 # A rotation that fails or changes nothing must not be retried in a loop by
 # the automatic triggers; a manual rotation ignores this.
 AUTO_ROTATE_COOLDOWN = 300
-STATE_TIMEOUT = 60  # to stop / to start again
+# A block means this address is useless right now, so waiting five minutes
+# for the next attempt only burns albums: it gets a shorter cooldown.
+BLOCK_ROTATE_COOLDOWN = 60
+# After this many rotations in a row that failed, the queue stops waiting for
+# one (the VPN is broken: downloading on a refused IP beats not downloading).
+MAX_HOLD_FAILURES = 3
+STATE_TIMEOUT = 120  # to stop / to start again (a busy NAS took 60 s+ to stop)
 IP_TIMEOUT = 30  # for gluetun to report the new public IP once it runs
 ROTATE_ATTEMPTS = 2  # restarts when the IP stays unknown
 _PUT_TIMEOUT = 30
@@ -54,6 +60,8 @@ _BLOCK_MARKERS = (
     "confirm you're not a bot",  # not "sign in to confirm": age gates say that too
     "http error 429",
     "too many requests",
+    # What yt-dlp reports once YouTube has throttled the whole session.
+    "rate-limited by youtube",
 )
 
 _state_lock = threading.Lock()
@@ -64,6 +72,7 @@ _state = {
     "blocks": 0,  # every block ever noted; never reset, only compared
     "last_attempt": 0.0,
     "last_rotation": None,
+    "failed_rotations": 0,  # in a row; any success resets it
 }
 
 
@@ -348,16 +357,30 @@ def _record(result, reason, started):
             # A failed attempt keeps the triggers: after the cooldown the
             # next idle moment tries again instead of forgetting the block.
             _state["albums_since_rotation"] = 0
-            _state["block_seen"] = False
+            _state["failed_rotations"] = 0
+            # A restart that came back on the very same address did not
+            # answer the block: it stays pending for the next attempt.
+            same_ip = bool(
+                result.get("old_ip") and result.get("old_ip") == result.get("new_ip")
+            )
+            if not same_ip:
+                _state["block_seen"] = False
+        else:
+            _state["failed_rotations"] += 1
     return result
 
 
 # -- automatic triggers ----------------------------------------------------
 
+def is_block(message):
+    """True when ``message`` is YouTube refusing the address (no side effects)."""
+    low = str(message or "").lower().replace("’", "'")
+    return any(marker in low for marker in _BLOCK_MARKERS)
+
+
 def note_block(message):
     """Remember that YouTube refused a request (called from the downloader)."""
-    low = str(message or "").lower().replace("’", "'")
-    if any(marker in low for marker in _BLOCK_MARKERS):
+    if is_block(message):
         if not control_url():
             return False  # nothing to rotate with: do not keep a stale flag
         with _state_lock:
@@ -399,14 +422,33 @@ def due_reason(cfg=None, now=None):
         return None
     now = time.time() if now is None else now
     with _state_lock:
-        if now - _state["last_attempt"] < AUTO_ROTATE_COOLDOWN:
+        since = now - _state["last_attempt"]
+        if cfg.get("vpn_rotate_on_block", True) and _state["block_seen"]:
+            return "YouTube blocked a request" if since >= BLOCK_ROTATE_COOLDOWN else None
+        if since < AUTO_ROTATE_COOLDOWN:
             return None
         every = int(cfg.get("vpn_rotate_every_albums") or 0)
-        if cfg.get("vpn_rotate_on_block", True) and _state["block_seen"]:
-            return "YouTube blocked a request"
         if every > 0 and _state["albums_since_rotation"] >= every:
             return f"every {every} album(s)"
     return None
+
+
+def block_pending(cfg=None):
+    """True while a block waits for the rotation that will answer it.
+
+    Unlike ``due_reason`` it ignores the cooldown: inside it nothing may start
+    on the refused address (an album would only fail on it, and be lost to the
+    scheduler's retry window). It lets go after ``MAX_HOLD_FAILURES`` failed
+    rotations in a row, so a broken VPN cannot freeze the queue.
+    """
+    cfg = cfg if cfg is not None else load_config()
+    if not rotates_on_block(cfg):
+        return False
+    with _state_lock:
+        return (
+            _state["block_seen"]
+            and _state["failed_rotations"] < MAX_HOLD_FAILURES
+        )
 
 
 def rotate_if_due(cfg=None, busy=None):
@@ -442,7 +484,7 @@ def reset_state():
     with _state_lock:
         _state.update(
             albums_since_rotation=0, block_seen=False,
-            last_attempt=0.0, last_rotation=None,
+            last_attempt=0.0, last_rotation=None, failed_rotations=0,
         )
 
 
