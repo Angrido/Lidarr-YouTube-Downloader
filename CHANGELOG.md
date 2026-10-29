@@ -41,6 +41,20 @@
   400. It stops a web page that points its own name at your server
   (DNS rebinding) from being treated as same-origin. Off by default;
   `localhost` is always allowed and `*.example.com` matches sub-domains.
+- **Time left on the queue** (issue #113). Downloads shows, above the queue, how long
+  the queue will take (*About 21–40 days left · 9,585 albums · ~139,000
+  tracks · 3.3 tracks/min (24 h) · most likely 29 days, around 23 Nov*) and
+  the Library's Queue tile carries the same estimate. The tracks waiting
+  are the missing tracks of the queued albums as Lidarr counts them (an
+  album not in the cache counts as the average); the pace is measured from
+  the download history by the clock, so pauses, VPN restarts and failed
+  attempts are inside it; the answer is a range from the slower and
+  quicker quarters of the last 24 hours and the 7-day pace, with the
+  24 h pace in the middle. It says so when the queue is paused, held for a
+  VPN rotation or a pending restart, when there is too little history, when
+  the last hour is far under the day's pace or most tracks are failing, and
+  an *i* button explains the calculation. `GET /api/queue/eta` (cached
+  15 s); `/api/stats` is unchanged.
 
 ### Changed
 - **Smoother motion** — moving between pages cross-fades the content while
