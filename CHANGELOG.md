@@ -3,6 +3,11 @@
 ## 2.0.1
 
 ### Added
+- **Host allow-list** (`ALLOWED_HOSTS`, optional) — comma-separated host
+  names or addresses the app answers to; any other `Host` header gets a
+  400. It stops a web page that points its own name at your server
+  (DNS rebinding) from being treated as same-origin. Off by default;
+  `localhost` is always allowed and `*.example.com` matches sub-domains.
 - **Request pacing** (Settings → YouTube access, issue #98): the pause
   between yt-dlp's requests and a random pause before each download (min /
   max, 1–5 s by default) can now be set from the page, to avoid YouTube

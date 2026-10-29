@@ -213,3 +213,64 @@ class TestSetPermissions:
 
     def test_nonexistent_path_no_error(self):
         utils.set_permissions("/nonexistent/path/that/does/not/exist")
+
+
+class TestParseAllowedHosts:
+    def test_empty_means_no_restriction(self):
+        assert utils.parse_allowed_hosts("") == ()
+        assert utils.parse_allowed_hosts(None) == ()
+        assert utils.parse_allowed_hosts(" , ,") == ()
+
+    def test_normalizes_case_ports_and_whitespace(self):
+        assert utils.parse_allowed_hosts(
+            " Music.Example.com , 192.168.1.10:5005,*.lan "
+        ) == ("music.example.com", "192.168.1.10", "*.lan")
+
+    def test_keeps_ipv6_literals(self):
+        assert utils.parse_allowed_hosts("[fd00::1]:5005") == ("fd00::1",)
+
+    def test_accepts_a_pasted_url(self):
+        assert utils.parse_allowed_hosts(
+            "http://10.0.4.1:5005/, https://Music.example.com"
+        ) == ("10.0.4.1", "music.example.com")
+
+    def test_invalid_entries_are_skipped_with_a_warning(self, caplog):
+        with caplog.at_level("WARNING"):
+            hosts = utils.parse_allowed_hosts("ok.example, bad host,a@b.example")
+        assert hosts == ("ok.example",)
+        assert "bad host" in caplog.text and "a@b.example" in caplog.text
+
+
+class TestHostIsAllowed:
+    ALLOWED = utils.parse_allowed_hosts("music.example.com,10.0.4.1,*.lan")
+
+    def test_no_allow_list_allows_everything(self):
+        assert utils.host_is_allowed("anything.example:5005", ())
+
+    @pytest.mark.parametrize("host", [
+        "music.example.com", "MUSIC.example.com:443", "10.0.4.1:5005",
+        "nas.lan", "a.b.lan:5005",
+    ])
+    def test_allows_listed_hosts(self, host):
+        assert utils.host_is_allowed(host, self.ALLOWED)
+
+    @pytest.mark.parametrize("host", [
+        "attacker.example", "attacker.example:5005", "music.example.com.evil",
+        "evilmusic.example.com", "lan", "10.0.4.2", "10.0.4.1.evil.example",
+        "", "[", "user@music.example.com",
+    ])
+    def test_refuses_other_hosts(self, host):
+        assert not utils.host_is_allowed(host, self.ALLOWED)
+
+    def test_wildcard_does_not_match_the_apex_or_lookalikes(self):
+        assert not utils.host_is_allowed("lan", self.ALLOWED)
+        assert not utils.host_is_allowed("evil-lan", self.ALLOWED)
+
+    @pytest.mark.parametrize("host", [
+        "localhost:5000", "127.0.0.1:5000", "[::1]:5000", "LOCALHOST",
+    ])
+    def test_loopback_is_always_allowed(self, host):
+        assert utils.host_is_allowed(host, self.ALLOWED)
+
+    def test_missing_host_is_refused_when_a_list_is_set(self):
+        assert not utils.host_is_allowed(None, self.ALLOWED)
