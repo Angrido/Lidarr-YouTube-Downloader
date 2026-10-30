@@ -1401,6 +1401,18 @@ class TestProxyCallSites:
             )
         assert get.call_args.kwargs["proxies"] == expected
 
+    @pytest.mark.parametrize("proxy, expected", [(PROXY, PROXY), ("", None)])
+    def test_candidate_metadata_lookup(self, proxy, expected):
+        import downloader
+
+        _set(vpn_proxy_url=proxy)
+        ydl = _ydl_returning({"duration": 200})
+        with patch("yt_dlp.YoutubeDL", ydl):
+            downloader._fetch_video_metadata(
+                "https://music.youtube.com/watch?v=bDCDG707MaA",
+            )
+        assert _opts_of(ydl).get("proxy") == expected
+
     def test_album_lookups_in_a_download_use_the_proxy(self):
         import downloader
 

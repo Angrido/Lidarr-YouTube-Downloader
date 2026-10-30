@@ -1283,6 +1283,50 @@ def match_album_track(
     return None
 
 
+# A flat search result can lack the duration (and the credited artist), which
+# leaves a candidate scored on its title alone. These bound how many full
+# lookups one search spends to turn such a guess into facts: per search pass,
+# and for the whole track.
+RESOLVES_PER_SEARCH = 3
+MAX_RESOLVES_PER_TRACK = 8
+
+
+def _fetch_video_metadata(url, player_client=None):
+    """Read one video's own metadata (duration, channel, artist) — no formats.
+
+    Returns ``{}`` when it cannot be read; the caller then keeps the
+    candidate provisional instead of failing the search.
+    """
+    opts = {
+        **_build_common_opts(player_client=player_client),
+        "extract_flat": False,
+        "skip_download": True,
+        "ignore_no_formats_error": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False, process=False)
+    except Exception as e:
+        vpn.note_block(e)
+        logger.debug("   Could not read the metadata of %s: %s", url, e)
+        return {}
+    return info if isinstance(info, dict) else {}
+
+
+def _merge_resolved_metadata(entry, info):
+    """Overlay what the video itself says onto a flat search entry."""
+    merged = dict(entry)
+    for key in ("duration", "channel", "uploader", "view_count"):
+        if info.get(key):
+            merged[key] = info[key]
+    artists = info.get("artists")
+    if not artists and info.get("artist"):
+        artists = [info["artist"]]
+    if artists:
+        merged["artists"] = artists
+    return merged
+
+
 def search_youtube_candidates(
     query, track_title_original,
     expected_duration_ms=None, skip_check=None, banned_urls=None,
@@ -1370,6 +1414,316 @@ def search_youtube_candidates(
         _extract_video_id(b) or b for b in (banned_urls or ()) if b
     }
 
+    def _evaluate_entry(entry, kind, official_only):
+        """Score one search entry; ``None`` when it is rejected.
+
+        A candidate whose duration the flat result did not carry (while the
+        expected one is known) comes back ``provisional``: its duration score
+        is a neutral guess and its artist may be unproven, so it must not end
+        the search until its real metadata has been looked at.
+        """
+        title = (entry.get("title") or "").lower()
+        url = entry.get("url")
+        duration = entry.get("duration") or 0
+        channel = (
+            entry.get("channel", "")
+            or entry.get("uploader", "")
+            or ""
+        )
+        view_count = entry.get("view_count", 0) or 0
+
+        # ytmusic credits the artist via ``artists``; absent
+        # means unverifiable (lenient), present-and-wrong
+        # means reject.
+        entry_artists = entry.get("artists") or []
+        if isinstance(entry_artists, str):
+            entry_artists = [entry_artists]
+        artists_blob = " ".join(
+            a if isinstance(a, str) else (a.get("name", "") if isinstance(a, dict) else "")
+            for a in entry_artists
+        )
+        artists_blob = _fold(artists_blob)
+        artist_in_artists = bool(
+            base_artist and artists_blob
+            and _fold(base_artist) in artists_blob
+        )
+        uploader_field = entry.get("uploader", "") or ""
+
+        ytmusic_source = kind == "ytmusic"
+        is_topic = _is_topic_channel(channel, base_artist)
+        is_official = _is_official_channel(channel, base_artist)
+        channel_artist_match = is_topic or is_official
+        uploader_artist_match = (
+            _is_official_channel(uploader_field, base_artist)
+            or _is_topic_channel(uploader_field, base_artist)
+        )
+        ytmusic_artist_proven = ytmusic_source and (
+            artist_in_artists or uploader_artist_match
+        )
+
+        # Reject explicit-mismatch ytmusic entries: homonym
+        # songs / same-title covers by other artists are
+        # the main failure mode.
+        has_explicit_mismatch = False
+        if base_artist:
+            ba_lower = _fold(base_artist)
+            if artists_blob and ba_lower not in artists_blob:
+                has_explicit_mismatch = True
+            elif (
+                channel
+                and ba_lower not in _fold(channel)
+                and not is_topic
+                and not is_official
+            ):
+                # Non-matching channel counts as mismatch
+                # only if no other artist field rescues it.
+                if not artist_in_artists and not uploader_artist_match:
+                    has_explicit_mismatch = ytmusic_source
+
+        if official_only and has_explicit_mismatch:
+            logger.debug(
+                "   Rejected '%s' (channel '%s', artists=%s)"
+                " - phase 1 explicit artist mismatch",
+                entry.get("title", ""), channel, entry_artists,
+            )
+            return None
+
+        # Lenient phase 1: positive proof OR ytmusic source
+        # (YT Music's catalogue is artist-curated).
+        artist_official = (
+            channel_artist_match
+            or ytmusic_artist_proven
+            or ytmusic_source
+        )
+        if official_only and not artist_official:
+            logger.debug(
+                "   Rejected '%s' (channel '%s', artists=%s)"
+                " - phase 1 accepts artist's official"
+                " or Topic channel or ytmusic source",
+                entry.get("title", ""), channel, entry_artists,
+            )
+            return None
+        if not channel_artist_match:
+            blocked = _check_forbidden(
+                title, track_title_original.lower(),
+                forbidden_words,
+            )
+            if blocked:
+                logger.debug(
+                    f"   Rejected '{entry.get('title', '')}'"
+                    f" - forbidden word '{blocked}'"
+                )
+                return None
+
+        duration_known = bool(duration) and duration > 0
+        effective_tolerance = duration_tolerance
+        if artist_official:
+            effective_tolerance = max(
+                duration_tolerance, duration_tolerance * 2, 30
+            )
+        if expected_duration_sec and duration_known:
+            min_dur = max(
+                0, expected_duration_sec - effective_tolerance
+            )
+            max_dur = expected_duration_sec + effective_tolerance
+            if duration < min_dur or duration > max_dur:
+                logger.debug(
+                    f"   Rejected '{entry.get('title', '')}'"
+                    f" - duration {int(duration)}s outside"
+                    f" [{int(min_dur)}s - {int(max_dur)}s]"
+                )
+                return None
+            dur_diff = abs(duration - expected_duration_sec)
+            duration_score = max(
+                0, 1.0 - (dur_diff / max(effective_tolerance, 1))
+            )
+        elif expected_duration_sec and not duration_known:
+            duration_score = 0.5
+        else:
+            if duration_known and (duration < 15 or duration > 7200):
+                return None
+            duration_score = 0.5
+
+        if banned_urls and (
+            url in banned_urls
+            or (_extract_video_id(url) or url) in banned_ids
+        ):
+            logger.debug(
+                "   Rejected '%s' - URL banned by user",
+                entry.get("title", ""),
+            )
+            return None
+
+        # Hard requirement: the track title must actually
+        # appear in the YouTube title (or cover ≥85% of it
+        # by longest common substring, to allow tiny
+        # punctuation/normalisation differences). Just
+        # matching the artist name is the same-artist
+        # wrong-song trap.
+        yt_title_raw = entry.get("title") or ""
+        yt_norm = _coverage_text(yt_title_raw)
+        track_norm = _coverage_text(track_title_original)
+        if generic_title and not (
+            channel_artist_match
+            or ytmusic_artist_proven
+            or uploader_artist_match
+            or (
+                base_artist
+                and _fold(base_artist) in _fold(yt_title_raw)
+            )
+        ):
+            logger.debug(
+                "   Rejected '%s' - generic title '%s' needs"
+                " the artist's channel or name",
+                yt_title_raw, track_title_original,
+            )
+            return None
+        if track_norm and track_norm not in yt_norm:
+            match = SequenceMatcher(
+                None, track_norm, yt_norm,
+            ).find_longest_match(
+                0, len(track_norm), 0, len(yt_norm),
+            )
+            coverage = match.size / max(len(track_norm), 1)
+            if coverage < 0.85:
+                logger.debug(
+                    f"   Rejected '{yt_title_raw}'"
+                    f" - track title not present"
+                    f" (coverage {coverage:.0%})"
+                )
+                return None
+
+        title_score = _title_similarity(
+            yt_title_raw,
+            track_title_original, base_artist,
+        )
+        if has_explicit_mismatch:
+            # Penalty large enough to outweigh any
+            # title/duration/view boost in phase 2.
+            official_bonus = 0.0
+            artist_mismatch_penalty = 0.55
+        elif channel_artist_match or ytmusic_artist_proven:
+            official_bonus = 0.45
+            artist_mismatch_penalty = 0.0
+        elif is_official:
+            official_bonus = 0.40
+            artist_mismatch_penalty = 0.0
+        elif ytmusic_source:
+            official_bonus = 0.20
+            artist_mismatch_penalty = 0.0
+        else:
+            official_bonus = 0.0
+            artist_mismatch_penalty = 0.0
+        if view_count > 0:
+            view_score = min(
+                0.1, math.log10(max(view_count, 1)) / 100
+            )
+        else:
+            view_score = 0.0
+        certainty_bonus = 0.15 if title_score >= 1.0 else 0.0
+        # Nudge toward the audio version when a title looks
+        # like a music video (videos are often louder/longer
+        # and lower audio quality than the Topic/audio upload).
+        video_penalty = (
+            0.12 if _looks_like_music_video(yt_title_raw)
+            else 0.0
+        )
+        total_score = (
+            (duration_score * 0.25)
+            + (title_score * 0.50)
+            + official_bonus
+            + view_score
+            + certainty_bonus
+            - artist_mismatch_penalty
+            - video_penalty
+        )
+
+        if not url:
+            return None
+        provisional = bool(expected_duration_sec) and not duration_known
+        logger.debug(
+            f"   Candidate '{entry.get('title', '')}'"
+            f" -- score={total_score:.2f}"
+            f" (dur={duration_score:.2f}"
+            f" title={title_score:.2f}"
+            f" official={official_bonus:.2f}"
+            f" certainty={certainty_bonus:.2f}"
+            f" views={view_score:.3f})"
+            + (" [duration not verified]" if provisional else "")
+        )
+        return {
+            "url": url,
+            "title": yt_title_raw,
+            "duration": duration,
+            "channel": channel,
+            "score": total_score,
+            "source": kind,
+            "provisional": provisional,
+        }
+
+    def _has_good():
+        return any(
+            c["score"] >= GOOD_SCORE
+            and not c["provisional"]
+            and not c.get("dropped")
+            for c in candidates
+        )
+
+    resolved_ids = set()
+    resolves_used = 0
+
+    def _settle_provisional():
+        """Look at the real metadata of the strongest provisional candidates.
+
+        ``extract_flat`` search results (YT Music's above all) often carry
+        neither a duration nor the credited artist, so a same-title song by
+        someone else could reach ``GOOD_SCORE`` on its title alone. A few
+        full lookups per search turn those guesses into facts: the candidate
+        is scored again, and the duration window or the artist check may
+        now reject it (issue #118).
+        """
+        nonlocal resolves_used
+        pending = sorted(
+            (
+                c for c in candidates
+                if c["provisional"] and not c.get("dropped")
+            ),
+            key=lambda c: c["score"], reverse=True,
+        )
+        looked_at = 0
+        for cand in pending:
+            if (
+                looked_at >= RESOLVES_PER_SEARCH
+                or resolves_used >= MAX_RESOLVES_PER_TRACK
+                or (skip_check and skip_check())
+            ):
+                break
+            video_id = _extract_video_id(cand["url"]) or cand["url"]
+            if video_id in resolved_ids:
+                continue
+            resolved_ids.add(video_id)
+            resolves_used += 1
+            looked_at += 1
+            info = _fetch_video_metadata(cand["url"], first_client)
+            if not info:
+                continue
+            entry, kind, official_only = cand["_ctx"]
+            merged = _merge_resolved_metadata(entry, info)
+            fresh = _evaluate_entry(merged, kind, official_only)
+            if fresh is None:
+                cand["dropped"] = True
+                logger.debug(
+                    "   Dropped '%s' after reading the video's own"
+                    " metadata (duration %ss, channel '%s')",
+                    cand["title"], info.get("duration"),
+                    info.get("channel") or info.get("uploader") or "",
+                )
+                continue
+            fresh["source"] = cand["source"]
+            fresh["url"] = cand["url"]
+            fresh["_ctx"] = (merged, kind, official_only)
+            candidates[seen_ids[video_id]] = fresh
+
     # Phase 1: only accept entries from the artist's official/Topic channel
     # on YouTube Music or YouTube. Phase 2 (any source) runs only if Phase 1
     # fails to surface a candidate at or above GOOD_SCORE.
@@ -1378,7 +1732,7 @@ def search_youtube_candidates(
         ("any-source", False),
     ]
     for phase_name, official_only in search_phases:
-        if any(c["score"] >= GOOD_SCORE for c in candidates):
+        if _has_good():
             break
         logger.info(
             "   Search phase: %s",
@@ -1392,8 +1746,7 @@ def search_youtube_candidates(
             if skip_check and skip_check():
                 return []
 
-            has_good = any(c["score"] >= GOOD_SCORE for c in candidates)
-            if has_good:
+            if _has_good():
                 break
 
             if kind == "ytmusic":
@@ -1440,225 +1793,10 @@ def search_youtube_candidates(
                 for entry in (search_results or {}).get("entries") or []:
                     if not isinstance(entry, dict):
                         continue
-                    title = (entry.get("title") or "").lower()
-                    url = entry.get("url")
-                    duration = entry.get("duration") or 0
-                    channel = (
-                        entry.get("channel", "")
-                        or entry.get("uploader", "")
-                        or ""
-                    )
-                    view_count = entry.get("view_count", 0) or 0
-
-                    # ytmusic credits the artist via ``artists``; absent
-                    # means unverifiable (lenient), present-and-wrong
-                    # means reject.
-                    entry_artists = entry.get("artists") or []
-                    if isinstance(entry_artists, str):
-                        entry_artists = [entry_artists]
-                    artists_blob = " ".join(
-                        a if isinstance(a, str) else (a.get("name", "") if isinstance(a, dict) else "")
-                        for a in entry_artists
-                    )
-                    artists_blob = _fold(artists_blob)
-                    artist_in_artists = bool(
-                        base_artist and artists_blob
-                        and _fold(base_artist) in artists_blob
-                    )
-                    uploader_field = entry.get("uploader", "") or ""
-
-                    ytmusic_source = kind == "ytmusic"
-                    is_topic = _is_topic_channel(channel, base_artist)
-                    is_official = _is_official_channel(channel, base_artist)
-                    channel_artist_match = is_topic or is_official
-                    uploader_artist_match = (
-                        _is_official_channel(uploader_field, base_artist)
-                        or _is_topic_channel(uploader_field, base_artist)
-                    )
-                    ytmusic_artist_proven = ytmusic_source and (
-                        artist_in_artists or uploader_artist_match
-                    )
-
-                    # Reject explicit-mismatch ytmusic entries: homonym
-                    # songs / same-title covers by other artists are
-                    # the main failure mode.
-                    has_explicit_mismatch = False
-                    if base_artist:
-                        ba_lower = _fold(base_artist)
-                        if artists_blob and ba_lower not in artists_blob:
-                            has_explicit_mismatch = True
-                        elif (
-                            channel
-                            and ba_lower not in _fold(channel)
-                            and not is_topic
-                            and not is_official
-                        ):
-                            # Non-matching channel counts as mismatch
-                            # only if no other artist field rescues it.
-                            if not artist_in_artists and not uploader_artist_match:
-                                has_explicit_mismatch = ytmusic_source
-
-                    if official_only and has_explicit_mismatch:
-                        logger.debug(
-                            "   Rejected '%s' (channel '%s', artists=%s)"
-                            " - phase 1 explicit artist mismatch",
-                            entry.get("title", ""), channel, entry_artists,
-                        )
+                    cand = _evaluate_entry(entry, kind, official_only)
+                    if cand is None:
                         continue
-
-                    # Lenient phase 1: positive proof OR ytmusic source
-                    # (YT Music's catalogue is artist-curated).
-                    artist_official = (
-                        channel_artist_match
-                        or ytmusic_artist_proven
-                        or ytmusic_source
-                    )
-                    if official_only and not artist_official:
-                        logger.debug(
-                            "   Rejected '%s' (channel '%s', artists=%s)"
-                            " - phase 1 accepts artist's official"
-                            " or Topic channel or ytmusic source",
-                            entry.get("title", ""), channel, entry_artists,
-                        )
-                        continue
-                    if not channel_artist_match:
-                        blocked = _check_forbidden(
-                            title, track_title_original.lower(),
-                            forbidden_words,
-                        )
-                        if blocked:
-                            logger.debug(
-                                f"   Rejected '{entry.get('title', '')}'"
-                                f" - forbidden word '{blocked}'"
-                            )
-                            continue
-
-                    duration_known = bool(duration) and duration > 0
-                    effective_tolerance = duration_tolerance
-                    if artist_official:
-                        effective_tolerance = max(
-                            duration_tolerance, duration_tolerance * 2, 30
-                        )
-                    if expected_duration_sec and duration_known:
-                        min_dur = max(
-                            0, expected_duration_sec - effective_tolerance
-                        )
-                        max_dur = expected_duration_sec + effective_tolerance
-                        if duration < min_dur or duration > max_dur:
-                            logger.debug(
-                                f"   Rejected '{entry.get('title', '')}'"
-                                f" - duration {int(duration)}s outside"
-                                f" [{int(min_dur)}s - {int(max_dur)}s]"
-                            )
-                            continue
-                        dur_diff = abs(duration - expected_duration_sec)
-                        duration_score = max(
-                            0, 1.0 - (dur_diff / max(effective_tolerance, 1))
-                        )
-                    elif expected_duration_sec and not duration_known:
-                        duration_score = 0.5
-                    else:
-                        if duration_known and (duration < 15 or duration > 7200):
-                            continue
-                        duration_score = 0.5
-
-                    if banned_urls and (
-                        url in banned_urls
-                        or (_extract_video_id(url) or url) in banned_ids
-                    ):
-                        logger.debug(
-                            "   Rejected '%s' - URL banned by user",
-                            entry.get("title", ""),
-                        )
-                        continue
-
-                    # Hard requirement: the track title must actually
-                    # appear in the YouTube title (or cover ≥85% of it
-                    # by longest common substring, to allow tiny
-                    # punctuation/normalisation differences). Just
-                    # matching the artist name is the same-artist
-                    # wrong-song trap.
-                    yt_title_raw = entry.get("title") or ""
-                    yt_norm = _coverage_text(yt_title_raw)
-                    track_norm = _coverage_text(track_title_original)
-                    if generic_title and not (
-                        channel_artist_match
-                        or ytmusic_artist_proven
-                        or uploader_artist_match
-                        or (
-                            base_artist
-                            and _fold(base_artist) in _fold(yt_title_raw)
-                        )
-                    ):
-                        logger.debug(
-                            "   Rejected '%s' - generic title '%s' needs"
-                            " the artist's channel or name",
-                            yt_title_raw, track_title_original,
-                        )
-                        continue
-                    if track_norm and track_norm not in yt_norm:
-                        match = SequenceMatcher(
-                            None, track_norm, yt_norm,
-                        ).find_longest_match(
-                            0, len(track_norm), 0, len(yt_norm),
-                        )
-                        coverage = match.size / max(len(track_norm), 1)
-                        if coverage < 0.85:
-                            logger.debug(
-                                f"   Rejected '{yt_title_raw}'"
-                                f" - track title not present"
-                                f" (coverage {coverage:.0%})"
-                            )
-                            continue
-
-                    title_score = _title_similarity(
-                        yt_title_raw,
-                        track_title_original, base_artist,
-                    )
-                    if has_explicit_mismatch:
-                        # Penalty large enough to outweigh any
-                        # title/duration/view boost in phase 2.
-                        official_bonus = 0.0
-                        artist_mismatch_penalty = 0.55
-                    elif channel_artist_match or ytmusic_artist_proven:
-                        official_bonus = 0.45
-                        artist_mismatch_penalty = 0.0
-                    elif is_official:
-                        official_bonus = 0.40
-                        artist_mismatch_penalty = 0.0
-                    elif ytmusic_source:
-                        official_bonus = 0.20
-                        artist_mismatch_penalty = 0.0
-                    else:
-                        official_bonus = 0.0
-                        artist_mismatch_penalty = 0.0
-                    if view_count > 0:
-                        view_score = min(
-                            0.1, math.log10(max(view_count, 1)) / 100
-                        )
-                    else:
-                        view_score = 0.0
-                    certainty_bonus = 0.15 if title_score >= 1.0 else 0.0
-                    # Nudge toward the audio version when a title looks
-                    # like a music video (videos are often louder/longer
-                    # and lower audio quality than the Topic/audio upload).
-                    video_penalty = (
-                        0.12 if _looks_like_music_video(yt_title_raw)
-                        else 0.0
-                    )
-                    total_score = (
-                        (duration_score * 0.25)
-                        + (title_score * 0.50)
-                        + official_bonus
-                        + view_score
-                        + certainty_bonus
-                        - artist_mismatch_penalty
-                        - video_penalty
-                    )
-
-                    if not url:
-                        continue
-                    video_id = _extract_video_id(url) or url
+                    video_id = _extract_video_id(cand["url"]) or cand["url"]
                     if video_id in seen_ids:
                         existing = candidates[seen_ids[video_id]]
                         # Same video found by both ytmusic and ytsearch
@@ -1666,36 +1804,26 @@ def search_youtube_candidates(
                         # link reflects YouTube Music.
                         if kind == "ytmusic" and existing.get("source") != "ytmusic":
                             existing["source"] = "ytmusic"
-                            existing["url"] = url
+                            existing["url"] = cand["url"]
                         continue
                     seen_ids[video_id] = len(candidates)
-                    candidates.append({
-                        "url": url,
-                        "title": yt_title_raw,
-                        "duration": duration,
-                        "channel": channel,
-                        "score": total_score,
-                        "source": kind,
-                    })
-                    logger.debug(
-                        f"   Candidate '{entry.get('title', '')}'"
-                        f" -- score={total_score:.2f}"
-                        f" (dur={duration_score:.2f}"
-                        f" title={title_score:.2f}"
-                        f" official={official_bonus:.2f}"
-                        f" certainty={certainty_bonus:.2f}"
-                        f" views={view_score:.3f})"
-                    )
+                    cand["_ctx"] = (entry, kind, official_only)
+                    candidates.append(cand)
                 logger.info(
                     f"   [{kind}] {entries_total} entries"
                     f" -> {len(candidates) - accepted_before} accepted"
                 )
+                _settle_provisional()
             except Exception as e:
                 vpn.note_block(e)
                 logger.error(f'   Search failed for "{sq}": {e}')
 
-    candidates.sort(key=lambda x: x["score"], reverse=True)
-    return candidates[:MAX_CANDIDATES]
+    ranked = [c for c in candidates if not c.get("dropped")]
+    for cand in ranked:
+        cand.pop("_ctx", None)
+        cand.pop("provisional", None)
+    ranked.sort(key=lambda x: x["score"], reverse=True)
+    return ranked[:MAX_CANDIDATES]
 
 
 _VIDEO_ID_RE = re.compile(r"(?:v=|/)([0-9A-Za-z_-]{11})(?:[?&#]|$)")
