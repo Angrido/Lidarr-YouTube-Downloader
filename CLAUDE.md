@@ -338,6 +338,18 @@ Intro, Outro, Interlude, Skit, [untitled]…) require the artist's channel,
 YT Music artist credit or name in the title, and phase 2 reuses phase 1's
 fetched results.
 
+A flat search result (`extract_flat`, YT Music's above all) can lack the
+duration and the credited artist. While the expected duration is known, such
+a candidate is **provisional** (`_evaluate_entry` in `search_youtube_candidates`):
+it never counts toward `GOOD_SCORE` (`_has_good()`), and after each search pass
+`_settle_provisional()` reads the video's own metadata for the best of them
+(`_fetch_video_metadata`: no formats, so a PO-token problem can't fail it;
+through `_build_common_opts`, hence the VPN proxy) up to `RESOLVES_PER_SEARCH` /
+`MAX_RESOLVES_PER_TRACK`, merges it in (`_merge_resolved_metadata`) and scores
+the entry again, which can reject it on the duration window or the artist
+check (issue #118). A lookup that fails leaves the candidate provisional in the
+pool; each video is looked up once per track.
+
 ### Multi-disc albums
 
 Lidarr's `trackNumber` restarts on every disc. On an album whose tracks span

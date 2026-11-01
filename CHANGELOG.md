@@ -55,6 +55,16 @@
   disappearing after four seconds. Long playlists scroll faster.
 
 ### Fixed
+- **A song by another artist could win the per-track search** (issue #118).
+  YouTube Music's flat search results often carry neither a duration nor the
+  credited artist, so a same-title song by someone else scored on its title
+  alone (neutral duration, the generic YT Music bonus) and could reach the
+  "good enough" score that ends the search: *Catch a Stray*, 2:57, beat the
+  real 4:42 *CATCH A STRAY*. A candidate whose duration is unknown while the
+  expected one is known is now provisional: it cannot end the search, the
+  strongest few (3 per search, 8 per track) have their own metadata read,
+  and they are scored again, so the duration window and the artist check can
+  reject them. A lookup that fails leaves the candidate in the pool as before.
 - **Fewer vulnerabilities in the image**: the container drops to `PUID` /
   `PGID` with `setpriv` (util-linux, already in the base image) instead of
   `gosu`. Debian's `gosu` is a Go binary built with Go 1.24.4, which image
