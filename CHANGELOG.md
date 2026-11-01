@@ -67,6 +67,20 @@
   400. It stops a web page that points its own name at your server
   (DNS rebinding) from being treated as same-origin. Off by default;
   `localhost` is always allowed and `*.example.com` matches sub-domains.
+- **Time left on the queue** (issue #113). Downloads shows, above the queue, how long
+  the queue will take (*About 21–40 days left · 9,585 albums · ~139,000
+  tracks · 3.3 tracks/min (24 h) · most likely 29 days, around 23 Nov*) and
+  the Library's Queue tile carries the same estimate. The tracks waiting
+  are the missing tracks of the queued albums as Lidarr counts them (an
+  album not in the cache counts as the average); the pace is measured from
+  the download history by the clock, so pauses, VPN restarts and failed
+  attempts are inside it; the answer is a range from the slower and
+  quicker quarters of the last 24 hours and the 7-day pace, with the
+  24 h pace in the middle. It says so when the queue is paused, held for a
+  VPN rotation or a pending restart, when there is too little history, when
+  the last hour is far under the day's pace or most tracks are failing, and
+  an *i* button explains the calculation. `GET /api/queue/eta` (cached
+  15 s); `/api/stats` is unchanged.
 
 ### Changed
 - **Smoother motion** — moving between pages cross-fades the content while
@@ -87,6 +101,16 @@
   the number of tracks on that disc (falling back to the release's count),
   for MP3, M4A and Opus; a copy made by the duplicate-track reuse gets it
   too.
+- **A song by another artist could win the per-track search** (issue #118).
+  YouTube Music's flat search results often carry neither a duration nor the
+  credited artist, so a same-title song by someone else scored on its title
+  alone (neutral duration, the generic YT Music bonus) and could reach the
+  "good enough" score that ends the search: *Catch a Stray*, 2:57, beat the
+  real 4:42 *CATCH A STRAY*. A candidate whose duration is unknown while the
+  expected one is known is now provisional: it cannot end the search, the
+  strongest few (3 per search, 8 per track) have their own metadata read,
+  and they are scored again, so the duration window and the artist check can
+  reject them. A lookup that fails leaves the candidate in the pool as before.
 - **Fewer vulnerabilities in the image**: the container drops to `PUID` /
   `PGID` with `setpriv` (util-linux, already in the base image) instead of
   `gosu`. Debian's `gosu` is a Go binary built with Go 1.24.4, which image

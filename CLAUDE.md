@@ -82,6 +82,7 @@ docker run -p 5005:5000 \
 | `lidarr.py` | Lidarr API wrapper |
 | `dedupe.py` | Never fetch the same recording twice: `plan_album()` decides, per track still pending, whether it is a repeat of another position of the same release, already downloaded for this album, or reusable from a verified file of another album; `processing` does the copying (`_apply_dedupe_reuse`, `_copy_repeat_positions`, `_copy_track_for_album`). See *Never fetch the same recording twice* |
 | `lidarr_sync.py` | Background paginated sync of Lidarr's missing albums into `missing_albums_cache` |
+| `queue_eta.py` | Time left on the queue: `estimate()` (cached 15 s) → `GET /api/queue/eta`. See *Queue ETA* |
 | `library.py` | Lidarr lookup / add API used by Explore: MusicBrainz search through Lidarr, add artists/albums, monitor, queue when the tracklist is ready |
 | `explore.py` | Explore catalog: shared YT Music client, TTL cache, normalizers + raw-shelf fallback parser, YT Music → MusicBrainz/Lidarr mapping, add / YouTube-import actions (`/explore`) |
 | `explore_routes.py` | Explore blueprint: the `/explore` page, every `/api/explore/*` route with its rate-limit bucket (`_explore_json`), and the in-memory artist-import runner (`_artist_imports`, `_run_artist_import`) |
@@ -234,6 +235,10 @@ Optional `schedule` library job polls for missing albums and auto-downloads at c
 
 **Retry backoff (issue #90):** `process_album_download` decides what to download *before* any network work — it computes `album_path`, calls `_compute_deferred_tracks()` + `_filter_tracks()`, and returns "Skipped" early if nothing is left. Tracks that keep failing back off exponentially (`scheduler_retry_after_hours * 2^(failures-1)`, capped at 30 days) from their consecutive-failure count in `track_downloads` (`models.get_track_failure_counts`), so a song that simply isn't on YouTube stops costing a cover-art fetch, per-track artist lookups and a YT Music resolution every cycle. Manual queue adds (`download_queue.force`) and Lidarr grabs (`client_grab`) bypass the backoff.
 
+### Queue ETA (`queue_eta.py`)
+
+`compute()` answers "how long will the queue take": **tracks** = `models.get_queue_track_totals()` (sum of `missing_albums_cache.missing_track_count` over the `queued` rows; an album without a count counts as the average of the others, `DEFAULT_TRACKS_PER_ALBUM` when none has one; the foreground album is not counted), **pace** = track attempts per minute from `models.get_attempt_buckets()` (one `GROUP BY` hour over 7 days on the `timestamp` index, ~30 ms on 60 k rows; `source_format = 'reused'` copies are not downloads and are left out). Every attempt counts, failed or not, because the queue drains by tracks tried. Rates are **wall-clock** (pauses, VPN rotations and idle time are inside the window; history shorter than the window is divided by its own length), over the windows 1 h / 24 h / 7 d; a window with under `MIN_ATTEMPTS` (30) is noise and is skipped (basis falls back 24 h → 7 d → 1 h). `eta` is `{seconds, low, high}`: the 24 h pace in the middle, `low`/`high` from the quicker/slower quarter of the last 24 hourly paces and the 7-day pace (`high` is `null` when a quarter of the hours made no attempt: the page says "at least"). It is how much the pace moved lately, not a statistical interval. `estimate()` adds `state` (`empty`, `restarting`, `paused`, `vpn_rotating`, `insufficient_data`, `ok`; the interval is still given while held, as the time left once it runs) and `held`, computed on every call so a pause shows at once. `warnings`: `slowdown` (last hour under half the pace), `high_failures` (last hour ≥ 50 % failed over ≥ 10 attempts), `tracks_estimated`, `short_history`. `expected_failures` = tracks × failure rate (they return later with the retry backoff and are not in the estimate). The route is rate limited and cached; it never touches Lidarr or YouTube. Tests: `tests/test_queue_eta.py` (a temp DB seeded with hourly attempts and queued albums, the route, the page markup) and `tests/js/queue-eta.test.js`. Wording is `static/queue-eta.js` (`QueueEta.describe`, pure, `tests/js/queue-eta.test.js`), shown by Downloads (callout above the queue, polled every 30 s, the *i* button toggles the explanation) and by the Library's Queue tile (one extra line, tooltip with the explanation, polled every 60 s).
+
 ### Logging
 
 `logutil.setup_logging()` (called from `app.py`) installs a console formatter
@@ -340,6 +345,18 @@ deleted and downloaded again. In the search, generic titles (`_is_generic_title`
 Intro, Outro, Interlude, Skit, [untitled]…) require the artist's channel,
 YT Music artist credit or name in the title, and phase 2 reuses phase 1's
 fetched results.
+
+A flat search result (`extract_flat`, YT Music's above all) can lack the
+duration and the credited artist. While the expected duration is known, such
+a candidate is **provisional** (`_evaluate_entry` in `search_youtube_candidates`):
+it never counts toward `GOOD_SCORE` (`_has_good()`), and after each search pass
+`_settle_provisional()` reads the video's own metadata for the best of them
+(`_fetch_video_metadata`: no formats, so a PO-token problem can't fail it;
+through `_build_common_opts`, hence the VPN proxy) up to `RESOLVES_PER_SEARCH` /
+`MAX_RESOLVES_PER_TRACK`, merges it in (`_merge_resolved_metadata`) and scores
+the entry again, which can reject it on the duration window or the artist
+check (issue #118). A lookup that fails leaves the candidate provisional in the
+pool; each video is looked up once per track.
 
 ### Never fetch the same recording twice (`dedupe.py`)
 
@@ -601,6 +618,9 @@ variables, theme toggles, navigation or Font Awesome**.
   `UI.countTo(el, value, ms, format)`. `auraPalette` and `tiltAngles` are
   pure and tested under node by `tests/test_frontend_js.py`
   (`tests/js/*.test.js`).
+- `static/queue-eta.js` — `QueueEta.describe(data)` turns `/api/queue/eta`
+  into headline / detail / hints / explanation (pure, tested under node);
+  loaded only by Downloads and Library.
 - Page motion in `components.css`: cross-document View Transitions
   (`@view-transition`, only without reduced motion) cross-fade the content
   while `.app-sidebar` / `.app-tabbar` stay put (named, no old snapshot), and

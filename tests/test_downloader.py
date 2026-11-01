@@ -3074,3 +3074,193 @@ class TestPickAlbumIsStrict:
 
     def test_exact_title_beats_an_edition(self):
         assert self._pick("Nevermind", "Nevermind (Deluxe Edition)", "Nevermind") == "Nevermind"
+
+
+class TestUnverifiedDurationCandidates:
+    """Issue #118: a flat search result with no duration (and no credited
+    artist) must not win, or end the search, on its title alone."""
+
+    CORRECT = "https://music.youtube.com/watch?v=bDCDG707MaA"
+    WRONG = "https://music.youtube.com/watch?v=LhvwlQjMx6w"
+    FLAT = [
+        {"title": "CATCH A STRAY (Audio)", "url": CORRECT},
+        {"title": "Catch a Stray", "url": WRONG},
+    ]
+    CONFIG = {
+        "forbidden_words": [],
+        "duration_tolerance": 15,
+        "yt_player_client": "android",
+    }
+
+    def _run(self, flat, videos, expected_ms=282000, on_search=None, **kwargs):
+        """Search with ``flat`` results; ``videos`` maps URL -> its own
+        metadata (an Exception is raised). Returns (candidates, calls)."""
+        calls = []
+
+        def extract(target, download=False, process=True):
+            calls.append((target, process))
+            if process is False:
+                info = videos.get(target, {})
+                if isinstance(info, Exception):
+                    raise info
+                return info
+            if on_search:
+                on_search()
+            return {"entries": list(flat)}
+
+        with patch("downloader.load_config", return_value=dict(self.CONFIG)), \
+                patch("downloader.yt_dlp.YoutubeDL") as ydl_class:
+            ydl_class.return_value.__enter__.return_value.extract_info.side_effect = extract
+            candidates = search_youtube_candidates(
+                "Leon Thomas CATCH A STRAY official audio", "CATCH A STRAY",
+                expected_duration_ms=expected_ms, **kwargs,
+            )
+        return candidates, calls
+
+    @staticmethod
+    def _lookups(calls):
+        return [target for target, process in calls if process is False]
+
+    def test_the_wrong_artists_shorter_song_is_dropped_once_its_duration_is_known(self):
+        candidates, _ = self._run(self.FLAT, {
+            self.CORRECT: {"duration": 283, "channel": "Leon Thomas - Topic"},
+            self.WRONG: {
+                "duration": 177, "channel": "Someone Else - Topic",
+                "artists": ["Someone Else"],
+            },
+        })
+        assert [c["url"] for c in candidates] == [self.CORRECT]
+        assert candidates[0]["duration"] == 283
+
+    def test_a_same_length_song_by_another_artist_is_dropped_too(self):
+        # Right duration, wrong artist: only the video's own channel says so.
+        candidates, _ = self._run(self.FLAT, {
+            self.CORRECT: {"duration": 283, "channel": "Leon Thomas - Topic"},
+            self.WRONG: {"duration": 281, "channel": "Cover Channel"},
+        })
+        assert [c["url"] for c in candidates] == [self.CORRECT]
+
+    def test_the_search_does_not_stop_on_an_unverified_good_score(self):
+        # Nothing can be read: both candidates stay provisional, so the
+        # search keeps going through the other queries instead of stopping
+        # at the first 0.80, and every video is still looked up only once.
+        failure = RuntimeError("HTTP Error 403")
+        candidates, calls = self._run(
+            self.FLAT, {self.CORRECT: failure, self.WRONG: failure},
+        )
+        searches = [t for t, process in calls if process is not False]
+        assert len(searches) > 1
+        lookups = self._lookups(calls)
+        assert sorted(lookups) == sorted([self.CORRECT, self.WRONG])
+        assert {c["url"] for c in candidates} == {self.CORRECT, self.WRONG}
+
+    def test_internal_bookkeeping_is_not_returned(self):
+        candidates, _ = self._run(self.FLAT, {
+            self.CORRECT: {"duration": 283, "channel": "Leon Thomas - Topic"},
+            self.WRONG: {"duration": 177},
+        })
+        assert set(candidates[0]) == {
+            "url", "title", "duration", "channel", "score", "source",
+        }
+
+    def test_a_flat_result_that_has_a_duration_needs_no_lookup(self):
+        flat = [
+            {"title": "CATCH A STRAY (Audio)", "url": self.CORRECT,
+             "duration": 283, "channel": "Leon Thomas - Topic"},
+        ]
+        candidates, calls = self._run(flat, {})
+        assert self._lookups(calls) == []
+        assert [c["url"] for c in candidates] == [self.CORRECT]
+
+    def test_nothing_is_looked_up_without_an_expected_duration(self):
+        candidates, calls = self._run(self.FLAT, {}, expected_ms=None)
+        assert self._lookups(calls) == []
+        assert candidates
+
+    def test_at_most_three_lookups_per_search_pass(self):
+        flat = [
+            {"title": f"CATCH A STRAY ({n})",
+             "url": f"https://music.youtube.com/watch?v=aaaaaaaaa{n:02d}"}
+            for n in range(6)
+        ]
+        good = {"duration": 282, "channel": "Leon Thomas - Topic"}
+        videos = {e["url"]: good for e in flat}
+        _, calls = self._run(flat, videos)
+        assert len(self._lookups(calls)) == downloader.RESOLVES_PER_SEARCH
+
+    def test_lookups_are_capped_for_the_whole_track(self):
+        flat = [
+            {"title": f"CATCH A STRAY ({n})",
+             "url": f"https://music.youtube.com/watch?v=bbbbbbbbb{n:02d}"}
+            for n in range(10)
+        ]
+        failure = RuntimeError("HTTP Error 403")
+        videos = {e["url"]: failure for e in flat}
+        _, calls = self._run(flat, videos)
+        assert len(self._lookups(calls)) == downloader.MAX_RESOLVES_PER_TRACK
+
+    def test_skip_check_stops_the_lookups(self):
+        # The user skips the track while the first search is running.
+        stop = []
+        _, calls = self._run(
+            self.FLAT, {}, on_search=lambda: stop.append(True),
+            skip_check=lambda: bool(stop),
+        )
+        assert self._lookups(calls) == []
+
+
+class TestFetchVideoMetadata:
+    def test_reads_the_video_without_picking_formats(self):
+        with patch("downloader.load_config", return_value={}), \
+                patch("downloader.yt_dlp.YoutubeDL") as ydl_class:
+            ydl = ydl_class.return_value.__enter__.return_value
+            ydl.extract_info.return_value = {"duration": 283}
+            info = downloader._fetch_video_metadata(
+                "https://music.youtube.com/watch?v=bDCDG707MaA", "android",
+            )
+        assert info == {"duration": 283}
+        opts = ydl_class.call_args.args[0]
+        assert opts["extract_flat"] is False
+        assert opts["skip_download"] is True
+        assert opts["ignore_no_formats_error"] is True
+        assert ydl.extract_info.call_args.kwargs["process"] is False
+
+    def test_a_failed_lookup_is_empty_and_counts_as_a_possible_block(self):
+        error = RuntimeError("HTTP Error 429")
+        with patch("downloader.load_config", return_value={}), \
+                patch("downloader.yt_dlp.YoutubeDL") as ydl_class, \
+                patch("downloader.vpn.note_block") as note_block:
+            ydl_class.return_value.__enter__.return_value.extract_info.side_effect = error
+            assert downloader._fetch_video_metadata("https://x/watch?v=a") == {}
+        note_block.assert_called_once_with(error)
+
+    def test_a_non_dict_answer_is_empty(self):
+        with patch("downloader.load_config", return_value={}), \
+                patch("downloader.yt_dlp.YoutubeDL") as ydl_class:
+            ydl_class.return_value.__enter__.return_value.extract_info.return_value = None
+            assert downloader._fetch_video_metadata("https://x/watch?v=a") == {}
+
+
+class TestMergeResolvedMetadata:
+    def test_the_videos_own_values_win_over_the_flat_ones(self):
+        merged = downloader._merge_resolved_metadata(
+            {"title": "Song", "url": "u", "channel": ""},
+            {"duration": 200, "channel": "Artist - Topic", "uploader": "Artist"},
+        )
+        assert merged["duration"] == 200
+        assert merged["channel"] == "Artist - Topic"
+        assert merged["title"] == "Song"
+
+    def test_a_single_artist_string_becomes_a_credit_list(self):
+        merged = downloader._merge_resolved_metadata({}, {"artist": "Leon Thomas"})
+        assert merged["artists"] == ["Leon Thomas"]
+
+    def test_artists_list_is_preferred_over_the_artist_string(self):
+        merged = downloader._merge_resolved_metadata(
+            {}, {"artists": ["A", "B"], "artist": "A, B"},
+        )
+        assert merged["artists"] == ["A", "B"]
+
+    def test_empty_answers_keep_the_flat_entry_as_it_was(self):
+        entry = {"title": "Song", "duration": 190, "channel": "Ch"}
+        assert downloader._merge_resolved_metadata(entry, {}) == entry

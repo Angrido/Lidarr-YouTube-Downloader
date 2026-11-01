@@ -672,7 +672,7 @@
                         Queue
                     </span>
                     <span class="ui-stat-value num" id="statQueue">–</span>
-                    <span class="ui-stat-meta" id="queueMeta"><span id="queueActive">Idle</span></span>
+                    <span class="ui-stat-meta" id="queueMeta"><span id="queueActive">Idle</span><span id="queueEtaMeta" class="num" hidden></span></span>
                 </a>
                 <div class="ui-stat" id="schedulerTile">
                     <div class="ui-stat-label">
@@ -888,6 +888,7 @@
         </div>
     </div>
 
+    <script src="/static/queue-eta.js?v={{ APP_VERSION }}" defer></script>
     <script>
         const ALBUMS_PER_PAGE = 50;
         const SORT_LABELS = { newest: "Newest", missing: "Most missing", alpha: "A–Z" };
@@ -1442,6 +1443,23 @@
             }
             $("queueActive").textContent = active ? "1 downloading" : "Idle";
             $("queueTile").setAttribute("aria-label", `Queue: ${typeof queued === "number" ? queued : $("statQueue").textContent} albums, ${active ? "1 downloading" : "idle"}. Open Downloads`);
+        }
+
+        // Time left on the queue, as a second line on the Queue tile.
+        async function updateQueueEta() {
+            try {
+                const res = await fetch("/api/queue/eta");
+                if (!res.ok) return;
+                const d = window.QueueEta ? QueueEta.describe(await res.json()) : null;
+                const meta = $("queueEtaMeta");
+                meta.hidden = !d || !d.short;
+                if (d && d.short) {
+                    meta.textContent = " · " + d.short;
+                    $("queueTile").title = [d.headline, d.detail].concat(d.hints, d.explain).join("\n");
+                } else {
+                    $("queueTile").removeAttribute("title");
+                }
+            } catch (e) {}
         }
 
         async function updateStats() {
@@ -2640,6 +2658,7 @@
             refreshSyncStatus();
             if (!document.hidden) connectSSE();
             UI.poll(updateStats, 10000, { immediate: false });
+            UI.poll(updateQueueEta, 60000);
             UI.poll(refreshSyncStatus, 60000, { immediate: false });
             loadRetryParam();
         }

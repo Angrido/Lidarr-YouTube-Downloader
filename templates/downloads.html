@@ -43,7 +43,7 @@
         .ui-track[data-state="searching"] .ui-spinner { border-top-color: var(--info-mark); }
 
         .section-head-text { min-width: 0; }
-        #queuePausedNote { margin-bottom: var(--sp-3); }
+        #queuePausedNote, #queueEta { margin-bottom: var(--sp-3); }
         .section-title-row { display: flex; align-items: center; gap: var(--sp-2); }
 
         .q-list .q-item { flex-wrap: wrap; row-gap: 0; }
@@ -207,6 +207,16 @@
                         <button type="button" class="ui-btn ui-btn-danger ui-btn-sm" id="clearQueueBtn" hidden><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-trash"></use></svg>Clear queue</button>
                     </div>
                 </div>
+                <div class="ui-callout ui-callout-info" id="queueEta" role="status" hidden>
+                    <svg class="ico" id="queueEtaIcon" aria-hidden="true"><use href="/static/icons.svg#i-clock"></use></svg>
+                    <div class="ui-callout-body">
+                        <div class="ui-callout-title" id="queueEtaTitle"></div>
+                        <div class="ui-callout-text num" id="queueEtaText"></div>
+                        <div class="ui-callout-text" id="queueEtaHints" hidden></div>
+                        <div class="ui-callout-text ui-stack" id="queueEtaWhy" hidden></div>
+                    </div>
+                    <button type="button" class="ui-btn ui-btn-ghost ui-btn-icon ui-btn-sm" id="queueEtaInfo" aria-expanded="false" aria-controls="queueEtaWhy" aria-label="How is this calculated?" title="How is this calculated?"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-info"></use></svg></button>
+                </div>
                 <div class="ui-callout ui-callout-info" id="queuePausedNote" role="status" hidden><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-pause"></use></svg><div>Queue paused — nothing new will start</div></div>
                 <div id="downloadQueue" aria-busy="true">
                     <div class="ui-list" aria-hidden="true">
@@ -323,6 +333,7 @@
         </div>
     </div>
 
+    <script src="/static/queue-eta.js?v={{ APP_VERSION }}" defer></script>
     <script>
         let eventSource = null;
         let currentQueue = [];
@@ -1065,6 +1076,7 @@
             count.textContent = String(queue.length);
             count.setAttribute('aria-label', queue.length + ' album' + (queue.length === 1 ? '' : 's') + ' queued');
             if (clearBtn.getAttribute('aria-busy') !== 'true') clearBtn.hidden = queue.length === 0;
+            if (queue.length === 0) document.getElementById('queueEta').hidden = true;
         }
 
         function buildQueueTracks(item) {
@@ -2025,6 +2037,31 @@
             }
         }
 
+        // Time left on the queue (/api/queue/eta): a callout above the list.
+        function renderQueueEta(data) {
+            var box = document.getElementById('queueEta');
+            var d = window.QueueEta ? QueueEta.describe(data) : null;
+            box.hidden = !d;
+            if (!d) return;
+            box.className = 'ui-callout ui-callout-' + d.tone;
+            document.getElementById('queueEtaIcon').firstElementChild.setAttribute('href', '/static/icons.svg#i-' + d.icon);
+            document.getElementById('queueEtaTitle').textContent = d.headline;
+            document.getElementById('queueEtaText').textContent = d.detail;
+            var hints = document.getElementById('queueEtaHints');
+            hints.hidden = d.hints.length === 0;
+            hints.textContent = d.hints.join(' ');
+            var why = document.getElementById('queueEtaWhy');
+            why.replaceChildren.apply(why, d.explain.map(function (line) {
+                var p = document.createElement('p');
+                p.textContent = line;
+                return p;
+            }));
+        }
+
+        function refreshQueueEta() {
+            return UI.fetchJSON('/api/queue/eta').then(renderQueueEta, function () {});
+        }
+
         function renderQueuePaused(paused) {
             var btn = document.getElementById('pauseQueueBtn');
             document.getElementById('queuePausedBadge').hidden = !paused;
@@ -2041,6 +2078,7 @@
                 });
                 if (!data) return;
                 renderQueuePaused(data.paused);
+                refreshQueueEta();
                 UI.toast(data.paused ? 'Queue paused' : 'Queue resumed', { type: 'success' });
             } catch (e) {
                 UI.toast('Failed to change the queue state', { type: 'error' });
@@ -2197,6 +2235,13 @@
             document.getElementById('clearQueueBtn').addEventListener('click', function () { clearQueue(this); });
             document.getElementById('pauseQueueBtn').addEventListener('click', function () { toggleQueuePause(this); });
             UI.fetchJSON('/api/stats').then(function (s) { renderQueuePaused(!!s.queue_paused); }, function () {});
+            var etaInfo = document.getElementById('queueEtaInfo');
+            etaInfo.addEventListener('click', function () {
+                var why = document.getElementById('queueEtaWhy');
+                why.hidden = !why.hidden;
+                etaInfo.setAttribute('aria-expanded', why.hidden ? 'false' : 'true');
+            });
+            UI.poll(refreshQueueEta, 30000);
             document.getElementById('confirmDeleteBtn').addEventListener('click', confirmDeleteTrack);
             document.getElementById('deleteTrackModal').addEventListener('modal:closed', function () { _deleteModalData = null; });
             document.getElementById('retryFailedModal').addEventListener('modal:closed', function () { retryFailedAlbumId = null; });
