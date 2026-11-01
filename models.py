@@ -936,6 +936,54 @@ def get_queue_length():
     ).fetchone()[0]
 
 
+def get_queue_track_totals():
+    """Albums waiting in the queue and the tracks they still need.
+
+    One aggregate over ``download_queue`` joined to ``missing_albums_cache``
+    (``missing_track_count`` is what Lidarr has no file for). ``known`` is
+    the number of albums whose count is in the cache; the others are left
+    for the caller to estimate. The foreground album (status 'downloading')
+    is not counted.
+    """
+    conn = db.get_db()
+    row = conn.execute(
+        "SELECT COUNT(*),"
+        " COALESCE(SUM(CASE WHEN m.missing_track_count > 0 THEN 1 ELSE 0 END), 0),"
+        " COALESCE(SUM(CASE WHEN m.missing_track_count > 0"
+        " THEN m.missing_track_count ELSE 0 END), 0)"
+        " FROM download_queue q"
+        " LEFT JOIN missing_albums_cache m ON m.album_id = q.album_id"
+        " WHERE q.status = ?",
+        (QUEUE_STATUS_QUEUED,),
+    ).fetchone()
+    return {"albums": row[0], "known": row[1], "tracks": row[2]}
+
+
+def get_attempt_buckets(now, hours):
+    """Track attempts of the last ``hours`` hours, one bucket per hour.
+
+    Bucket 0 is the hour ending at ``now``, bucket 1 the one before it.
+    Returns ``({bucket: (attempts, successes)}, first_timestamp)``;
+    ``first_timestamp`` (0 on an empty table) bounds how much history
+    exists. Files copied from another album (``source_format`` 'reused')
+    are not downloads and are left out. Served by the timestamp index.
+    """
+    conn = db.get_db()
+    rows = conn.execute(
+        "SELECT CAST((? - timestamp) / 3600 AS INTEGER) AS b,"
+        " COUNT(*), COALESCE(SUM(success), 0)"
+        " FROM track_downloads"
+        " WHERE timestamp >= ? AND timestamp <= ?"
+        " AND COALESCE(source_format, '') != 'reused'"
+        " GROUP BY b",
+        (now, now - hours * 3600, now),
+    ).fetchall()
+    first = conn.execute(
+        "SELECT MIN(timestamp) FROM track_downloads"
+    ).fetchone()[0]
+    return {r[0]: (r[1], r[2]) for r in rows}, first or 0
+
+
 def pop_next_from_queue():
     """Remove and return the next queued album_id, or None."""
     conn = db.get_db()

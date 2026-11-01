@@ -73,6 +73,7 @@ import explore_routes
 import library
 import lidarr_sync
 import manual_download
+import queue_eta
 from utils import (
     DOWNLOAD_DIR,
     InvalidRequestBody,
@@ -1676,6 +1677,17 @@ def api_stats():
             "queue_paused": bool(load_config().get("queue_paused")),
         }
     )
+
+
+@app.route("/api/queue/eta")
+def api_queue_eta():
+    """Time left on the queue: tracks waiting, measured pace, an interval."""
+    client_ip = request.remote_addr or "unknown"
+    if not check_rate_limit(
+        f"queue_eta:{client_ip}", rate_limit_store, window=2, max_requests=10
+    ):
+        return jsonify({"error": "Too many requests"}), 429
+    return jsonify(queue_eta.estimate(restarting=restart_pending.is_set()))
 
 
 @app.route("/api/insights")
