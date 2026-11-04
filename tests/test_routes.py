@@ -570,6 +570,15 @@ class TestTemplateRoutes:
         resp = client.get("/settings")
         assert resp.status_code == 200
 
+    def test_settings_offers_the_dedupe_options(self, client):
+        html = client.get("/settings").get_data(as_text=True)
+        for control in ("dedupeMode", "dedupeSameAlbum", "dedupeCrossAlbumBtn"):
+            assert f'id="{control}"' in html
+        for key in ("dedupe_mode", "dedupe_same_album", "dedupe_cross_album"):
+            assert f"{key}:" in html  # collected by collectPayload()
+        for value in ("log", "reuse", "off", "skip", "copy"):
+            assert f'<option value="{value}"' in html
+
     def test_logs_page(self, client):
         resp = client.get("/logs")
         assert resp.status_code == 200

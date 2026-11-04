@@ -617,3 +617,34 @@ class TestNewKeys:
         loaded = config.load_config()
         assert loaded["auth_enabled"] is True
         assert loaded["auth_username"] == "u"
+
+
+def test_dedupe_keys_are_allowed_and_coerced():
+    from config import ALLOWED_CONFIG_KEYS, coerce_config_value
+    assert {"dedupe_mode", "dedupe_same_album", "dedupe_cross_album"} \
+        <= ALLOWED_CONFIG_KEYS
+    for mode in ("off", "log", "reuse"):
+        assert coerce_config_value("dedupe_mode", mode) == mode
+    for mode in ("skip", "copy"):
+        assert coerce_config_value("dedupe_same_album", mode) == mode
+    assert coerce_config_value("dedupe_cross_album", False) is False
+    for bad in ("on", "", None, "REUSE", True):
+        with pytest.raises(ValueError):
+            coerce_config_value("dedupe_mode", bad)
+    for bad in ("hardlink", "", None):
+        with pytest.raises(ValueError):
+            coerce_config_value("dedupe_same_album", bad)
+
+
+def test_dedupe_defaults_are_safe_and_bad_file_values_fall_back(temp_config):
+    cfg = config.load_config()
+    # "log" only records what would be reused: the safe default.
+    assert cfg["dedupe_mode"] == "log"
+    assert cfg["dedupe_same_album"] == "skip"
+    assert cfg["dedupe_cross_album"] is True
+    with open(temp_config, "w") as f:
+        json.dump({"dedupe_mode": "hardlink", "dedupe_same_album": "x"}, f)
+    config.invalidate_config_cache()
+    cfg = config.load_config()
+    assert cfg["dedupe_mode"] == "log"
+    assert cfg["dedupe_same_album"] == "skip"

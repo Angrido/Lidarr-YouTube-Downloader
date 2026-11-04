@@ -274,3 +274,17 @@ class TestHostIsAllowed:
 
     def test_missing_host_is_refused_when_a_list_is_set(self):
         assert not utils.host_is_allowed(None, self.ALLOWED)
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://music.youtube.com/watch?v=abcdefghijk", "abcdefghijk"),
+    ("https://www.youtube.com/watch?list=PL1&v=abcdefghijk&t=3", "abcdefghijk"),
+    ("https://youtu.be/abcdefghijk?si=x", "abcdefghijk"),
+    ("https://www.youtube.com/shorts/abc-defg_hi", "abc-defg_hi"),
+    ("https://www.youtube.com/watch?v=tooshort", ""),
+    ("https://www.youtube.com/watch?v=abcdefghijklmn", ""),
+    ("", ""), (None, ""), ("not a url", ""),
+])
+def test_video_id_from_url(url, expected):
+    from utils import video_id_from_url
+    assert video_id_from_url(url) == expected

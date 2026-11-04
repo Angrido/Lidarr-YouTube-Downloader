@@ -13,6 +13,24 @@ logger = logging.getLogger(__name__)
 
 _MAX_FILENAME_BYTES = 200
 
+_VIDEO_ID_IN_URL_RE = re.compile(
+    r"(?:[?&]v=|youtu\.be/|/shorts/|/embed/)([0-9A-Za-z_-]{11})(?![0-9A-Za-z_-])"
+)
+
+
+def video_id_from_url(url):
+    """The 11-character YouTube video id in ``url``, or ``""``.
+
+    Understands watch (``?v=``), ``youtu.be``, shorts and embed URLs, so
+    ``music.youtube.com`` and ``www.youtube.com`` links to the same video
+    give the same id. Dependency-free on purpose: the schema migration
+    uses it.
+    """
+    if not isinstance(url, str) or not url:
+        return ""
+    match = _VIDEO_ID_IN_URL_RE.search(url)
+    return match.group(1) if match else ""
+
 
 def sanitize_filename(name):
     """Remove special characters that are invalid in filenames."""

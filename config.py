@@ -61,6 +61,7 @@ ALLOWED_CONFIG_KEYS = {
     "min_match_score", "audio_format", "audio_quality", "ytdlp_format",
     "lidarr_rename_after_import", "save_cover_art_file",
     "scheduler_retry_after_hours",
+    "dedupe_mode", "dedupe_same_album", "dedupe_cross_album",
     "track_retry_backoff", "max_track_retries",
     "download_client_enabled", "download_client_api_key",
     "download_client_category", "download_client_concurrent_albums",
@@ -88,6 +89,13 @@ _LIDARR_TAG_RE = re.compile(r"^[a-z0-9-]{0,50}$")
 # page's <head>, so only a plain #rrggbb ever gets through.
 UI_ACCENT_DEFAULT = "#7c5cff"
 UI_AURA_MODES = ("cover", "accent", "off")
+
+# Never fetch the same recording twice (dedupe.py). "log" (default) only
+# records what would have been reused; "reuse" acts on it. A recording that
+# repeats inside one release ("box" releases with the same album on several
+# media) is "skip"ped or, with "copy", written once per position.
+DEDUPE_MODES = ("off", "log", "reuse")
+DEDUPE_SAME_ALBUM = ("skip", "copy")
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-f]{6}$")
 
 EXPLORE_LANGUAGES = frozenset({
@@ -129,6 +137,7 @@ BOOL_CONFIG_KEYS = frozenset({
     "ntfy_enabled", "acoustid_enabled", "lidarr_rename_after_import",
     "save_cover_art_file", "download_client_enabled", "playlist_to_library",
     "queue_paused", "apprise_enabled", "vpn_rotate_on_block",
+    "dedupe_cross_album",
 })
 
 LIST_CONFIG_KEYS = frozenset({
@@ -316,6 +325,18 @@ def _parse_ui_aura_mode(value):
     return value
 
 
+def _parse_dedupe_mode(value):
+    if value not in DEDUPE_MODES:
+        raise ValueError(f"expected one of {', '.join(DEDUPE_MODES)}")
+    return value
+
+
+def _parse_dedupe_same_album(value):
+    if value not in DEDUPE_SAME_ALBUM:
+        raise ValueError(f"expected one of {', '.join(DEDUPE_SAME_ALBUM)}")
+    return value
+
+
 def _parse_audio_format(value):
     fmt = value.strip().lower() if isinstance(value, str) else ""
     if fmt not in AUDIO_FORMATS:
@@ -348,6 +369,10 @@ def coerce_config_value(key, value):
             return _parse_ui_accent(value)
         if key == "ui_aura_mode":
             return _parse_ui_aura_mode(value)
+        if key == "dedupe_mode":
+            return _parse_dedupe_mode(value)
+        if key == "dedupe_same_album":
+            return _parse_dedupe_same_album(value)
         if key == "explore_country":
             return _parse_explore_country(value)
         if key == "explore_language":
@@ -528,6 +553,9 @@ def _env_config():
         # folder. Default false keeps the legacy download-folder-only flow.
         "playlist_to_library": _env_bool("PLAYLIST_TO_LIBRARY", False),
         "queue_paused": False,
+        "dedupe_mode": "log",
+        "dedupe_same_album": "skip",
+        "dedupe_cross_album": True,
         # YouTube playlists checked periodically: every video not yet
         # downloaded is imported as one album (issue #96).
         "yt_watch_playlists": [],
@@ -667,6 +695,10 @@ def load_config():
         config["ui_accent"] = UI_ACCENT_DEFAULT
     if config.get("ui_aura_mode") not in UI_AURA_MODES:
         config["ui_aura_mode"] = "cover"
+    if config.get("dedupe_mode") not in DEDUPE_MODES:
+        config["dedupe_mode"] = "log"
+    if config.get("dedupe_same_album") not in DEDUPE_SAME_ALBUM:
+        config["dedupe_same_album"] = "skip"
     try:
         config["lidarr_tag"] = _parse_lidarr_tag(config.get("lidarr_tag") or "")
     except ValueError:

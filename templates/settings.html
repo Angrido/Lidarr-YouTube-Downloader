@@ -865,6 +865,25 @@
                                 {% endcall %}
                             </div>
                         </div>
+                        <div class="settings-group">
+                            <p class="ui-group-title">Duplicate tracks</p>
+                            <div class="ui-group">
+                                {% call stack_row('dedupeMode', 'Don&#39;t download the same track twice', 'The same recording can sit several times in one release (box editions that repeat the album on every disc), on the single, the album and a compilation, or come back when an album is queued again. &ldquo;Log only&rdquo; (default) just writes what would have been saved to the log. &ldquo;Reuse&rdquo; copies the verified file and re-tags it instead of searching and downloading again. Only files whose audio AcoustID identified as that recording are reused, and a forced re-download always downloads.', 'copy', 'teal') %}
+                                <select class="ui-select select-field-md" id="dedupeMode" aria-describedby="dedupeMode-desc">
+                                    <option value="log">Log only (default)</option>
+                                    <option value="reuse">Reuse existing files</option>
+                                    <option value="off">Off</option>
+                                </select>
+                                {% endcall %}
+                                {% call stack_row('dedupeSameAlbum', 'Repeats inside one release', 'What to do with the other positions of a recording that repeats in the same release. &ldquo;Skip&rdquo; downloads it once (Lidarr keeps listing the other positions as missing). &ldquo;Copy&rdquo; also writes a file for each position. Lidarr downloads always get a file for every position.', 'copy', 'teal') %}
+                                <select class="ui-select select-field-md" id="dedupeSameAlbum" aria-describedby="dedupeSameAlbum-desc">
+                                    <option value="skip">Skip the repeats (default)</option>
+                                    <option value="copy">Copy the file to each position</option>
+                                </select>
+                                {% endcall %}
+                                {{ switch_row('dedupeCrossAlbumBtn', 'Reuse across albums', 'Copy a track that is already in the library from another album (a single, a compilation&hellip;) instead of downloading it again. Other editions of the same album are always reused.', 'copy', 'teal') }}
+                            </div>
+                        </div>
                     </section>
 
                     <section class="settings-section" id="sec-audio" aria-labelledby="sec-audio-title" data-section>
@@ -1599,6 +1618,9 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             $('downloadClientConcurrentAlbums').value = String(conf.download_client_concurrent_albums || 1);
             setSwitch('trackRetryBackoffBtn', conf.track_retry_backoff !== false);
             $('maxTrackRetries').value = conf.max_track_retries != null ? conf.max_track_retries : 0;
+            $('dedupeMode').value = conf.dedupe_mode || 'log';
+            $('dedupeSameAlbum').value = conf.dedupe_same_album || 'skip';
+            setSwitch('dedupeCrossAlbumBtn', conf.dedupe_cross_album !== false);
             $('schedulerRetryAfterHours').value = conf.scheduler_retry_after_hours != null ? conf.scheduler_retry_after_hours : 24;
             clearAllFieldErrors();
         }
@@ -1610,6 +1632,9 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 scheduler_retry_after_hours: parseFloat($('schedulerRetryAfterHours').value) || 0,
                 track_retry_backoff: $('trackRetryBackoffBtn').checked,
                 max_track_retries: parseInt($('maxTrackRetries').value, 10) || 0,
+                dedupe_mode: $('dedupeMode').value || 'log',
+                dedupe_same_album: $('dedupeSameAlbum').value || 'skip',
+                dedupe_cross_album: $('dedupeCrossAlbumBtn').checked,
                 telegram_bot_token: $('botToken').value,
                 telegram_chat_id: $('chatId').value,
                 telegram_enabled: !!$('botToken').value,

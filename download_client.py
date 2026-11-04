@@ -44,6 +44,7 @@ from xml.sax.saxutils import escape as xml_escape, quoteattr
 
 from flask import Blueprint, Response, jsonify, request
 
+import dedupe
 import models
 from config import load_config, retry_cooldown_seconds
 
@@ -544,7 +545,10 @@ def _excluded_album_ids(cfg=None):
     the album is offered again (with a fresh release guid) so transient
     failures still get retried.
     """
-    return _active_album_ids() | _recently_client_handled_ids(cfg)
+    return (
+        _active_album_ids() | _recently_client_handled_ids(cfg)
+        | dedupe.feed_hidden_album_ids(cfg)
+    )
 
 
 def _match_album(artist, album, excluded=None):
