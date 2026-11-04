@@ -562,6 +562,19 @@ class TestTemplateRoutes:
         resp = client.get("/")
         assert resp.status_code == 200
 
+    def test_every_page_has_the_motion_toggle_and_prepaint(self, client):
+        for path in ("/", "/downloads", "/settings", "/logs"):
+            html = client.get(path).get_data(as_text=True)
+            assert "data-motion-toggle" in html, path
+            assert "localStorage.getItem('motion')==='reduce'" in html, path
+
+    def test_index_tiles_have_their_controls(self, client):
+        html = client.get("/").get_data(as_text=True)
+        for control in ("syncNowBtn", "ffmpegRecheckBtn", "queuePauseBtn",
+                        "schedulerSwitch", "schedulerRunBtn",
+                        "activityPeriod"):
+            assert f'id="{control}"' in html, control
+
     def test_downloads(self, client):
         resp = client.get("/downloads")
         assert resp.status_code == 200

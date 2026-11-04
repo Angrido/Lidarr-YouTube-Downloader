@@ -3,6 +3,15 @@
 ## 2.0.2
 
 ### Added
+- **Animations switch** next to the light/dark button (sidebar and phone
+  header): turns off transitions, page fades, the drifting aurora, card
+  tilt and count-up numbers on this browser. Your system's "reduce motion"
+  setting is still honoured when the switch is on.
+- **Library status tiles do more**: *Sync now* on Lidarr, *Re-check* on
+  ffmpeg, *Pause / Resume* on the queue (next to its time left), an on/off
+  switch, *Run now* and the time of the next check on the scheduler, and a
+  new **Downloaded** tile with a Today / 7 days / 30 days filter showing
+  tracks downloaded, success rate and failures (links to Insights).
 - **VPN with gluetun** (Settings → YouTube access → VPN, or `VPN_PROXY_URL`
   / `GLUETUN_CONTROL_URL` / `GLUETUN_API_KEY`): every request to YouTube
   goes through gluetun's HTTP proxy, and the app can restart the VPN for a

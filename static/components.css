@@ -602,6 +602,12 @@ code, kbd, pre, samp {
     font-size: var(--text-footnote);
 }
 
+.app-quick-toggles {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-1);
+}
+
 .app-sidebar-foot a {
     color: var(--text-3);
 }
@@ -780,7 +786,8 @@ code, kbd, pre, samp {
         box-shadow: 0 0 0 2px var(--bg-base);
     }
     .app-nav-live + .app-nav-badge { margin-left: 0; }
-    .app-sidebar-foot { flex-direction: column; padding-left: 0; padding-right: 0; }
+    .app-sidebar-foot,
+    .app-sidebar-foot .app-quick-toggles { flex-direction: column; padding-left: 0; padding-right: 0; }
     .app-sidebar-foot .app-version { display: none; }
     .app-main { padding: var(--sp-6) var(--sp-6) var(--sp-16); }
 }
@@ -3328,6 +3335,34 @@ body.has-player .app-main {
     :root {
         transition: none;
     }
+}
+
+:root[data-motion="reduce"] *,
+:root[data-motion="reduce"] *::before,
+:root[data-motion="reduce"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+}
+
+:root[data-motion="reduce"] :is(.ico-spin, .ui-spinner) {
+    animation-duration: 1.6s !important;
+    animation-iteration-count: infinite !important;
+}
+
+:root[data-motion="reduce"] :is(.app-aura span, .app-content .ui-card, .app-content .ui-group, .app-content .ui-shelf) {
+    animation: none !important;
+}
+
+:root[data-motion="reduce"] {
+    transition: none;
+}
+
+:root[data-motion="reduce"]::view-transition-old(*),
+:root[data-motion="reduce"]::view-transition-new(*),
+:root[data-motion="reduce"]::view-transition-group(*) {
+    animation: none !important;
 }
 
 @media (forced-colors: active) {

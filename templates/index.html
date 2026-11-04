@@ -8,27 +8,47 @@
             margin-bottom: var(--sp-6);
         }
 
-        .stat-link {
-            color: inherit;
-            transition: box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
+        @media (min-width: 561px) {
+            .lib-hero {
+                grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+            }
         }
 
-        .stat-link:hover {
-            text-decoration: none;
-            box-shadow: var(--shadow-2), var(--hairline);
-            transform: translateY(-1px);
+        .stat-actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: var(--sp-1);
+            margin-top: auto;
+            padding-top: var(--sp-2);
         }
 
-        .stat-link:focus-visible {
-            outline: none;
-            box-shadow: 0 0 0 3px var(--focus-ring), var(--hairline);
+        .stat-actions .ui-segmented {
+            flex: 1 1 0;
+            min-width: 0;
         }
 
-        .stat-chevron {
-            position: absolute;
-            top: var(--sp-4);
-            right: var(--sp-4);
-            color: var(--text-3);
+        .stat-actions .ui-segmented > button {
+            padding: 0 var(--sp-2);
+        }
+
+        .stat-actions > .ui-btn:first-child {
+            margin-left: calc(-1 * var(--sp-2));
+        }
+
+        #queueMeta {
+            flex-wrap: wrap;
+            row-gap: 0;
+        }
+
+        .stat-actions .ui-switch {
+            margin-right: auto;
+        }
+
+        @media (max-width: 560px) {
+            .lib-hero > :last-child:nth-child(odd) {
+                grid-column: 1 / -1;
+            }
         }
 
         .ui-stat-meta a {
@@ -656,6 +676,9 @@
                     </div>
                     <div class="ui-stat-value ui-stat-value-sm"><span class="ui-dot" id="lidarrDot"></span><span id="lidarrState">Checking…</span></div>
                     <div class="ui-stat-meta"><span id="connectionStatus">&nbsp;</span></div>
+                    <div class="stat-actions">
+                        <button type="button" class="ui-btn ui-btn-sm ui-btn-ghost" id="syncNowBtn"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-refresh"></use></svg>Sync now</button>
+                    </div>
                 </div>
                 <div class="ui-stat" id="ffmpegTile">
                     <div class="ui-stat-label">
@@ -664,16 +687,22 @@
                     </div>
                     <div class="ui-stat-value ui-stat-value-sm"><span class="ui-dot" id="ffmpegDot"></span><span id="ffmpegState">Checking…</span></div>
                     <div class="ui-stat-meta"><span id="ffmpegMeta">&nbsp;</span></div>
+                    <div class="stat-actions">
+                        <button type="button" class="ui-btn ui-btn-sm ui-btn-ghost" id="ffmpegRecheckBtn"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-refresh"></use></svg>Re-check</button>
+                    </div>
                 </div>
-                <a class="ui-stat stat-link" href="/downloads" id="queueTile">
-                    <svg class="ico stat-chevron" aria-hidden="true"><use href="/static/icons.svg#i-chevron-right"></use></svg>
-                    <span class="ui-stat-label">
+                <div class="ui-stat" id="queueTile">
+                    <div class="ui-stat-label">
                         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-list-ordered"></use></svg>
                         Queue
-                    </span>
-                    <span class="ui-stat-value num" id="statQueue">–</span>
-                    <span class="ui-stat-meta" id="queueMeta"><span id="queueActive">Idle</span><span id="queueEtaMeta" class="num" hidden></span></span>
-                </a>
+                    </div>
+                    <div class="ui-stat-value num" id="statQueue">–</div>
+                    <div class="ui-stat-meta" id="queueMeta"><span id="queueActive">Idle</span><span id="queueEtaMeta" class="num" hidden></span></div>
+                    <div class="stat-actions">
+                        <button type="button" class="ui-btn ui-btn-sm ui-btn-ghost" id="queuePauseBtn" aria-pressed="false" hidden></button>
+                        <a class="ui-btn ui-btn-sm ui-btn-ghost ui-btn-icon" href="/downloads" aria-label="Open Downloads" title="Open Downloads"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-chevron-right"></use></svg></a>
+                    </div>
+                </div>
                 <div class="ui-stat" id="schedulerTile">
                     <div class="ui-stat-label">
                         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-clock"></use></svg>
@@ -681,6 +710,29 @@
                     </div>
                     <div class="ui-stat-value ui-stat-value-sm"><span class="ui-dot" id="schedulerDot"></span><span id="schedulerState">–</span></div>
                     <div class="ui-stat-meta"><span id="schedulerMeta">&nbsp;</span></div>
+                    <div class="stat-actions">
+                        <label class="ui-switch" title="Scheduler on or off">
+                            <input type="checkbox" id="schedulerSwitch" aria-label="Scheduler">
+                            <span class="ui-switch-track"></span>
+                        </label>
+                        <button type="button" class="ui-btn ui-btn-sm ui-btn-ghost" id="schedulerRunBtn"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-play"></use></svg>Run now</button>
+                    </div>
+                </div>
+                <div class="ui-stat" id="activityTile">
+                    <div class="ui-stat-label">
+                        <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-chart-bar"></use></svg>
+                        Downloaded
+                    </div>
+                    <div class="ui-stat-value num" id="activityValue">–</div>
+                    <div class="ui-stat-meta"><span id="activityMeta">&nbsp;</span></div>
+                    <div class="stat-actions">
+                        <div class="ui-segmented" role="group" aria-label="Period" id="activityPeriod">
+                            <button type="button" data-days="1" aria-pressed="true">Today</button>
+                            <button type="button" data-days="7" aria-pressed="false" aria-label="Last 7 days">7d</button>
+                            <button type="button" data-days="30" aria-pressed="false" aria-label="Last 30 days">30d</button>
+                        </div>
+                        <a class="ui-btn ui-btn-sm ui-btn-ghost ui-btn-icon" href="/insights" id="activityInsights" aria-label="Open Insights" title="Open Insights"><svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-chevron-right"></use></svg></a>
+                    </div>
                 </div>
             </section>
 
@@ -918,6 +970,8 @@
         let lidarrProbe = null;
         let lastStatsActive = false;
         let lastToday = null;
+        let queuePaused = false;
+        let schedulerNextRun = 0;
         let tracksModalAlbumId = null;
         let manualDlTarget = null;
         let eventSource = null;
@@ -1441,8 +1495,126 @@
                 $("statToday").textContent = fmt(today);
                 $("statTodayWrap").hidden = false;
             }
-            $("queueActive").textContent = active ? "1 downloading" : "Idle";
-            $("queueTile").setAttribute("aria-label", `Queue: ${typeof queued === "number" ? queued : $("statQueue").textContent} albums, ${active ? "1 downloading" : "idle"}. Open Downloads`);
+            $("queueActive").textContent = active ? "1 downloading" : queuePaused ? "Paused" : "Idle";
+        }
+
+        function renderQueuePause() {
+            const btn = $("queuePauseBtn");
+            btn.hidden = false;
+            btn.setAttribute("aria-pressed", queuePaused ? "true" : "false");
+            btn.innerHTML = UI.icon(queuePaused ? "play" : "pause") + (queuePaused ? "Resume" : "Pause");
+        }
+
+        async function toggleQueuePause(btn) {
+            await UI.guard(btn, async () => {
+                try {
+                    const data = await UI.fetchJSON("/api/download/queue/pause", { method: "POST" });
+                    queuePaused = !!data.paused;
+                    renderQueuePause();
+                    updateStats();
+                    UI.toast(queuePaused ? "Queue paused: the current album finishes, nothing new starts" : "Queue resumed", { type: "info" });
+                } catch (e) {
+                    UI.toast(`Could not change the queue: ${e.message}`, { type: "error" });
+                }
+            });
+        }
+
+        async function refreshSchedulerStatus() {
+            try {
+                const data = await UI.fetchJSON("/api/scheduler/status");
+                schedulerNextRun = Number(data.next_run) || 0;
+                if (appConfig) appConfig.scheduler_enabled = !!data.enabled;
+            } catch (_) {}
+            if (appConfig) renderSchedulerTile();
+        }
+
+        async function toggleScheduler(input) {
+            input.disabled = true;
+            try {
+                const data = await UI.fetchJSON("/api/scheduler/toggle", { method: "POST" });
+                if (appConfig) appConfig.scheduler_enabled = !!data.enabled;
+                UI.toast(data.enabled ? "Scheduler on" : "Scheduler off", { type: "info" });
+            } catch (e) {
+                UI.toast(`Could not change the scheduler: ${e.message}`, { type: "error" });
+            }
+            input.disabled = false;
+            await refreshSchedulerStatus();
+        }
+
+        async function runSchedulerNow(btn) {
+            await UI.guard(btn, async () => {
+                try {
+                    await UI.fetchJSON("/api/scheduler/run", { method: "POST" });
+                    UI.toast("Checking Lidarr for missing albums", { type: "success" });
+                    setTimeout(updateStats, 3000);
+                } catch (e) {
+                    UI.toast(e.status === 429 ? "A check just ran, try again in a moment" : `Could not start the check: ${e.message}`, { type: e.status === 429 ? "warning" : "error" });
+                }
+            }, "Starting…");
+        }
+
+        function untilText(ts) {
+            const mins = Math.round((ts * 1000 - Date.now()) / 60000);
+            if (mins <= 0) return "next check now";
+            if (mins < 60) return `next check in ${mins} min`;
+            const hours = Math.floor(mins / 60);
+            return `next check in ${hours} h${mins % 60 ? " " + (mins % 60) + " min" : ""}`;
+        }
+
+        function activityDays() {
+            try {
+                const v = Number(localStorage.getItem("libActivityDays"));
+                return [1, 7, 30].includes(v) ? v : 1;
+            } catch (_) {
+                return 1;
+            }
+        }
+
+        async function loadActivity() {
+            const days = activityDays();
+            $("activityPeriod").querySelectorAll("[data-days]").forEach((b) => b.setAttribute("aria-pressed", Number(b.dataset.days) === days ? "true" : "false"));
+            try {
+                const d = await UI.fetchJSON(`/api/insights?days=${days}`);
+                UI.countTo($("activityValue"), d.successful || 0, 600, fmt);
+                const meta = $("activityMeta");
+                meta.textContent = d.total_tracks
+                    ? `${d.success_rate}% success · ${fmt(d.failed)} failed`
+                    : days === 1 ? "Nothing downloaded today" : `Nothing in the last ${days} days`;
+            } catch (_) {
+                $("activityMeta").textContent = "Could not load activity";
+            }
+        }
+
+        function setActivityDays(days) {
+            try {
+                localStorage.setItem("libActivityDays", String(days));
+            } catch (_) {}
+            loadActivity();
+        }
+
+        async function syncNow(btn) {
+            await UI.guard(btn, async () => {
+                try {
+                    const data = await UI.fetchJSON("/api/sync/refresh", { method: "POST" });
+                    UI.toast(data.started ? "Syncing missing albums from Lidarr" : "A sync is already running", { type: "info" });
+                } catch (e) {
+                    UI.toast(`Could not start the sync: ${e.message}`, { type: "error" });
+                }
+                await refreshSyncStatus();
+            }, "Starting…");
+        }
+
+        async function recheckFfmpeg(btn) {
+            await UI.guard(btn, async () => {
+                try {
+                    const data = await UI.fetchJSON("/api/ffmpeg/status?refresh=1");
+                    ffmpegOk = typeof data.ok === "boolean" ? data.ok : null;
+                    renderFfmpegTile();
+                    UI.toast(ffmpegOk ? "ffmpeg works" : data.summary || "ffmpeg is not working", { type: ffmpegOk ? "success" : "warning" });
+                } catch (e) {
+                    UI.toast(e.status === 429 ? "Checked just now, try again in a few seconds" : `Could not check ffmpeg: ${e.message}`, { type: "warning" });
+                }
+            }, "Checking…");
         }
 
         // Time left on the queue, as a second line on the Queue tile.
@@ -1455,9 +1627,9 @@
                 meta.hidden = !d || !d.short;
                 if (d && d.short) {
                     meta.textContent = " · " + d.short;
-                    $("queueTile").title = [d.headline, d.detail].concat(d.hints, d.explain).join("\n");
+                    $("queueMeta").title = [d.headline, d.detail].concat(d.hints, d.explain).join("\n");
                 } else {
-                    $("queueTile").removeAttribute("title");
+                    $("queueMeta").removeAttribute("title");
                 }
             } catch (e) {}
         }
@@ -1469,6 +1641,8 @@
                 if (!res.ok) return;
                 const stats = await res.json();
                 lastStatsActive = !!stats.active;
+                queuePaused = !!stats.queue_paused;
+                renderQueuePause();
                 const queued = typeof stats.queued === "number" ? stats.queued : stats.in_queue;
                 renderQueueTile(queued, lastStatsActive || !!activeAlbumId, stats.downloaded_today);
             } catch (e) {}
@@ -1588,15 +1762,18 @@
         function renderSchedulerTile() {
             const c = appConfig || {};
             const meta = $("schedulerMeta");
+            $("schedulerSwitch").checked = !!c.scheduler_enabled;
+            $("schedulerRunBtn").hidden = !c.scheduler_enabled;
             if (c.scheduler_enabled) {
                 const mins = Number(c.scheduler_interval) || 0;
                 setDot("schedulerDot", "success");
                 $("schedulerState").textContent = mins ? `Every ${mins} min` : "On";
-                meta.textContent = c.scheduler_auto_download ? "Auto-download on" : "Checks only · auto-download off";
+                const mode = c.scheduler_auto_download ? "Auto-download" : "Checks only";
+                meta.textContent = schedulerNextRun ? `${mode} · ${untilText(schedulerNextRun)}` : mode;
             } else {
                 setDot("schedulerDot", "");
                 $("schedulerState").textContent = "Off";
-                meta.innerHTML = '<a href="/settings">Turn on in Settings</a>';
+                meta.textContent = "Missing albums are not checked automatically";
             }
         }
 
@@ -2544,6 +2721,15 @@
             });
 
             $("checkConnBtn").addEventListener("click", (e) => testConnection(e.currentTarget));
+            $("syncNowBtn").addEventListener("click", (e) => syncNow(e.currentTarget));
+            $("ffmpegRecheckBtn").addEventListener("click", (e) => recheckFfmpeg(e.currentTarget));
+            $("queuePauseBtn").addEventListener("click", (e) => toggleQueuePause(e.currentTarget));
+            $("schedulerSwitch").addEventListener("change", (e) => toggleScheduler(e.currentTarget));
+            $("schedulerRunBtn").addEventListener("click", (e) => runSchedulerNow(e.currentTarget));
+            $("activityPeriod").addEventListener("click", (e) => {
+                const b = e.target.closest("[data-days]");
+                if (b) setActivityDays(Number(b.dataset.days));
+            });
             $("syncBtn").addEventListener("click", (e) => refreshLibrary(e.currentTarget));
             $("downloadAllBtn").addEventListener("click", (e) => downloadAllMissing(e.currentTarget));
             $("loadMoreBtn").addEventListener("click", loadMore);
@@ -2660,6 +2846,8 @@
             UI.poll(updateStats, 10000, { immediate: false });
             UI.poll(updateQueueEta, 60000);
             UI.poll(refreshSyncStatus, 60000, { immediate: false });
+            UI.poll(refreshSchedulerStatus, 60000);
+            UI.poll(loadActivity, 300000);
             loadRetryParam();
         }
 

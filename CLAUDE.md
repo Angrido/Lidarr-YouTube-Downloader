@@ -577,7 +577,12 @@ variables, theme toggles, navigation or Font Awesome**.
 - `static/app.js` — `window.UI`: theme (`auto`/`light`/`dark`, stored in
   `localStorage.theme`; **dark when nothing is stored**, and `auto` is
   stored explicitly — the pre-paint script in `_head.html` mirrors this;
-  `themechange` event, `theme-color` meta kept in sync), `UI.icon(name)`, `UI.escape`, `UI.toast(msg, {type, action})`,
+  `themechange` event, `theme-color` meta kept in sync), the animations
+  switch (`[data-motion-toggle]` next to the theme button; `localStorage.motion
+  = "reduce"` → `<html data-motion="reduce">`, set pre-paint in `_head.html`;
+  `components.css` mirrors the reduced-motion block under that attribute and
+  `UI.prefersReducedMotion()` / `motion.js` honour it — check
+  `UI.prefersReducedMotion()`, never the media query alone), `UI.icon(name)`, `UI.escape`, `UI.toast(msg, {type, action})`,
   `UI.openModal/closeModal` (Esc, backdrop, focus trap/restore),
   `UI.confirm({...})` → Promise, `UI.guard(btn, fn)` (in-flight guard +
   spinner), `UI.fetchJSON`, `UI.poll(fn, ms)` (never overlaps, pauses in
@@ -616,7 +621,11 @@ variables, theme toggles, navigation or Font Awesome**.
 - `templates/_head.html` (meta, manifest, CSS, pre-paint theme script,
   app.js), `templates/_nav.html` (sidebar + phone tab bar; set
   `active_page` before including), `templates/_topbar.html` (phone header).
-- `templates/index.html` — Library: status tiles, missing-albums grid /
+- `templates/index.html` — Library: status tiles with inline actions
+  (Lidarr *Sync now*, ffmpeg *Re-check*, queue *Pause/Resume* + ETA,
+  scheduler switch / *Run now* / next check from `/api/scheduler/status`,
+  and a *Downloaded* tile from `/api/insights?days=1|7|30`, period kept in
+  `localStorage.libActivityDays`), missing-albums grid /
   list / table, search and sort. Per-album checkboxes drive the floating
   **bulk-action bar** (`/api/download/queue/bulk`); `selectedAlbums` Set
   survives view re-renders.

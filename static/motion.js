@@ -32,7 +32,9 @@
 
     var reduced = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
     var finePointer = window.matchMedia ? window.matchMedia("(hover: hover) and (pointer: fine)") : null;
-    var isReduced = function () { return !!(reduced && reduced.matches); };
+    var isReduced = function () {
+        return document.documentElement.getAttribute("data-motion") === "reduce" || !!(reduced && reduced.matches);
+    };
 
     // Cards tilt toward the pointer and a sheen follows it. One delegated
     // listener for any number of cards, at most one update per frame.

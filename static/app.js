@@ -14,6 +14,7 @@
     }
 
     var THEME_KEY = "theme";
+    var MOTION_KEY = "motion";
     var root = document.documentElement;
     var mql = window.matchMedia ? window.matchMedia("(prefers-color-scheme: dark)") : null;
 
@@ -218,8 +219,44 @@
         setTimeout(finish, 200);
     }
 
-    function prefersReducedMotion() {
+    function systemReducesMotion() {
         return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    }
+
+    function prefersReducedMotion() {
+        return root.getAttribute("data-motion") === "reduce" || systemReducesMotion();
+    }
+
+    function motionOff() {
+        try {
+            return localStorage.getItem(MOTION_KEY) === "reduce";
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function applyMotion() {
+        if (motionOff()) root.setAttribute("data-motion", "reduce");
+        else root.removeAttribute("data-motion");
+        var off = prefersReducedMotion();
+        document.querySelectorAll("[data-motion-toggle]").forEach(function (btn) {
+            var label = off ? "Animations: off" : "Animations: on";
+            btn.setAttribute("aria-label", label);
+            btn.setAttribute("title", label);
+            btn.setAttribute("aria-pressed", off ? "false" : "true");
+            btn.innerHTML = icon(off ? "sparkles-off" : "sparkles");
+        });
+    }
+
+    function toggleMotion() {
+        var off = !motionOff();
+        try {
+            if (off) localStorage.setItem(MOTION_KEY, "reduce");
+            else localStorage.removeItem(MOTION_KEY);
+        } catch (e) {}
+        applyMotion();
+        var msg = off ? "Animations off" : systemReducesMotion() ? "Your system asks for reduced motion" : "Animations on";
+        toast(msg, { type: "info", duration: 1600 });
     }
 
     document.addEventListener("keydown", function (e) {
@@ -287,6 +324,8 @@
         }
         var themeBtn = t && t.closest ? t.closest("[data-theme-toggle]") : null;
         if (themeBtn) cycleTheme();
+        var motionBtn = t && t.closest ? t.closest("[data-motion-toggle]") : null;
+        if (motionBtn) toggleMotion();
     });
 
     function confirmDialog(opts) {
@@ -584,6 +623,7 @@
 
     function ready() {
         applyTheme(readTheme());
+        applyMotion();
         hydrateIcons();
         initNav();
         initDropzones();
