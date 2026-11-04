@@ -1655,6 +1655,8 @@ def _download_candidate_threaded(
 
     if not dl_result.get("success"):
         track_state["last_download_error"] = dl_result.get("error_message", "")
+        if dl_result.get("ip_blocked"):
+            track_state["ip_blocked"] = True
         if dl_result.get("postprocess_error"):
             track_state["postprocess_error"] = True
             track_state["error_message"] = dl_result.get("error_message", "")
@@ -2191,6 +2193,12 @@ def _download_tracks(
                 if track_state["status"] == "skipped":
                     _drop_held_unverified()
                     return
+                if track_state.get("ip_blocked"):
+                    logger.warning(
+                        "   Aborting remaining candidates for '%s': YouTube is"
+                        " refusing this IP", track_title,
+                    )
+                    break
                 if track_state.get("postprocess_error"):
                     logger.error(
                         "   Aborting remaining candidates for '%s': %s",
@@ -3193,9 +3201,10 @@ def _requeue_after_block(album_id, forced):
     the queue, so it carries on right after the VPN gets a new IP instead of
     waiting for the next scheduler run.
 
-    Only while that rotation is due now (inside its cooldown nothing would
-    change the IP, and the album would stop on the block again at once), and
-    at most ``MAX_BLOCK_REQUEUES`` times in a row. Returns True if requeued.
+    Only while a block is still waiting for its rotation (the dispatcher
+    holds the queue until it has happened, so the album does not stop on the
+    same block again), and at most ``MAX_BLOCK_REQUEUES`` times in a row.
+    Returns True if requeued.
     """
     with queue_lock:
         blocked = album_id in _blocked_albums
@@ -3208,7 +3217,7 @@ def _requeue_after_block(album_id, forced):
             _block_requeues.pop(album_id, None)  # the scheduler takes over
             return False
     try:
-        if not vpn.due_reason():
+        if not vpn.block_pending():
             return False
     except Exception:
         logger.warning("VPN rotation check failed", exc_info=True)
@@ -3271,6 +3280,10 @@ def _dispatch_next_from_queue():
         if vpn.due_reason():
             if not any_download_active():
                 vpn.rotate_if_due(busy=any_download_active)
+            return
+        if vpn.block_pending():
+            # The address is refused and its rotation is in cooldown: an album
+            # started now would fail on it at once and leave the queue.
             return
     except Exception:
         logger.warning("VPN rotation check failed", exc_info=True)
