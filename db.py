@@ -49,10 +49,48 @@ _ALBUM_SOURCE_HINTS_DDL = """
 """
 
 
+class _Connection(sqlite3.Connection):
+    """A connection that does not stay stuck after "database is locked".
+
+    Threads keep one connection for their whole life. Python opens an implicit
+    transaction before a write, and when that write fails on a lock timeout the
+    transaction stays open. The next read on the connection (the queue lookup)
+    then takes a WAL snapshot that the open transaction never releases, so as
+    soon as any other connection commits, every write on this one fails at once
+    with the same error, even with the database idle. The thread that starts
+    the queued albums has a single connection: one lock timeout stopped the
+    queue until the app was restarted.
+
+    A statement that fails on a lock therefore rolls the transaction back (the
+    caller sees the error and never reaches its commit anyway, so nothing that
+    was meant to persist is lost). Other errors leave it alone.
+    """
+
+    def _drop_transaction_after_lock(self, error):
+        if "locked" in str(error) and self.in_transaction:
+            self.rollback()
+
+    def execute(self, *args, **kwargs):
+        try:
+            return super().execute(*args, **kwargs)
+        except sqlite3.OperationalError as e:
+            self._drop_transaction_after_lock(e)
+            raise
+
+    def executemany(self, *args, **kwargs):
+        try:
+            return super().executemany(*args, **kwargs)
+        except sqlite3.OperationalError as e:
+            self._drop_transaction_after_lock(e)
+            raise
+
+
 def get_db():
     """Return a thread-local SQLite connection, creating one if needed."""
     if not hasattr(_local, "connection") or _local.connection is None:
-        _local.connection = sqlite3.connect(DB_PATH, timeout=30.0)
+        _local.connection = sqlite3.connect(
+            DB_PATH, timeout=30.0, factory=_Connection,
+        )
         _local.connection.row_factory = sqlite3.Row
         _local.connection.execute("PRAGMA journal_mode=WAL")
         _local.connection.execute("PRAGMA busy_timeout=30000")

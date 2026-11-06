@@ -716,3 +716,120 @@ def test_upgrade_from_v12_runs_the_migration_on_init(temp_db):
         " WHERE track_title = 'A'"
     ).fetchone()
     assert (row["recording_id"], row["video_id"]) == ("rec-1", "abcdefghijk")
+
+
+# --- A lock timeout must not leave the thread's connection stuck -----------
+#
+# Every thread keeps one SQLite connection for its whole life, and a write that
+# failed with "database is locked" left Python's implicit transaction open on
+# it. The next read on that connection (the queue lookup) then started a
+# snapshot that the open transaction never gave back: as soon as any other
+# connection committed, every write failed at once with the same error, even
+# with the database idle. The thread that starts the queued albums has a single
+# connection, so one lock timeout there stopped the queue for good (it logged
+# "Queue processor error: database is locked" every two seconds until a
+# restart).
+
+
+def _hold_the_write_lock(path):
+    other = sqlite3.connect(path, isolation_level=None)
+    other.execute("BEGIN IMMEDIATE")
+    return other
+
+
+def _commit_a_row(other, album_id):
+    other.execute(
+        "INSERT INTO download_queue (album_id, position) VALUES (?, ?)",
+        (album_id, album_id),
+    )
+    other.execute("COMMIT")
+    other.close()
+
+
+def _commit_from_another_connection(path, album_id):
+    other = sqlite3.connect(path)
+    other.execute(
+        "INSERT INTO download_queue (album_id, position) VALUES (?, ?)",
+        (album_id, album_id),
+    )
+    other.commit()
+    other.close()
+
+
+@pytest.mark.parametrize("how", ["execute", "executemany", "models"])
+def test_a_lock_timeout_does_not_wedge_the_connection(temp_db, how):
+    import models
+
+    init_db()
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO download_queue (album_id, position) VALUES (1, 1)"
+    )
+    conn.commit()
+    conn.execute("PRAGMA busy_timeout=50")
+
+    def write():
+        if how == "execute":
+            conn.execute(
+                "UPDATE download_queue SET status = 'downloading'"
+                " WHERE album_id = 1"
+            )
+            conn.commit()
+        elif how == "executemany":
+            conn.executemany(
+                "UPDATE download_queue SET status = ? WHERE album_id = ?",
+                [("downloading", 1)],
+            )
+            conn.commit()
+        else:
+            models.set_queue_status(1, "downloading")
+
+    # Another connection holds the write lock past the timeout: the write fails.
+    other = _hold_the_write_lock(temp_db)
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        write()
+    _commit_a_row(other, 900)
+
+    # The dispatcher's next tick: read the queue, then somebody else commits
+    # (the sync, a log line, a track record) before its write.
+    conn.execute("SELECT COUNT(*) FROM download_queue").fetchone()
+    _commit_from_another_connection(temp_db, 901)
+
+    write()  # the database is free: this must work
+
+    assert conn.execute(
+        "SELECT status FROM download_queue WHERE album_id = 1"
+    ).fetchone()[0] == "downloading"
+    assert not conn.in_transaction
+
+
+def test_a_failed_lock_discards_the_half_done_transaction(temp_db):
+    init_db()
+    conn = get_db()
+    conn.execute("PRAGMA busy_timeout=50")
+    other = _hold_the_write_lock(temp_db)
+    with pytest.raises(sqlite3.OperationalError, match="locked"):
+        conn.execute(
+            "INSERT INTO download_queue (album_id, position) VALUES (7, 7)"
+        )
+    _commit_a_row(other, 900)
+    assert not conn.in_transaction
+    assert conn.execute(
+        "SELECT COUNT(*) FROM download_queue WHERE album_id = 7"
+    ).fetchone()[0] == 0
+
+
+def test_other_errors_keep_the_open_transaction(temp_db):
+    """Only a lock failure rolls back: a query error must not undo earlier work."""
+    init_db()
+    conn = get_db()
+    conn.execute(
+        "INSERT INTO download_queue (album_id, position) VALUES (5, 5)"
+    )
+    with pytest.raises(sqlite3.OperationalError, match="no such table"):
+        conn.execute("SELECT * FROM no_such_table")
+    assert conn.in_transaction
+    conn.commit()
+    assert conn.execute(
+        "SELECT COUNT(*) FROM download_queue WHERE album_id = 5"
+    ).fetchone()[0] == 1
