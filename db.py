@@ -3,8 +3,10 @@
 import logging
 import os
 import sqlite3
+import sys
 import threading
 import time
+import traceback
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +51,93 @@ _ALBUM_SOURCE_HINTS_DDL = """
 """
 
 
+class _Txn:
+    """One open write transaction, as seen by ``lock_holders``."""
+
+    __slots__ = ("ident", "name", "started", "sql", "running")
+
+    def __init__(self, sql):
+        thread = threading.current_thread()
+        self.ident = thread.ident
+        self.name = thread.name
+        self.started = time.monotonic()
+        self.sql = (sql or "")[:120]
+        self.running = True
+
+
+# Write transactions open right now, by connection. A lock timeout asks this
+# who holds the lock instead of leaving the cause a guess.
+_open_writes = {}
+_open_writes_lock = threading.Lock()
+_WRITE_VERBS = ("INSERT", "UPDATE", "DELETE", "REPLACE")
+_REPORT_EVERY = 10.0  # seconds between two "who holds the lock" reports
+_HOLDER_MIN_AGE = 1.0  # younger transactions are ordinary, not a holder
+_last_report = 0.0
+
+
+def _is_write(sql):
+    return isinstance(sql, str) and sql.lstrip()[:7].upper().startswith(_WRITE_VERBS)
+
+
+def lock_holders(skip_ident=None, min_age=1.0, depth=6):
+    """Open write transactions of other threads older than ``min_age`` seconds.
+
+    Each entry says how long it has been open, whether the thread is running a
+    statement or sitting idle inside the transaction (the usual leak: a write
+    that was never committed), the last statement, and where in the code the
+    thread is now.
+    """
+    now = time.monotonic()
+    with _open_writes_lock:
+        entries = list(_open_writes.values())
+    frames = sys._current_frames()
+    holders = []
+    for txn in entries:
+        age = now - txn.started
+        if txn.ident == skip_ident or age < min_age:
+            continue
+        frame = frames.get(txn.ident)
+        where = ""
+        if frame is not None:
+            where = " <- ".join(
+                f"{os.path.basename(f.filename)}:{f.lineno} {f.name}"
+                for f in reversed(traceback.extract_stack(frame)[-depth:])
+            )
+        holders.append({
+            "thread": txn.name,
+            "age": round(age, 1),
+            "state": "running a statement" if txn.running else "idle in a transaction",
+            "last_sql": txn.sql,
+            "where": where,
+        })
+    return sorted(holders, key=lambda h: -h["age"])
+
+
+def _report_lock_holders(skip_ident):
+    """Log who holds the write lock after a lock timeout (at most every 10 s)."""
+    global _last_report
+    now = time.monotonic()
+    if now - _last_report < _REPORT_EVERY:
+        return
+    _last_report = now
+    holders = lock_holders(skip_ident=skip_ident, min_age=_HOLDER_MIN_AGE)
+    if holders:
+        logger.warning(
+            "database is locked; write transactions open on other threads: %s",
+            "; ".join(
+                f"{h['thread']} {h['state']} for {h['age']}s "
+                f"[{h['where']}] last: {h['last_sql']}"
+                for h in holders
+            ),
+        )
+    else:
+        logger.warning(
+            "database is locked and no other thread of this process has a "
+            "write transaction open: the lock is held by another process, or a "
+            "statement is stalled on the disk"
+        )
+
+
 class _Connection(sqlite3.Connection):
     """A connection that does not stay stuck after "database is locked".
 
@@ -63,26 +152,76 @@ class _Connection(sqlite3.Connection):
 
     A statement that fails on a lock therefore rolls the transaction back (the
     caller sees the error and never reaches its commit anyway, so nothing that
-    was meant to persist is lost). Other errors leave it alone.
+    was meant to persist is lost). Other errors leave it alone. The same
+    failure also logs which other threads hold a write transaction open
+    (``lock_holders``), because the lock timeout alone does not say who the
+    holder is.
     """
 
-    def _drop_transaction_after_lock(self, error):
-        if "locked" in str(error) and self.in_transaction:
+    def _begin(self, sql):
+        txn = _open_writes.get(id(self))
+        if txn is not None:
+            txn.running = True
+            txn.sql = (sql or "")[:120]
+        elif _is_write(sql):
+            with _open_writes_lock:
+                _open_writes[id(self)] = _Txn(sql)
+
+    def _end(self):
+        if self.in_transaction:
+            txn = _open_writes.get(id(self))
+            if txn is None:
+                with _open_writes_lock:
+                    _open_writes[id(self)] = _Txn("")
+                txn = _open_writes[id(self)]
+            txn.running = False
+        elif id(self) in _open_writes:
+            with _open_writes_lock:
+                _open_writes.pop(id(self), None)
+
+    def _after_lock_error(self, error):
+        if "locked" not in str(error):
+            return
+        _report_lock_holders(threading.get_ident())
+        if self.in_transaction:
             self.rollback()
 
-    def execute(self, *args, **kwargs):
+    def execute(self, sql, *args, **kwargs):
+        self._begin(sql)
         try:
-            return super().execute(*args, **kwargs)
+            return super().execute(sql, *args, **kwargs)
         except sqlite3.OperationalError as e:
-            self._drop_transaction_after_lock(e)
+            self._after_lock_error(e)
             raise
+        finally:
+            self._end()
 
-    def executemany(self, *args, **kwargs):
+    def executemany(self, sql, *args, **kwargs):
+        self._begin(sql)
         try:
-            return super().executemany(*args, **kwargs)
+            return super().executemany(sql, *args, **kwargs)
         except sqlite3.OperationalError as e:
-            self._drop_transaction_after_lock(e)
+            self._after_lock_error(e)
             raise
+        finally:
+            self._end()
+
+    def commit(self):
+        try:
+            super().commit()
+        finally:
+            self._end()
+
+    def rollback(self):
+        try:
+            super().rollback()
+        finally:
+            self._end()
+
+    def close(self):
+        with _open_writes_lock:
+            _open_writes.pop(id(self), None)
+        super().close()
 
 
 def get_db():
@@ -95,6 +234,10 @@ def get_db():
         _local.connection.execute("PRAGMA journal_mode=WAL")
         _local.connection.execute("PRAGMA busy_timeout=30000")
         _local.connection.execute("PRAGMA foreign_keys=ON")
+        # Cut the WAL file back after a checkpoint. Without a limit it only
+        # ever grows (it reached 9 GB when a checkpoint was blocked), which
+        # also makes a restart's recovery slow.
+        _local.connection.execute("PRAGMA journal_size_limit=67108864")
     return _local.connection
 
 

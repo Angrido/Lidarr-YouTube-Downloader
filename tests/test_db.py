@@ -833,3 +833,134 @@ def test_other_errors_keep_the_open_transaction(temp_db):
     assert conn.execute(
         "SELECT COUNT(*) FROM download_queue WHERE album_id = 5"
     ).fetchone()[0] == 1
+
+
+# --- who holds the lock ------------------------------------------------------
+# A lock timeout says nothing about the holder. The connection keeps a registry
+# of open write transactions, and the failure logs the other threads' entries.
+
+
+def _open_a_write_on_another_thread(name):
+    """Start a thread that writes without committing; returns (thread, release)."""
+    import threading
+
+    ready, release = threading.Event(), threading.Event()
+
+    def holder():
+        conn = get_db()
+        conn.execute(
+            "INSERT INTO download_queue (album_id, position) VALUES (7, 7)"
+        )
+        ready.set()
+        release.wait(10)
+        conn.commit()
+        close_db()
+
+    thread = threading.Thread(target=holder, name=name)
+    thread.start()
+    assert ready.wait(10)
+    return thread, release
+
+
+def test_lock_holders_names_a_thread_idle_in_a_transaction(temp_db):
+    import db
+
+    init_db()
+    thread, release = _open_a_write_on_another_thread("holder-thread")
+    try:
+        found = db.lock_holders(min_age=0)
+        assert [h["thread"] for h in found] == ["holder-thread"]
+        assert found[0]["state"] == "idle in a transaction"
+        assert found[0]["last_sql"].startswith("INSERT INTO download_queue")
+        assert "holder" in found[0]["where"]
+    finally:
+        release.set()
+        thread.join(10)
+    assert db.lock_holders(min_age=0) == []
+
+
+def test_lock_holders_ignores_the_asking_thread_and_young_transactions(temp_db):
+    import threading
+
+    import db
+
+    init_db()
+    conn = get_db()
+    conn.execute("INSERT INTO download_queue (album_id, position) VALUES (3, 3)")
+    assert db.lock_holders(skip_ident=threading.get_ident(), min_age=0) == []
+    assert db.lock_holders(min_age=3600) == []
+    conn.commit()
+    assert db.lock_holders(min_age=0) == []
+
+
+def test_a_lock_timeout_logs_the_thread_that_holds_it(temp_db, caplog, monkeypatch):
+    import db
+
+    monkeypatch.setattr(db, "_last_report", 0.0)
+    monkeypatch.setattr(db, "_HOLDER_MIN_AGE", 0.0)
+    init_db()
+    thread, release = _open_a_write_on_another_thread("holder-thread")
+    try:
+        conn = get_db()
+        conn.execute("PRAGMA busy_timeout=50")
+        with caplog.at_level("WARNING", logger="db"):
+            with pytest.raises(sqlite3.OperationalError, match="locked"):
+                conn.execute(
+                    "INSERT INTO download_queue (album_id, position) VALUES (8, 8)"
+                )
+    finally:
+        release.set()
+        thread.join(10)
+    text = " ".join(r.getMessage() for r in caplog.records)
+    assert "write transactions open on other threads" in text
+    assert "holder-thread" in text and "idle in a transaction" in text
+
+
+def test_a_lock_held_outside_this_process_is_reported_as_such(temp_db, caplog, monkeypatch):
+    import db
+
+    monkeypatch.setattr(db, "_last_report", 0.0)
+    init_db()
+    conn = get_db()
+    conn.execute("PRAGMA busy_timeout=50")
+    other = _hold_the_write_lock(temp_db)
+    try:
+        with caplog.at_level("WARNING", logger="db"):
+            with pytest.raises(sqlite3.OperationalError, match="locked"):
+                conn.execute(
+                    "INSERT INTO download_queue (album_id, position) VALUES (9, 9)"
+                )
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    assert any(
+        "no other thread of this process" in r.getMessage() for r in caplog.records
+    )
+
+
+def test_the_lock_report_is_rate_limited(temp_db, caplog, monkeypatch):
+    import db
+
+    monkeypatch.setattr(db, "_last_report", 0.0)
+    init_db()
+    conn = get_db()
+    conn.execute("PRAGMA busy_timeout=50")
+    other = _hold_the_write_lock(temp_db)
+    try:
+        with caplog.at_level("WARNING", logger="db"):
+            for album in (10, 11, 12):
+                with pytest.raises(sqlite3.OperationalError, match="locked"):
+                    conn.execute(
+                        "INSERT INTO download_queue (album_id, position) VALUES (?, ?)",
+                        (album, album),
+                    )
+    finally:
+        other.execute("ROLLBACK")
+        other.close()
+    reports = [r for r in caplog.records if "database is locked" in r.getMessage()]
+    assert len(reports) == 1
+
+
+def test_the_wal_file_is_cut_back_after_a_checkpoint(temp_db):
+    init_db()
+    assert get_db().execute("PRAGMA journal_size_limit").fetchone()[0] == 64 * 1024 * 1024

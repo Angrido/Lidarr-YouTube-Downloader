@@ -114,6 +114,14 @@
   downloaded and only a restart helped. A statement that fails on a lock now
   rolls its transaction back (`db._Connection`), so the next attempt starts
   clean.
+- **A lock timeout now says who holds the lock, and the WAL file stays small**:
+  "database is locked" alone never named the holder. The failing statement now
+  logs the write transactions other threads have open (how long, running a
+  statement or idle inside the transaction, the last statement and where the
+  thread is in the code), at most once every 10 s. The SQLite WAL file also had
+  no size limit, so after a stretch with no checkpoint it only ever grew (9 GB
+  on one install, which made a restart's recovery slow);
+  `PRAGMA journal_size_limit` now cuts it back to 64 MB after a checkpoint.
 - **Track total in the tags**: files taken from a Lidarr album were tagged
   with a total of 0 (`TRCK` `1/0`, `trkn` `(1, 0)`, `tracknumber` `1/0`)
   because Lidarr's album has no `trackCount` of its own. The total is now
