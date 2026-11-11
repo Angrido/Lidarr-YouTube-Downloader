@@ -203,6 +203,34 @@ def test_get_history_count_today():
     assert models.get_history_count_today() == 1
 
 
+def test_get_history_count_today_uses_the_timestamp_index():
+    """/api/stats runs this on every poll: it must not scan the whole table.
+
+    Without statistics SQLite picks the (album_id, success) index and walks all
+    of it; the query is pinned to the timestamp index instead.
+    """
+    import db
+
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="A",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="", cover_url="",
+    )
+    conn = db.get_db()
+    seen = []
+    conn.set_trace_callback(seen.append)
+    try:
+        assert models.get_history_count_today() == 1
+    finally:
+        conn.set_trace_callback(None)
+    select = next(q for q in seen if "COUNT(DISTINCT album_id)" in q)
+    plan = " ".join(r[3] for r in conn.execute("EXPLAIN QUERY PLAN " + select))
+    assert "idx_track_dl_timestamp" in plan
+    assert "idx_track_dl_album_id_success" not in plan
+
+
 def test_get_history_album_ids_since():
     now = time.time()
     models.add_track_download(

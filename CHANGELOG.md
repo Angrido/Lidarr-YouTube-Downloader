@@ -103,6 +103,11 @@
   disappearing after four seconds. Long playlists scroll faster.
 
 ### Fixed
+- **`/api/stats` no longer scans a whole index on every poll**: the "albums
+  downloaded today" count made SQLite walk the entire `(album_id, success)`
+  index (1 s on a laptop, 5 to 6 s on a busy NAS with 110k tracks) for a number
+  that is almost always tiny, and the pages poll that endpoint. The query is now
+  pinned to the timestamp index and answers in under a millisecond.
 - **Track total in the tags**: files taken from a Lidarr album were tagged
   with a total of 0 (`TRCK` `1/0`, `trkn` `(1, 0)`, `tracknumber` `1/0`)
   because Lidarr's album has no `trackCount` of its own. The total is now
