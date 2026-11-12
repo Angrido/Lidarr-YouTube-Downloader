@@ -108,6 +108,25 @@
   index (1 s on a laptop, 5 to 6 s on a busy NAS with 110k tracks) for a number
   that is almost always tiny, and the pages poll that endpoint. The query is now
   pinned to the timestamp index and answers in under a millisecond.
+- **The queue could stop for good after one "database is locked"**: every
+  thread keeps one SQLite connection, and a write that timed out on a lock
+  left Python's implicit transaction open on it. The next read (the queue
+  lookup) then pinned a WAL snapshot that transaction never released, so as soon
+  as any other connection committed, every write on that connection failed at
+  once with the same error, even with the database idle. The thread that starts
+  the queued albums has a single connection: the log filled with
+  `Queue processor error: database is locked` every two seconds, nothing was
+  downloaded and only a restart helped. A statement that fails on a lock now
+  rolls its transaction back (`db._Connection`), so the next attempt starts
+  clean.
+- **A lock timeout now says who holds the lock, and the WAL file stays small**:
+  "database is locked" alone never named the holder. The failing statement now
+  logs the write transactions other threads have open (how long, running a
+  statement or idle inside the transaction, the last statement and where the
+  thread is in the code), at most once every 10 s. The SQLite WAL file also had
+  no size limit, so after a stretch with no checkpoint it only ever grew (9 GB
+  on one install, which made a restart's recovery slow);
+  `PRAGMA journal_size_limit` now cuts it back to 64 MB after a checkpoint.
 - **Track total in the tags**: files taken from a Lidarr album were tagged
   with a total of 0 (`TRCK` `1/0`, `trkn` `(1, 0)`, `tracknumber` `1/0`)
   because Lidarr's album has no `trackCount` of its own. The total is now
