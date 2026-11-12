@@ -493,8 +493,13 @@ def get_history_count_today():
     now = datetime.now()
     today_start = datetime(now.year, now.month, now.day).timestamp()
     conn = db.get_db()
+    # Pinned to the timestamp index: without table statistics SQLite prefers
+    # the (album_id, success) index and scans all of it, which took 1 s on a
+    # laptop and 5 s on a busy NAS for a number that is almost always tiny.
+    # /api/stats, which the pages poll, runs this every time.
     row = conn.execute(
         "SELECT COUNT(DISTINCT album_id) FROM track_downloads"
+        " INDEXED BY idx_track_dl_timestamp"
         " WHERE success = 1 AND timestamp >= ?",
         (today_start,),
     ).fetchone()
