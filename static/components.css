@@ -771,9 +771,9 @@ code, kbd, pre, samp {
     }
     .app-nav-live {
         position: absolute;
-        bottom: 9px;
-        left: calc(50% - 15px);
-        top: auto;
+        /* top-left of the 20px icon, clear of it (ring included); badge sits top-right */
+        top: 6px;
+        left: calc(50% - 22px);
         width: 9px;
         height: 9px;
         margin: 0;
@@ -844,7 +844,7 @@ code, kbd, pre, samp {
     .app-tab .app-nav-live {
         position: absolute;
         top: 2px;
-        left: calc(50% - 18px);
+        left: calc(50% - 25px); /* clear of the 24px icon */
         width: 9px;
         height: 9px;
         margin: 0;

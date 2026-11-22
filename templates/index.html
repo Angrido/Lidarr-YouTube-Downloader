@@ -4,6 +4,10 @@
     {% include "_head.html" %}
     <title>Library — Lidarr YouTube Downloader</title>
     <style>
+        /* Queue tile: time left on its own line instead of truncating it */
+        #queueMeta { flex-direction: column; align-items: flex-start; gap: 0; }
+        #queueMeta > span { white-space: normal; }
+
         .lib-hero {
             margin-bottom: var(--sp-6);
         }
@@ -1454,7 +1458,7 @@
                 const meta = $("queueEtaMeta");
                 meta.hidden = !d || !d.short;
                 if (d && d.short) {
-                    meta.textContent = " · " + d.short;
+                    meta.textContent = d.short;
                     $("queueTile").title = [d.headline, d.detail].concat(d.hints, d.explain).join("\n");
                 } else {
                     $("queueTile").removeAttribute("title");
