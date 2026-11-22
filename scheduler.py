@@ -96,8 +96,7 @@ def _scheduled_check():
                 "color": 0x3498DB,
             },
         )
-        for album in new_albums:
-            models.enqueue_album(album["id"])
+        models.enqueue_albums([album["id"] for album in new_albums])
     else:
         global _last_reported_ids
         ids = {a["id"] for a in new_albums}

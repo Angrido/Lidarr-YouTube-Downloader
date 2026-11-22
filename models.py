@@ -43,14 +43,16 @@ DISK_FULL_PREFIX = "Download disk is full"
 BLOCKED_PREFIX = "YouTube blocked this IP"
 
 
-def _paginate(query_with_limit, count_query, params, page, per_page):
+def _paginate(query_with_limit, count_query, params, page, per_page, total=None):
     """Run a paginated query and return a standard response dict.
 
     query_with_limit must include 'LIMIT ? OFFSET ?' placeholders at the end.
+    Pass ``total`` when the caller already counted the rows, to skip the count.
     """
     per_page = max(1, min(int(per_page), MAX_PER_PAGE))
     conn = db.get_db()
-    total = conn.execute(count_query, params).fetchone()[0]
+    if total is None:
+        total = conn.execute(count_query, params).fetchone()[0]
     pages = max(1, math.ceil(total / per_page))
     page = max(1, min(page, pages))
     offset = (page - 1) * per_page
@@ -192,7 +194,9 @@ def get_recent_library_copy_album_ids(since_timestamp):
     """
     conn = db.get_db()
     rows = conn.execute(
+        # Recent window: pinned to the timestamp index, as get_history_count_today.
         "SELECT DISTINCT album_id FROM track_downloads"
+        " INDEXED BY idx_track_dl_timestamp"
         " WHERE success = 1 AND album_id > 0 AND timestamp >= ?"
         " AND COALESCE(lidarr_album_path, '') != ''",
         (since_timestamp,),
@@ -317,10 +321,8 @@ def get_album_history(page=1, per_page=50, outcome=None, q=None):
         + f"SELECT * FROM latest WHERE {where}"
         " ORDER BY latest_timestamp DESC, album_id DESC LIMIT ? OFFSET ?"
     )
-    count_query = (
-        _ALBUM_HISTORY_CTE + f"SELECT COUNT(*) FROM latest WHERE {where}"
-    )
-    result = _paginate(query, count_query, params, page, per_page)
+    # One aggregation gives the chip counts and, for the filtered list, its
+    # total (the same predicate as ``where``), instead of a third full scan.
     sums = ", ".join(
         f"COALESCE(SUM({_OUTCOME_SQL[o]}), 0)" for o in HISTORY_OUTCOMES
     )
@@ -329,7 +331,10 @@ def get_album_history(page=1, per_page=50, outcome=None, q=None):
         + f"SELECT COUNT(*), {sums} FROM latest WHERE {q_where}",
         params,
     ).fetchone()
-    result["counts"] = dict(zip(("all",) + HISTORY_OUTCOMES, row))
+    counts = dict(zip(("all",) + HISTORY_OUTCOMES, row))
+    total = counts[outcome] if outcome in _OUTCOME_SQL else counts["all"]
+    result = _paginate(query, None, params, page, per_page, total=total)
+    result["counts"] = counts
     return result
 
 
@@ -511,6 +516,7 @@ def get_history_album_ids_since(since_timestamp):
     conn = db.get_db()
     rows = conn.execute(
         "SELECT DISTINCT album_id FROM track_downloads"
+        " INDEXED BY idx_track_dl_timestamp"
         " WHERE success = 1 AND timestamp >= ?",
         (since_timestamp,),
     ).fetchall()
@@ -921,6 +927,30 @@ def get_track_download_youtube_urls():
 # --- Queue ---
 
 
+def enqueue_albums(album_ids):
+    """Append many albums to the queue in one transaction. Returns how many were new.
+
+    Same as ``enqueue_album`` per id (duplicates skipped, no force upgrade),
+    but one position read and one commit: a first sync can queue thousands.
+    """
+    conn = db.get_db()
+    position = conn.execute(
+        "SELECT COALESCE(MAX(position), 0) + 1 FROM download_queue"
+    ).fetchone()[0]
+    added = 0
+    for album_id in album_ids:
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO download_queue"
+            " (album_id, position, status, force) VALUES (?, ?, ?, 0)",
+            (album_id, position, QUEUE_STATUS_QUEUED),
+        )
+        if cursor.rowcount > 0:
+            added += 1
+            position += 1
+    conn.commit()
+    return added
+
+
 def enqueue_album(album_id, force=False, front=False):
     """Add an album to the download queue. Returns False if duplicate.
 
@@ -975,6 +1005,16 @@ def get_queue():
         "SELECT * FROM download_queue ORDER BY position"
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def queue_fingerprint():
+    """Cheap summary of download_queue: changes whenever the queue's rows change."""
+    row = db.get_db().execute(
+        "SELECT COUNT(*), COALESCE(SUM(position), 0), COALESCE(MAX(id), 0),"
+        " COALESCE(SUM(status = 'active'), 0), COALESCE(SUM(force), 0)"
+        " FROM download_queue"
+    ).fetchone()
+    return tuple(row)
 
 
 def get_queue_details():
@@ -1135,15 +1175,19 @@ def reorder_queue(new_order):
 
 
 def _reorder_queue(conn):
-    """Renumber queue positions sequentially starting at 1."""
-    rows = conn.execute(
-        "SELECT id FROM download_queue ORDER BY position"
-    ).fetchall()
-    for i, row in enumerate(rows, 1):
-        conn.execute(
-            "UPDATE download_queue SET position = ? WHERE id = ?",
-            (i, row[0]),
-        )
+    """Renumber queue positions sequentially starting at 1.
+
+    One statement, touching only rows whose position actually changes.
+    """
+    conn.execute(
+        "WITH ranked AS ("
+        " SELECT id, ROW_NUMBER() OVER (ORDER BY position, id) AS rn"
+        " FROM download_queue)"
+        " UPDATE download_queue SET position = ranked.rn"
+        " FROM ranked"
+        " WHERE ranked.id = download_queue.id"
+        " AND ranked.rn != download_queue.position"
+    )
     conn.commit()
 
 
@@ -1441,6 +1485,10 @@ def get_recent_client_album_ids_since(since_timestamp):
     return {row[0] for row in rows}
 
 
+_album_index_key = None
+_album_index_rows = []
+
+
 def get_cached_album_index():
     """Return a lightweight index of cached albums for search matching.
 
@@ -1449,12 +1497,25 @@ def get_cached_album_index():
     without deserializing every cached ``raw_json`` blob.
     """
     conn = db.get_db()
+    # Indexers search constantly; rebuild only when a sync run or the row
+    # count changed (a sync that finishes always bumps current_run_id).
+    key = tuple(
+        conn.execute(
+            "SELECT (SELECT COALESCE(current_run_id, 0) FROM sync_state"
+            " WHERE id = 1), (SELECT COUNT(*) FROM missing_albums_cache)"
+        ).fetchone()
+    )
+    global _album_index_key, _album_index_rows
+    if key == _album_index_key:
+        return list(_album_index_rows)
     rows = conn.execute(
         "SELECT album_id, title, artist_name, release_date,"
         " track_count, cover_url"
         " FROM missing_albums_cache"
     ).fetchall()
-    return [dict(row) for row in rows]
+    _album_index_rows = [dict(row) for row in rows]
+    _album_index_key = key
+    return list(_album_index_rows)
 
 
 def get_cached_album(album_id):

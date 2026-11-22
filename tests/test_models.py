@@ -231,6 +231,33 @@ def test_get_history_count_today_uses_the_timestamp_index():
     assert "idx_track_dl_album_id_success" not in plan
 
 
+def test_recent_window_album_id_queries_use_the_timestamp_index():
+    """The scheduler and every Newznab search run these over a short window."""
+    import db
+
+    models.add_track_download(
+        album_id=1, album_title="A", artist_name="A",
+        track_title="T1", track_number=1, success=True,
+        error_message="", youtube_url="", youtube_title="",
+        match_score=0.0, duration_seconds=0,
+        album_path="", lidarr_album_path="/music/A", cover_url="",
+    )
+    conn = db.get_db()
+    seen = []
+    conn.set_trace_callback(seen.append)
+    try:
+        since = time.time() - 60
+        assert models.get_history_album_ids_since(since) == {1}
+        assert models.get_recent_library_copy_album_ids(since) == {1}
+    finally:
+        conn.set_trace_callback(None)
+    selects = [q for q in seen if q.startswith("SELECT DISTINCT album_id")]
+    assert len(selects) == 2
+    for select in selects:
+        plan = " ".join(r[3] for r in conn.execute("EXPLAIN QUERY PLAN " + select))
+        assert "idx_track_dl_timestamp" in plan, select
+
+
 def test_get_history_album_ids_since():
     now = time.time()
     models.add_track_download(
@@ -1460,3 +1487,34 @@ def test_library_folders_newest_first_without_blanks():
             (_t.time() - age, rid))
     db.get_db().commit()
     assert models.get_library_folders(1) == ["/m/new", "/m/old"]
+
+
+def test_enqueue_albums_appends_in_order_and_skips_duplicates():
+    models.enqueue_album(10)
+    assert models.enqueue_albums([20, 10, 30]) == 2
+    assert [r["album_id"] for r in models.get_queue()] == [10, 20, 30]
+    assert [r["position"] for r in models.get_queue()] == [1, 2, 3]
+
+
+def test_dequeue_renumbers_positions_from_one():
+    for aid in (10, 20, 30):
+        models.enqueue_album(aid)
+    models.dequeue_album(10)
+    rows = models.get_queue()
+    assert [(r["album_id"], r["position"]) for r in rows] == [(20, 1), (30, 2)]
+
+
+def test_history_total_matches_filtered_and_unfiltered_lists():
+    for album, ok in ((1, True), (1, False), (2, True)):
+        models.add_track_download(
+            album_id=album, album_title=f"A{album}", artist_name="X",
+            track_title=f"T{album}{ok}", track_number=1, success=ok,
+            error_message="", youtube_url="", youtube_title="",
+            match_score=0.0, duration_seconds=0,
+            album_path="", lidarr_album_path="", cover_url="",
+        )
+    everything = models.get_album_history()
+    assert everything["total"] == len(everything["items"]) == 2
+    partial = models.get_album_history(outcome="partial")
+    assert partial["total"] == len(partial["items"]) == 1
+    assert partial["counts"]["partial"] == 1

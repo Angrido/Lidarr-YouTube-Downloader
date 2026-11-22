@@ -1281,6 +1281,7 @@ def api_download_stream():
     def generate():
         start_time = time.time()
         last_queue_json = None
+        queue_data, queue_fp, queue_at = None, None, 0.0
         try:
             while True:
                 if time.time() - start_time > sse_timeout:
@@ -1288,7 +1289,12 @@ def api_download_stream():
                 # Queue + Lidarr lookups run WITHOUT queue_lock: they do
                 # blocking network I/O and must never stall the download
                 # worker, stop or skip-track (which hold queue_lock).
-                queue_data = _queue_items()
+                # Rebuild the queue only when its cheap fingerprint moves, or
+                # every 10 s so titles Lidarr resolved later still appear.
+                fp = models.queue_fingerprint()
+                if fp != queue_fp or time.time() - queue_at > 10:
+                    queue_data = _queue_items()
+                    queue_fp, queue_at = fp, time.time()
                 # Deep-copied snapshot of the live download state.
                 status = get_download_status()
                 tracks = status.get("tracks", [])

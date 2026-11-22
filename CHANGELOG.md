@@ -101,8 +101,25 @@
   address bar so a reload or a shared `?url=` opens the same tracks, and a
   finished import stays on screen with *Import another link* instead of
   disappearing after four seconds. Long playlists scroll faster.
+- **Same typeface everywhere**: the UI ships Inter (variable, self-hosted,
+  no network needed) instead of whatever the OS has, so Windows, Linux and
+  Android look like macOS did. Every page header now has its small label
+  (Activity, Analytics, Configuration), and on phones the Library's
+  Explore / Check / Sync buttons fit on one row.
 
 ### Fixed
+- **Scheduler runs and Lidarr indexer searches no longer scan the download
+  history**: the two "albums done recently" lookups are pinned to the
+  timestamp index (they scanned a whole index, ≈ 100 ms on 60 000 rows), the same fix as
+  `/api/stats` below.
+- **The Lidarr album cache no longer grows forever**: expired entries are
+  dropped once it holds 500 albums.
+- **Less database work on busy pages and syncs**: the History page counts
+  each outcome in one pass instead of three; removing an album renumbers the
+  queue in one statement instead of one update per row; a sync queues all its
+  new albums in one transaction; the live queue stream rebuilds the queue
+  only when its rows change (or every 10 s); Lidarr indexer searches reuse
+  the album index until a sync finishes.
 - **`/api/stats` no longer scans a whole index on every poll**: the "albums
   downloaded today" count made SQLite walk the entire `(album_id, success)`
   index (1 s on a laptop, 5 to 6 s on a busy NAS with 110k tracks) for a number

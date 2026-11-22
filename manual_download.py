@@ -48,6 +48,7 @@ bp = Blueprint("manual_download", __name__)
 
 album_cache = {}
 ALBUM_CACHE_TTL = 300
+ALBUM_CACHE_MAX = 500
 
 
 def _parse_track_number(raw):
@@ -200,6 +201,12 @@ def _get_album_cached(album_id):
         if now - ts < ALBUM_CACHE_TTL:
             return cached
     album = lidarr_request(f"album/{album_id}")
+    # Expired entries were only ever overwritten, so the cache grew with every
+    # album ever viewed; drop them once it gets big.
+    if len(album_cache) >= ALBUM_CACHE_MAX:
+        for key, (_, ts) in list(album_cache.items()):
+            if now - ts >= ALBUM_CACHE_TTL:
+                album_cache.pop(key, None)
     # Errors are remembered for 30 s so a down Lidarr isn't re-asked on
     # every one-second queue refresh.
     album_cache[album_id] = (

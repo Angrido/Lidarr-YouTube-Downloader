@@ -817,6 +817,24 @@ class TestQueueTracksRoute:
             album_cache.pop(123, None)
 
     @patch("manual_download.lidarr_request")
+    def test_album_cache_drops_expired_entries_when_full(self, mock_lidarr):
+        import time as time_mod
+        import manual_download as md
+        mock_lidarr.return_value = {"title": "New"}
+        saved = dict(md.album_cache)
+        md.album_cache.clear()
+        try:
+            old = time_mod.time() - md.ALBUM_CACHE_TTL - 1
+            for i in range(md.ALBUM_CACHE_MAX):
+                md.album_cache[-1000 - i] = ({}, old)
+            md.album_cache[-1] = ({"title": "Fresh"}, time_mod.time())
+            assert md._get_album_cached(-2) == {"title": "New"}
+            assert set(md.album_cache) == {-1, -2}
+        finally:
+            md.album_cache.clear()
+            md.album_cache.update(saved)
+
+    @patch("manual_download.lidarr_request")
     @patch("app.lidarr_request")
     def test_empty_when_no_tracks(self, mock_lidarr, mock_album_lidarr, client):
         mock_lidarr.side_effect = mock_album_lidarr.side_effect = lambda path, **kw: (

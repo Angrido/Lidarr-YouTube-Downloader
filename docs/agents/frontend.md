@@ -7,6 +7,11 @@
 Every page is built on one design system; **don't add per-page colour
 variables, theme toggles, navigation or Font Awesome**.
 
+- Typeface: Inter variable (`static/fonts/inter-latin*.woff2`, SIL OFL,
+  `static/fonts/OFL.txt`, from `@fontsource-variable/inter`), declared with
+  `@font-face` at the top of `components.css` as `"Inter Variable"` first in
+  `--font-sans`; `_head.html` preloads the latin file. Never load fonts
+  from a CDN (the app runs offline / on a LAN).
 - `static/components.css` — the design system. Tokens on `:root` (4px
   spacing scale `--sp-*`, radii `--r-*`, type scale `--text-*`, layered
   surfaces `--bg-base/-elevated/-elevated-2/-sunken/-overlay`, text

@@ -9,6 +9,7 @@
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
 <link rel="manifest" href="/manifest.webmanifest">
+<link rel="preload" href="/static/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/static/components.css?v={{ APP_VERSION }}">
 <style>:root{--accent-base:{{ UI_ACCENT }}}</style>
 <script>document.documentElement.setAttribute('data-aura','{{ UI_AURA_MODE }}');(function(){var t;try{t=localStorage.getItem('theme');}catch(e){}if(t!=='light'&&t!=='auto')t='dark';var d=t==='dark'||(t==='auto'&&window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);if(t!=='auto')document.documentElement.setAttribute('data-theme',t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',d?'#07070c':'#f5f3fb');})();</script>

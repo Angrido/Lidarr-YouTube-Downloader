@@ -57,12 +57,16 @@
 
         @media (max-width: 560px) {
             .lib-actions .ui-btn {
-                flex: 1 1 auto;
+                flex: 1 1 0;
+                min-width: 0;
+                padding-inline: var(--sp-2);
             }
             .lib-actions .ui-btn-primary {
                 order: -1;
                 flex-basis: 100%;
             }
+            /* keeps the three secondary actions on one row */
+            .lib-btn-extra { display: none; }
         }
 
         .ui-callout .ui-callout-text a {
@@ -637,9 +641,9 @@
                         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-compass"></use></svg>
                         Explore
                     </a>
-                    <button type="button" class="ui-btn ui-btn-secondary" id="checkConnBtn">
+                    <button type="button" class="ui-btn ui-btn-secondary" id="checkConnBtn" aria-label="Check connection">
                         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-plug"></use></svg>
-                        Check connection
+                        Check<span class="lib-btn-extra"> connection</span>
                     </button>
                     <button type="button" class="ui-btn ui-btn-secondary" id="syncBtn">
                         <svg class="ico" aria-hidden="true"><use href="/static/icons.svg#i-refresh"></use></svg>
