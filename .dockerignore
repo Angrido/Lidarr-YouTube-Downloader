@@ -3,6 +3,8 @@
 .dockerignore
 .github/
 .claude/
+.agentsroom/
+.mcp.json
 CLAUDE.md
 CLAUDE.local.md
 AGENTS.md
@@ -10,7 +12,6 @@ docs/
 tests/
 tools/
 requirements-dev.txt
-config/
 __pycache__/
 *.py[cod]
 *.pyo
@@ -66,7 +67,6 @@ babysitter-state.json
 *.bak
 .serena/
 .superpowers/
-docs/superpowers/
 *.mp3
 *.m4a
 *.opus
@@ -98,4 +98,3 @@ playwright-report/
 *.db-shm
 *.sqlite
 *.sqlite3
-
