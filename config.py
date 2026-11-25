@@ -62,7 +62,7 @@ ALLOWED_CONFIG_KEYS = {
     "lidarr_rename_after_import", "save_cover_art_file",
     "scheduler_retry_after_hours",
     "dedupe_mode", "dedupe_same_album", "dedupe_cross_album",
-    "track_retry_backoff", "max_track_retries",
+    "track_retry_backoff", "max_track_retries", "sync_partial_albums",
     "download_client_enabled", "download_client_api_key",
     "download_client_category", "download_client_concurrent_albums",
     "yt_po_token", "audio_normalize", "yt_pot_provider_url",
@@ -137,7 +137,7 @@ BOOL_CONFIG_KEYS = frozenset({
     "ntfy_enabled", "acoustid_enabled", "lidarr_rename_after_import",
     "save_cover_art_file", "download_client_enabled", "playlist_to_library",
     "queue_paused", "apprise_enabled", "vpn_rotate_on_block",
-    "dedupe_cross_album",
+    "dedupe_cross_album", "sync_partial_albums",
 })
 
 LIST_CONFIG_KEYS = frozenset({
@@ -459,6 +459,7 @@ def _env_config():
         ),
         "track_retry_backoff": _env_bool("TRACK_RETRY_BACKOFF", True),
         "max_track_retries": _env_int("MAX_TRACK_RETRIES", 0),
+        "sync_partial_albums": _env_bool("SYNC_PARTIAL_ALBUMS", False),
         "telegram_enabled": _env_bool("TELEGRAM_ENABLED", False),
         "telegram_bot_token": os.getenv("TELEGRAM_BOT_TOKEN", ""),
         "telegram_chat_id": os.getenv("TELEGRAM_CHAT_ID", ""),

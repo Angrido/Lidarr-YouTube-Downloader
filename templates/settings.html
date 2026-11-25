@@ -846,6 +846,7 @@
                                 <button type="button" class="ui-btn ui-btn-tinted ui-btn-sm" id="schedulerRunBtn" aria-describedby="schedulerRunBtn-desc" onclick="runSchedulerCheck()">{{ ico('play') }}<span>Run check now</span></button>
                                 {% endcall %}
                                 {{ switch_row('autoDlBtn', 'Auto download', 'Automatically download missing albums when found.', 'cloud-download', 'success', '/api/scheduler/autodownload/toggle', 'scheduler_auto_download') }}
+                                {{ switch_row('syncPartialAlbumsBtn', 'Include partially downloaded albums', 'Also list monitored albums you own only in part, which Lidarr&#39;s Wanted list leaves out. Only the missing tracks are downloaded. Reads Lidarr&#39;s whole album list on each sync, so it can be slow on very large libraries.', 'disc', 'teal') }}
                                 {% call inline_row('interval', 'Check interval', 'How often to check for missing albums, in minutes (1–1440).', 'refresh', 'info', err=true) %}
                                 <span class="num-field"><input type="number" class="ui-input ui-input-num" id="interval" value="60" min="1" max="1440" step="1" inputmode="numeric" aria-describedby="interval-desc"><span class="num-unit" aria-hidden="true">min</span></span>
                                 {% endcall %}
@@ -1618,6 +1619,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
             $('downloadClientCategory').value = conf.download_client_category || 'music';
             $('downloadClientConcurrentAlbums').value = String(conf.download_client_concurrent_albums || 1);
             setSwitch('trackRetryBackoffBtn', conf.track_retry_backoff !== false);
+            setSwitch('syncPartialAlbumsBtn', conf.sync_partial_albums === true);
             $('maxTrackRetries').value = conf.max_track_retries != null ? conf.max_track_retries : 0;
             $('dedupeMode').value = conf.dedupe_mode || 'log';
             $('dedupeSameAlbum').value = conf.dedupe_same_album || 'skip';
@@ -1632,6 +1634,7 @@ SABnzbd client   → URL Base:  /api/sabnzbd/</pre>
                 scheduler_max_albums: parseInt($('schedulerMaxAlbums').value) || 0,
                 scheduler_retry_after_hours: parseFloat($('schedulerRetryAfterHours').value) || 0,
                 track_retry_backoff: $('trackRetryBackoffBtn').checked,
+                sync_partial_albums: $('syncPartialAlbumsBtn').checked,
                 max_track_retries: parseInt($('maxTrackRetries').value, 10) || 0,
                 dedupe_mode: $('dedupeMode').value || 'log',
                 dedupe_same_album: $('dedupeSameAlbum').value || 'skip',

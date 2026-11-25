@@ -89,6 +89,15 @@
   the last hour is far under the day's pace or most tracks are failing, and
   an *i* button explains the calculation. `GET /api/queue/eta` (cached
   15 s); `/api/stats` is unchanged.
+- **Partially downloaded albums** (issue #126). Lidarr's Wanted list leaves
+  out a monitored album as soon as one of its tracks has a file, so an
+  album with 3 of 12 tracks never reached the Library, the scheduler or
+  Lidarr's searches through the download client. With *Include partially
+  downloaded albums* (Settings › Automation, `sync_partial_albums`, off by
+  default) each Lidarr sync also reads Lidarr's album list and adds every
+  monitored, released album of a monitored artist that has some but not
+  all of its tracks. Only the missing tracks are downloaded. Turning it on
+  or off starts a sync right away.
 
 ### Changed
 - **Smoother motion** — moving between pages cross-fades the content while

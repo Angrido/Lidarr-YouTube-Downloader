@@ -8,6 +8,7 @@ serve the full library instantly regardless of size.
 import logging
 import threading
 import time
+from datetime import datetime, timezone
 
 import db
 import models
@@ -47,6 +48,56 @@ def _fetch_page(page):
             time.sleep(backoff)
             backoff *= 2
     return None, last_error
+
+
+def _is_released(album, now):
+    date = album.get("releaseDate") or ""
+    if not date:
+        return True
+    try:
+        released = datetime.fromisoformat(date.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if released.tzinfo is None:
+        released = released.replace(tzinfo=timezone.utc)
+    return released <= now
+
+
+def _is_partially_owned(album):
+    stats = album.get("statistics") or {}
+    files = stats.get("trackFileCount", 0) or 0
+    total = stats.get("trackCount", 0) or 0
+    return 0 < files < total
+
+
+def _fetch_partial_albums():
+    artists = lidarr_request("artist")
+    if not isinstance(artists, list):
+        return None, (artists or {}).get("error") or "Invalid artist list"
+    albums = lidarr_request("album")
+    if not isinstance(albums, list):
+        return None, (albums or {}).get("error") or "Invalid album list"
+    by_id = {a.get("id"): a for a in artists if isinstance(a, dict)}
+    now = datetime.now(timezone.utc)
+    partial = []
+    for album in albums:
+        if not isinstance(album, dict) or not album.get("monitored"):
+            continue
+        artist = album.get("artist") or by_id.get(album.get("artistId"))
+        if not artist or not artist.get("monitored"):
+            continue
+        if not _is_partially_owned(album) or not _is_released(album, now):
+            continue
+        partial.append({**album, "artist": artist})
+    return partial, ""
+
+
+def _sync_partial_albums(run_id):
+    partial, error = _fetch_partial_albums()
+    if partial is None:
+        return None, error
+    models.upsert_missing_albums_batch(partial, run_id)
+    return len(partial), ""
 
 
 def _run_sync():
@@ -114,6 +165,17 @@ def _run_sync():
         if len(records) < PAGE_SIZE:
             break
         page += 1
+    if load_config().get("sync_partial_albums"):
+        try:
+            partial, error = _sync_partial_albums(run_id)
+        except Exception as e:
+            partial, error = None, str(e)
+        if partial is None:
+            error = f"Partially downloaded albums not synced: {error}"
+            models.update_sync_state(status="error", last_error=error[:500])
+            logger.warning("Lidarr sync incomplete: %s", error)
+            return
+        synced += partial
     if failed_pages:
         error = (
             f"Failed to save {len(failed_pages)} page(s) of missing albums"

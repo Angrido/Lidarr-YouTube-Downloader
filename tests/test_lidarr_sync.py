@@ -143,3 +143,82 @@ def test_fetch_failure_keeps_cache_and_reports_error(monkeypatch):
     state = models.get_sync_state()
     assert state["status"] == "error"
     assert "timed out" in state["last_error"]
+
+
+def _owned(album_id, files, total=10, monitored=True, artist_id=1,
+           release="2020-01-01T00:00:00Z"):
+    return {
+        "id": album_id,
+        "title": f"Album {album_id}",
+        "artistId": artist_id,
+        "monitored": monitored,
+        "releaseDate": release,
+        "statistics": {"trackCount": total, "trackFileCount": files},
+    }
+
+
+def _fake_lidarr_with_library(pages, albums, artists):
+    missing, _ = _fake_lidarr(pages)
+
+    def fake(endpoint, *args, **kwargs):
+        if endpoint == "album":
+            return albums
+        if endpoint == "artist":
+            return artists
+        return missing(endpoint)
+
+    return fake
+
+
+_ARTISTS = [
+    {"id": 1, "artistName": "Cir.Cuz", "monitored": True},
+    {"id": 2, "artistName": "Ignored", "monitored": False},
+]
+
+
+def test_partial_albums_not_synced_by_default(monkeypatch):
+    fake = _fake_lidarr_with_library(
+        {1: [_album(1)]}, [_owned(5, files=3)], _ARTISTS,
+    )
+    monkeypatch.setattr(lidarr_sync, "lidarr_request", fake)
+    lidarr_sync._run_sync()
+    assert _cached_ids() == {1}
+
+
+def test_partial_albums_synced_when_enabled(monkeypatch):
+    monkeypatch.setattr(
+        lidarr_sync, "load_config", lambda: {"sync_partial_albums": True},
+    )
+    albums = [
+        _owned(5, files=3, total=12),
+        _owned(6, files=0),
+        _owned(7, files=10),
+        _owned(8, files=3, monitored=False),
+        _owned(9, files=3, artist_id=2),
+        _owned(10, files=3, release="2999-01-01T00:00:00Z"),
+    ]
+    fake = _fake_lidarr_with_library({1: [_album(1)]}, albums, _ARTISTS)
+    monkeypatch.setattr(lidarr_sync, "lidarr_request", fake)
+    lidarr_sync._run_sync()
+    assert _cached_ids() == {1, 5}
+    partial = next(
+        a for a in models.get_cached_missing_albums_summary() if a["id"] == 5
+    )
+    assert partial["missingTrackCount"] == 9
+    assert partial["artist"]["artistName"] == "Cir.Cuz"
+
+
+def test_partial_album_fetch_failure_keeps_cache(monkeypatch):
+    _seed_cache([1, 5])
+    monkeypatch.setattr(
+        lidarr_sync, "load_config", lambda: {"sync_partial_albums": True},
+    )
+    fake = _fake_lidarr_with_library(
+        {1: [_album(1)]}, {"error": "Lidarr request timed out"}, _ARTISTS,
+    )
+    monkeypatch.setattr(lidarr_sync, "lidarr_request", fake)
+    lidarr_sync._run_sync()
+    assert _cached_ids() == {1, 5}
+    state = models.get_sync_state()
+    assert state["status"] == "error"
+    assert "timed out" in state["last_error"]
