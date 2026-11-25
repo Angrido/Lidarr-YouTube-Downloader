@@ -35,7 +35,7 @@
 
 ### Key data flows
 
-1. Lidarr API (`/api/v1/wanted/missing`) → missing albums list shown in UI
+1. Lidarr API (`/api/v1/wanted/missing`, plus with `sync_partial_albums` the monitored albums from `/api/v1/album` that have some but not all track files, issue #126) → `missing_albums_cache` → missing albums list shown in UI, scheduler and Newznab feed. A failed album-list fetch marks the sync as an error and skips the prune, so the cache is never emptied by a timeout
 2. User triggers download → `download_track_youtube()` searches YouTube, scores candidates, downloads best match via `yt-dlp` + ffmpeg
 3. Post-download: metadata applied via `mutagen` (ID3 tags from MusicBrainz/iTunes APIs), optional XML sidecar written
 4. Optional AcoustID fingerprinting via `fingerprint.py` (requires `fpcalc` binary and API key)

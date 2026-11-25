@@ -499,6 +499,24 @@ class TestConfigRoutes:
         resp2 = client.get("/api/config")
         assert resp2.get_json()["scheduler_interval"] == 120
 
+    def test_toggling_partial_albums_starts_a_sync(self, client, monkeypatch):
+        import lidarr_sync
+        from utils import rate_limit_store
+        rate_limit_store.clear()
+        calls = []
+        monkeypatch.setattr(lidarr_sync, "trigger_sync", lambda: calls.append(1))
+        client.post("/api/config", json={"sync_partial_albums": True})
+        client.post("/api/config", json={"sync_partial_albums": True})
+        assert len(calls) == 1
+        assert client.get("/api/config").get_json()["sync_partial_albums"] is True
+        rate_limit_store.clear()
+
+    def test_partial_albums_rejects_non_bool(self, client):
+        from utils import rate_limit_store
+        rate_limit_store.clear()
+        resp = client.post("/api/config", json={"sync_partial_albums": "maybe"})
+        assert resp.status_code == 400
+
     def test_set_config_rejects_unknown_keys(self, client):
         resp = client.post(
             "/api/config",

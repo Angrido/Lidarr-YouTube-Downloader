@@ -415,8 +415,11 @@ def api_config():
     ):
         return jsonify({"success": False, "message": "Too many requests"}), 429
     updates, _ = _coerce_config_updates(_json_object())
+    partial_before = bool(load_config().get("sync_partial_albums"))
     update_config(lambda cfg: cfg.update(updates))
     _reschedule_if_changed(updates)
+    if bool(load_config().get("sync_partial_albums")) != partial_before:
+        lidarr_sync.trigger_sync()
     if updates.get("yt_watch_playlists"):
         _watch_wakeup.set()
     return jsonify({"success": True})
